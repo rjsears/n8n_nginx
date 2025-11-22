@@ -13,7 +13,7 @@
 ![Contributors](https://img.shields.io/github/contributors/rjsears/n8n_nginx)
 ![Release](https://img.shields.io/github/v/release/rjsears/n8n_nginx)
 
-A production-ready deployment of n8n workflow automation with HTTPS, automated SSL certificate management, and PostgreSQL with pgvector for AI/RAG workflows. Uses DNS-01 challenge for certificate validation - no port 80/443 internet exposure required!
+A production-ready self-hosted deployment of n8n workflow automation with HTTPS, automated SSL certificate management, and PostgreSQL with pgvector for AI/RAG workflows. Uses DNS-01 challenge for certificate validation - no port 80/443 internet exposure required!
 
 ---
 
