@@ -899,4 +899,6 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Made for the n8n community**
+## Acknowledgments
+* **My Amazing and loving family!** My family puts up with all my coding and automation projects and encouraged me in everything. Without them, my projects would not be possible.
+* **My brother James**, who is a continual source of inspiration to me and others. Everyone should have a brother as awesome as mine!
