@@ -1,5 +1,9 @@
 # n8n with HTTPS using Docker, Nginx & Let's Encrypt
 
+<p align="center">
+  <img src="./images/n8n_repo_banner.jpg" alt="n8n HTTPS Setup Banner">
+</p>
+
 **Version:** 1.0.0  
 **Release Date:** November 22, 2025
 
