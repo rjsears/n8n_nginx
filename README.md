@@ -243,7 +243,7 @@ cd n8n_nginx
 cp cloudflare.ini.example cloudflare.ini
 
 # Edit and add your API token
-nano cloudflare.ini
+vi cloudflare.ini
 ```
 
 Update with your token:
@@ -270,7 +270,7 @@ Follow the provider-specific setup above, then **edit `setup.sh`** to change:
 #### Update docker-compose.yaml
 
 ```bash
-nano docker-compose.yaml
+vi docker-compose.yaml
 ```
 
 **Change these values:**
@@ -310,7 +310,7 @@ chmod +x setup.sh
 
 1. Validates configuration files
 2. Checks port 443 availability
-3. Creates external Docker volume for certificates
+3. Creates an external Docker volume for certificates
 4. Starts PostgreSQL database
 5. Requests SSL certificate from Let's Encrypt via DNS-01 challenge
 6. Copies certificates to Docker volume
