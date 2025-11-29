@@ -956,6 +956,32 @@ generate_encryption_key() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PORTAINER AGENT CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+configure_portainer() {
+    print_section "Portainer Agent Configuration"
+
+    echo -e "  ${GRAY}Portainer is a popular container management UI.${NC}"
+    echo -e "  ${GRAY}If you're running Portainer on another server, you can install${NC}"
+    echo -e "  ${GRAY}the Portainer Agent here to manage this n8n stack remotely.${NC}"
+    echo ""
+
+    if confirm_prompt "Are you using Portainer to manage your containers?" "n"; then
+        INSTALL_PORTAINER_AGENT=true
+        print_success "Portainer Agent will be included in docker-compose.yaml"
+
+        echo ""
+        echo -e "  ${GRAY}The agent will be accessible on port 9001.${NC}"
+        echo -e "  ${GRAY}Add this server to Portainer using: ${WHITE}<this-server-ip>:9001${NC}"
+    else
+        INSTALL_PORTAINER_AGENT=false
+        print_info "Portainer Agent will be commented out in docker-compose.yaml"
+        echo -e "  ${GRAY}You can enable it later by uncommenting the section in docker-compose.yaml${NC}"
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -990,6 +1016,11 @@ show_configuration_summary() {
     echo -e "    Email:               ${CYAN}$LETSENCRYPT_EMAIL${NC}"
     echo -e "    Timezone:            ${CYAN}$N8N_TIMEZONE${NC}"
     echo -e "    Encryption key:      ${GRAY}[configured]${NC}"
+    if [ "$INSTALL_PORTAINER_AGENT" = true ]; then
+        echo -e "    Portainer Agent:     ${GREEN}enabled${NC}"
+    else
+        echo -e "    Portainer Agent:     ${GRAY}disabled (commented out)${NC}"
+    fi
     echo ""
 
     echo -e "${GRAY}───────────────────────────────────────────────────────────────────────────────${NC}"
@@ -1130,6 +1161,54 @@ services:
     networks:
       - n8n_network
 
+EOF
+
+    # Add Portainer Agent section (commented or uncommented based on user choice)
+    if [ "$INSTALL_PORTAINER_AGENT" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'PORTAINER_ENABLED'
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Portainer Agent - Remote container management
+  # Add this server to your Portainer instance using: <server-ip>:9001
+  # ─────────────────────────────────────────────────────────────────────────────
+  portainer_agent:
+    image: portainer/agent:2.33.1
+    container_name: portainer_agent
+    restart: always
+    ports:
+      - "9001:9001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+      - /:/host
+    networks:
+      - n8n_network
+
+PORTAINER_ENABLED
+    else
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'PORTAINER_DISABLED'
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Portainer Agent - Remote container management (DISABLED)
+  # Uncomment the section below to enable Portainer Agent
+  # Add this server to your Portainer instance using: <server-ip>:9001
+  # ─────────────────────────────────────────────────────────────────────────────
+  # portainer_agent:
+  #   image: portainer/agent:2.33.1
+  #   container_name: portainer_agent
+  #   restart: always
+  #   ports:
+  #     - "9001:9001"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - /var/lib/docker/volumes:/var/lib/docker/volumes
+  #     - /:/host
+  #   networks:
+  #     - n8n_network
+
+PORTAINER_DISABLED
+    fi
+
+    # Add volumes and networks sections
+    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
 volumes:
   n8n_data:
     driver: local
@@ -1277,6 +1356,7 @@ NGINX_CONTAINER=${NGINX_CONTAINER}
 CERTBOT_CONTAINER=${CERTBOT_CONTAINER}
 LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
 N8N_TIMEZONE=${N8N_TIMEZONE}
+PORTAINER_AGENT_ENABLED=${INSTALL_PORTAINER_AGENT}
 EOF
 
     chmod 600 "${CONFIG_FILE}"
@@ -1667,6 +1747,7 @@ main() {
     configure_email
     configure_timezone
     generate_encryption_key
+    configure_portainer
 
     # Show summary and confirm
     while ! show_configuration_summary; do
@@ -1677,6 +1758,7 @@ main() {
         configure_email
         configure_timezone
         generate_encryption_key
+        configure_portainer
     done
 
     # Generate configuration files
