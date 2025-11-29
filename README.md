@@ -176,7 +176,7 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Docker Environment Check
+│ Docker Environment Check                                                    │
 └─────────────────────────────────────────────────────────────────────────────┘
   ✓ Docker is installed (version: 24.0.7)
   ✓ Docker daemon is running
@@ -213,7 +213,7 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ System Requirements Check
+│ System Requirements Check                                                   │
 └─────────────────────────────────────────────────────────────────────────────┘
   ✓ Disk space: 45GB available (5GB required)
   ✓ Memory: 4GB total (2GB required)
@@ -229,7 +229,7 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ DNS Provider Configuration
+│ DNS Provider Configuration                                                  │
 └─────────────────────────────────────────────────────────────────────────────┘
   Let's Encrypt uses DNS validation to issue SSL certificates.
   This requires API access to your DNS provider.
@@ -265,7 +265,7 @@ The script validates your domain and checks if it resolves to your server:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Domain Configuration
+│ Domain Configuration                                                        │
 └─────────────────────────────────────────────────────────────────────────────┘
   Enter the domain name where n8n will be accessible.
   Example: n8n.yourdomain.com
@@ -303,8 +303,8 @@ The script validates your domain and checks if it resolves to your server:
 
   ╔═══════════════════════════════════════════════════════════════════════════╗
   ║                              WARNING                                      ║
-  ║  The domain validation found issues that may prevent n8n from working.   ║
-  ║  Please ensure your DNS is properly configured before continuing.        ║
+  ║  The domain validation found issues that may prevent n8n from working.    ║
+  ║  Please ensure your DNS is properly configured before continuing.         ║
   ╚═══════════════════════════════════════════════════════════════════════════╝
 
   Do you understand the risks and want to continue? [y/N]:
@@ -316,7 +316,7 @@ The script validates your domain and checks if it resolves to your server:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ PostgreSQL Database Configuration
+│ PostgreSQL Database Configuration                                           │
 └─────────────────────────────────────────────────────────────────────────────┘
   Configure your PostgreSQL database settings.
   These credentials will be used by n8n to store data.
@@ -337,7 +337,7 @@ The script validates your domain and checks if it resolves to your server:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Container Names Configuration
+│ Container Names Configuration                                               │
 └─────────────────────────────────────────────────────────────────────────────┘
   The following default container names will be used:
 
@@ -356,7 +356,7 @@ The script validates your domain and checks if it resolves to your server:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Let's Encrypt Email Configuration
+│ Let's Encrypt Email Configuration                                           │ 
 └─────────────────────────────────────────────────────────────────────────────┘
   Let's Encrypt requires an email address for:
     - Certificate expiration notifications
@@ -365,7 +365,7 @@ The script validates your domain and checks if it resolves to your server:
   Email address for Let's Encrypt [admin@mycompany.com]:
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Timezone Configuration
+│ Timezone Configuration                                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
   Detected system timezone: America/New_York
 
@@ -379,7 +379,7 @@ The script validates your domain and checks if it resolves to your server:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Encryption Key Configuration
+│ Encryption Key Configuration                                                │
 └─────────────────────────────────────────────────────────────────────────────┘
   n8n uses an encryption key to secure credentials stored in the database.
   This key should be kept secret and backed up securely.
@@ -396,7 +396,7 @@ The script validates your domain and checks if it resolves to your server:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Portainer Agent Configuration
+│ Portainer Agent Configuration                                               │
 └─────────────────────────────────────────────────────────────────────────────┘
   Portainer is a popular container management UI.
   If you're running Portainer on another server, you can install
@@ -415,7 +415,7 @@ The script validates your domain and checks if it resolves to your server:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Configuration Summary
+│ Configuration Summary                                                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 
   Domain & URL:
@@ -454,7 +454,7 @@ The script validates your domain and checks if it resolves to your server:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Generating Configuration Files
+│ Generating Configuration Files                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 
   [1/4] Generating docker-compose.yaml
@@ -478,7 +478,7 @@ The script validates your domain and checks if it resolves to your server:
   Would you like to deploy the stack now? [Y/n]: y
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Deploying n8n Stack
+│ Deploying n8n Stack                                                         │
 └─────────────────────────────────────────────────────────────────────────────┘
 
   [1/6] Starting PostgreSQL database
