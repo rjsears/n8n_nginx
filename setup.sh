@@ -283,8 +283,12 @@ check_and_install_docker() {
         fi
     fi
 
+    # If running as root, no need for sudo or docker group
+    if [ "$(id -u)" -eq 0 ]; then
+        DOCKER_SUDO=""
+        print_success "Running as root - no sudo required for Docker commands"
     # Check if current user can run docker without sudo
-    if ! docker ps >/dev/null 2>&1; then
+    elif ! docker ps >/dev/null 2>&1; then
         print_warning "Current user cannot run Docker commands without sudo"
 
         if confirm_prompt "Would you like to add your user to the docker group? (requires logout/login)"; then
@@ -405,14 +409,20 @@ install_docker() {
             ;;
     esac
 
-    # Ask about adding user to docker group
-    if confirm_prompt "Would you like to add your user to the docker group? (recommended)"; then
-        sudo usermod -aG docker $REAL_USER
-        print_success "User added to docker group"
-        print_warning "You will need to log out and back in for this to take effect"
-        DOCKER_SUDO="sudo"
+    # If running as root, no need for docker group or sudo
+    if [ "$(id -u)" -eq 0 ]; then
+        DOCKER_SUDO=""
+        print_success "Running as root - no docker group membership needed"
     else
-        DOCKER_SUDO="sudo"
+        # Ask about adding user to docker group
+        if confirm_prompt "Would you like to add your user to the docker group? (recommended)"; then
+            sudo usermod -aG docker $REAL_USER
+            print_success "User added to docker group"
+            print_warning "You will need to log out and back in for this to take effect"
+            DOCKER_SUDO="sudo"
+        else
+            DOCKER_SUDO="sudo"
+        fi
     fi
 }
 
