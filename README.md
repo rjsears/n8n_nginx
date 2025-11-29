@@ -106,7 +106,7 @@ All running on **port 443 (HTTPS)** with valid SSL certificates that automatical
 
 ### Minimum Requirements
 
-- **Server/VPS** with:
+- **Server/VPS/Desktop** with:
   - 2 CPU cores (recommended)
   - 2GB RAM minimum
   - 5GB disk space
@@ -115,6 +115,8 @@ All running on **port 443 (HTTPS)** with valid SSL certificates that automatical
 - **DNS API access** (API token/credentials from your DNS provider)
 
 ### Supported Operating Systems
+
+#### Linux (Native Docker Installation)
 
 | OS | Versions | Auto-Install Docker |
 |----|----------|---------------------|
@@ -125,6 +127,31 @@ All running on **port 443 (HTTPS)** with valid SSL certificates that automatical
 | **Fedora** | 38+ | ✅ Yes |
 | **Rocky Linux** | 8, 9 | ✅ Yes |
 | **AlmaLinux** | 8, 9 | ✅ Yes |
+
+#### macOS (Docker Desktop)
+
+| OS | Versions | Docker Installation |
+|----|----------|---------------------|
+| **macOS** | 10.15+ (Catalina and later) | ✅ Via Homebrew or manual download |
+
+The script will:
+- Detect macOS automatically
+- Offer to install Docker Desktop via Homebrew (if installed)
+- Provide manual installation instructions if Homebrew is not available
+- Guide you through starting Docker Desktop
+
+#### Windows (WSL2)
+
+| Platform | Docker Options |
+|----------|----------------|
+| **WSL2** (Ubuntu/Debian) | ✅ Docker Desktop for Windows (recommended) |
+| **WSL2** (Ubuntu/Debian) | ✅ Native Docker in WSL2 |
+
+The script will:
+- Detect WSL environment automatically
+- Check if Docker Desktop for Windows is already providing Docker
+- Offer to install Docker natively in WSL2 if preferred
+- Handle the lack of systemd in WSL gracefully
 
 > **Note:** The setup script will automatically install Docker and Docker Compose if they're not already installed!
 
@@ -270,6 +297,75 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
   ℹ Verifying installation...
   ✓ Docker is working correctly
   ✓ Running as root - no docker group membership needed
+```
+
+**On macOS (with Homebrew):**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Docker Environment Check                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+  ⚠ Docker is not installed
+  Would you like to install Docker? [Y/n]: y
+
+───────────────────────────────────────────────────────────────────────────────
+
+  Installing Docker and Docker Compose...
+
+  ℹ Detected macOS
+  ℹ Homebrew detected
+  Install Docker Desktop using Homebrew? [Y/n]: y
+  ℹ Installing Docker Desktop via Homebrew...
+  ✓ Docker Desktop installed!
+
+  IMPORTANT: You need to start Docker Desktop manually:
+    1. Open Docker from Applications folder
+    2. Complete the Docker Desktop setup wizard
+    3. Wait for Docker to start (whale icon in menu bar)
+    4. Run this script again
+
+  Have you started Docker Desktop and it's running? [y/N]: y
+  ✓ Docker is running!
+```
+
+**On WSL2:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Docker Environment Check                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+  ⚠ Docker is not installed
+  Would you like to install Docker? [Y/n]: y
+
+───────────────────────────────────────────────────────────────────────────────
+
+  Installing Docker and Docker Compose...
+
+  ℹ Detected WSL (Windows Subsystem for Linux)
+
+  You have two options for Docker in WSL:
+
+  Option 1: Docker Desktop for Windows (recommended):
+    1. Download Docker Desktop from: https://www.docker.com/products/docker-desktop/
+    2. Install and enable 'Use WSL 2 based engine' in settings
+    3. Enable integration with your WSL distro in Settings > Resources > WSL Integration
+    4. Run this script again
+
+  Option 2: Native Docker in WSL2:
+    Install Docker directly in your WSL distro (requires WSL2)
+
+  Would you like to install Docker natively in WSL2? [y/N]: y
+  ℹ Installing Docker natively in WSL...
+  ℹ Detected ubuntu 22.04 in WSL
+  ℹ Updating package index...
+  ℹ Installing prerequisites...
+  ℹ Adding Docker GPG key...
+  ℹ Adding Docker repository...
+  ℹ Installing Docker Engine and Docker Compose...
+  ℹ Starting Docker daemon...
+  ✓ Docker and Docker Compose installed successfully!
+  ⚠ Note: You may need to start Docker manually after WSL restarts:
+    sudo service docker start
 ```
 
 ---

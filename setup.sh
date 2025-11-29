@@ -316,8 +316,26 @@ install_docker() {
     echo -e "${WHITE}  Installing Docker and Docker Compose...${NC}"
     echo ""
 
-    # Detect OS
-    if [ -f /etc/os-release ]; then
+    # Detect OS and platform
+    local PLATFORM=""
+    local OS=""
+    local VERSION_CODENAME=""
+
+    # Check for macOS
+    if [ "$(uname)" = "Darwin" ]; then
+        PLATFORM="macos"
+        OS="macos"
+    # Check for WSL
+    elif grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null; then
+        PLATFORM="wsl"
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            OS=$ID
+            VERSION_CODENAME=$VERSION_CODENAME
+        fi
+    # Check for Linux
+    elif [ -f /etc/os-release ]; then
+        PLATFORM="linux"
         . /etc/os-release
         OS=$ID
         VERSION_CODENAME=$VERSION_CODENAME
@@ -326,86 +344,228 @@ install_docker() {
         exit 1
     fi
 
-    case $OS in
-        ubuntu|debian)
-            print_info "Detected $OS $VERSION_CODENAME"
+    case $PLATFORM in
+        macos)
+            print_info "Detected macOS"
+            echo ""
 
-            # Update package index
-            print_info "Updating package index..."
-            sudo apt update -qq
+            # Check if Homebrew is installed
+            if command_exists brew; then
+                print_info "Homebrew detected"
 
-            # Install prerequisites
-            print_info "Installing prerequisites..."
-            sudo apt install -y -qq ca-certificates curl gnupg
+                if confirm_prompt "Install Docker Desktop using Homebrew?"; then
+                    print_info "Installing Docker Desktop via Homebrew..."
+                    brew install --cask docker
 
-            # Add Docker's official GPG key
-            print_info "Adding Docker GPG key..."
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/$OS/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+                    echo ""
+                    print_success "Docker Desktop installed!"
+                    echo ""
+                    echo -e "  ${YELLOW}IMPORTANT: You need to start Docker Desktop manually:${NC}"
+                    echo -e "    1. Open Docker from Applications folder"
+                    echo -e "    2. Complete the Docker Desktop setup wizard"
+                    echo -e "    3. Wait for Docker to start (whale icon in menu bar)"
+                    echo -e "    4. Run this script again"
+                    echo ""
 
-            # Set up the repository
-            print_info "Adding Docker repository..."
-            echo \
-                "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$OS \
-                "$VERSION_CODENAME" stable" | \
-                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-            # Update package index again
-            sudo apt update -qq
-
-            # Install Docker
-            print_info "Installing Docker Engine and Docker Compose..."
-            sudo apt install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-            # Start and enable Docker
-            sudo systemctl start docker
-            sudo systemctl enable docker
-
-            print_success "Docker and Docker Compose installed successfully!"
-
-            # Verify installation
-            print_info "Verifying installation..."
-            if docker run --rm hello-world >/dev/null 2>&1; then
-                print_success "Docker is working correctly"
-            else
-                sudo docker run --rm hello-world >/dev/null 2>&1
-                if [ $? -eq 0 ]; then
-                    print_success "Docker is working correctly (with sudo)"
-                    DOCKER_SUDO="sudo"
+                    if confirm_prompt "Have you started Docker Desktop and it's running?"; then
+                        if docker info >/dev/null 2>&1; then
+                            print_success "Docker is running!"
+                        else
+                            print_error "Docker doesn't appear to be running yet"
+                            print_info "Please start Docker Desktop and run this script again"
+                            exit 1
+                        fi
+                    else
+                        print_info "Please start Docker Desktop and run this script again"
+                        exit 0
+                    fi
                 else
-                    print_error "Docker verification failed"
-                    exit 1
+                    echo ""
+                    echo -e "  ${CYAN}To install Docker Desktop manually:${NC}"
+                    echo -e "    1. Download from: https://www.docker.com/products/docker-desktop/"
+                    echo -e "    2. Open the .dmg file and drag Docker to Applications"
+                    echo -e "    3. Start Docker Desktop from Applications"
+                    echo -e "    4. Run this script again"
+                    echo ""
+                    exit 0
                 fi
+            else
+                print_warning "Homebrew is not installed"
+                echo ""
+                echo -e "  ${CYAN}You have two options:${NC}"
+                echo ""
+                echo -e "  ${WHITE}Option 1: Install Homebrew first (recommended):${NC}"
+                echo -e "    /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+                echo -e "    Then run this script again"
+                echo ""
+                echo -e "  ${WHITE}Option 2: Install Docker Desktop manually:${NC}"
+                echo -e "    Download from: https://www.docker.com/products/docker-desktop/"
+                echo ""
+                exit 0
             fi
             ;;
 
-        centos|rhel|fedora|rocky|almalinux)
-            print_info "Detected $OS"
+        wsl)
+            print_info "Detected WSL (Windows Subsystem for Linux)"
+            echo ""
 
-            # Remove old versions
-            sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
+            # Check if Docker Desktop is available (via Windows)
+            if docker info >/dev/null 2>&1; then
+                print_success "Docker is already available (likely via Docker Desktop for Windows)"
+                return 0
+            fi
 
-            # Install prerequisites
-            sudo yum install -y yum-utils
+            echo -e "  ${CYAN}You have two options for Docker in WSL:${NC}"
+            echo ""
+            echo -e "  ${WHITE}Option 1: Docker Desktop for Windows (recommended):${NC}"
+            echo -e "    1. Download Docker Desktop from: https://www.docker.com/products/docker-desktop/"
+            echo -e "    2. Install and enable 'Use WSL 2 based engine' in settings"
+            echo -e "    3. Enable integration with your WSL distro in Settings > Resources > WSL Integration"
+            echo -e "    4. Run this script again"
+            echo ""
+            echo -e "  ${WHITE}Option 2: Native Docker in WSL2:${NC}"
+            echo -e "    Install Docker directly in your WSL distro (requires WSL2)"
+            echo ""
 
-            # Add Docker repository
-            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+            if confirm_prompt "Would you like to install Docker natively in WSL2?"; then
+                # Fall through to Linux installation
+                print_info "Installing Docker natively in WSL..."
 
-            # Install Docker
-            sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                case $OS in
+                    ubuntu|debian)
+                        print_info "Detected $OS $VERSION_CODENAME in WSL"
 
-            # Start and enable Docker
-            sudo systemctl start docker
-            sudo systemctl enable docker
+                        # Update package index
+                        print_info "Updating package index..."
+                        sudo apt update -qq
 
-            print_success "Docker and Docker Compose installed successfully!"
+                        # Install prerequisites
+                        print_info "Installing prerequisites..."
+                        sudo apt install -y -qq ca-certificates curl gnupg
+
+                        # Add Docker's official GPG key
+                        print_info "Adding Docker GPG key..."
+                        sudo install -m 0755 -d /etc/apt/keyrings
+                        curl -fsSL https://download.docker.com/linux/$OS/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                        sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+                        # Set up the repository
+                        print_info "Adding Docker repository..."
+                        echo \
+                            "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$OS \
+                            "$VERSION_CODENAME" stable" | \
+                            sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+                        # Update package index again
+                        sudo apt update -qq
+
+                        # Install Docker
+                        print_info "Installing Docker Engine and Docker Compose..."
+                        sudo apt install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+                        # Start Docker (WSL doesn't use systemd by default)
+                        print_info "Starting Docker daemon..."
+                        sudo service docker start || sudo dockerd &
+
+                        print_success "Docker and Docker Compose installed successfully!"
+                        print_warning "Note: You may need to start Docker manually after WSL restarts:"
+                        echo -e "  ${GRAY}sudo service docker start${NC}"
+                        ;;
+                    *)
+                        print_error "Unsupported WSL distribution: $OS"
+                        print_info "Please install Docker Desktop for Windows instead"
+                        exit 1
+                        ;;
+                esac
+            else
+                print_info "Please install Docker Desktop for Windows and run this script again"
+                exit 0
+            fi
             ;;
 
-        *)
-            print_error "Unsupported operating system: $OS"
-            print_info "Please install Docker manually: https://docs.docker.com/engine/install/"
-            exit 1
+        linux)
+            case $OS in
+                ubuntu|debian)
+                    print_info "Detected $OS $VERSION_CODENAME"
+
+                    # Update package index
+                    print_info "Updating package index..."
+                    sudo apt update -qq
+
+                    # Install prerequisites
+                    print_info "Installing prerequisites..."
+                    sudo apt install -y -qq ca-certificates curl gnupg
+
+                    # Add Docker's official GPG key
+                    print_info "Adding Docker GPG key..."
+                    sudo install -m 0755 -d /etc/apt/keyrings
+                    curl -fsSL https://download.docker.com/linux/$OS/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+                    # Set up the repository
+                    print_info "Adding Docker repository..."
+                    echo \
+                        "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$OS \
+                        "$VERSION_CODENAME" stable" | \
+                        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+                    # Update package index again
+                    sudo apt update -qq
+
+                    # Install Docker
+                    print_info "Installing Docker Engine and Docker Compose..."
+                    sudo apt install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+                    # Start and enable Docker
+                    sudo systemctl start docker
+                    sudo systemctl enable docker
+
+                    print_success "Docker and Docker Compose installed successfully!"
+
+                    # Verify installation
+                    print_info "Verifying installation..."
+                    if docker run --rm hello-world >/dev/null 2>&1; then
+                        print_success "Docker is working correctly"
+                    else
+                        sudo docker run --rm hello-world >/dev/null 2>&1
+                        if [ $? -eq 0 ]; then
+                            print_success "Docker is working correctly (with sudo)"
+                            DOCKER_SUDO="sudo"
+                        else
+                            print_error "Docker verification failed"
+                            exit 1
+                        fi
+                    fi
+                    ;;
+
+                centos|rhel|fedora|rocky|almalinux)
+                    print_info "Detected $OS"
+
+                    # Remove old versions
+                    sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
+
+                    # Install prerequisites
+                    sudo yum install -y yum-utils
+
+                    # Add Docker repository
+                    sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+                    # Install Docker
+                    sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+                    # Start and enable Docker
+                    sudo systemctl start docker
+                    sudo systemctl enable docker
+
+                    print_success "Docker and Docker Compose installed successfully!"
+                    ;;
+
+                *)
+                    print_error "Unsupported operating system: $OS"
+                    print_info "Please install Docker manually: https://docs.docker.com/engine/install/"
+                    exit 1
+                    ;;
+            esac
             ;;
     esac
 
