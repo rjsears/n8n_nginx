@@ -4,8 +4,8 @@
   <img src="./images/n8n_repo_banner.jpg" alt="n8n HTTPS Setup Banner">
 </p>
 
-**Version:** 1.0.0  
-**Release Date:** November 22, 2025
+**Version:** 2.0.0
+**Release Date:** November 2025
 
 ![Last Commit](https://img.shields.io/github/last-commit/rjsears/n8n_nginx)
 ![Issues](https://img.shields.io/github/issues/rjsears/n8n_nginx)
@@ -13,31 +13,58 @@
 ![Contributors](https://img.shields.io/github/contributors/rjsears/n8n_nginx)
 ![Release](https://img.shields.io/github/v/release/rjsears/n8n_nginx)
 
-A production-ready self-hosted deployment of n8n workflow automation with HTTPS, automated SSL certificate management, and PostgreSQL with pgvector for AI/RAG workflows. Uses DNS-01 challenge for certificate validation - no port 80/443 internet exposure required!
+A production-ready self-hosted deployment of n8n workflow automation with HTTPS, automated SSL certificate management, and PostgreSQL with pgvector for AI/RAG workflows. Features a **fully interactive setup script** that handles everything from Docker installation to SSL certificate verification - no manual configuration file editing required!
 
 ---
 
 ## Table of Contents
 
+- [What's New in v2.0.0](#whats-new-in-v200)
 - [What This Deploys](#what-this-deploys)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
-- [DNS Provider Setup](#dns-provider-setup)
-  - [Cloudflare Setup](#cloudflare-setup)
-  - [Other DNS Providers](#other-dns-providers)
-- [Installation](#installation)
-  - [Step 1: Clone Repository](#step-1-clone-repository)
-  - [Step 2: Configure DNS Credentials](#step-2-configure-dns-credentials)
-  - [Step 3: Edit Configuration](#step-3-edit-configuration)
-  - [Step 4: Run Setup](#step-4-run-setup)
+- [Quick Start](#quick-start)
+- [Interactive Setup Guide](#interactive-setup-guide)
+  - [Docker Installation](#1-docker-installation)
+  - [System Checks](#2-system-checks)
+  - [DNS Provider Selection](#3-dns-provider-selection)
+  - [Domain Configuration](#4-domain-configuration)
+  - [Database Configuration](#5-database-configuration)
+  - [Container Names](#6-container-names)
+  - [Email & Timezone](#7-email--timezone)
+  - [Encryption Key](#8-encryption-key)
+  - [Portainer Agent](#9-portainer-agent-optional)
+  - [Configuration Summary](#10-configuration-summary)
+  - [Deployment & Testing](#11-deployment--testing)
+- [DNS Provider Setup Details](#dns-provider-setup-details)
 - [SSL Certificate Auto-Renewal](#ssl-certificate-auto-renewal)
 - [Accessing n8n](#accessing-n8n)
 - [Docker Commands Reference](#docker-commands-reference)
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
 - [Security Notes](#security-notes)
+- [Manual Configuration](#manual-configuration)
 - [Contributing](#contributing)
 - [License](#license)
+
+---
+
+## What's New in v2.0.0
+
+### Fully Interactive Setup Script
+
+The setup script has been completely rewritten to be **fully interactive** - no more manual editing of configuration files!
+
+**New Features:**
+
+- **Bare Metal Support** - Automatically installs Docker and Docker Compose on fresh servers
+- **DNS Provider Selection** - Interactive menu for Cloudflare, AWS Route53, Google Cloud DNS, DigitalOcean
+- **Domain Validation** - Verifies DNS resolution and checks if domain points to your server
+- **Auto-Generated Credentials** - Secure passwords and encryption keys generated automatically
+- **Customizable Container Names** - Change default names or use the provided defaults
+- **Portainer Agent Support** - Optional container management agent for remote administration
+- **Comprehensive Testing** - Verifies PostgreSQL, n8n health, nginx, SSL certificates after deployment
+- **Polished UI** - Color-coded output, progress indicators, and clear section headers
 
 ---
 
@@ -45,11 +72,13 @@ A production-ready self-hosted deployment of n8n workflow automation with HTTPS,
 
 This setup deploys a complete, production-ready n8n automation platform with:
 
-- **n8n** - Workflow automation tool (latest version)
-- **PostgreSQL 16** - Database with pgvector extension for AI embeddings
-- **Nginx** - Reverse proxy handling SSL/TLS termination
-- **Certbot** - Automated SSL certificate management via Let's Encrypt
-- **Docker Compose** - Container orchestration
+| Component | Description |
+|-----------|-------------|
+| **n8n** | Workflow automation tool (latest version) |
+| **PostgreSQL 16** | Database with pgvector extension for AI embeddings |
+| **Nginx** | Reverse proxy handling SSL/TLS termination |
+| **Certbot** | Automated SSL certificate management via Let's Encrypt |
+| **Portainer Agent** | Optional remote container management (disabled by default) |
 
 All running on **port 443 (HTTPS)** with valid SSL certificates that automatically renew.
 
@@ -57,51 +86,503 @@ All running on **port 443 (HTTPS)** with valid SSL certificates that automatical
 
 ## Features
 
-- **One-Command Setup** - Fully automated installation  
-- **Valid SSL Certificates** - Let's Encrypt with auto-renewal  
-- **DNS-01 Challenge** - No port 80/443 internet exposure needed  
-- **Multiple DNS Providers** - Cloudflare, Route53, Google DNS, and more  
-- **PostgreSQL + pgvector** - Ready for AI/RAG workflows  
-- **Auto-Renewal** - Certificates check and renew every 12 hours  
-- **Production Ready** - Proper security headers, timeouts, and configurations  
-- **Easy Maintenance** - Simple docker-compose commands  
+- **Zero-Config Setup** - Fully interactive installation with no file editing required
+- **Bare Metal Ready** - Installs Docker/Docker Compose if not present
+- **Valid SSL Certificates** - Let's Encrypt with auto-renewal
+- **DNS-01 Challenge** - No port 80/443 internet exposure needed during setup
+- **Multiple DNS Providers** - Cloudflare, Route53, Google DNS, DigitalOcean, and more
+- **Domain Validation** - Verifies DNS points to your server before proceeding
+- **Auto-Generated Secrets** - Secure passwords and encryption keys
+- **PostgreSQL + pgvector** - Ready for AI/RAG workflows
+- **Auto-Renewal** - Certificates check and renew every 12 hours
+- **Comprehensive Testing** - Validates all services after deployment
+- **Portainer Support** - Optional agent for remote management
+- **Production Ready** - Proper security headers, timeouts, and configurations
 
 ---
 
 ## Prerequisites
 
-### Required
+### Minimum Requirements
 
-- **Docker** and **Docker Compose** installed
+- **Server/VPS** with:
+  - 2 CPU cores (recommended)
+  - 2GB RAM minimum
+  - 5GB disk space
+  - Internet access
 - **Domain name** with DNS managed by a supported provider
 - **DNS API access** (API token/credentials from your DNS provider)
-- **Server/VPS** with at least:
-  - 2 CPU cores
-  - 2GB RAM
-  - 10GB disk space
-  - Internet access to reach DNS provider API
 
 ### Supported Operating Systems
 
-- **Linux:** Ubuntu 20.04+, Debian 11+, CentOS 8+, or any distribution with Docker support
-- **macOS:** macOS 10.15+ with Docker Desktop
-- **Windows:** Windows 10/11 with Docker Desktop (WSL2 backend)
+| OS | Versions | Auto-Install Docker |
+|----|----------|---------------------|
+| **Ubuntu** | 20.04, 22.04, 24.04 | ✅ Yes |
+| **Debian** | 11, 12 | ✅ Yes |
+| **CentOS** | 8, 9 | ✅ Yes |
+| **RHEL** | 8, 9 | ✅ Yes |
+| **Fedora** | 38+ | ✅ Yes |
+| **Rocky Linux** | 8, 9 | ✅ Yes |
+| **AlmaLinux** | 8, 9 | ✅ Yes |
+
+> **Note:** The setup script will automatically install Docker and Docker Compose if they're not already installed!
 
 ---
 
-## DNS Provider Setup
+## Quick Start
 
-This setup uses **DNS-01 challenge** for certificate validation, which means you need API access to your DNS provider. This allows certificate generation without exposing ports 80/443 to the internet.
+```bash
+# Clone the repository
+git clone https://github.com/rjsears/n8n_nginx.git
+cd n8n_nginx
 
-### Cloudflare Setup
+# Run the interactive setup
+./setup.sh
+```
+
+That's it! The script will guide you through everything.
+
+---
+
+## Interactive Setup Guide
+
+The setup script provides a polished, step-by-step experience. Here's what to expect:
+
+### Welcome Screen
+
+```
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                n8n HTTPS Interactive Setup v2.0.0                         ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+  This script will guide you through setting up a production-ready
+  n8n instance with HTTPS, PostgreSQL, and automatic SSL renewal.
+
+  Features:
+    - Automated SSL certificates via Let's Encrypt
+    - DNS-01 challenge (no port 80/443 exposure needed)
+    - PostgreSQL 16 with pgvector for AI/RAG workflows
+    - Nginx reverse proxy with security headers
+    - Automatic certificate renewal every 12 hours
+
+  Ready to begin? [Y/n]:
+```
+
+---
+
+### 1. Docker Installation
+
+The script checks if Docker and Docker Compose are installed. If not, it offers to install them automatically.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Docker Environment Check
+└─────────────────────────────────────────────────────────────────────────────┘
+  ✓ Docker is installed (version: 24.0.7)
+  ✓ Docker daemon is running
+  ✓ Docker Compose is available (version: 2.21.0)
+```
+
+**If Docker is not installed:**
+
+```
+  ⚠ Docker is not installed
+  Would you like to install Docker? [Y/n]: y
+
+───────────────────────────────────────────────────────────────────────────────
+
+  Installing Docker and Docker Compose...
+
+  ℹ Detected ubuntu 22.04
+  ℹ Updating package index...
+  ℹ Installing prerequisites...
+  ℹ Adding Docker GPG key...
+  ℹ Adding Docker repository...
+  ℹ Installing Docker Engine and Docker Compose...
+  ✓ Docker and Docker Compose installed successfully!
+  ℹ Verifying installation...
+  ✓ Docker is working correctly
+  Would you like to add your user to the docker group? (recommended) [Y/n]: y
+  ✓ User added to docker group
+  ⚠ You will need to log out and back in for this to take effect
+```
+
+---
+
+### 2. System Checks
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ System Requirements Check
+└─────────────────────────────────────────────────────────────────────────────┘
+  ✓ Disk space: 45GB available (5GB required)
+  ✓ Memory: 4GB total (2GB required)
+  ✓ Port 443 is available
+  ✓ OpenSSL is available
+  ✓ curl is available
+  ✓ Internet connectivity OK
+```
+
+---
+
+### 3. DNS Provider Selection
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ DNS Provider Configuration
+└─────────────────────────────────────────────────────────────────────────────┘
+  Let's Encrypt uses DNS validation to issue SSL certificates.
+  This requires API access to your DNS provider.
+
+  Select your DNS provider:
+
+    1) Cloudflare
+    2) AWS Route 53
+    3) Google Cloud DNS
+    4) DigitalOcean
+    5) Other (manual configuration)
+
+  Enter your choice [1-5]: 1
+
+───────────────────────────────────────────────────────────────────────────────
+
+  Cloudflare API Configuration
+
+  You need a Cloudflare API token with the following permissions:
+    - Zone:DNS:Edit (for your domain's zone)
+
+  Create one at: https://dash.cloudflare.com/profile/api-tokens
+
+  Enter your Cloudflare API token [hidden]:
+  ✓ Cloudflare credentials saved to cloudflare.ini
+```
+
+---
+
+### 4. Domain Configuration
+
+The script validates your domain and checks if it resolves to your server:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Domain Configuration
+└─────────────────────────────────────────────────────────────────────────────┘
+  Enter the domain name where n8n will be accessible.
+  Example: n8n.yourdomain.com
+
+  Enter your n8n domain [n8n.example.com]: n8n.mycompany.com
+
+───────────────────────────────────────────────────────────────────────────────
+
+  Validating domain configuration...
+
+  ℹ Resolving n8n.mycompany.com...
+  ✓ Domain resolves to: 203.0.113.50
+  ✓ Domain IP matches this server
+  ℹ Testing connectivity to 203.0.113.50...
+  ✓ Host 203.0.113.50 is reachable
+```
+
+**If domain doesn't match server IP:**
+
+```
+  ⚠ Domain IP (198.51.100.25) does not match any local IP
+
+  Local IP addresses on this machine:
+    - 203.0.113.50
+    - 10.0.0.5
+
+  IMPORTANT:
+  The domain n8n.mycompany.com points to 198.51.100.25
+  but this server's IPs are different.
+
+  This will cause the n8n stack to fail because:
+    - SSL certificate validation will fail
+    - Webhooks won't reach this server
+    - The n8n UI won't be accessible
+
+  ╔═══════════════════════════════════════════════════════════════════════════╗
+  ║                              WARNING                                      ║
+  ║  The domain validation found issues that may prevent n8n from working.   ║
+  ║  Please ensure your DNS is properly configured before continuing.        ║
+  ╚═══════════════════════════════════════════════════════════════════════════╝
+
+  Do you understand the risks and want to continue? [y/N]:
+```
+
+---
+
+### 5. Database Configuration
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PostgreSQL Database Configuration
+└─────────────────────────────────────────────────────────────────────────────┘
+  Configure your PostgreSQL database settings.
+  These credentials will be used by n8n to store data.
+
+  Database name [n8n]:
+  Database username [n8n]:
+
+  Enter a strong password for the database.
+  Leave blank to auto-generate a secure password.
+
+  Database password [hidden]:
+  ✓ Generated secure database password
+```
+
+---
+
+### 6. Container Names
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Container Names Configuration
+└─────────────────────────────────────────────────────────────────────────────┘
+  The following default container names will be used:
+
+    PostgreSQL:  n8n_postgres
+    n8n:         n8n
+    Nginx:       n8n_nginx
+    Certbot:     n8n_certbot
+
+  Would you like to customize these names? [y/N]: n
+  ✓ Container names configured
+```
+
+---
+
+### 7. Email & Timezone
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Let's Encrypt Email Configuration
+└─────────────────────────────────────────────────────────────────────────────┘
+  Let's Encrypt requires an email address for:
+    - Certificate expiration notifications
+    - Account recovery
+
+  Email address for Let's Encrypt [admin@mycompany.com]:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Timezone Configuration
+└─────────────────────────────────────────────────────────────────────────────┘
+  Detected system timezone: America/New_York
+
+  Use America/New_York as the timezone for n8n? [Y/n]:
+  ✓ Timezone set to: America/New_York
+```
+
+---
+
+### 8. Encryption Key
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Encryption Key Configuration
+└─────────────────────────────────────────────────────────────────────────────┘
+  n8n uses an encryption key to secure credentials stored in the database.
+  This key should be kept secret and backed up securely.
+
+  ✓ Generated secure encryption key using OpenSSL
+
+  ⚠ IMPORTANT: Save your encryption key in a secure location!
+  If you lose this key, you will not be able to decrypt stored credentials.
+```
+
+---
+
+### 9. Portainer Agent (Optional)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Portainer Agent Configuration
+└─────────────────────────────────────────────────────────────────────────────┘
+  Portainer is a popular container management UI.
+  If you're running Portainer on another server, you can install
+  the Portainer Agent here to manage this n8n stack remotely.
+
+  Are you using Portainer to manage your containers? [y/N]: y
+  ✓ Portainer Agent will be included in docker-compose.yaml
+
+  The agent will be accessible on port 9001.
+  Add this server to Portainer using: <this-server-ip>:9001
+```
+
+---
+
+### 10. Configuration Summary
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Configuration Summary
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Domain & URL:
+    Domain:              n8n.mycompany.com
+    URL:                 https://n8n.mycompany.com
+
+  DNS Provider:
+    Provider:            cloudflare
+    Credentials file:    cloudflare.ini
+
+  Database:
+    Name:                n8n
+    User:                n8n
+    Password:            [configured]
+
+  Container Names:
+    PostgreSQL:          n8n_postgres
+    n8n:                 n8n
+    Nginx:               n8n_nginx
+    Certbot:             n8n_certbot
+
+  Other Settings:
+    Email:               admin@mycompany.com
+    Timezone:            America/New_York
+    Encryption key:      [configured]
+    Portainer Agent:     enabled
+
+───────────────────────────────────────────────────────────────────────────────
+
+  Is this configuration correct? [Y/n]:
+```
+
+---
+
+### 11. Deployment & Testing
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Generating Configuration Files
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  [1/4] Generating docker-compose.yaml
+
+  ✓ docker-compose.yaml generated
+
+  [2/4] Generating nginx.conf
+
+  ✓ nginx.conf generated
+
+  [3/4] Saving configuration backup
+
+  ✓ Configuration saved to /home/user/n8n_nginx/.n8n_setup_config
+
+  [4/4] Creating Let's Encrypt Docker volume
+
+  ✓ Volume 'letsencrypt' created
+
+  ✓ All configuration files generated successfully!
+
+  Would you like to deploy the stack now? [Y/n]: y
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Deploying n8n Stack
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  [1/6] Starting PostgreSQL database
+
+  Waiting for PostgreSQL to be ready...
+  ✓ PostgreSQL is running and healthy
+
+  [2/6] Obtaining SSL certificate from Let's Encrypt
+
+  Domain: n8n.mycompany.com
+  This uses DNS-01 challenge (no ports 80/443 exposure required)
+
+  Saving debug log to /var/log/letsencrypt/letsencrypt.log
+  Requesting a certificate for n8n.mycompany.com
+  Waiting 60 seconds for DNS propagation
+
+  Successfully received certificate.
+  Certificate is saved at: /etc/letsencrypt/live/n8n.mycompany.com/fullchain.pem
+  Key is saved at:         /etc/letsencrypt/live/n8n.mycompany.com/privkey.pem
+
+  ✓ SSL certificate obtained successfully!
+
+  [3/6] Copying certificates to Docker volume
+
+  ✓ Certificates copied to Docker volume
+
+  [4/6] Starting all services
+
+  Waiting for services to start...
+  ✓ All services started
+
+  [5/6] Verifying services
+
+  Checking PostgreSQL...
+  ✓ PostgreSQL is responding
+  ✓ PostgreSQL authentication successful
+  Checking n8n...
+  ✓ n8n is responding
+  Checking Nginx...
+  ✓ Nginx configuration is valid
+
+  Container Status:
+  NAMES          STATUS                   PORTS
+  n8n_postgres   Up 2 minutes (healthy)
+  n8n            Up About a minute
+  n8n_nginx      Up About a minute        0.0.0.0:443->443/tcp
+  n8n_certbot    Up About a minute
+
+  [6/6] Testing SSL certificate and connectivity
+
+  Testing HTTPS connectivity to https://n8n.mycompany.com...
+  ✓ SSL certificate is valid
+  notBefore=Nov 29 00:00:00 2025 GMT
+  notAfter=Feb 27 23:59:59 2026 GMT
+  ✓ n8n is accessible via HTTPS
+
+  ✓ All connectivity tests passed!
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                           Setup Complete!                                 ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+  Your n8n instance is now running!
+
+  Access your n8n instance:
+    https://n8n.mycompany.com
+
+  Useful Commands:
+    View logs:         docker compose logs -f
+    View n8n logs:     docker compose logs -f n8n
+    Stop services:     docker compose down
+    Start services:    docker compose up -d
+    Restart services:  docker compose restart
+    View status:       docker compose ps
+
+  Important Files:
+    Docker Compose:    /home/user/n8n_nginx/docker-compose.yaml
+    Nginx Config:      /home/user/n8n_nginx/nginx.conf
+    DNS Credentials:   /home/user/n8n_nginx/cloudflare.ini
+    Setup Config:      /home/user/n8n_nginx/.n8n_setup_config
+
+  Security Reminders:
+    - Create your n8n owner account immediately
+    - Back up your encryption key securely
+    - Keep your DNS credentials file secure (chmod 600)
+    - SSL certificates auto-renew every 12 hours
+
+───────────────────────────────────────────────────────────────────────────────
+
+  Thank you for using n8n HTTPS Setup Script v2.0.0
+  Created by Richard J. Sears - richardjsears@gmail.com
+```
+
+---
+
+## DNS Provider Setup Details
+
+### Cloudflare (Recommended)
 
 **Most Popular Choice** - Free tier available, excellent API
 
-1. **Log in to Cloudflare Dashboard**
-   - Go to https://dash.cloudflare.com
-
-2. **Create API Token**
-   - Click on your profile → **API Tokens**
+1. **Log in to Cloudflare Dashboard** at https://dash.cloudflare.com
+2. **Create API Token:**
+   - Click your profile → **API Tokens**
    - Click **Create Token**
    - Use **Edit zone DNS** template
    - Configure:
@@ -110,257 +591,29 @@ This setup uses **DNS-01 challenge** for certificate validation, which means you
    - Click **Continue to summary** → **Create Token**
    - **Copy the token** (you won't see it again!)
 
-3. **Token Format**
-   ```
-   Example: a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0
-   ```
+### AWS Route 53
 
-**Cloudflare Configuration File:**
-```ini
-# cloudflare.ini
-dns_cloudflare_api_token = YOUR_TOKEN_HERE
-```
-
----
-
-### Other DNS Providers
-
-#### AWS Route53
-
-**Requirements:** AWS account with Route53 hosted zone
-
-**Setup:**
 1. Go to IAM → Users → Create User
-2. Attach policy: `AmazonRoute53FullAccess` (or create custom policy)
-3. Create access key
+2. Attach policy: `AmazonRoute53FullAccess`
+3. Create access key and save both the Access Key ID and Secret Access Key
 
-**Configuration File:**
-```ini
-# route53.ini
-[default]
-aws_access_key_id = YOUR_ACCESS_KEY
-aws_secret_access_key = YOUR_SECRET_KEY
-```
+### Google Cloud DNS
 
-**Docker Image:** `certbot/dns-route53`
-
-**Setup Command:**
-```bash
-docker run --rm \
-  -v $(pwd)/route53.ini:/root/.aws/credentials:ro \
-  -v letsencrypt:/etc/letsencrypt \
-  certbot/dns-route53 \
-  certonly --dns-route53 \
-  -d n8n.yourdomain.com
-```
-
----
-
-#### Google Cloud DNS
-
-**Requirements:** Google Cloud project with Cloud DNS API enabled
-
-**Setup:**
 1. Go to IAM & Admin → Service Accounts
 2. Create service account with **DNS Administrator** role
-3. Create and download JSON key
+3. Create and download JSON key file
 
-**Configuration File:**
-```json
-# google.json
-{
-  "type": "service_account",
-  "project_id": "your-project",
-  "private_key_id": "...",
-  "private_key": "...",
-  ...
-}
-```
+### DigitalOcean
 
-**Docker Image:** `certbot/dns-google`
-
-**Setup Command:**
-```bash
-docker run --rm \
-  -v $(pwd)/google.json:/google.json:ro \
-  -v letsencrypt:/etc/letsencrypt \
-  certbot/dns-google \
-  certonly --dns-google \
-  --dns-google-credentials /google.json \
-  -d n8n.yourdomain.com
-```
-
----
-
-#### DigitalOcean DNS
-
-**Requirements:** DigitalOcean account with domain in DO DNS
-
-**Setup:**
 1. Go to API → Tokens/Keys
 2. Generate New Token (read + write access)
-
-**Configuration File:**
-```ini
-# digitalocean.ini
-dns_digitalocean_token = YOUR_TOKEN_HERE
-```
-
-**Docker Image:** `certbot/dns-digitalocean`
-
----
-
-#### Namecheap, GoDaddy, Other Providers
-
-For other providers, check the **Certbot DNS Plugins** list:
-https://eff-certbot.readthedocs.io/en/stable/using.html#dns-plugins
-
-Most providers have community-supported plugins available.
-
----
-
-## Installation
-
-### Step 1: Clone Repository
-
-```bash
-# SSH to your server
-ssh user@your-server-ip
-
-# Clone the repository
-git clone https://github.com/rjsears/n8n_nginx.git
-cd n8n_nginx
-```
-
----
-
-### Step 2: Configure DNS Credentials
-
-#### For Cloudflare:
-
-```bash
-# Copy example file
-cp cloudflare.ini.example cloudflare.ini
-
-# Edit and add your API token
-vi cloudflare.ini
-```
-
-Update with your token:
-```ini
-dns_cloudflare_api_token = your_actual_token_here
-```
-
-Set secure permissions:
-```bash
-chmod 600 cloudflare.ini
-```
-
-#### For Other DNS Providers:
-
-Follow the provider-specific setup above, then **edit `setup.sh`** to change:
-- Docker image (line ~80): `certbot/dns-cloudflare` → `certbot/dns-route53` (or your provider)
-- Credentials file mount (line ~81): `/cloudflare.ini` → `/your-provider.ini`
-- Certbot flags (line ~86): `--dns-cloudflare` → `--dns-route53` (or your provider)
-
----
-
-### Step 3: Edit Configuration
-
-#### Update docker-compose.yaml
-
-```bash
-vi docker-compose.yaml
-```
-
-**Change these values:**
-
-1. **Line 10 & 25** - PostgreSQL password:
-   ```yaml
-   - POSTGRES_PASSWORD=your_secure_password_here
-   ```
-
-2. **Line 52** - n8n encryption key (generate with `openssl rand -base64 32`):
-   ```yaml
-   - N8N_ENCRYPTION_KEY=your_generated_encryption_key
-   ```
-
-3. **Lines 36-38** - Your domain:
-   ```yaml
-   - N8N_HOST=n8n.yourdomain.com
-   - WEBHOOK_URL=https://n8n.yourdomain.com
-   - N8N_EDITOR_BASE_URL=https://n8n.yourdomain.com
-   ```
-
-**Save and close** (Ctrl+X, Y, Enter)
-
----
-
-### Step 4: Run Setup
-
-```bash
-# Make setup script executable
-chmod +x setup.sh
-
-# Run setup (takes 3-5 minutes)
-./setup.sh
-```
-
-**What the setup script does:**
-
-1. Validates configuration files
-2. Checks port 443 availability
-3. Creates an external Docker volume for certificates
-4. Starts PostgreSQL database
-5. Requests SSL certificate from Let's Encrypt via DNS-01 challenge
-6. Copies certificates to Docker volume
-7. Starts all services (nginx, n8n, certbot)
-
-**Expected Output:**
-```
-=== n8n HTTPS Setup with Let's Encrypt + Cloudflare ===
-
-Step 1: Checking configuration...
-✓ Port 443 is available
-✓ Configuration looks good
-
-Step 2: Creating external letsencrypt volume...
-✓ Volume created
-
-Step 3: Starting PostgreSQL...
-✓ PostgreSQL is running
-
-Step 4: Obtaining SSL certificate from Let's Encrypt...
-✓ SSL certificate obtained successfully!
-
-Step 5: Copying certificates to Docker volume...
-✓ Certificates copied to Docker volume
-
-Step 6: Starting all services...
-
-=== Setup Complete! ===
-
-Your n8n instance should now be accessible at:
-https://n8n.yourdomain.com
-```
+3. Copy the token
 
 ---
 
 ## SSL Certificate Auto-Renewal
 
-### How It Works
-
 The **certbot container** handles automatic certificate renewal:
-
-```yaml
-certbot:
-  image: certbot/dns-cloudflare:latest
-  entrypoint: /bin/sh -c "trap exit TERM; while :; do 
-    certbot renew --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini 
-    --deploy-hook 'docker exec n8n_nginx nginx -s reload' || true; 
-    sleep 12h & wait $${!}; 
-  done;"
-```
 
 **Process:**
 
@@ -368,19 +621,7 @@ certbot:
 2. Let's Encrypt certificates are valid for **90 days**
 3. Certbot attempts renewal at **30 days before expiration**
 4. Uses **DNS-01 challenge** via your DNS provider API
-5. Creates temporary TXT record in your DNS
-6. Let's Encrypt validates the TXT record
-7. New certificate issued and saved
-8. **Nginx automatically reloads** to use new certificate (via deploy-hook)
-9. Process repeats every 12 hours
-
-**Key Features:**
-
-- **Fully Automatic** - No manual intervention needed
-- **Nginx Reload** - Deploy hook automatically reloads nginx after renewal
-- **Docker Socket Access** - Certbot can control nginx container
-- **Error Handling** - `|| true` prevents container restart on failed checks
-- **Background Process** - Runs continuously without blocking
+5. **Nginx automatically reloads** after successful renewal
 
 **Verify Auto-Renewal:**
 
@@ -388,30 +629,14 @@ certbot:
 # Check when certificates expire
 docker run --rm \
   -v letsencrypt:/etc/letsencrypt \
-  certbot/dns-cloudflare:latest \
+  certbot/certbot:latest \
   certificates
 
-# Test renewal process (dry-run, doesn't actually renew)
-docker exec n8n_certbot certbot renew --dry-run \
-  --dns-cloudflare \
-  --dns-cloudflare-credentials /cloudflare.ini
+# Test renewal process (dry-run)
+docker exec n8n_certbot certbot renew --dry-run
 
 # View certbot logs
 docker logs n8n_certbot
-```
-
-**Expected Log Output:**
-
-```
-Cert not yet due for renewal
-```
-
-Or when renewal happens (~30 days before expiration):
-
-```
-Renewing certificate for n8n.yourdomain.com
-Successfully renewed certificate n8n.yourdomain.com
-Running deploy-hook command: docker exec n8n_nginx nginx -s reload
 ```
 
 ---
@@ -420,7 +645,7 @@ Running deploy-hook command: docker exec n8n_nginx nginx -s reload
 
 ### Initial Access
 
-1. Open your browser to: `https://n8n.yourdomain.com`
+1. Open your browser to: `https://your-domain.com`
 2. You'll see the n8n setup page
 3. Create your **owner account** (first user = admin)
 4. Start building workflows!
@@ -440,43 +665,40 @@ Your browser will show:
 
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
 
 # Stop all services
-docker-compose down
+docker compose down
 
 # Restart specific service
-docker-compose restart n8n
-docker-compose restart nginx
+docker compose restart n8n
+docker compose restart nginx
 
 # Stop and remove everything (including data!)
-docker-compose down -v
+docker compose down -v
 ```
 
 ### Viewing Logs
 
 ```bash
 # View all logs
-docker-compose logs -f
+docker compose logs -f
 
 # View specific service logs
-docker-compose logs -f n8n
-docker-compose logs -f nginx
-docker-compose logs -f certbot
-docker-compose logs -f postgres
+docker compose logs -f n8n
+docker compose logs -f nginx
+docker compose logs -f certbot
+docker compose logs -f postgres
 
 # Last 50 lines
-docker-compose logs --tail=50 n8n
+docker compose logs --tail=50 n8n
 ```
 
 ### Checking Status
 
 ```bash
 # Check all container status
-docker-compose ps
-
-# Check specific container
-docker ps | grep n8n
+docker compose ps
 
 # Check resource usage
 docker stats
@@ -486,10 +708,10 @@ docker stats
 
 ```bash
 # Pull latest n8n image
-docker-compose pull n8n
+docker compose pull n8n
 
 # Recreate container with new image
-docker-compose up -d n8n
+docker compose up -d n8n
 
 # Verify version
 docker exec n8n n8n --version
@@ -510,296 +732,121 @@ docker exec n8n_postgres psql -U n8n -d n8n \
   -c "SELECT pg_size_pretty(pg_database_size('n8n'));"
 ```
 
-### Certificate Management
-
-```bash
-# Check certificate expiration
-docker run --rm \
-  -v letsencrypt:/etc/letsencrypt \
-  certbot/dns-cloudflare:latest \
-  certificates
-
-# Force certificate renewal (use carefully)
-docker exec n8n_certbot certbot renew --force-renewal \
-  --dns-cloudflare \
-  --dns-cloudflare-credentials /cloudflare.ini
-```
-
 ---
 
 ## Troubleshooting
 
 ### n8n Not Accessible
 
-**Symptom:** Can't reach https://n8n.yourdomain.com
-
-**Solutions:**
-
 ```bash
 # 1. Check all containers are running
-docker-compose ps
-# All should show "Up"
+docker compose ps
 
 # 2. Check port 443 is listening
-netstat -tulpn | grep :443
-# Should show docker-proxy
+ss -tulpn | grep :443
 
 # 3. Check nginx logs
 docker logs n8n_nginx
-# Look for errors
 
 # 4. Test from server itself
-curl -I https://n8n.yourdomain.com
-# Should return HTTP/2 200
-
-# 5. Check DNS resolution
-nslookup n8n.yourdomain.com
-# Should resolve to your server IP
+curl -k https://localhost/healthz
 ```
-
----
 
 ### Certificate Errors
 
-**Symptom:** Browser shows SSL error or "Certificate not valid"
-
-**Solutions:**
-
 ```bash
 # 1. Check if certificates exist
-docker run --rm -v letsencrypt:/certs alpine ls -la /certs/live/n8n.yourdomain.com/
-# Should show cert.pem, privkey.pem, etc.
+docker run --rm -v letsencrypt:/certs alpine \
+  ls -la /certs/live/your-domain.com/
 
-# 2. Check nginx can read certificates
-docker exec n8n_nginx cat /etc/letsencrypt/live/n8n.yourdomain.com/fullchain.pem | head -5
-# Should show certificate
+# 2. Verify certificate details
+openssl s_client -connect your-domain.com:443 -servername your-domain.com
 
-# 3. Verify certificate details
-openssl s_client -connect n8n.yourdomain.com:443 -servername n8n.yourdomain.com
-# Should show Let's Encrypt certificate
-
-# 4. Re-run setup if certificates missing
-docker-compose down
+# 3. Re-run setup if certificates missing
+docker compose down
 ./setup.sh
 ```
-
----
 
 ### 502 Bad Gateway
 
-**Symptom:** Nginx returns 502 error
-
-**Solutions:**
-
 ```bash
 # 1. Check n8n is running
-docker-compose ps n8n
-# Should show "Up"
+docker compose ps n8n
 
 # 2. Check n8n logs
 docker logs n8n
-# Look for errors
 
-# 3. Verify n8n port
-docker logs n8n | grep "port"
-# Should say: "n8n ready on ::, port 5678"
-
-# 4. Test connection from nginx
-docker exec n8n_nginx wget -O- http://n8n:5678 2>&1 | head -20
-# Should return HTML
-
-# 5. Restart n8n
-docker-compose restart n8n
+# 3. Restart n8n
+docker compose restart n8n
 ```
-
----
 
 ### Database Connection Issues
 
-**Symptom:** n8n can't connect to database
-
-**Solutions:**
-
 ```bash
 # 1. Check PostgreSQL is healthy
-docker-compose ps postgres
-# Should show "Up (healthy)"
+docker compose ps postgres
 
-# 2. Check PostgreSQL logs
-docker logs n8n_postgres
-
-# 3. Test database connection
+# 2. Test database connection
 docker exec n8n_postgres psql -U n8n -d n8n -c "SELECT version();"
-# Should show PostgreSQL version
-
-# 4. Verify credentials match in docker-compose.yaml
-grep POSTGRES_PASSWORD docker-compose.yaml
-# Lines 10 and 25 should match
 ```
 
----
+### DNS Validation Fails
 
-### Port Already in Use
-
-**Symptom:** Setup fails with "port 443 already in use"
-
-**Solutions:**
-
-```bash
-# 1. Find what's using port 443
-sudo lsof -i :443
-# or
-sudo netstat -tulpn | grep :443
-
-# 2. Stop the conflicting service
-sudo systemctl stop nginx  # if system nginx
-# or
-sudo systemctl stop apache2  # if apache
-
-# 3. Re-run setup
-./setup.sh
-```
-
----
-
-### Certbot DNS Validation Fails
-
-**Symptom:** Certificate request fails with DNS validation error
-
-**Solutions:**
-
-```bash
-# 1. Verify DNS provider API token
-# - Check token hasn't expired
-# - Verify token has correct permissions
-# - Test token manually via provider's API
-
-# 2. Check DNS propagation
-nslookup -type=TXT _acme-challenge.n8n.yourdomain.com
-# Should show TXT record during validation
-
-# 3. Increase propagation time
-# Edit setup.sh line ~86:
---dns-cloudflare-propagation-seconds 120  # Was 60
-
-# 4. Check certbot logs
-docker logs n8n_certbot
-```
-
----
-
-### Container Keeps Restarting
-
-**Symptom:** Container in constant restart loop
-
-**Solutions:**
-
-```bash
-# 1. Check which container is restarting
-docker-compose ps
-
-# 2. View last 50 log lines
-docker-compose logs --tail=50 CONTAINER_NAME
-
-# 3. Common fixes:
-
-# If nginx restarting: Check nginx.conf syntax
-docker run --rm -v $(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro nginx:alpine nginx -t
-
-# If n8n restarting: Check environment variables
-docker-compose config | grep -A20 "n8n:"
-
-# If postgres restarting: Check volume permissions
-docker volume inspect postgres_data
-
-# 4. Start in debug mode (run interactively)
-docker run -it --rm \
-  -v letsencrypt:/etc/letsencrypt:ro \
-  -v $(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro \
-  nginx:alpine sh
-```
+- Verify DNS provider API token is valid
+- Check token has correct permissions
+- Increase propagation time (edit the certbot command in docker-compose.yaml)
+- Check certbot logs: `docker logs n8n_certbot`
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Internet / Users                     │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            │ HTTPS (443)
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│                     nginx:alpine                        │
-│  - SSL/TLS Termination                                  │
-│  - Reverse Proxy                                        │
-│  - Security Headers                                     │
-│  - Port: 443 → n8n:5678                                 │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            │ HTTP (internal)
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│                    n8n:latest                           │
-│  - Workflow Automation                                  │
-│  - Webhooks                                             │
-│  - Port: 5678 (internal)                                │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            │ PostgreSQL Protocol
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│              pgvector/pgvector:pg16                     │
-│  - Database Storage                                     │
-│  - Vector Embeddings (pgvector)                         │
-│  - Port: 5432 (internal)                                │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            Internet / Users                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ HTTPS (443)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              nginx:alpine                                   │
+│  - SSL/TLS Termination                                                      │
+│  - Reverse Proxy                                                            │
+│  - Security Headers                                                         │
+│  - Port: 443 → n8n:5678                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ HTTP (internal)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              n8n:latest                                     │
+│  - Workflow Automation                                                      │
+│  - Webhooks                                                                 │
+│  - Port: 5678 (internal)                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ PostgreSQL Protocol
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        pgvector/pgvector:pg16                               │
+│  - Database Storage                                                         │
+│  - Vector Embeddings (pgvector)                                             │
+│  - Port: 5432 (internal)                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────┐
-│           certbot/dns-cloudflare:latest                 │
-│  - SSL Certificate Management                           │
-│  - Auto-renewal every 12 hours                          │
-│  - DNS-01 Challenge                                     │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            │ DNS API
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│                 DNS Provider (Cloudflare)               │
-│  - TXT Record Creation/Deletion                         │
-│  - Domain Management                                    │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            │ Validation
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│                    Let's Encrypt                        │
-│  - Certificate Authority                                │
-│  - Issues SSL Certificates                              │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     certbot/dns-cloudflare:latest                           │
+│  - SSL Certificate Management                                               │
+│  - Auto-renewal every 12 hours                                              │
+│  - DNS-01 Challenge                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  portainer/agent:latest (Optional)                          │
+│  - Remote Container Management                                              │
+│  - Port: 9001                                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
-
-### Network Flow
-
-1. **User Request** → `https://n8n.yourdomain.com`
-2. **Nginx** receives on port 443, terminates SSL
-3. **Nginx** proxies to `n8n:5678` (HTTP internally)
-4. **n8n** processes request, queries database if needed
-5. **n8n** returns response → Nginx → User (HTTPS)
-
-### Certificate Renewal Flow
-
-1. **Certbot** wakes every 12 hours
-2. Checks if certificates expire in ≤30 days
-3. If renewal needed:
-   - Contacts DNS provider API
-   - Creates `_acme-challenge.n8n.yourdomain.com` TXT record
-   - Let's Encrypt validates TXT record
-   - Issues new certificate
-   - Certbot saves to volume
-   - Executes deploy-hook: reloads nginx
-4. Returns to sleep for 12 hours
 
 ---
 
@@ -807,65 +854,80 @@ docker run -it --rm \
 
 ### Credentials Security
 
-- **Never commit** `cloudflare.ini` or credentials files to version control
+- **Never commit** credential files to version control
 - Store encryption keys securely (password manager)
-- Use strong, unique passwords for PostgreSQL
-- Rotate credentials periodically
+- All credential files are automatically set to `chmod 600`
+- The `.gitignore` file excludes all sensitive files
 
 ### Network Security
 
-- All internal communication (n8n ↔ postgres) is within Docker network
+- All internal communication is within Docker network
 - Only port 443 exposed to internet
+- Port 9001 exposed only if Portainer Agent is enabled
 - No port 80 exposure required (DNS-01 challenge)
-- Nginx handles SSL/TLS termination with modern ciphers
 
 ### SSL/TLS Configuration
 
 - TLS 1.2 and 1.3 only
 - Strong cipher suites (ECDHE, AES-GCM)
-- Security headers configured (X-Frame-Options, CSP, etc.)
-- HSTS ready (can be enabled in nginx.conf)
+- Security headers configured (X-Frame-Options, X-Content-Type-Options, etc.)
 
 ### Backup Strategy
 
 **Critical Data:**
 - PostgreSQL database (workflows, credentials, executions)
 - n8n encryption key (needed to decrypt credentials)
-- SSL certificates (can be regenerated but good to backup)
+- Configuration backup file (`.n8n_setup_config`)
 
-**Recommended Backup Schedule:**
+**Recommended Backup:**
 ```bash
 # Daily PostgreSQL backup
-0 2 * * * cd /path/to/n8n_nginx && docker exec n8n_postgres pg_dump -U n8n -d n8n -F c > backups/n8n-$(date +\%Y\%m\%d).dump
-
-# Weekly full backup (database + n8n data)
-0 3 * * 0 cd /path/to/n8n_nginx && docker run --rm -v n8n_data:/data -v $(pwd)/backups:/backup alpine tar czf /backup/n8n-data-$(date +\%Y\%m\%d).tar.gz -C /data .
+docker exec n8n_postgres pg_dump -U n8n -d n8n -F c > backup-$(date +%Y%m%d).dump
 ```
+
+---
+
+## Manual Configuration
+
+If you prefer to configure files manually instead of using the interactive setup:
+
+### 1. Configure DNS Credentials
+
+```bash
+# For Cloudflare
+cp cloudflare.ini.example cloudflare.ini
+# Edit and add your token
+chmod 600 cloudflare.ini
+```
+
+### 2. Edit docker-compose.yaml
+
+Update these values:
+
+- `POSTGRES_PASSWORD` (lines 10 and 33)
+- `N8N_HOST`, `WEBHOOK_URL`, `N8N_EDITOR_BASE_URL` (lines 36-40)
+- `N8N_ENCRYPTION_KEY` (line 53) - generate with `openssl rand -base64 32`
+- `GENERIC_TIMEZONE` and `TZ` (lines 43-44)
+
+### 3. Edit nginx.conf
+
+Update:
+- `server_name` (line 24)
+- SSL certificate paths (lines 27-28)
+
+### 4. Run Setup
+
+```bash
+./setup.sh
+```
+
+The script will detect your configuration and proceed with deployment.
 
 ---
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Development Setup
-
-```bash
-# Fork and clone
-git clone https://github.com/YOUR_USERNAME/n8n_nginx.git
-cd n8n_nginx
-
-# Create feature branch
-git checkout -b feature/your-feature-name
-
-# Make changes, test thoroughly
-
-# Commit with descriptive message
-git commit -m "Add: description of your changes"
-
-# Push and create PR
-git push origin feature/your-feature-name
-```
 
 ### Reporting Issues
 
@@ -892,6 +954,7 @@ MIT License - See LICENSE file for details
 - [PostgreSQL](https://www.postgresql.org) - Database
 - [pgvector](https://github.com/pgvector/pgvector) - Vector similarity search
 - [Nginx](https://nginx.org) - Web server and reverse proxy
+- [Portainer](https://www.portainer.io) - Container management
 
 ---
 
@@ -904,5 +967,6 @@ MIT License - See LICENSE file for details
 ---
 
 ## Acknowledgments
+
 * **My Amazing and loving family!** My family puts up with all my coding and automation projects and encouraged me in everything. Without them, my projects would not be possible.
 * **My brother James**, who is a continual source of inspiration to me and others. Everyone should have a brother as awesome as mine!
