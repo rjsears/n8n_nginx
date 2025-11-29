@@ -25,6 +25,7 @@ A production-ready self-hosted deployment of n8n workflow automation with HTTPS,
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Interactive Setup Guide](#interactive-setup-guide)
+  - [Running as Root](#running-as-root)
   - [Docker Installation](#1-docker-installation)
   - [System Checks](#2-system-checks)
   - [DNS Provider Selection](#3-dns-provider-selection)
@@ -170,9 +171,39 @@ The setup script provides a polished, step-by-step experience. Here's what to ex
 
 ---
 
+### Running as Root
+
+If you run the script as root (common for server administrators), you'll see a note:
+
+```
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                n8n HTTPS Interactive Setup v2.0.0                         ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+  ╔═══════════════════════════════════════════════════════════════════════════╗
+  ║                              NOTE                                         ║
+  ║  You are running this script as root. While this will work, it's         ║
+  ║  recommended to run as a regular user (the script uses sudo internally). ║
+  ╚═══════════════════════════════════════════════════════════════════════════╝
+
+  Continue as root? [Y/n]: y
+```
+
+The script intelligently handles different execution contexts:
+
+| Scenario | sudo for commands | Docker group prompt |
+|----------|------------------|---------------------|
+| Running as root | Not needed | Skipped |
+| Running via `sudo ./setup.sh` | Not needed | Offered (for real user) |
+| Running as regular user | Used when needed | Offered |
+
+---
+
 ### 1. Docker Installation
 
 The script checks if Docker and Docker Compose are installed. If not, it offers to install them automatically.
+
+**When running as a regular user:**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -183,7 +214,19 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
   ✓ Docker Compose is available (version: 2.21.0)
 ```
 
-**If Docker is not installed:**
+**When running as root:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Docker Environment Check                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+  ✓ Docker is installed (version: 24.0.7)
+  ✓ Docker daemon is running
+  ✓ Docker Compose is available (version: 2.21.0)
+  ✓ Running as root - no sudo required for Docker commands
+```
+
+**If Docker is not installed (regular user):**
 
 ```
   ⚠ Docker is not installed
@@ -205,6 +248,28 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
   Would you like to add your user to the docker group? (recommended) [Y/n]: y
   ✓ User added to docker group
   ⚠ You will need to log out and back in for this to take effect
+```
+
+**If Docker is not installed (as root):**
+
+```
+  ⚠ Docker is not installed
+  Would you like to install Docker? [Y/n]: y
+
+───────────────────────────────────────────────────────────────────────────────
+
+  Installing Docker and Docker Compose...
+
+  ℹ Detected ubuntu 22.04
+  ℹ Updating package index...
+  ℹ Installing prerequisites...
+  ℹ Adding Docker GPG key...
+  ℹ Adding Docker repository...
+  ℹ Installing Docker Engine and Docker Compose...
+  ✓ Docker and Docker Compose installed successfully!
+  ℹ Verifying installation...
+  ✓ Docker is working correctly
+  ✓ Running as root - no docker group membership needed
 ```
 
 ---
