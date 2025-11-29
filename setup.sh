@@ -24,6 +24,17 @@ SCRIPT_VERSION="2.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/.n8n_setup_config"
 
+# Detect the real user (handles both direct execution and sudo ./setup.sh)
+# SUDO_USER is set when someone runs "sudo ./setup.sh"
+# If not set, fall back to USER, then to whoami
+if [ -n "$SUDO_USER" ]; then
+    REAL_USER="$SUDO_USER"
+elif [ -n "$USER" ]; then
+    REAL_USER="$USER"
+else
+    REAL_USER=$(whoami)
+fi
+
 # Default container names
 DEFAULT_POSTGRES_CONTAINER="n8n_postgres"
 DEFAULT_N8N_CONTAINER="n8n"
@@ -277,7 +288,7 @@ check_and_install_docker() {
         print_warning "Current user cannot run Docker commands without sudo"
 
         if confirm_prompt "Would you like to add your user to the docker group? (requires logout/login)"; then
-            sudo usermod -aG docker $USER
+            sudo usermod -aG docker $REAL_USER
             print_success "User added to docker group"
             print_warning "You may need to log out and back in for this to take effect"
             print_info "Alternatively, you can run: newgrp docker"
@@ -396,7 +407,7 @@ install_docker() {
 
     # Ask about adding user to docker group
     if confirm_prompt "Would you like to add your user to the docker group? (recommended)"; then
-        sudo usermod -aG docker $USER
+        sudo usermod -aG docker $REAL_USER
         print_success "User added to docker group"
         print_warning "You will need to log out and back in for this to take effect"
         DOCKER_SUDO="sudo"
@@ -1721,6 +1732,21 @@ main() {
 
     # Display welcome header
     print_header "n8n HTTPS Interactive Setup v${SCRIPT_VERSION}"
+
+    # Check if running as root directly (not via sudo)
+    if [ "$(id -u)" -eq 0 ] && [ -z "$SUDO_USER" ]; then
+        echo -e "  ${YELLOW}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "  ${YELLOW}║                              NOTE                                         ║${NC}"
+        echo -e "  ${YELLOW}║  You are running this script as root. While this will work, it's         ║${NC}"
+        echo -e "  ${YELLOW}║  recommended to run as a regular user (the script uses sudo internally). ║${NC}"
+        echo -e "  ${YELLOW}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        if ! confirm_prompt "Continue as root?"; then
+            echo ""
+            print_info "Please run as a regular user: ./setup.sh"
+            exit 0
+        fi
+    fi
 
     echo -e "  ${GRAY}This script will guide you through setting up a production-ready${NC}"
     echo -e "  ${GRAY}n8n instance with HTTPS, PostgreSQL, and automatic SSL renewal.${NC}"
