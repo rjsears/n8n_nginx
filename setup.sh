@@ -1171,7 +1171,8 @@ EOF
   # Add this server to your Portainer instance using: <server-ip>:9001
   # ─────────────────────────────────────────────────────────────────────────────
   portainer_agent:
-    image: portainer/agent:2.33.1
+    image: portainer/agent:latest
+    # Tested with version 2.33.1 - pin to specific version if you experience issues
     container_name: portainer_agent
     restart: always
     ports:
@@ -1192,7 +1193,8 @@ PORTAINER_ENABLED
   # Add this server to your Portainer instance using: <server-ip>:9001
   # ─────────────────────────────────────────────────────────────────────────────
   # portainer_agent:
-  #   image: portainer/agent:2.33.1
+  #   image: portainer/agent:latest
+  #   # Tested with version 2.33.1 - pin to specific version if you experience issues
   #   container_name: portainer_agent
   #   restart: always
   #   ports:
