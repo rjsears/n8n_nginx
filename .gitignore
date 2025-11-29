@@ -3,7 +3,11 @@ cloudflare.ini
 route53.ini
 google.json
 digitalocean.ini
+credentials.ini
 *.credentials
+
+# Setup configuration (contains sensitive settings)
+.n8n_setup_config
 
 # Environment files
 .env
