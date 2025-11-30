@@ -209,8 +209,8 @@ If you run the script as root (common for server administrators), you'll see a n
 
   ╔═══════════════════════════════════════════════════════════════════════════╗
   ║                              NOTE                                         ║
-  ║  You are running this script as root. While this will work, it's         ║
-  ║  recommended to run as a regular user (the script uses sudo internally). ║
+  ║  You are running this script as root. While this will work, it's          ║
+  ║  recommended to run as a regular user (the script uses sudo internally).  ║
   ╚═══════════════════════════════════════════════════════════════════════════╝
 
   Continue as root? [Y/n]: y
