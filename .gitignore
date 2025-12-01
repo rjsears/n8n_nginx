@@ -1,0 +1,49 @@
+# Credentials - NEVER commit these!
+cloudflare.ini
+route53.ini
+google.json
+digitalocean.ini
+credentials.ini
+*.credentials
+
+# Setup configuration (contains sensitive settings)
+.n8n_setup_config
+
+# Environment files
+.env
+.env.*
+
+# SSL certificates (regenerated automatically)
+letsencrypt/
+letsencrypt-temp/
+ssl/
+
+# Docker volumes (data directories)
+postgres_data/
+n8n_data/
+
+# Backups (store securely elsewhere)
+backups/
+*.dump
+*.tar.gz
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
