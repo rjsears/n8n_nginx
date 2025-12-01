@@ -1,0 +1,4 @@
+# Cloudflare API credentials
+# DO NOT COMMIT THIS FILE TO VERSION CONTROL
+
+dns_cloudflare_api_token = YOUR_CLOUDFLARE_API_TOKEN_HERE
