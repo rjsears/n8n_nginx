@@ -87,7 +87,7 @@ print_section() {
     local title="$1"
     echo ""
     echo -e "${BLUE}┌─────────────────────────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${BLUE}│${NC} ${WHITE}${BOLD}$title${NC}"
+    echo -e "${BLUE}│${NC} ${WHITE}${BOLD}$title${NC}                                                    ${BLUE}│${NC}"
     echo -e "${BLUE}└─────────────────────────────────────────────────────────────────────────────┘${NC}"
 }
 
@@ -1096,8 +1096,8 @@ validate_domain() {
         echo ""
         echo -e "  ${RED}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
         echo -e "  ${RED}║                              WARNING                                      ║${NC}"
-        echo -e "  ${RED}║  The domain validation found issues that may prevent n8n from working.   ║${NC}"
-        echo -e "  ${RED}║  Please ensure your DNS is properly configured before continuing.        ║${NC}"
+        echo -e "  ${RED}║  The domain validation found issues that may prevent n8n from working.    ║${NC}"
+        echo -e "  ${RED}║  Please ensure your DNS is properly configured before continuing.         ║${NC}"
         echo -e "  ${RED}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
 
