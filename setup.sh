@@ -91,6 +91,24 @@ print_section() {
     echo -e "${BLUE}└─────────────────────────────────────────────────────────────────────────────┘${NC}"
 }
 
+# Print a section header
+print_section_one() {
+    local title="$1"
+    echo ""
+    echo -e "${BLUE}┌─────────────────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${BLUE}│${NC} ${WHITE}${BOLD}$title${NC}                                                   ${BLUE}│${NC}"
+    echo -e "${BLUE}└─────────────────────────────────────────────────────────────────────────────┘${NC}"
+}
+
+print_section_two() {
+    local title="$1"
+    echo ""
+    echo -e "${BLUE}┌─────────────────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${BLUE}│${NC} ${WHITE}${BOLD}$title${NC}                                                  ${BLUE}│${NC}"
+    echo -e "${BLUE}└─────────────────────────────────────────────────────────────────────────────┘${NC}"
+}
+
+
 # Print a subsection
 print_subsection() {
     echo ""
@@ -695,7 +713,7 @@ install_docker() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 perform_system_checks() {
-    print_section "System Requirements Check"
+    print_section_one "System Requirements Check"
 
     local all_checks_passed=true
 
@@ -804,7 +822,7 @@ perform_system_checks() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 configure_dns_provider() {
-    print_section "DNS Provider Configuration"
+    print_section_two "DNS Provider Configuration"
 
     echo -e "  ${GRAY}Let's Encrypt uses DNS validation to issue SSL certificates.${NC}"
     echo -e "  ${GRAY}This requires API access to your DNS provider.${NC}"
