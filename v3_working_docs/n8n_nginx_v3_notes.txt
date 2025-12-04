@@ -1,0 +1,170 @@
+"You are my program architect for a major upgrade of my n8n_nginx stand along setup script. 
+The goal is to add a lot of new capabilities and to build a management interface. Please provide a phased
+upgrade plan with a clear timeline and steps. We will NEVER be using production data or servers
+so a roll-back plan is not necessary.""
+  
+I will then use Claude to write the code based on the architecture you design."
+
+
+## n8n_nginx Changes for Version 3
+
+
+https://github.com/rjsears/n8n_nginx
+
+
+Don't do any coding, this is for planning purposes only.
+
+We currently have the following docker containers:
+
+n8n
+n8n_postgres
+n8n_nginx
+n8n_certbot
+
+Read through the README.md to see how everything fits together as well as 
+how it is all setup in the setup.sh 
+
+
+I want to add a management container (n8n_management) that will handle interacting with all
+other containers and will do the following:
+
+- Provide backup service for any databases housed on n8n_postgres
+
+- Provide backup service for the n8n configuration and all flows
+
+- Run an nginx web server with a web based management console (discussed below)
+  this will need to interact with our n8n_certbot to get an SSL certificate for
+  that management site which I will want to be available at https://loftai.loft.aero:3333
+  The management interface would be accessable internally only, there will be no 
+  cloudflare tunnel application configured for it.
+  
+  (Can we use our existing n8n_nginx to serve this or would it be better to have
+  it on the management countainer??)
+
+- Run adminer tied to n8n_postgres for database management (if requested in setup.sh)
+
+
+On the main docker host 
+- Provide an NFS connection to an external export `/mnt/nvme/loftai` on 
+  the server loft-scale02.loft.aero
+  
+  This export would be available via docker volumes to the containers that need them,
+  which I think would be n8n, n8n_postgres, and n8n_management
+  
+  This is where we will store our backups `/mnt/nvme/loftai/backups` and
+  where we will be housing documents and files needed by our n8n container
+  
+  I want the docker host itself to be the only connection to the NFS export and
+  then as necessary expose the required directories via docker volumes
+
+
+In our master setup.sh we need to add the following:
+- Add an option to add a cloudflare tunnel (n8n_cloudflared) and the necessary
+  instructions in the README.md on how to set it up at cloudflare and like the
+  api for the DNS-1, they will need to have and paste in their tunnel token. We need
+  to explain in the setup that their domain MUST be hosted with Cloudflare for this to
+  work and they must have a tunnel already configured (walkthrough all the steps in the
+  README.md). If they say no to the n8n_cloudflared, then move on to the next step. 
+  Make sure we explain in the README.md that with a self-hosted n8n, they will need to
+  expose webhooks externally and this is the easiest and cleanest way to do it without
+  having to open ports in their firewall.
+
+- Asks if they want to setup the n8n_management container to handle backups and to 
+  provide a web based management interface (discussed below) and if so, what port 
+  number the management interface will be on. Once we get that port we need to check
+  and make sure that port is not in use, and if it is, throw an error and allow them
+  to choose another port. 
+
+- Asks them if they want to set up Adminer to manage the n8n_postgres databases and if so
+we need to make sure the n8n_postgres container exposes the postgres port as necessary.
+
+- Asks them if the want to set up Portainer (or the Portainer Agent if they already have
+  a portainer instance running) and adds those containers to the docker-compose.yaml
+
+- If they say yes to backups, ask them if they want to save them on the local docker
+  host (maybe they already have some sort of share or mount set up) and if they say
+  yes, then ask what directory and if the directory does not exist asks if they want 
+  us to create it, and if the directory does exist, we need to check and see if there
+  are files present and if so just flag a warning and verify if that is the correct
+  directory. Ask what directories they would like created for n8n and n8n_postgres 
+  backups.
+  
+  We need to remember on the backups that n8n stores all of its flows in postgres so 
+  if we are backing up the postgres database(s) we will automatically have all of the
+  archived and active flows. That should be explained in the README.md as well so 
+  people actually understand how the backups work.
+
+Management Website
+I want to build a fully interactive management website that does the following:
+
+- Lists all available backups and allows them to download a specific backup to their
+  local machine
+
+- Allows them to completely manage the backup schedule (add, remove, etc)
+
+- Allows them to determine what databases they want backed op or `ALL`
+
+- Has a link to open Adminer (if installed)
+
+- Has a link to open up Portainer (if installed)
+
+- Has the ability to extract a specific flow from a database backup:
+	- If someone needs data from a specific postgres backup, you will spin up
+	  a temporary postgres container based on the same version currently running,
+	  make a copy of the backed up database off the nfs server to the local system,
+	  mount the database backup to that container and then show a list of all available
+	  flows and allow then to download the flow paying close attention to getting 
+	  everything needed to reimport a flow back into n8n. 
+	  
+	  Something like this:
+	  `docker exec pg_restore_temp psql -U n8n -At -c "SELECT json_build_object('name', name, 'nodes', nodes, 'connections', connections, 'settings', settings) FROM workflow_entity WHERE id = 123;" > workflow.json`
+
+	   You can give them the option
+	  at that time to install the flow directly into their production n8n_postgres so 
+	  it will show up automatically in n8n (checking to make sure the name does not match
+	  anything already there), or simply download the entire flow as a .json file
+	  
+
+	  When they are done then you can tear down the temporary container and delete the 
+	  copied backup.
+	  
+	  I want this interface polished, easy to use, have built in help
+
+- I want a "Health" Dashboard showing all of the containers that are running with a arrow
+  or something that lets them look at the configuration of the container in an easy to read
+  manner for those that cannot read a docker-compose.yaml file. If should be clean and easy to
+  read. Im imaging a button that takes them a "Server/Container" management interface. This
+  interface shows all of the containers as well as the local host. The local host can show
+  things like current cpu utilization, memory and hard drive utilization (and NFS mount utilization
+  if in use). Use some super cool but lightweight graphics. Then on each container, they
+  can stop the container or reload the container or at the root level of the box itself issue
+  a `docker compose down` and a `docker compose up -d` if its down. Of course it should always
+  confirm any action that has the potential to bring them down. They should also be able to 
+  shutdown the docker host computer or to reboot it.
+  
+  
+
+This is a very large project, so I want you to review everything in this document,
+clone the current repo, read through the readme.md and the setup.sh and come up with
+a highly organized plan with a roadmap of what we should tackle and in what order in order
+to meet my requirements. 
+
+I want you to ask me any questions that you may have to clarify what I want you to do. I do not
+want you assuming anything that is not in this document. Any information that you need I want 
+you to ask for. 
+
+When it comes to the web management interface I an going to want to storyboard multiple designs
+so I can select the best one that I like. The website can be written and use any technology 
+necessary that can run on linux and nginx. It should be fast and reactive and have a clean and
+modern design. I use logos from flaticon.com so when it comes to icons, you can either try to 
+find them yourself, or tell me the types of logos and I will find ones that I like. 
+
+The storyboard should work 100% without needing backend access to any actual running services,
+once I choose a design then we can move on to starting the backen programming. I just don't 
+want waste a bunch of time having to continue to reprogram the backend everytime we change 
+the frontend. 
+
+As part of this process, I want you to create a list of tasks that need to be completed
+and then create a list of agents that can do those individual tasks and help write the necessary
+prompts for each of those agents. When we are done and ready to go I simply want to be able to
+tell you to spin up the five required agents and get working on the project. 

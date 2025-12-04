@@ -1,0 +1,323 @@
+Architecture & Containers
+1. Management Container Base Image: What base image should we use for the n8n_management container? Options include:
+
+ANSWER
+I would like to use Debian/Ubuntu abd I would need your recommendation on the actualtechnology
+for the website (node/python/react/etc) 
+
+
+2. Existing Nginx vs. Separate Nginx: You asked whether to use the existing n8n_nginx or have nginx on the management container. My recommendation is a separate nginx within n8n_management because:
+
+ANSWER
+I concure with you, Let's go with a separate Nginx
+
+
+3. Management Container SSL: For the management interface at https://loftai.loft.aero:3333:
+
+ANSWER
+I do not want any issues at all with CORS or with people getting the security warning about
+a self signed certificate. We could just use a different subdomain for it, for example:
+https://loftaimgmt.loft.aero and then we don't have to worry about the 3333 port either. 
+
+We have an internal DNS server so internal clients will resolve it that way just as they do
+for https://loftai.loft.aero to prevent traffic hairpinning out cloudflare and back in.
+
+4. NFS Configuration
+NFS Mount Point: You mentioned mounting the NFS export on the docker host at /mnt/nvme/loftai.
+
+Should we create subdirectories automatically? e.g., /mnt/nvme/loftai/backups/postgres, /mnt/nvme/loftai/backups/n8n, /mnt/nvme/loftai/documents?
+
+ANSWER
+During the setup process, we will need to install the necessary packages to connect to the NFS
+server. We will then need to ask for the NFS server and the export, then attempt to connect
+to that server and test mount the export, then we will need to see if the directory is
+empty. We can then ask them if they would like us to create the recommended default directories
+and if so, go ahead and do that, if they say no, then we will have to ask them to provide
+the directory names they would like created or to select a directory if they have already
+created it. We would ask that question for each backup and document directory we need
+(postgres, n8n and documents). In addition we should ask if they need additional directories
+created and if so, do they want them mapped as docker volumes and if so, to what container.
+
+
+
+What NFS options should we use (e.g., rw,sync,hard,intr)?
+
+
+
+
+
+5. NFS Fallback: If the NFS server is unavailable:
+
+ANSWER
+If the NFS server mount fails during install, then we need to stop everything since we would not be able
+to do backups or access any other created mountpoints. At that point the script would need
+to fail and they would need to figure out why they cannot mount the NFS export. 
+
+This also bring up another good point, we should have a status file that the setup script
+writes to as each set has been completed so if we are part way through the script and something
+fails (like the NFS mounting that requires their intervention) when they rerun the setup.sh
+it would ask them if they want to start fresh or continue where they left off. 
+
+If we go to do a backup and the NFS server fails, we should have a way to notify them
+(via email I think would be the easiest, and we really should configure a notifications
+setup that gives them the option email, pushbullet, twilio) as a separate part of the setup.sh
+script. If they choose not to set up notifications, then just an reminder that they need to
+log into the management interface to make sure everything (including the backups) are running
+properly.
+
+
+Should backups fail silently and retry later?
+
+ANSWER
+If a backup fails, we should retry it within a few minutes, if it fails again we should notify
+the use if notifications are configured and trigger a warning on our management interface.
+
+Should they alert the user via the management interface?
+
+ANSWER
+YES
+
+
+Should there be a local backup fallback?
+
+ANSWER
+No, I don't think so since the local machine likely does not have enough drive space for that.
+
+
+
+Backup System
+6. Backup Format & Retention:
+
+PostgreSQL: pg_dump custom format (.dump) or plain SQL (.sql)?
+
+ANSWER
+Since we will be using PG to backup and restore, let's use pg_dump, lets also 
+add a tool on our management web interface to take a pg_dump and output it to 
+a plain .sql file if they every needed to do that.
+
+
+Should backups be compressed (gzip/zstd)?
+
+ANSWER
+YES
+
+
+What's the default retention policy (e.g., keep 7 daily, 4 weekly, 12 monthly)?
+
+ANSWER
+We need to ask this question during setup, they may want it done hourly, daily, weekly,
+we won't know unless we ask. We could offer them some basic defaults like:
+24 hourly, 7 daily, 4 weekly, 12 monthly
+7 daily, 4 weekly, 12 monthly
+and maybe a few others, but they should have complete control over this via the management
+interface as well as the ability to do an immediate backup from the management interface.
+
+
+7. Backup Scheduling: How should users configure backup schedules?
+Cron-style syntax?
+Simple presets (hourly, daily, weekly)?
+Both options?
+
+ANSWER
+We need a very clean and intuitive interface for the user to be able to create backups,
+they should not have to know or understand cron to make it work. Simple, easy to understand
+and clean.
+
+n8n Configuration Backup: Besides PostgreSQL (which contains flows), what else should be backed up?
+
+ANSWER - Let's backup all of these, that is a good idea
+/home/node/.n8n volume contents?
+Environment variables/secrets?
+Custom SSL certificates?
+
+
+Cloudflare Tunnel (n8n_cloudflared)
+9. Tunnel Scope: Should the Cloudflare tunnel:
+
+Only expose n8n webhooks externally?
+Expose the full n8n UI (with authentication)?
+Never expose the management interface?
+
+ANSWER
+We need to ask during install those questions, ask the user about each
+of those three items. Defaults would be to expose the webhooks externally
+otherwise why bother (unless its a fully enclosed ecosystem), n8n UI would
+default to internally only as would the management.
+
+What do you think about offering to setup a tailscale container for them
+to use for all of their management while offsite? This might be a good
+recommendation from a security standpoint.
+
+
+10. Tunnel vs DNS: I noticed your domain uses Cloudflare. Currently, setup.sh uses DNS-01 challenge for SSL. With a tunnel:
+
+Will users still need separate SSL certificates, or will the tunnel handle SSL termination?
+
+ANSWER
+They will need separate SSL certs, if they let the tunnel (and CLoudflare) handle terminations
+they will have to hairpin the traffic to prevent CORS issues. 
+
+
+Should we offer both options (tunnel OR direct port 443 exposure)?
+
+ANSWER
+Do we need to offer both? If they port forward 443 from their firewall to their server
+becuase they do not have a tunnel, is there any different configuration? If they answer
+no to the cloudflare tunnel, then by definition they either a) have a cloudflare tunnel
+already up and running or b) already plan on having 443 open on their firewall with a port
+forward. During the setup phase if they say no to the tunnel, we may prompt them to let them
+know they MAY need to open 443 up on their firewall.
+
+
+Web Management Interface
+11. Technology Stack Preference: You mentioned the site can use "any technology that can run on linux and nginx." My recommendations:
+
+Option A: Python/Flask + HTMX + TailwindCSS (fast development, lightweight)
+Option B: Node.js/Express + React (more interactive, larger ecosystem)
+Option C: Go + Templ + HTMX (extremely fast, single binary)
+Option D: Static HTML + Vue.js/Alpine.js (no backend framework needed)
+Do you have a preference, or should I propose the best fit in the storyboard phase?
+
+ANSWER
+No preference, so let's wait until we get to the storeyboard phase. I want something that
+looks absolutely amazing, is fast and responsive. 
+
+
+12. Authentication for Management UI: How should users authenticate?
+
+Username/password stored locally?
+Single admin password set during setup?
+Integration with existing systems (LDAP/OAuth)?
+No authentication (relying solely on network restriction)?
+
+ANSWER
+Single admin username and password setup during setup but also ask during setup if
+they also want to limit management access to a specific subnet 10.200.40.0/24 or 10.200.40.2/32, etc. 
+
+13. Multi-User Support: Should the management interface support multiple users with different permission levels, or is single-admin sufficient?
+
+ANSWER
+Single Admin
+
+
+
+Flow Extraction Feature
+14. Temporary PostgreSQL Container: When extracting flows from a backup:
+
+Should we match the exact PostgreSQL version from the backup?
+Where should the temporary container store its data (local temp or NFS)?
+How long should we keep the temp container alive before auto-cleanup?
+
+ANSWER
+Yes, match the exact PostgreSQL version from the backup
+We should ask the use where they want the temp container store, locally 
+or on the NFS mount and if they same on the NFS mount, create a temp
+directory in the backup directory that we can then delete when we are
+done via cleanup
+
+
+15. Flow Re-Import: When importing a flow into production:
+
+If a flow name conflicts, should we auto-rename (e.g., MyFlow_restored_2025-12-04)?
+Should we verify credentials/connections exist before import?
+Should we offer a "dry-run" preview?
+
+ANSWER
+We should ALWAYS auto-rename, they can rename it back to whatever they want 
+should they want to keep it.
+
+I don't think we need to worry about credentials/connections, they will get flags
+on the nodes if they need to readd credentials.
+
+What do you mean about a "dry-run preview"?
+
+
+
+
+Health Dashboard
+16. Container Log Access: Should the health dashboard provide:
+
+Live log streaming?
+Last N lines of logs?
+Log search/filtering?
+Log download?
+
+ANSWER
+Yes to all of these. Maybe we integrate Dozzle (https://github.com/amir20/dozzle) 
+since it is designed to look at docker logs live. we also need to be able to view 
+the nginx log, cloudflare certbot logs, etc all in real time. See if dozzle can do that
+for us, might save a bunch of time. 
+
+One thing that dozzle also does it container monitoring and the ability to 
+connect to a container directly via the web interface, that would be nice to have
+as well (https://dozzle.dev/guide/shell) so maybe we embed Dozzle since its opensource.
+
+
+
+
+17. Host Power Controls: For shutdown/reboot:
+
+Should these require extra confirmation (e.g., type "SHUTDOWN" to confirm)?
+Should there be a configurable delay before action (e.g., 60-second countdown)?
+
+ANSWER
+Yes to both of these
+
+
+
+
+Portainer Configuration
+18. Portainer Full vs Agent: You mentioned both options. Should setup.sh:
+Only offer Portainer Agent (connecting to external Portainer)?
+Also offer full Portainer CE deployment on this host?
+Detect if Portainer already exists and skip?
+
+ANSWER
+If during the setup.sh WE had to install docker then they wont be running
+either, but you can check to see if portainer or the agent is running already
+and if it is just say you detected it and move on. If you do not detect it, then
+you should ask if they want the full portainer (if they are not already running it)
+or tell them to select the agent if they already run Portainer somewhere else.
+
+
+
+
+Adminer Configuration
+19. Adminer Access: Since Adminer provides direct database access:
+Should it share authentication with the management interface?
+Should it be accessible on its own port or through the management interface?
+Should there be IP restriction beyond internal-only?
+
+ANSWER
+I would like single signon so I think it should jest be available via the management
+interface. Then whatever they choose for lockdown on the management interface such as
+local net only, etc would automatically apply to adminer.
+
+
+
+
+Storyboarding & Design
+20. Design Aesthetic: For the management interface storyboard, what style resonates with you?
+
+Modern minimal (clean, lots of whitespace, subtle colors)
+Dashboard-heavy (cards, charts, status indicators)
+Terminal/hacker aesthetic (dark theme, monospace fonts)
+Corporate professional (structured, formal layout)
+
+ANSWER
+I would like to storeyboard several like the modern and the dashboard-heavy
+
+
+21. Icon Style Preference: From flaticon.com, what style do you prefer?
+Filled/solid icons
+Line/outline icons
+Colored/gradient icons
+Flat design icons
+
+ANSWER
+I personally like the colored icons.
+
+22. Number of Storyboard Options: How many design variations would you like to see? (Typically 2-4 is manageable for comparison)
+
+ANSWER
+Let's go with 4 designs, 2 Modern, and 2 dashboard heavy. We can always do more if I don't like it.
