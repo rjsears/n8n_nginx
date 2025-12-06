@@ -1,0 +1,44 @@
+# n8n Management System - Python Dependencies
+# Version: 3.0.0
+
+# Web Framework
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+
+# Database
+sqlalchemy==2.0.25
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# Task Scheduling
+apscheduler==3.10.4
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+
+# HTTP Client
+httpx==0.26.0
+aiofiles==23.2.1
+
+# Docker SDK
+docker==7.0.0
+
+# Notifications
+apprise==1.7.1
+
+# Email
+redmail==0.6.0
+
+# Data Validation
+pydantic==2.6.1
+pydantic-settings==2.1.0
+
+# Environment
+python-dotenv==1.0.1
+
+# Utilities
+orjson==3.9.13
+python-dateutil==2.8.2

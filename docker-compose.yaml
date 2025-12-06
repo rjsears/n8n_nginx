@@ -1,24 +1,35 @@
 version: '3.8'
 
+# n8n with Management Console v3.0
+# Includes: n8n, PostgreSQL, Nginx, Certbot, Management Console
+# Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale
+
 services:
+  # ===========================================
+  # PostgreSQL Database (shared by n8n and management)
+  # ===========================================
   postgres:
     image: pgvector/pgvector:pg16
     container_name: n8n_postgres
     restart: always
     environment:
-      - POSTGRES_USER=n8n
-      - POSTGRES_PASSWORD=change_this_to_secure_password
-      - POSTGRES_DB=n8n
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=${POSTGRES_DB:-n8n}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -h localhost -U n8n -d n8n']
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}']
       interval: 5s
       timeout: 5s
       retries: 10
     networks:
       - n8n_network
 
+  # ===========================================
+  # n8n Workflow Automation
+  # ===========================================
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n
@@ -28,39 +39,39 @@ services:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=n8n
-      - DB_POSTGRESDB_USER=n8n
-      - DB_POSTGRESDB_PASSWORD=change_this_to_secure_password
-      
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-n8n}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+
       # n8n Configuration - HTTPS
-      - N8N_HOST=n8n.yourdomain.com
+      - N8N_HOST=${DOMAIN:?DOMAIN is required}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://n8n.yourdomain.com
-      - N8N_EDITOR_BASE_URL=https://n8n.yourdomain.com
-      
+      - WEBHOOK_URL=https://${DOMAIN}
+      - N8N_EDITOR_BASE_URL=https://${DOMAIN}
+
       # Timezone
-      - GENERIC_TIMEZONE=America/Los_Angeles
-      - TZ=America/Los_Angeles
-      
+      - GENERIC_TIMEZONE=${TIMEZONE:-America/Los_Angeles}
+      - TZ=${TIMEZONE:-America/Los_Angeles}
+
       # Execution Configuration
       - EXECUTIONS_MODE=regular
       - EXECUTIONS_DATA_SAVE_ON_ERROR=all
       - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
       - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
-      
+
       # Security
-      - N8N_ENCRYPTION_KEY=change_this_to_random_secure_key_min_10_chars
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY is required}
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-      
+
       # Performance & Isolation
       - N8N_PAYLOAD_SIZE_MAX=16
       - N8N_METRICS=false
-      
+
       # Logging
       - N8N_LOG_LEVEL=info
       - N8N_LOG_OUTPUT=console
-      
+
       # Community Nodes
       - N8N_COMMUNITY_PACKAGES_ENABLED=true
     volumes:
@@ -71,21 +82,29 @@ services:
     networks:
       - n8n_network
 
+  # ===========================================
+  # Nginx Reverse Proxy (SSL termination)
+  # ===========================================
   nginx:
     image: nginx:alpine
     container_name: n8n_nginx
     restart: always
     ports:
       - "443:443"
+      - "${MGMT_PORT:-3333}:${MGMT_PORT:-3333}"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - certbot_data:/var/www/certbot:ro
       - letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - n8n
+      - n8n_management
     networks:
       - n8n_network
 
+  # ===========================================
+  # Certbot (SSL certificate management)
+  # ===========================================
   certbot:
     image: certbot/dns-cloudflare:latest
     container_name: n8n_certbot
@@ -98,16 +117,150 @@ services:
     networks:
       - n8n_network
 
+  # ===========================================
+  # Management Console (NEW in v3.0)
+  # ===========================================
+  n8n_management:
+    build:
+      context: ./management
+      dockerfile: Dockerfile
+    container_name: n8n_management
+    restart: always
+    environment:
+      # Database connection
+      - DATABASE_URL=postgresql://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/n8n_management
+      - N8N_DATABASE_URL=postgresql://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
+      # Security
+      - SECRET_KEY=${MGMT_SECRET_KEY:?MGMT_SECRET_KEY is required}
+      - ENCRYPTION_KEY=${MGMT_ENCRYPTION_KEY:-${N8N_ENCRYPTION_KEY}}
+      # NFS Configuration (optional)
+      - NFS_SERVER=${NFS_SERVER:-}
+      - NFS_PATH=${NFS_PATH:-}
+      - NFS_MOUNT_POINT=/mnt/backups
+      # Timezone
+      - TZ=${TIMEZONE:-America/Los_Angeles}
+      # PostgreSQL version (for pg_dump compatibility)
+      - POSTGRES_VERSION=16
+    volumes:
+      # Docker socket for container management (read-only)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Local backup staging area
+      - mgmt_backup_staging:/app/backups
+      # Logs
+      - mgmt_logs:/app/logs
+      # Configuration persistence
+      - mgmt_config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n_network
+    # Note: No ports exposed - accessed via nginx on MGMT_PORT
+
+  # ===========================================
+  # Adminer (Database Management) - Optional
+  # ===========================================
+  n8n_adminer:
+    image: adminer:latest
+    container_name: n8n_adminer
+    restart: always
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=nette
+    depends_on:
+      - postgres
+    networks:
+      - n8n_network
+    profiles:
+      - tools
+
+  # ===========================================
+  # Dozzle (Container Logs) - Optional
+  # ===========================================
+  n8n_dozzle:
+    image: amir20/dozzle:latest
+    container_name: n8n_dozzle
+    restart: always
+    environment:
+      - DOZZLE_NO_ANALYTICS=true
+      - DOZZLE_BASE=/logs
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - n8n_network
+    profiles:
+      - tools
+
+  # ===========================================
+  # Cloudflare Tunnel - Optional
+  # ===========================================
+  n8n_cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: n8n_cloudflared
+    restart: always
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - n8n_network
+    profiles:
+      - cloudflare
+
+  # ===========================================
+  # Tailscale VPN - Optional
+  # ===========================================
+  n8n_tailscale:
+    image: tailscale/tailscale:latest
+    container_name: n8n_tailscale
+    restart: always
+    hostname: n8n-tailscale
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+    volumes:
+      - tailscale_data:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    networks:
+      - n8n_network
+    profiles:
+      - tailscale
+
+# ===========================================
+# Volumes
+# ===========================================
 volumes:
+  # Core data volumes
   n8n_data:
     driver: local
   postgres_data:
     driver: local
+    # CRITICAL: postgres_data MUST stay local, NOT on NFS
+
+  # SSL certificates (external, created by setup.sh)
   letsencrypt:
     external: true
   certbot_data:
     driver: local
 
+  # Management container volumes
+  mgmt_backup_staging:
+    driver: local
+  mgmt_logs:
+    driver: local
+  mgmt_config:
+    driver: local
+
+  # Optional: Tailscale state
+  tailscale_data:
+    driver: local
+
+# ===========================================
+# Networks
+# ===========================================
 networks:
   n8n_network:
     driver: bridge
