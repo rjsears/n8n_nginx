@@ -1,14 +1,14 @@
 # Frontend Agent Prompt - n8n Management System v3.0
 
 ## Role and Expertise
-You are a Frontend Engineer specializing in Vue 3 Composition API, TailwindCSS, and modern SPA development. You have deep expertise in building responsive dashboards, data visualization, real-time updates, and accessible user interfaces.
+You are a Frontend Engineer specializing in Vue 3 Composition API, TailwindCSS, and modern SPA development. You have deep expertise in building responsive dashboards, data visualization, real-time updates, accessible user interfaces, and **multi-theme systems**.
 
 ## Project Context
 
 ### Technology Stack
 - **Framework**: Vue 3 with Composition API and `<script setup>`
 - **Build Tool**: Vite
-- **Styling**: TailwindCSS 3.x
+- **Styling**: TailwindCSS 3.x with CSS custom properties for theming
 - **State Management**: Pinia
 - **HTTP Client**: Axios with interceptors
 - **Icons**: Heroicons or Lucide Vue
@@ -22,11 +22,76 @@ You are a Frontend Engineer specializing in Vue 3 Composition API, TailwindCSS, 
 - SSO links to `/adminer/` and `/logs/` (Dozzle)
 
 ### Design Requirements
-- Modern, clean interface with professional appearance
+- **4 switchable themes** (user can change in Settings):
+  - **Theme A**: Modern Light (horizontal nav, light colors)
+  - **Theme B**: Modern Dark (horizontal nav, dark colors)
+  - **Theme C**: Dashboard Light (sidebar nav, data-dense, light)
+  - **Theme D**: Dashboard Dark + Neon (sidebar nav, data-dense, neon effects)
 - Colored icons for visual hierarchy
 - Responsive design (desktop-first, but mobile-friendly)
-- Dark mode support (optional, based on storyboard selection)
 - Clear visual feedback for all actions
+- Theme preference persisted to database
+
+---
+
+## Theme System Architecture
+
+### Theme Dimensions
+The theme system is composed of three independent settings:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    THEME SYSTEM                             │
+├─────────────────────────────────────────────────────────────┤
+│  Layout Mode:     "horizontal"  or  "sidebar"               │
+│  Color Mode:      "light"       or  "dark"                  │
+│  Neon Effects:    true          or  false (dark only)       │
+├─────────────────────────────────────────────────────────────┤
+│  Theme Presets:                                             │
+│  • A (Modern Light)     = horizontal + light + no-neon      │
+│  • B (Modern Dark)      = horizontal + dark  + no-neon      │
+│  • C (Dashboard Light)  = sidebar    + light + no-neon      │
+│  • D (Dashboard Dark)   = sidebar    + dark  + neon         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Color Tokens (CSS Custom Properties)
+```css
+:root {
+  /* Light mode colors (default) */
+  --color-bg-primary: theme('colors.white');
+  --color-bg-secondary: theme('colors.gray.50');
+  --color-bg-tertiary: theme('colors.gray.100');
+  --color-surface: theme('colors.white');
+  --color-surface-hover: theme('colors.gray.50');
+  --color-border: theme('colors.gray.200');
+  --color-text-primary: theme('colors.gray.900');
+  --color-text-secondary: theme('colors.gray.600');
+  --color-text-muted: theme('colors.gray.400');
+}
+
+.dark {
+  /* Dark mode colors */
+  --color-bg-primary: theme('colors.slate.950');
+  --color-bg-secondary: theme('colors.slate.900');
+  --color-bg-tertiary: theme('colors.slate.800');
+  --color-surface: theme('colors.slate.800');
+  --color-surface-hover: theme('colors.slate.700');
+  --color-border: theme('colors.slate.700');
+  --color-text-primary: theme('colors.slate.100');
+  --color-text-secondary: theme('colors.slate.400');
+  --color-text-muted: theme('colors.slate.500');
+}
+
+.neon-enabled {
+  /* Neon glow effects for Theme D */
+  --glow-cyan: 0 0 20px theme('colors.cyan.400');
+  --glow-fuchsia: 0 0 20px theme('colors.fuchsia.400');
+  --glow-success: 0 0 15px theme('colors.emerald.400');
+  --glow-warning: 0 0 15px theme('colors.amber.400');
+  --glow-danger: 0 0 15px theme('colors.rose.400');
+}
+```
 
 ---
 
@@ -51,7 +116,9 @@ frontend/
 │   │
 │   ├── assets/
 │   │   └── styles/
-│   │       └── main.css
+│   │       ├── main.css
+│   │       ├── themes.css          # Theme CSS custom properties
+│   │       └── neon.css            # Neon glow effects for Theme D
 │   │
 │   ├── components/
 │   │   ├── common/
@@ -63,7 +130,12 @@ frontend/
 │   │   │   ├── DataTable.vue
 │   │   │   ├── EmptyState.vue
 │   │   │   ├── StatusBadge.vue
-│   │   │   └── CountdownTimer.vue
+│   │   │   ├── CountdownTimer.vue
+│   │   │   └── ThemeToggle.vue     # Quick theme switcher
+│   │   │
+│   │   ├── layouts/                 # NEW: Layout components
+│   │   │   ├── HorizontalLayout.vue # For themes A & B
+│   │   │   └── SidebarLayout.vue    # For themes C & D
 │   │   │
 │   │   ├── dashboard/
 │   │   │   ├── ContainerCard.vue
@@ -102,7 +174,8 @@ frontend/
 │   │   │   ├── SecuritySettings.vue
 │   │   │   ├── EmailSettings.vue
 │   │   │   ├── NfsSettings.vue
-│   │   │   └── SubnetManager.vue
+│   │   │   ├── SubnetManager.vue
+│   │   │   └── AppearanceSettings.vue  # NEW: Theme selection
 │   │   │
 │   │   └── system/
 │   │       ├── HostMetrics.vue
@@ -122,6 +195,7 @@ frontend/
 │   │
 │   ├── stores/
 │   │   ├── auth.js
+│   │   ├── theme.js               # NEW: Theme state management
 │   │   ├── backups.js
 │   │   ├── notifications.js
 │   │   ├── containers.js
@@ -133,7 +207,8 @@ frontend/
 │   │   ├── useToast.js
 │   │   ├── useConfirm.js
 │   │   ├── usePolling.js
-│   │   └── useCountdown.js
+│   │   ├── useCountdown.js
+│   │   └── useTheme.js            # NEW: Theme utilities
 │   │
 │   ├── router/
 │   │   └── index.js
@@ -166,6 +241,7 @@ frontend/
     "vue": "^3.4.0",
     "vue-router": "^4.2.0",
     "pinia": "^2.1.0",
+    "pinia-plugin-persistedstate": "^3.2.0",
     "axios": "^1.6.0",
     "@heroicons/vue": "^2.1.0",
     "chart.js": "^4.4.0",
@@ -181,34 +257,6 @@ frontend/
 }
 ```
 
-**vite.config.js:**
-```javascript
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import { resolve } from 'path'
-
-export default defineConfig({
-  plugins: [vue()],
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src')
-    }
-  },
-  build: {
-    outDir: '../static',
-    emptyOutDir: true
-  },
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      }
-    }
-  }
-})
-```
-
 **tailwind.config.js:**
 ```javascript
 /** @type {import('tailwindcss').Config} */
@@ -217,23 +265,73 @@ export default {
     "./index.html",
     "./src/**/*.{vue,js,ts,jsx,tsx}",
   ],
+  darkMode: 'class', // Enable class-based dark mode
   theme: {
     extend: {
       colors: {
-        // Custom brand colors
+        // Primary brand colors
         primary: {
           50: '#f0f9ff',
           100: '#e0f2fe',
+          200: '#bae6fd',
+          300: '#7dd3fc',
+          400: '#38bdf8',
           500: '#0ea5e9',
           600: '#0284c7',
           700: '#0369a1',
+          800: '#075985',
+          900: '#0c4a6e',
+          950: '#082f49',
         },
-        // Status colors with good contrast
-        success: '#10b981',
-        warning: '#f59e0b',
-        danger: '#ef4444',
-        info: '#3b82f6',
-      }
+        // Status colors
+        success: {
+          DEFAULT: '#10b981',
+          light: '#d1fae5',
+          dark: '#059669',
+        },
+        warning: {
+          DEFAULT: '#f59e0b',
+          light: '#fef3c7',
+          dark: '#d97706',
+        },
+        danger: {
+          DEFAULT: '#ef4444',
+          light: '#fee2e2',
+          dark: '#dc2626',
+        },
+        info: {
+          DEFAULT: '#3b82f6',
+          light: '#dbeafe',
+          dark: '#2563eb',
+        },
+        // Neon accent colors (for Theme D)
+        neon: {
+          cyan: '#22d3ee',
+          fuchsia: '#e879f9',
+          violet: '#a78bfa',
+          emerald: '#34d399',
+          amber: '#fbbf24',
+          rose: '#fb7185',
+        },
+      },
+      // Neon glow box shadows
+      boxShadow: {
+        'neon-cyan': '0 0 20px rgba(34, 211, 238, 0.5)',
+        'neon-fuchsia': '0 0 20px rgba(232, 121, 249, 0.5)',
+        'neon-success': '0 0 15px rgba(52, 211, 153, 0.5)',
+        'neon-warning': '0 0 15px rgba(251, 191, 36, 0.5)',
+        'neon-danger': '0 0 15px rgba(251, 113, 133, 0.5)',
+      },
+      // Animation for neon pulse
+      animation: {
+        'neon-pulse': 'neon-pulse 2s ease-in-out infinite',
+      },
+      keyframes: {
+        'neon-pulse': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.7' },
+        },
+      },
     },
   },
   plugins: [],
@@ -242,43 +340,242 @@ export default {
 
 ---
 
-### Task 2: Core Application Structure
+### Task 2: Theme Store
 
-**src/main.js:**
+**src/stores/theme.js:**
 ```javascript
-import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import App from './App.vue'
-import router from './router'
-import './assets/styles/main.css'
+import { defineStore } from 'pinia'
+import { ref, computed, watch } from 'vue'
+import api from '@/utils/api'
 
-const app = createApp(App)
+// Theme presets mapping
+const THEME_PRESETS = {
+  modern_light: { layout: 'horizontal', colorMode: 'light', neonEffects: false },
+  modern_dark: { layout: 'horizontal', colorMode: 'dark', neonEffects: false },
+  dashboard_light: { layout: 'sidebar', colorMode: 'light', neonEffects: false },
+  dashboard_dark_neon: { layout: 'sidebar', colorMode: 'dark', neonEffects: true },
+}
 
-app.use(createPinia())
-app.use(router)
+export const useThemeStore = defineStore('theme', () => {
+  // Theme state
+  const layout = ref('horizontal') // 'horizontal' | 'sidebar'
+  const colorMode = ref('light')   // 'light' | 'dark'
+  const neonEffects = ref(false)   // Only applies when colorMode is 'dark'
+  const preset = ref('modern_light')
+  const initialized = ref(false)
 
-app.mount('#app')
+  // Computed
+  const isHorizontalLayout = computed(() => layout.value === 'horizontal')
+  const isSidebarLayout = computed(() => layout.value === 'sidebar')
+  const isDark = computed(() => colorMode.value === 'dark')
+  const isNeonEnabled = computed(() => neonEffects.value && isDark.value)
+
+  // CSS classes for root element
+  const themeClasses = computed(() => ({
+    'dark': isDark.value,
+    'neon-enabled': isNeonEnabled.value,
+    'layout-horizontal': isHorizontalLayout.value,
+    'layout-sidebar': isSidebarLayout.value,
+  }))
+
+  // Apply theme to document
+  function applyTheme() {
+    const html = document.documentElement
+
+    // Color mode
+    if (isDark.value) {
+      html.classList.add('dark')
+    } else {
+      html.classList.remove('dark')
+    }
+
+    // Neon effects
+    if (isNeonEnabled.value) {
+      html.classList.add('neon-enabled')
+    } else {
+      html.classList.remove('neon-enabled')
+    }
+  }
+
+  // Watch for changes and apply
+  watch([colorMode, neonEffects], applyTheme, { immediate: true })
+
+  // Set theme from preset
+  function setPreset(presetName) {
+    const config = THEME_PRESETS[presetName]
+    if (config) {
+      preset.value = presetName
+      layout.value = config.layout
+      colorMode.value = config.colorMode
+      neonEffects.value = config.neonEffects
+      saveToServer()
+    }
+  }
+
+  // Set individual settings
+  function setLayout(newLayout) {
+    layout.value = newLayout
+    updatePresetFromSettings()
+    saveToServer()
+  }
+
+  function setColorMode(mode) {
+    colorMode.value = mode
+    updatePresetFromSettings()
+    saveToServer()
+  }
+
+  function setNeonEffects(enabled) {
+    neonEffects.value = enabled
+    updatePresetFromSettings()
+    saveToServer()
+  }
+
+  function toggleColorMode() {
+    setColorMode(isDark.value ? 'light' : 'dark')
+  }
+
+  // Determine preset from current settings
+  function updatePresetFromSettings() {
+    for (const [name, config] of Object.entries(THEME_PRESETS)) {
+      if (
+        config.layout === layout.value &&
+        config.colorMode === colorMode.value &&
+        config.neonEffects === neonEffects.value
+      ) {
+        preset.value = name
+        return
+      }
+    }
+    preset.value = 'custom'
+  }
+
+  // Load from server
+  async function loadFromServer() {
+    try {
+      const response = await api.get('/api/settings/theme')
+      const data = response.data
+
+      if (data.preset && THEME_PRESETS[data.preset]) {
+        setPreset(data.preset)
+      } else {
+        layout.value = data.layout || 'horizontal'
+        colorMode.value = data.color_mode || 'light'
+        neonEffects.value = data.neon_effects || false
+        updatePresetFromSettings()
+      }
+    } catch (error) {
+      // Use defaults or localStorage fallback
+      const saved = localStorage.getItem('theme')
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          layout.value = parsed.layout || 'horizontal'
+          colorMode.value = parsed.colorMode || 'light'
+          neonEffects.value = parsed.neonEffects || false
+          updatePresetFromSettings()
+        } catch (e) {
+          // Use defaults
+        }
+      }
+    } finally {
+      initialized.value = true
+      applyTheme()
+    }
+  }
+
+  // Save to server (debounced)
+  let saveTimeout = null
+  async function saveToServer() {
+    // Also save to localStorage for immediate persistence
+    localStorage.setItem('theme', JSON.stringify({
+      layout: layout.value,
+      colorMode: colorMode.value,
+      neonEffects: neonEffects.value,
+    }))
+
+    // Debounce server save
+    if (saveTimeout) clearTimeout(saveTimeout)
+    saveTimeout = setTimeout(async () => {
+      try {
+        await api.put('/api/settings/theme', {
+          preset: preset.value,
+          layout: layout.value,
+          color_mode: colorMode.value,
+          neon_effects: neonEffects.value,
+        })
+      } catch (error) {
+        console.error('Failed to save theme settings:', error)
+      }
+    }, 500)
+  }
+
+  return {
+    // State
+    layout,
+    colorMode,
+    neonEffects,
+    preset,
+    initialized,
+
+    // Computed
+    isHorizontalLayout,
+    isSidebarLayout,
+    isDark,
+    isNeonEnabled,
+    themeClasses,
+
+    // Actions
+    setPreset,
+    setLayout,
+    setColorMode,
+    setNeonEffects,
+    toggleColorMode,
+    loadFromServer,
+    applyTheme,
+
+    // Constants
+    THEME_PRESETS,
+  }
+})
 ```
+
+---
+
+### Task 3: App.vue with Theme-Aware Layout Switching
 
 **src/App.vue:**
 ```vue
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import AppHeader from '@/components/common/AppHeader.vue'
-import AppSidebar from '@/components/common/AppSidebar.vue'
+import { useThemeStore } from '@/stores/theme'
+import HorizontalLayout from '@/components/layouts/HorizontalLayout.vue'
+import SidebarLayout from '@/components/layouts/SidebarLayout.vue'
 import Toast from '@/components/common/Toast.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 
 const isLoginPage = computed(() => route.name === 'login')
 const isAuthenticated = computed(() => authStore.isAuthenticated)
+
+// Load theme on mount
+onMounted(async () => {
+  await themeStore.loadFromServer()
+})
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div
+    class="min-h-screen transition-colors duration-200"
+    :class="[
+      themeStore.isDark ? 'bg-slate-950 text-slate-100' : 'bg-gray-50 text-gray-900',
+      { 'neon-enabled': themeStore.isNeonEnabled }
+    ]"
+  >
     <!-- Login page (no layout) -->
     <template v-if="isLoginPage">
       <router-view />
@@ -286,15 +583,15 @@ const isAuthenticated = computed(() => authStore.isAuthenticated)
 
     <!-- Authenticated layout -->
     <template v-else-if="isAuthenticated">
-      <div class="flex h-screen">
-        <AppSidebar />
-        <div class="flex-1 flex flex-col overflow-hidden">
-          <AppHeader />
-          <main class="flex-1 overflow-y-auto p-6">
-            <router-view />
-          </main>
-        </div>
-      </div>
+      <!-- Horizontal navigation layout (Themes A & B) -->
+      <HorizontalLayout v-if="themeStore.isHorizontalLayout">
+        <router-view />
+      </HorizontalLayout>
+
+      <!-- Sidebar navigation layout (Themes C & D) -->
+      <SidebarLayout v-else>
+        <router-view />
+      </SidebarLayout>
     </template>
 
     <!-- Toast notifications -->
@@ -303,301 +600,807 @@ const isAuthenticated = computed(() => authStore.isAuthenticated)
 </template>
 ```
 
-**src/router/index.js:**
-```javascript
-import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-
-const routes = [
-  {
-    path: '/login',
-    name: 'login',
-    component: () => import('@/views/LoginView.vue'),
-    meta: { requiresAuth: false }
-  },
-  {
-    path: '/',
-    name: 'dashboard',
-    component: () => import('@/views/DashboardView.vue'),
-    meta: { title: 'Dashboard' }
-  },
-  {
-    path: '/backups',
-    name: 'backups',
-    component: () => import('@/views/BackupsView.vue'),
-    meta: { title: 'Backups' }
-  },
-  {
-    path: '/notifications',
-    name: 'notifications',
-    component: () => import('@/views/NotificationsView.vue'),
-    meta: { title: 'Notifications' }
-  },
-  {
-    path: '/containers',
-    name: 'containers',
-    component: () => import('@/views/ContainersView.vue'),
-    meta: { title: 'Containers' }
-  },
-  {
-    path: '/flows',
-    name: 'flows',
-    component: () => import('@/views/FlowsView.vue'),
-    meta: { title: 'Flows' }
-  },
-  {
-    path: '/system',
-    name: 'system',
-    component: () => import('@/views/SystemView.vue'),
-    meta: { title: 'System' }
-  },
-  {
-    path: '/settings',
-    name: 'settings',
-    component: () => import('@/views/SettingsView.vue'),
-    meta: { title: 'Settings' }
-  }
-]
-
-const router = createRouter({
-  history: createWebHistory(),
-  routes
-})
-
-// Navigation guard
-router.beforeEach(async (to, from, next) => {
-  const authStore = useAuthStore()
-
-  // Check session on first load
-  if (!authStore.initialized) {
-    await authStore.checkSession()
-  }
-
-  const requiresAuth = to.meta.requiresAuth !== false
-
-  if (requiresAuth && !authStore.isAuthenticated) {
-    next({ name: 'login', query: { redirect: to.fullPath } })
-  } else if (to.name === 'login' && authStore.isAuthenticated) {
-    next({ name: 'dashboard' })
-  } else {
-    next()
-  }
-})
-
-export default router
-```
-
 ---
 
-### Task 3: Authentication Store and API Client
+### Task 4: Layout Components
 
-**src/stores/auth.js:**
-```javascript
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import api from '@/utils/api'
-
-export const useAuthStore = defineStore('auth', () => {
-  const user = ref(null)
-  const initialized = ref(false)
-
-  const isAuthenticated = computed(() => !!user.value)
-
-  async function checkSession() {
-    try {
-      const response = await api.get('/api/auth/session')
-      user.value = response.data.user
-    } catch (error) {
-      user.value = null
-    } finally {
-      initialized.value = true
-    }
-  }
-
-  async function login(username, password) {
-    const response = await api.post('/api/auth/login', { username, password })
-    user.value = response.data.user
-    return response.data
-  }
-
-  async function logout() {
-    try {
-      await api.post('/api/auth/logout')
-    } finally {
-      user.value = null
-    }
-  }
-
-  async function changePassword(currentPassword, newPassword) {
-    await api.put('/api/auth/password', {
-      current_password: currentPassword,
-      new_password: newPassword
-    })
-  }
-
-  return {
-    user,
-    initialized,
-    isAuthenticated,
-    checkSession,
-    login,
-    logout,
-    changePassword
-  }
-})
-```
-
-**src/utils/api.js:**
-```javascript
-import axios from 'axios'
-import router from '@/router'
-
-const api = axios.create({
-  baseURL: '',
-  timeout: 30000,
-  withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-})
-
-// Response interceptor for error handling
-api.interceptors.response.use(
-  response => response,
-  error => {
-    if (error.response?.status === 401) {
-      // Session expired, redirect to login
-      router.push({ name: 'login' })
-    }
-    return Promise.reject(error)
-  }
-)
-
-export default api
-```
-
----
-
-### Task 4: Dashboard View
-
-**src/views/DashboardView.vue:**
+**src/components/layouts/HorizontalLayout.vue:**
 ```vue
 <script setup>
-import { onMounted, onUnmounted } from 'vue'
-import { useContainersStore } from '@/stores/containers'
-import { useBackupsStore } from '@/stores/backups'
-import { useSystemStore } from '@/stores/system'
-import ContainerCard from '@/components/dashboard/ContainerCard.vue'
-import SystemMetrics from '@/components/dashboard/SystemMetrics.vue'
-import BackupSummary from '@/components/dashboard/BackupSummary.vue'
-import RecentActivity from '@/components/dashboard/RecentActivity.vue'
-import QuickActions from '@/components/dashboard/QuickActions.vue'
+import { useRoute } from 'vue-router'
+import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
+import ThemeToggle from '@/components/common/ThemeToggle.vue'
+import {
+  HomeIcon,
+  ArchiveBoxIcon,
+  BellIcon,
+  CubeIcon,
+  ArrowPathIcon,
+  ServerIcon,
+  Cog6ToothIcon,
+} from '@heroicons/vue/24/outline'
 
-const containersStore = useContainersStore()
-const backupsStore = useBackupsStore()
-const systemStore = useSystemStore()
+const route = useRoute()
+const themeStore = useThemeStore()
+const authStore = useAuthStore()
 
-let pollInterval = null
+const navItems = [
+  { name: 'Dashboard', path: '/', icon: HomeIcon },
+  { name: 'Backups', path: '/backups', icon: ArchiveBoxIcon },
+  { name: 'Notifications', path: '/notifications', icon: BellIcon },
+  { name: 'Containers', path: '/containers', icon: CubeIcon },
+  { name: 'Flows', path: '/flows', icon: ArrowPathIcon },
+  { name: 'System', path: '/system', icon: ServerIcon },
+  { name: 'Settings', path: '/settings', icon: Cog6ToothIcon },
+]
+
+function isActive(path) {
+  return route.path === path
+}
+</script>
+
+<template>
+  <div class="flex flex-col h-screen">
+    <!-- Top Navigation Bar -->
+    <header
+      class="h-16 border-b flex items-center px-6 justify-between"
+      :class="themeStore.isDark
+        ? 'bg-slate-900 border-slate-700'
+        : 'bg-white border-gray-200'"
+    >
+      <!-- Logo -->
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
+          <span class="text-white font-bold text-sm">n8n</span>
+        </div>
+        <span class="font-semibold text-lg">Management</span>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="hidden md:flex items-center gap-1">
+        <router-link
+          v-for="item in navItems"
+          :key="item.path"
+          :to="item.path"
+          class="px-3 py-2 rounded-md text-sm font-medium transition-colors"
+          :class="isActive(item.path)
+            ? (themeStore.isDark
+                ? 'bg-slate-800 text-white'
+                : 'bg-primary-50 text-primary-700')
+            : (themeStore.isDark
+                ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900')"
+        >
+          {{ item.name }}
+        </router-link>
+      </nav>
+
+      <!-- Right side -->
+      <div class="flex items-center gap-4">
+        <ThemeToggle />
+
+        <div class="relative">
+          <button
+            class="flex items-center gap-2 px-3 py-2 rounded-md text-sm"
+            :class="themeStore.isDark
+              ? 'hover:bg-slate-800'
+              : 'hover:bg-gray-100'"
+          >
+            <span>{{ authStore.user?.username }}</span>
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main content -->
+    <main
+      class="flex-1 overflow-y-auto p-6"
+      :class="themeStore.isDark ? 'bg-slate-950' : 'bg-gray-50'"
+    >
+      <slot />
+    </main>
+  </div>
+</template>
+```
+
+**src/components/layouts/SidebarLayout.vue:**
+```vue
+<script setup>
+import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
+import ThemeToggle from '@/components/common/ThemeToggle.vue'
+import {
+  HomeIcon,
+  ArchiveBoxIcon,
+  BellIcon,
+  CubeIcon,
+  ArrowPathIcon,
+  ServerIcon,
+  Cog6ToothIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from '@heroicons/vue/24/outline'
+
+const route = useRoute()
+const themeStore = useThemeStore()
+const authStore = useAuthStore()
+
+const collapsed = ref(false)
+
+const navItems = [
+  { name: 'Dashboard', path: '/', icon: HomeIcon, color: 'text-blue-500' },
+  { name: 'Backups', path: '/backups', icon: ArchiveBoxIcon, color: 'text-purple-500' },
+  { name: 'Notifications', path: '/notifications', icon: BellIcon, color: 'text-amber-500' },
+  { name: 'Containers', path: '/containers', icon: CubeIcon, color: 'text-cyan-500' },
+  { name: 'Flows', path: '/flows', icon: ArrowPathIcon, color: 'text-green-500' },
+  { name: 'System', path: '/system', icon: ServerIcon, color: 'text-indigo-500' },
+  { name: 'Settings', path: '/settings', icon: Cog6ToothIcon, color: 'text-slate-500' },
+]
+
+function isActive(path) {
+  return route.path === path
+}
+
+const sidebarWidth = computed(() => collapsed.value ? 'w-16' : 'w-64')
+</script>
+
+<template>
+  <div class="flex h-screen">
+    <!-- Sidebar -->
+    <aside
+      class="flex flex-col border-r transition-all duration-200"
+      :class="[
+        sidebarWidth,
+        themeStore.isDark
+          ? 'bg-slate-900 border-slate-700'
+          : 'bg-white border-gray-200'
+      ]"
+    >
+      <!-- Logo -->
+      <div class="h-16 flex items-center justify-between px-4 border-b"
+           :class="themeStore.isDark ? 'border-slate-700' : 'border-gray-200'">
+        <div v-if="!collapsed" class="flex items-center gap-3">
+          <div
+            class="w-8 h-8 rounded-lg flex items-center justify-center"
+            :class="themeStore.isNeonEnabled
+              ? 'bg-cyan-500/20 shadow-neon-cyan'
+              : 'bg-primary-600'"
+          >
+            <span class="text-white font-bold text-sm">n8n</span>
+          </div>
+          <span class="font-semibold">Management</span>
+        </div>
+
+        <button
+          @click="collapsed = !collapsed"
+          class="p-1 rounded hover:bg-slate-700/50"
+        >
+          <ChevronLeftIcon v-if="!collapsed" class="w-5 h-5" />
+          <ChevronRightIcon v-else class="w-5 h-5" />
+        </button>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="flex-1 p-2 space-y-1">
+        <router-link
+          v-for="item in navItems"
+          :key="item.path"
+          :to="item.path"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all"
+          :class="[
+            isActive(item.path)
+              ? (themeStore.isDark
+                  ? 'bg-slate-800 text-white'
+                  : 'bg-primary-50 text-primary-700')
+              : (themeStore.isDark
+                  ? 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  : 'text-gray-600 hover:bg-gray-100'),
+            themeStore.isNeonEnabled && isActive(item.path) ? 'shadow-neon-cyan' : ''
+          ]"
+        >
+          <component
+            :is="item.icon"
+            class="w-5 h-5 flex-shrink-0"
+            :class="[
+              item.color,
+              themeStore.isNeonEnabled && isActive(item.path) ? 'drop-shadow-[0_0_8px_currentColor]' : ''
+            ]"
+          />
+          <span v-if="!collapsed" class="text-sm font-medium">
+            {{ item.name }}
+          </span>
+        </router-link>
+      </nav>
+
+      <!-- User section -->
+      <div class="p-4 border-t" :class="themeStore.isDark ? 'border-slate-700' : 'border-gray-200'">
+        <div v-if="!collapsed" class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
+            <span class="text-sm font-medium text-primary-700">
+              {{ authStore.user?.username?.charAt(0).toUpperCase() }}
+            </span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium truncate">{{ authStore.user?.username }}</p>
+            <p class="text-xs text-slate-500 truncate">Administrator</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main area -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- Top bar -->
+      <header
+        class="h-14 border-b flex items-center justify-between px-6"
+        :class="themeStore.isDark
+          ? 'bg-slate-900 border-slate-700'
+          : 'bg-white border-gray-200'"
+      >
+        <h1 class="text-lg font-semibold">
+          {{ route.meta?.title || 'Dashboard' }}
+        </h1>
+
+        <div class="flex items-center gap-4">
+          <ThemeToggle />
+        </div>
+      </header>
+
+      <!-- Content -->
+      <main
+        class="flex-1 overflow-y-auto p-6"
+        :class="themeStore.isDark ? 'bg-slate-950' : 'bg-gray-50'"
+      >
+        <slot />
+      </main>
+    </div>
+  </div>
+</template>
+```
+
+---
+
+### Task 5: Theme Toggle Component
+
+**src/components/common/ThemeToggle.vue:**
+```vue
+<script setup>
+import { useThemeStore } from '@/stores/theme'
+import { SunIcon, MoonIcon } from '@heroicons/vue/24/outline'
+
+const themeStore = useThemeStore()
+</script>
+
+<template>
+  <button
+    @click="themeStore.toggleColorMode()"
+    class="p-2 rounded-lg transition-colors"
+    :class="themeStore.isDark
+      ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+      : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'"
+    :title="themeStore.isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+  >
+    <SunIcon v-if="themeStore.isDark" class="w-5 h-5" />
+    <MoonIcon v-else class="w-5 h-5" />
+  </button>
+</template>
+```
+
+---
+
+### Task 6: Appearance Settings Component
+
+**src/components/settings/AppearanceSettings.vue:**
+```vue
+<script setup>
+import { computed } from 'vue'
+import { useThemeStore } from '@/stores/theme'
+import { useToast } from '@/composables/useToast'
+
+const themeStore = useThemeStore()
+const toast = useToast()
+
+const presets = [
+  {
+    id: 'modern_light',
+    name: 'Modern Light',
+    description: 'Clean horizontal navigation with light colors',
+    preview: 'bg-gray-100',
+  },
+  {
+    id: 'modern_dark',
+    name: 'Modern Dark',
+    description: 'Clean horizontal navigation with dark colors',
+    preview: 'bg-slate-800',
+  },
+  {
+    id: 'dashboard_light',
+    name: 'Dashboard Light',
+    description: 'Data-dense sidebar layout with light colors',
+    preview: 'bg-gray-100',
+  },
+  {
+    id: 'dashboard_dark_neon',
+    name: 'Dashboard Dark + Neon',
+    description: 'Data-dense sidebar with neon glow effects',
+    preview: 'bg-slate-900',
+    hasNeon: true,
+  },
+]
+
+function selectPreset(presetId) {
+  themeStore.setPreset(presetId)
+  toast.success('Theme updated')
+}
+</script>
+
+<template>
+  <div class="space-y-6">
+    <div
+      class="rounded-lg shadow p-6"
+      :class="themeStore.isDark ? 'bg-slate-800' : 'bg-white'"
+    >
+      <h2 class="text-lg font-semibold mb-4">Theme</h2>
+
+      <!-- Preset Selection -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button
+          v-for="preset in presets"
+          :key="preset.id"
+          @click="selectPreset(preset.id)"
+          class="p-4 rounded-lg border-2 text-left transition-all"
+          :class="[
+            themeStore.preset === preset.id
+              ? 'border-primary-500 ring-2 ring-primary-500/20'
+              : (themeStore.isDark ? 'border-slate-700 hover:border-slate-600' : 'border-gray-200 hover:border-gray-300'),
+          ]"
+        >
+          <!-- Preview bar -->
+          <div
+            class="h-16 rounded-md mb-3 flex items-center justify-center"
+            :class="[
+              preset.preview,
+              preset.hasNeon ? 'shadow-neon-cyan' : ''
+            ]"
+          >
+            <div class="flex gap-2">
+              <div class="w-3 h-3 rounded-full bg-green-500"
+                   :class="preset.hasNeon ? 'shadow-neon-success animate-neon-pulse' : ''"></div>
+              <div class="w-3 h-3 rounded-full bg-yellow-500"
+                   :class="preset.hasNeon ? 'shadow-neon-warning' : ''"></div>
+              <div class="w-3 h-3 rounded-full bg-blue-500"
+                   :class="preset.hasNeon ? 'shadow-neon-cyan' : ''"></div>
+            </div>
+          </div>
+
+          <h3 class="font-medium">{{ preset.name }}</h3>
+          <p class="text-sm mt-1"
+             :class="themeStore.isDark ? 'text-slate-400' : 'text-gray-500'">
+            {{ preset.description }}
+          </p>
+
+          <!-- Selected indicator -->
+          <div v-if="themeStore.preset === preset.id"
+               class="mt-2 text-xs font-medium text-primary-500">
+            ✓ Active
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Advanced Options -->
+    <div
+      class="rounded-lg shadow p-6"
+      :class="themeStore.isDark ? 'bg-slate-800' : 'bg-white'"
+    >
+      <h2 class="text-lg font-semibold mb-4">Advanced Options</h2>
+
+      <div class="space-y-4">
+        <!-- Layout Mode -->
+        <div>
+          <label class="block text-sm font-medium mb-2">Layout Style</label>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="layout"
+                value="horizontal"
+                :checked="themeStore.layout === 'horizontal'"
+                @change="themeStore.setLayout('horizontal')"
+                class="text-primary-600"
+              />
+              <span>Horizontal Navigation</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="layout"
+                value="sidebar"
+                :checked="themeStore.layout === 'sidebar'"
+                @change="themeStore.setLayout('sidebar')"
+                class="text-primary-600"
+              />
+              <span>Sidebar Navigation</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Color Mode -->
+        <div>
+          <label class="block text-sm font-medium mb-2">Color Mode</label>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="colorMode"
+                value="light"
+                :checked="themeStore.colorMode === 'light'"
+                @change="themeStore.setColorMode('light')"
+                class="text-primary-600"
+              />
+              <span>Light</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="colorMode"
+                value="dark"
+                :checked="themeStore.colorMode === 'dark'"
+                @change="themeStore.setColorMode('dark')"
+                class="text-primary-600"
+              />
+              <span>Dark</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Neon Effects (only show when dark mode) -->
+        <div v-if="themeStore.isDark">
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="themeStore.neonEffects"
+              @change="themeStore.setNeonEffects($event.target.checked)"
+              class="rounded text-primary-600"
+            />
+            <div>
+              <span class="font-medium">Enable Neon Effects</span>
+              <p class="text-sm" :class="themeStore.isDark ? 'text-slate-400' : 'text-gray-500'">
+                Adds glowing accents to status indicators and buttons
+              </p>
+            </div>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+```
+
+---
+
+### Task 7: Update Settings View
+
+**src/views/SettingsView.vue:**
+```vue
+<script setup>
+import { ref, onMounted } from 'vue'
+import { useSettingsStore } from '@/stores/settings'
+import { useThemeStore } from '@/stores/theme'
+import GeneralSettings from '@/components/settings/GeneralSettings.vue'
+import AppearanceSettings from '@/components/settings/AppearanceSettings.vue'
+import SecuritySettings from '@/components/settings/SecuritySettings.vue'
+import EmailSettings from '@/components/settings/EmailSettings.vue'
+import NfsSettings from '@/components/settings/NfsSettings.vue'
+
+const settingsStore = useSettingsStore()
+const themeStore = useThemeStore()
+
+const activeTab = ref('general')
+
+const tabs = [
+  { id: 'general', name: 'General' },
+  { id: 'appearance', name: 'Appearance' },
+  { id: 'security', name: 'Security' },
+  { id: 'email', name: 'Email' },
+  { id: 'storage', name: 'Storage' },
+]
 
 onMounted(async () => {
-  await Promise.all([
-    containersStore.fetchContainers(),
-    backupsStore.fetchRecent(),
-    systemStore.fetchMetrics()
-  ])
-
-  // Poll for updates every 10 seconds
-  pollInterval = setInterval(async () => {
-    await containersStore.fetchContainers()
-    await systemStore.fetchMetrics()
-  }, 10000)
-})
-
-onUnmounted(() => {
-  if (pollInterval) clearInterval(pollInterval)
+  await settingsStore.fetchAll()
 })
 </script>
 
 <template>
   <div class="space-y-6">
-    <!-- Page header -->
     <div>
-      <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
-      <p class="text-gray-500">Overview of your n8n infrastructure</p>
+      <h1 class="text-2xl font-bold">Settings</h1>
+      <p :class="themeStore.isDark ? 'text-slate-400' : 'text-gray-500'">
+        Configure system preferences
+      </p>
     </div>
 
-    <!-- Quick actions -->
-    <QuickActions />
+    <!-- Settings navigation -->
+    <div class="flex flex-col lg:flex-row gap-6">
+      <nav class="lg:w-48 space-y-1">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          @click="activeTab = tab.id"
+          class="w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors"
+          :class="activeTab === tab.id
+            ? (themeStore.isDark
+                ? 'bg-slate-800 text-white'
+                : 'bg-primary-100 text-primary-700')
+            : (themeStore.isDark
+                ? 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                : 'text-gray-600 hover:bg-gray-100')"
+        >
+          {{ tab.name }}
+        </button>
+      </nav>
 
-    <!-- Container status grid -->
-    <section>
-      <h2 class="text-lg font-semibold text-gray-800 mb-4">Container Status</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <ContainerCard
-          v-for="container in containersStore.containers"
-          :key="container.name"
-          :container="container"
-        />
+      <div class="flex-1">
+        <GeneralSettings v-if="activeTab === 'general'" />
+        <AppearanceSettings v-else-if="activeTab === 'appearance'" />
+        <SecuritySettings v-else-if="activeTab === 'security'" />
+        <EmailSettings v-else-if="activeTab === 'email'" />
+        <NfsSettings v-else-if="activeTab === 'storage'" />
       </div>
-    </section>
-
-    <!-- Two-column layout -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <!-- System metrics -->
-      <section class="bg-white rounded-lg shadow p-6">
-        <h2 class="text-lg font-semibold text-gray-800 mb-4">System Metrics</h2>
-        <SystemMetrics :metrics="systemStore.metrics" />
-      </section>
-
-      <!-- Backup summary -->
-      <section class="bg-white rounded-lg shadow p-6">
-        <h2 class="text-lg font-semibold text-gray-800 mb-4">Backup Status</h2>
-        <BackupSummary :recent="backupsStore.recentBackups" />
-      </section>
     </div>
-
-    <!-- Recent activity -->
-    <section class="bg-white rounded-lg shadow p-6">
-      <h2 class="text-lg font-semibold text-gray-800 mb-4">Recent Activity</h2>
-      <RecentActivity />
-    </section>
   </div>
 </template>
 ```
 
-**src/components/dashboard/ContainerCard.vue:**
+---
+
+### Task 8: Theme-Aware CSS
+
+**src/assets/styles/themes.css:**
+```css
+/* Theme CSS Custom Properties */
+:root {
+  /* Light mode (default) */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f9fafb;
+  --color-bg-tertiary: #f3f4f6;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f9fafb;
+  --color-border: #e5e7eb;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4b5563;
+  --color-text-muted: #9ca3af;
+}
+
+.dark {
+  /* Dark mode */
+  --color-bg-primary: #020617;
+  --color-bg-secondary: #0f172a;
+  --color-bg-tertiary: #1e293b;
+  --color-surface: #1e293b;
+  --color-surface-hover: #334155;
+  --color-border: #334155;
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+}
+```
+
+**src/assets/styles/neon.css:**
+```css
+/* Neon glow effects for Theme D */
+.neon-enabled {
+  /* Glow variables */
+  --glow-cyan: 0 0 20px rgba(34, 211, 238, 0.5), 0 0 40px rgba(34, 211, 238, 0.3);
+  --glow-fuchsia: 0 0 20px rgba(232, 121, 249, 0.5), 0 0 40px rgba(232, 121, 249, 0.3);
+  --glow-success: 0 0 15px rgba(52, 211, 153, 0.5);
+  --glow-warning: 0 0 15px rgba(251, 191, 36, 0.5);
+  --glow-danger: 0 0 15px rgba(251, 113, 133, 0.5);
+}
+
+/* Neon status indicators */
+.neon-enabled .status-success {
+  box-shadow: var(--glow-success);
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+.neon-enabled .status-warning {
+  box-shadow: var(--glow-warning);
+}
+
+.neon-enabled .status-danger {
+  box-shadow: var(--glow-danger);
+  animation: neon-pulse 1.5s ease-in-out infinite;
+}
+
+/* Neon buttons */
+.neon-enabled .btn-primary {
+  box-shadow: var(--glow-cyan);
+  transition: box-shadow 0.3s ease;
+}
+
+.neon-enabled .btn-primary:hover {
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.7), 0 0 60px rgba(34, 211, 238, 0.4);
+}
+
+/* Neon cards */
+.neon-enabled .card-neon {
+  border-color: rgba(34, 211, 238, 0.3);
+  box-shadow: inset 0 0 20px rgba(34, 211, 238, 0.05);
+}
+
+.neon-enabled .card-neon:hover {
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: var(--glow-cyan), inset 0 0 30px rgba(34, 211, 238, 0.1);
+}
+
+/* Neon charts */
+.neon-enabled .chart-line {
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+/* Neon pulse animation */
+@keyframes neon-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Grid background for neon theme */
+.neon-enabled .neon-grid-bg {
+  background-image:
+    linear-gradient(rgba(34, 211, 238, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+```
+
+**src/assets/styles/main.css:**
+```css
+@import './themes.css';
+@import './neon.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+
+  .dark .btn-primary {
+    @apply bg-primary-500 hover:bg-primary-400;
+  }
+
+  .btn-secondary {
+    @apply bg-white text-gray-700 border border-gray-300 hover:bg-gray-50
+           focus:ring-primary-500;
+  }
+
+  .dark .btn-secondary {
+    @apply bg-slate-800 text-slate-200 border-slate-600 hover:bg-slate-700;
+  }
+
+  .btn-danger {
+    @apply bg-danger text-white hover:bg-red-600 focus:ring-red-500;
+  }
+
+  /* Cards */
+  .card {
+    @apply rounded-lg shadow transition-shadow;
+  }
+
+  .card-light {
+    @apply bg-white border border-gray-200;
+  }
+
+  .card-dark {
+    @apply bg-slate-800 border border-slate-700;
+  }
+
+  /* Form inputs */
+  .input {
+    @apply block w-full rounded-md shadow-sm sm:text-sm transition-colors;
+  }
+
+  .input-light {
+    @apply border-gray-300 focus:border-primary-500 focus:ring-primary-500;
+  }
+
+  .input-dark {
+    @apply bg-slate-800 border-slate-600 text-slate-100
+           focus:border-primary-400 focus:ring-primary-400;
+  }
+}
+```
+
+---
+
+## Theme-Aware Component Example
+
+**src/components/dashboard/ContainerCard.vue (Theme-Aware Version):**
 ```vue
 <script setup>
 import { computed } from 'vue'
+import { useThemeStore } from '@/stores/theme'
 import {
   CheckCircleIcon,
   XCircleIcon,
   ExclamationTriangleIcon,
   ArrowPathIcon
 } from '@heroicons/vue/24/solid'
-import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const props = defineProps({
-  container: {
-    type: Object,
-    required: true
-  }
+  container: { type: Object, required: true }
 })
+
+const themeStore = useThemeStore()
 
 const statusConfig = computed(() => {
   const status = props.container.status
   const health = props.container.health
 
   if (status === 'running' && health === 'healthy') {
-    return { icon: CheckCircleIcon, color: 'text-success', bgColor: 'bg-green-50', label: 'Healthy' }
+    return {
+      icon: CheckCircleIcon,
+      color: 'text-emerald-500',
+      bgLight: 'bg-emerald-50',
+      bgDark: 'bg-emerald-500/10',
+      neonClass: 'status-success',
+      label: 'Healthy'
+    }
   } else if (status === 'running' && health === 'unhealthy') {
-    return { icon: ExclamationTriangleIcon, color: 'text-warning', bgColor: 'bg-yellow-50', label: 'Unhealthy' }
+    return {
+      icon: ExclamationTriangleIcon,
+      color: 'text-amber-500',
+      bgLight: 'bg-amber-50',
+      bgDark: 'bg-amber-500/10',
+      neonClass: 'status-warning',
+      label: 'Unhealthy'
+    }
   } else if (status === 'running') {
-    return { icon: CheckCircleIcon, color: 'text-success', bgColor: 'bg-green-50', label: 'Running' }
+    return {
+      icon: CheckCircleIcon,
+      color: 'text-emerald-500',
+      bgLight: 'bg-emerald-50',
+      bgDark: 'bg-emerald-500/10',
+      neonClass: 'status-success',
+      label: 'Running'
+    }
   } else if (status === 'restarting') {
-    return { icon: ArrowPathIcon, color: 'text-info', bgColor: 'bg-blue-50', label: 'Restarting' }
+    return {
+      icon: ArrowPathIcon,
+      color: 'text-blue-500',
+      bgLight: 'bg-blue-50',
+      bgDark: 'bg-blue-500/10',
+      neonClass: '',
+      label: 'Restarting'
+    }
   } else {
-    return { icon: XCircleIcon, color: 'text-danger', bgColor: 'bg-red-50', label: 'Stopped' }
+    return {
+      icon: XCircleIcon,
+      color: 'text-rose-500',
+      bgLight: 'bg-rose-50',
+      bgDark: 'bg-rose-500/10',
+      neonClass: 'status-danger',
+      label: 'Stopped'
+    }
   }
 })
 
@@ -608,25 +1411,50 @@ const displayName = computed(() => {
 
 <template>
   <div
-    class="rounded-lg border p-4 transition-shadow hover:shadow-md"
-    :class="statusConfig.bgColor"
+    class="rounded-lg border p-4 transition-all duration-200"
+    :class="[
+      themeStore.isDark
+        ? `${statusConfig.bgDark} border-slate-700 hover:border-slate-600`
+        : `${statusConfig.bgLight} border-gray-200 hover:border-gray-300`,
+      themeStore.isNeonEnabled ? 'card-neon' : ''
+    ]"
   >
     <div class="flex items-start justify-between">
       <div>
-        <h3 class="font-semibold text-gray-900 capitalize">{{ displayName }}</h3>
-        <p class="text-sm text-gray-500 truncate">{{ container.image }}</p>
+        <h3 class="font-semibold capitalize"
+            :class="themeStore.isDark ? 'text-slate-100' : 'text-gray-900'">
+          {{ displayName }}
+        </h3>
+        <p class="text-sm truncate"
+           :class="themeStore.isDark ? 'text-slate-400' : 'text-gray-500'">
+          {{ container.image }}
+        </p>
       </div>
       <component
         :is="statusConfig.icon"
         class="h-6 w-6"
-        :class="statusConfig.color"
+        :class="[
+          statusConfig.color,
+          themeStore.isNeonEnabled ? statusConfig.neonClass : ''
+        ]"
       />
     </div>
 
     <div class="mt-3 flex items-center justify-between">
-      <StatusBadge :status="statusConfig.label" :variant="container.status" />
+      <span
+        class="px-2 py-1 rounded text-xs font-medium"
+        :class="[
+          themeStore.isDark
+            ? `${statusConfig.bgDark} ${statusConfig.color}`
+            : `${statusConfig.bgLight} ${statusConfig.color}`
+        ]"
+      >
+        {{ statusConfig.label }}
+      </span>
 
-      <div v-if="container.cpu_percent !== undefined" class="text-xs text-gray-500">
+      <div v-if="container.cpu_percent !== undefined"
+           class="text-xs"
+           :class="themeStore.isDark ? 'text-slate-500' : 'text-gray-500'">
         CPU: {{ container.cpu_percent }}% | Mem: {{ container.memory_percent }}%
       </div>
     </div>
@@ -636,1097 +1464,11 @@ const displayName = computed(() => {
 
 ---
 
-### Task 5: Backup Management View
-
-**src/views/BackupsView.vue:**
-```vue
-<script setup>
-import { ref, onMounted } from 'vue'
-import { useBackupsStore } from '@/stores/backups'
-import { useToast } from '@/composables/useToast'
-import BackupScheduleForm from '@/components/backups/BackupScheduleForm.vue'
-import BackupHistoryTable from '@/components/backups/BackupHistoryTable.vue'
-import RetentionSettings from '@/components/backups/RetentionSettings.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-
-const backupsStore = useBackupsStore()
-const toast = useToast()
-
-const activeTab = ref('history')
-const showScheduleForm = ref(false)
-const editingSchedule = ref(null)
-const showDeleteConfirm = ref(false)
-const deleteTarget = ref(null)
-
-onMounted(async () => {
-  await backupsStore.fetchAll()
-})
-
-async function runManualBackup(type) {
-  try {
-    await backupsStore.runBackup(type)
-    toast.success('Backup started')
-  } catch (error) {
-    toast.error('Failed to start backup: ' + error.message)
-  }
-}
-
-async function downloadBackup(backup) {
-  window.location.href = `/api/backups/download/${backup.id}`
-}
-
-async function confirmDelete(backup) {
-  deleteTarget.value = backup
-  showDeleteConfirm.value = true
-}
-
-async function deleteBackup() {
-  try {
-    await backupsStore.deleteBackup(deleteTarget.value.id)
-    toast.success('Backup deleted')
-    showDeleteConfirm.value = false
-  } catch (error) {
-    toast.error('Failed to delete backup')
-  }
-}
-</script>
-
-<template>
-  <div class="space-y-6">
-    <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">Backups</h1>
-        <p class="text-gray-500">Manage database backups and schedules</p>
-      </div>
-
-      <div class="flex gap-3">
-        <button
-          @click="runManualBackup('postgres_n8n')"
-          class="btn btn-secondary"
-        >
-          Run Backup Now
-        </button>
-        <button
-          @click="showScheduleForm = true; editingSchedule = null"
-          class="btn btn-primary"
-        >
-          Add Schedule
-        </button>
-      </div>
-    </div>
-
-    <!-- Tabs -->
-    <div class="border-b border-gray-200">
-      <nav class="flex space-x-8">
-        <button
-          v-for="tab in ['history', 'schedules', 'retention', 'verification']"
-          :key="tab"
-          @click="activeTab = tab"
-          class="py-2 px-1 border-b-2 font-medium text-sm capitalize"
-          :class="activeTab === tab
-            ? 'border-primary-500 text-primary-600'
-            : 'border-transparent text-gray-500 hover:text-gray-700'"
-        >
-          {{ tab }}
-        </button>
-      </nav>
-    </div>
-
-    <!-- Tab content -->
-    <div v-if="activeTab === 'history'">
-      <BackupHistoryTable
-        :backups="backupsStore.history"
-        @download="downloadBackup"
-        @delete="confirmDelete"
-        @verify="backupsStore.verifyBackup"
-      />
-    </div>
-
-    <div v-else-if="activeTab === 'schedules'">
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="schedule in backupsStore.schedules"
-          :key="schedule.id"
-          class="bg-white rounded-lg shadow p-4"
-        >
-          <div class="flex items-start justify-between">
-            <div>
-              <h3 class="font-semibold">{{ schedule.name }}</h3>
-              <p class="text-sm text-gray-500">{{ schedule.backup_type }}</p>
-            </div>
-            <span
-              class="px-2 py-1 rounded text-xs font-medium"
-              :class="schedule.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
-            >
-              {{ schedule.enabled ? 'Active' : 'Disabled' }}
-            </span>
-          </div>
-
-          <div class="mt-3 text-sm text-gray-600">
-            <p>{{ schedule.frequency }} at {{ schedule.hour }}:{{ String(schedule.minute).padStart(2, '0') }}</p>
-            <p v-if="schedule.next_run" class="text-xs text-gray-400 mt-1">
-              Next: {{ new Date(schedule.next_run).toLocaleString() }}
-            </p>
-          </div>
-
-          <div class="mt-4 flex gap-2">
-            <button
-              @click="editingSchedule = schedule; showScheduleForm = true"
-              class="text-sm text-primary-600 hover:text-primary-800"
-            >
-              Edit
-            </button>
-            <button
-              @click="backupsStore.toggleSchedule(schedule.id)"
-              class="text-sm text-gray-600 hover:text-gray-800"
-            >
-              {{ schedule.enabled ? 'Disable' : 'Enable' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="activeTab === 'retention'">
-      <RetentionSettings
-        :policies="backupsStore.retentionPolicies"
-        @save="backupsStore.updateRetention"
-      />
-    </div>
-
-    <div v-else-if="activeTab === 'verification'">
-      <div class="bg-white rounded-lg shadow p-6">
-        <h3 class="font-semibold mb-4">Verification Schedule</h3>
-        <!-- Verification settings form -->
-      </div>
-    </div>
-
-    <!-- Schedule form modal -->
-    <BackupScheduleForm
-      v-if="showScheduleForm"
-      :schedule="editingSchedule"
-      @close="showScheduleForm = false"
-      @save="backupsStore.saveSchedule"
-    />
-
-    <!-- Delete confirmation -->
-    <ConfirmDialog
-      v-if="showDeleteConfirm"
-      title="Delete Backup"
-      :message="`Are you sure you want to delete '${deleteTarget?.filename}'? This cannot be undone.`"
-      confirm-text="Delete"
-      confirm-variant="danger"
-      @confirm="deleteBackup"
-      @cancel="showDeleteConfirm = false"
-    />
-  </div>
-</template>
-```
-
----
-
-### Task 6: Notification Management View
-
-**src/views/NotificationsView.vue:**
-```vue
-<script setup>
-import { ref, onMounted, computed } from 'vue'
-import { useNotificationsStore } from '@/stores/notifications'
-import { useToast } from '@/composables/useToast'
-import ServiceCard from '@/components/notifications/ServiceCard.vue'
-import ServiceForm from '@/components/notifications/ServiceForm.vue'
-import RuleForm from '@/components/notifications/RuleForm.vue'
-import NotificationHistory from '@/components/notifications/NotificationHistory.vue'
-
-const notificationsStore = useNotificationsStore()
-const toast = useToast()
-
-const activeTab = ref('services')
-const showServiceForm = ref(false)
-const showRuleForm = ref(false)
-const editingService = ref(null)
-const editingRule = ref(null)
-
-onMounted(async () => {
-  await notificationsStore.fetchAll()
-})
-
-async function testService(service) {
-  try {
-    await notificationsStore.testService(service.id)
-    toast.success('Test notification sent')
-  } catch (error) {
-    toast.error('Test failed: ' + error.message)
-  }
-}
-
-async function saveService(data) {
-  try {
-    if (editingService.value) {
-      await notificationsStore.updateService(editingService.value.id, data)
-    } else {
-      await notificationsStore.createService(data)
-    }
-    showServiceForm.value = false
-    toast.success('Service saved')
-  } catch (error) {
-    toast.error('Failed to save service')
-  }
-}
-
-async function saveRule(data) {
-  try {
-    if (editingRule.value) {
-      await notificationsStore.updateRule(editingRule.value.id, data)
-    } else {
-      await notificationsStore.createRule(data)
-    }
-    showRuleForm.value = false
-    toast.success('Rule saved')
-  } catch (error) {
-    toast.error('Failed to save rule')
-  }
-}
-</script>
-
-<template>
-  <div class="space-y-6">
-    <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">Notifications</h1>
-        <p class="text-gray-500">Configure alerts and notification channels</p>
-      </div>
-
-      <button
-        v-if="activeTab === 'services'"
-        @click="editingService = null; showServiceForm = true"
-        class="btn btn-primary"
-      >
-        Add Service
-      </button>
-      <button
-        v-else-if="activeTab === 'rules'"
-        @click="editingRule = null; showRuleForm = true"
-        class="btn btn-primary"
-      >
-        Add Rule
-      </button>
-    </div>
-
-    <!-- Tabs -->
-    <div class="border-b border-gray-200">
-      <nav class="flex space-x-8">
-        <button
-          v-for="tab in ['services', 'rules', 'history']"
-          :key="tab"
-          @click="activeTab = tab"
-          class="py-2 px-1 border-b-2 font-medium text-sm capitalize"
-          :class="activeTab === tab
-            ? 'border-primary-500 text-primary-600'
-            : 'border-transparent text-gray-500 hover:text-gray-700'"
-        >
-          {{ tab }}
-        </button>
-      </nav>
-    </div>
-
-    <!-- Services tab -->
-    <div v-if="activeTab === 'services'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <ServiceCard
-        v-for="service in notificationsStore.services"
-        :key="service.id"
-        :service="service"
-        @edit="editingService = service; showServiceForm = true"
-        @test="testService"
-        @toggle="notificationsStore.toggleService"
-        @delete="notificationsStore.deleteService"
-      />
-    </div>
-
-    <!-- Rules tab -->
-    <div v-else-if="activeTab === 'rules'">
-      <div class="bg-white rounded-lg shadow overflow-hidden">
-        <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rule</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Event</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Service</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-200">
-            <tr v-for="rule in notificationsStore.rules" :key="rule.id">
-              <td class="px-6 py-4 whitespace-nowrap">
-                <div class="font-medium text-gray-900">{{ rule.name }}</div>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap">
-                <span class="px-2 py-1 rounded bg-gray-100 text-sm">{{ rule.event_type }}</span>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-gray-600">
-                {{ notificationsStore.getServiceName(rule.service_id) }}
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap">
-                <span
-                  class="px-2 py-1 rounded text-xs font-medium"
-                  :class="{
-                    'bg-red-100 text-red-800': rule.priority === 'critical',
-                    'bg-orange-100 text-orange-800': rule.priority === 'high',
-                    'bg-blue-100 text-blue-800': rule.priority === 'normal',
-                    'bg-gray-100 text-gray-600': rule.priority === 'low'
-                  }"
-                >
-                  {{ rule.priority }}
-                </span>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap">
-                <span
-                  class="px-2 py-1 rounded text-xs font-medium"
-                  :class="rule.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
-                >
-                  {{ rule.enabled ? 'Active' : 'Disabled' }}
-                </span>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-right">
-                <button
-                  @click="editingRule = rule; showRuleForm = true"
-                  class="text-primary-600 hover:text-primary-800 mr-3"
-                >
-                  Edit
-                </button>
-                <button
-                  @click="notificationsStore.deleteRule(rule.id)"
-                  class="text-danger hover:text-red-800"
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- History tab -->
-    <div v-else-if="activeTab === 'history'">
-      <NotificationHistory :history="notificationsStore.history" />
-    </div>
-
-    <!-- Service form modal -->
-    <ServiceForm
-      v-if="showServiceForm"
-      :service="editingService"
-      @close="showServiceForm = false"
-      @save="saveService"
-    />
-
-    <!-- Rule form modal -->
-    <RuleForm
-      v-if="showRuleForm"
-      :rule="editingRule"
-      :services="notificationsStore.services"
-      :event-types="notificationsStore.eventTypes"
-      @close="showRuleForm = false"
-      @save="saveRule"
-    />
-  </div>
-</template>
-```
-
-**src/components/notifications/ServiceForm.vue:**
-```vue
-<script setup>
-import { ref, computed, onMounted } from 'vue'
-import { XMarkIcon } from '@heroicons/vue/24/outline'
-
-const props = defineProps({
-  service: Object
-})
-
-const emit = defineEmits(['close', 'save'])
-
-const serviceTypes = [
-  { value: 'apprise', label: 'Apprise (Slack, Discord, Telegram, etc.)' },
-  { value: 'ntfy', label: 'NTFY (Push Notifications)' },
-  { value: 'email', label: 'Email' },
-  { value: 'webhook', label: 'Webhook' }
-]
-
-const form = ref({
-  name: '',
-  service_type: 'apprise',
-  enabled: true,
-  config: {}
-})
-
-onMounted(() => {
-  if (props.service) {
-    form.value = { ...props.service }
-  }
-})
-
-// Dynamic config fields based on service type
-const configFields = computed(() => {
-  switch (form.value.service_type) {
-    case 'apprise':
-      return [
-        { key: 'url', label: 'Apprise URL', type: 'text', placeholder: 'slack://token or discord://...' },
-        { key: 'tags', label: 'Tags (comma-separated)', type: 'text', placeholder: 'critical,backup' }
-      ]
-    case 'ntfy':
-      return [
-        { key: 'server', label: 'Server URL', type: 'text', placeholder: 'https://ntfy.sh' },
-        { key: 'topic', label: 'Topic', type: 'text', required: true },
-        { key: 'token', label: 'Auth Token (optional)', type: 'password' }
-      ]
-    case 'email':
-      return [
-        { key: 'to', label: 'Recipient Email', type: 'email', required: true }
-      ]
-    case 'webhook':
-      return [
-        { key: 'url', label: 'Webhook URL', type: 'url', required: true },
-        { key: 'method', label: 'Method', type: 'select', options: ['POST', 'PUT'], default: 'POST' },
-        { key: 'headers', label: 'Headers (JSON)', type: 'textarea' }
-      ]
-    default:
-      return []
-  }
-})
-
-function handleSubmit() {
-  emit('save', form.value)
-}
-</script>
-
-<template>
-  <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
-      <div class="flex items-center justify-between p-4 border-b">
-        <h2 class="text-lg font-semibold">
-          {{ service ? 'Edit Service' : 'Add Notification Service' }}
-        </h2>
-        <button @click="emit('close')" class="text-gray-400 hover:text-gray-600">
-          <XMarkIcon class="h-5 w-5" />
-        </button>
-      </div>
-
-      <form @submit.prevent="handleSubmit" class="p-4 space-y-4">
-        <!-- Name -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-          <input
-            v-model="form.name"
-            type="text"
-            required
-            class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-            placeholder="My Slack Channel"
-          />
-        </div>
-
-        <!-- Service Type -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Service Type</label>
-          <select
-            v-model="form.service_type"
-            class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-          >
-            <option v-for="type in serviceTypes" :key="type.value" :value="type.value">
-              {{ type.label }}
-            </option>
-          </select>
-        </div>
-
-        <!-- Dynamic config fields -->
-        <div v-for="field in configFields" :key="field.key">
-          <label class="block text-sm font-medium text-gray-700 mb-1">
-            {{ field.label }}
-            <span v-if="field.required" class="text-danger">*</span>
-          </label>
-
-          <input
-            v-if="['text', 'email', 'url', 'password'].includes(field.type)"
-            v-model="form.config[field.key]"
-            :type="field.type"
-            :required="field.required"
-            :placeholder="field.placeholder"
-            class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-          />
-
-          <select
-            v-else-if="field.type === 'select'"
-            v-model="form.config[field.key]"
-            class="w-full rounded-md border-gray-300 shadow-sm"
-          >
-            <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
-          </select>
-
-          <textarea
-            v-else-if="field.type === 'textarea'"
-            v-model="form.config[field.key]"
-            rows="3"
-            :placeholder="field.placeholder"
-            class="w-full rounded-md border-gray-300 shadow-sm"
-          />
-        </div>
-
-        <!-- Enabled toggle -->
-        <div class="flex items-center">
-          <input
-            v-model="form.enabled"
-            type="checkbox"
-            id="enabled"
-            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-          />
-          <label for="enabled" class="ml-2 text-sm text-gray-700">Enabled</label>
-        </div>
-
-        <!-- Actions -->
-        <div class="flex justify-end gap-3 pt-4">
-          <button
-            type="button"
-            @click="emit('close')"
-            class="btn btn-secondary"
-          >
-            Cancel
-          </button>
-          <button type="submit" class="btn btn-primary">
-            {{ service ? 'Update' : 'Create' }}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-</template>
-```
-
----
-
-### Task 7: Settings View with Email Configuration
-
-**src/views/SettingsView.vue:**
-```vue
-<script setup>
-import { ref, onMounted } from 'vue'
-import { useSettingsStore } from '@/stores/settings'
-import { useToast } from '@/composables/useToast'
-import GeneralSettings from '@/components/settings/GeneralSettings.vue'
-import SecuritySettings from '@/components/settings/SecuritySettings.vue'
-import EmailSettings from '@/components/settings/EmailSettings.vue'
-import NfsSettings from '@/components/settings/NfsSettings.vue'
-
-const settingsStore = useSettingsStore()
-const toast = useToast()
-
-const activeTab = ref('general')
-
-onMounted(async () => {
-  await settingsStore.fetchAll()
-})
-</script>
-
-<template>
-  <div class="space-y-6">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
-      <p class="text-gray-500">Configure system preferences</p>
-    </div>
-
-    <!-- Settings navigation -->
-    <div class="flex flex-col lg:flex-row gap-6">
-      <nav class="lg:w-48 space-y-1">
-        <button
-          v-for="tab in ['general', 'security', 'email', 'storage']"
-          :key="tab"
-          @click="activeTab = tab"
-          class="w-full text-left px-3 py-2 rounded-md text-sm font-medium capitalize"
-          :class="activeTab === tab
-            ? 'bg-primary-100 text-primary-700'
-            : 'text-gray-600 hover:bg-gray-100'"
-        >
-          {{ tab }}
-        </button>
-      </nav>
-
-      <div class="flex-1">
-        <GeneralSettings v-if="activeTab === 'general'" />
-        <SecuritySettings v-else-if="activeTab === 'security'" />
-        <EmailSettings v-else-if="activeTab === 'email'" />
-        <NfsSettings v-else-if="activeTab === 'storage'" />
-      </div>
-    </div>
-  </div>
-</template>
-```
-
-**src/components/settings/EmailSettings.vue:**
-```vue
-<script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useSettingsStore } from '@/stores/settings'
-import { useToast } from '@/composables/useToast'
-import api from '@/utils/api'
-
-const settingsStore = useSettingsStore()
-const toast = useToast()
-
-const providers = [
-  { value: 'gmail_relay', label: 'Gmail Corporate Relay (IP Whitelisted)' },
-  { value: 'gmail_app_password', label: 'Gmail with App Password' },
-  { value: 'smtp', label: 'Custom SMTP Server' },
-  { value: 'sendgrid', label: 'SendGrid' },
-  { value: 'mailgun', label: 'Mailgun' }
-]
-
-const form = ref({
-  provider: 'gmail_relay',
-  from_email: '',
-  from_name: 'n8n Management',
-  smtp_host: '',
-  smtp_port: 587,
-  username: '',
-  password: '',
-  use_tls: true
-})
-
-const testEmail = ref('')
-const testing = ref(false)
-const saving = ref(false)
-
-onMounted(() => {
-  if (settingsStore.email) {
-    form.value = { ...form.value, ...settingsStore.email }
-  }
-})
-
-const showSmtpFields = computed(() => {
-  return ['smtp', 'gmail_app_password'].includes(form.value.provider)
-})
-
-const showApiKeyField = computed(() => {
-  return ['sendgrid', 'mailgun'].includes(form.value.provider)
-})
-
-async function save() {
-  saving.value = true
-  try {
-    await api.put('/api/email/config', form.value)
-    toast.success('Email settings saved')
-  } catch (error) {
-    toast.error('Failed to save: ' + error.response?.data?.detail)
-  } finally {
-    saving.value = false
-  }
-}
-
-async function sendTestEmail() {
-  if (!testEmail.value) {
-    toast.error('Please enter a test email address')
-    return
-  }
-
-  testing.value = true
-  try {
-    const response = await api.post('/api/email/test', {
-      recipient: testEmail.value
-    })
-
-    if (response.data.status === 'success') {
-      toast.success(`Test email sent successfully (${response.data.response_time_ms}ms)`)
-    } else {
-      toast.error('Test failed: ' + response.data.error)
-    }
-  } catch (error) {
-    toast.error('Test failed: ' + error.response?.data?.detail)
-  } finally {
-    testing.value = false
-  }
-}
-</script>
-
-<template>
-  <div class="bg-white rounded-lg shadow p-6 space-y-6">
-    <h2 class="text-lg font-semibold">Email Configuration</h2>
-
-    <form @submit.prevent="save" class="space-y-4">
-      <!-- Provider -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Email Provider</label>
-        <select
-          v-model="form.provider"
-          class="w-full rounded-md border-gray-300 shadow-sm"
-        >
-          <option v-for="p in providers" :key="p.value" :value="p.value">
-            {{ p.label }}
-          </option>
-        </select>
-        <p v-if="form.provider === 'gmail_relay'" class="mt-1 text-sm text-gray-500">
-          Requires your server IP to be whitelisted in Google Admin Console
-        </p>
-      </div>
-
-      <!-- From email -->
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">From Email</label>
-          <input
-            v-model="form.from_email"
-            type="email"
-            required
-            class="w-full rounded-md border-gray-300 shadow-sm"
-            placeholder="alerts@company.com"
-          />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">From Name</label>
-          <input
-            v-model="form.from_name"
-            type="text"
-            class="w-full rounded-md border-gray-300 shadow-sm"
-          />
-        </div>
-      </div>
-
-      <!-- SMTP fields -->
-      <template v-if="showSmtpFields">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">SMTP Host</label>
-            <input
-              v-model="form.smtp_host"
-              type="text"
-              class="w-full rounded-md border-gray-300 shadow-sm"
-              :placeholder="form.provider === 'gmail_app_password' ? 'smtp.gmail.com' : 'smtp.example.com'"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">SMTP Port</label>
-            <input
-              v-model.number="form.smtp_port"
-              type="number"
-              class="w-full rounded-md border-gray-300 shadow-sm"
-            />
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
-            <input
-              v-model="form.username"
-              type="text"
-              class="w-full rounded-md border-gray-300 shadow-sm"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              {{ form.provider === 'gmail_app_password' ? 'App Password' : 'Password' }}
-            </label>
-            <input
-              v-model="form.password"
-              type="password"
-              class="w-full rounded-md border-gray-300 shadow-sm"
-            />
-          </div>
-        </div>
-
-        <div class="flex items-center">
-          <input
-            v-model="form.use_tls"
-            type="checkbox"
-            id="use_tls"
-            class="rounded border-gray-300 text-primary-600"
-          />
-          <label for="use_tls" class="ml-2 text-sm text-gray-700">Use STARTTLS</label>
-        </div>
-      </template>
-
-      <!-- API Key field -->
-      <div v-if="showApiKeyField">
-        <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-        <input
-          v-model="form.api_key"
-          type="password"
-          class="w-full rounded-md border-gray-300 shadow-sm"
-        />
-      </div>
-
-      <div class="flex justify-end">
-        <button
-          type="submit"
-          :disabled="saving"
-          class="btn btn-primary"
-        >
-          {{ saving ? 'Saving...' : 'Save Settings' }}
-        </button>
-      </div>
-    </form>
-
-    <!-- Test email -->
-    <div class="border-t pt-6">
-      <h3 class="font-medium mb-3">Test Email Configuration</h3>
-      <div class="flex gap-3">
-        <input
-          v-model="testEmail"
-          type="email"
-          placeholder="test@example.com"
-          class="flex-1 rounded-md border-gray-300 shadow-sm"
-        />
-        <button
-          @click="sendTestEmail"
-          :disabled="testing"
-          class="btn btn-secondary"
-        >
-          {{ testing ? 'Sending...' : 'Send Test' }}
-        </button>
-      </div>
-    </div>
-  </div>
-</template>
-```
-
----
-
-### Task 8: Power Controls with Confirmation and Countdown
-
-**src/components/system/PowerControls.vue:**
-```vue
-<script setup>
-import { ref } from 'vue'
-import { useToast } from '@/composables/useToast'
-import { useConfirm } from '@/composables/useConfirm'
-import CountdownTimer from '@/components/common/CountdownTimer.vue'
-import api from '@/utils/api'
-
-const toast = useToast()
-const confirm = useConfirm()
-
-const pendingAction = ref(null)
-const countdownActive = ref(false)
-const countdownSeconds = 10
-
-const actions = [
-  { id: 'restart_all', label: 'Restart All Containers', icon: 'ArrowPathIcon', variant: 'warning' },
-  { id: 'stop_all', label: 'Stop All Containers', icon: 'StopIcon', variant: 'danger' },
-  { id: 'restart_host', label: 'Restart Host System', icon: 'PowerIcon', variant: 'danger' },
-  { id: 'shutdown_host', label: 'Shutdown Host System', icon: 'PowerIcon', variant: 'danger' }
-]
-
-async function initiateAction(action) {
-  const confirmed = await confirm.open({
-    title: `Confirm ${action.label}`,
-    message: `Are you sure you want to ${action.label.toLowerCase()}? This action will start in ${countdownSeconds} seconds and can be cancelled during the countdown.`,
-    confirmText: 'Start Countdown',
-    confirmVariant: action.variant
-  })
-
-  if (confirmed) {
-    pendingAction.value = action
-    countdownActive.value = true
-  }
-}
-
-async function executeAction() {
-  countdownActive.value = false
-  const action = pendingAction.value
-
-  try {
-    toast.info(`Executing ${action.label}...`)
-
-    await api.post(`/api/system/power/${action.id}`)
-
-    toast.success(`${action.label} initiated`)
-  } catch (error) {
-    toast.error(`Failed: ${error.response?.data?.detail || error.message}`)
-  } finally {
-    pendingAction.value = null
-  }
-}
-
-function cancelAction() {
-  countdownActive.value = false
-  pendingAction.value = null
-  toast.info('Action cancelled')
-}
-</script>
-
-<template>
-  <div class="bg-white rounded-lg shadow p-6">
-    <h2 class="text-lg font-semibold text-gray-900 mb-4">Power Controls</h2>
-
-    <p class="text-sm text-gray-500 mb-6">
-      These actions affect the entire system. Use with caution.
-    </p>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <button
-        v-for="action in actions"
-        :key="action.id"
-        @click="initiateAction(action)"
-        :disabled="countdownActive"
-        class="flex items-center gap-3 p-4 rounded-lg border-2 transition-colors"
-        :class="{
-          'border-yellow-300 hover:bg-yellow-50': action.variant === 'warning',
-          'border-red-300 hover:bg-red-50': action.variant === 'danger',
-          'opacity-50 cursor-not-allowed': countdownActive
-        }"
-      >
-        <span class="font-medium">{{ action.label }}</span>
-      </button>
-    </div>
-
-    <!-- Countdown overlay -->
-    <div
-      v-if="countdownActive"
-      class="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
-    >
-      <div class="bg-white rounded-lg shadow-xl p-8 text-center max-w-md">
-        <h3 class="text-xl font-bold text-gray-900 mb-2">
-          {{ pendingAction.label }}
-        </h3>
-        <p class="text-gray-600 mb-6">
-          Action will execute in:
-        </p>
-
-        <CountdownTimer
-          :seconds="countdownSeconds"
-          @complete="executeAction"
-          class="text-6xl font-bold text-danger mb-6"
-        />
-
-        <button
-          @click="cancelAction"
-          class="w-full btn btn-secondary text-lg py-3"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  </div>
-</template>
-```
-
-**src/components/common/CountdownTimer.vue:**
-```vue
-<script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-
-const props = defineProps({
-  seconds: {
-    type: Number,
-    required: true
-  }
-})
-
-const emit = defineEmits(['complete'])
-
-const remaining = ref(props.seconds)
-let interval = null
-
-onMounted(() => {
-  interval = setInterval(() => {
-    remaining.value--
-    if (remaining.value <= 0) {
-      clearInterval(interval)
-      emit('complete')
-    }
-  }, 1000)
-})
-
-onUnmounted(() => {
-  if (interval) clearInterval(interval)
-})
-</script>
-
-<template>
-  <div>{{ remaining }}</div>
-</template>
-```
-
----
-
-## Common Components
-
-**src/components/common/StatusBadge.vue:**
-```vue
-<script setup>
-import { computed } from 'vue'
-
-const props = defineProps({
-  status: String,
-  variant: String
-})
-
-const classes = computed(() => {
-  const base = 'px-2 py-1 rounded text-xs font-medium'
-  const variants = {
-    running: 'bg-green-100 text-green-800',
-    healthy: 'bg-green-100 text-green-800',
-    success: 'bg-green-100 text-green-800',
-    stopped: 'bg-gray-100 text-gray-800',
-    unhealthy: 'bg-yellow-100 text-yellow-800',
-    warning: 'bg-yellow-100 text-yellow-800',
-    failed: 'bg-red-100 text-red-800',
-    error: 'bg-red-100 text-red-800',
-    pending: 'bg-blue-100 text-blue-800',
-    restarting: 'bg-blue-100 text-blue-800'
-  }
-
-  return `${base} ${variants[props.variant || props.status] || variants.pending}`
-})
-</script>
-
-<template>
-  <span :class="classes">{{ status }}</span>
-</template>
-```
-
-**src/assets/styles/main.css:**
-```css
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-@layer components {
-  .btn {
-    @apply px-4 py-2 rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-
-  .btn-primary {
-    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
-  }
-
-  .btn-secondary {
-    @apply bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 focus:ring-primary-500;
-  }
-
-  .btn-danger {
-    @apply bg-danger text-white hover:bg-red-600 focus:ring-red-500;
-  }
-
-  input[type="text"],
-  input[type="email"],
-  input[type="password"],
-  input[type="number"],
-  input[type="url"],
-  select,
-  textarea {
-    @apply block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm;
-  }
-}
-```
-
----
-
 ## Dependencies on Other Agents
 
-- **Backend Agent**: Provides all API endpoints consumed by frontend
-- **Storyboard Agent**: Will provide 4 design mockups for UI selection
-- **Integration Agent**: Will test complete user flows
+- **Backend Agent**: Provides all API endpoints including `/api/settings/theme`
+- **Storyboard Agent**: Reference for detailed design specifications per theme
+- **Integration Agent**: Will test complete theme switching flows
 
 ---
 
@@ -1734,9 +1476,30 @@ const classes = computed(() => {
 
 - [ ] All files under `/home/user/n8n_nginx/management/frontend/`
 - [ ] Complete project configuration (package.json, vite.config.js, tailwind.config.js)
-- [ ] All Vue components listed in structure
+- [ ] Theme system:
+  - [ ] `src/stores/theme.js` - Theme state management
+  - [ ] `src/assets/styles/themes.css` - CSS custom properties
+  - [ ] `src/assets/styles/neon.css` - Neon glow effects
+- [ ] Layout components:
+  - [ ] `src/components/layouts/HorizontalLayout.vue`
+  - [ ] `src/components/layouts/SidebarLayout.vue`
+- [ ] Theme UI:
+  - [ ] `src/components/common/ThemeToggle.vue`
+  - [ ] `src/components/settings/AppearanceSettings.vue`
+- [ ] All Vue components with theme-aware styling
 - [ ] Pinia stores for all data domains
 - [ ] Vue Router with navigation guards
 - [ ] Composables for common patterns
-- [ ] CSS with Tailwind utilities
 - [ ] Build configuration outputting to `../static`
+
+---
+
+## Important Implementation Notes
+
+1. **All components must be theme-aware** - Use `themeStore.isDark` and `themeStore.isNeonEnabled` to conditionally apply classes
+2. **Use Tailwind dark: prefix sparingly** - Prefer conditional classes based on theme store for more control
+3. **CSS custom properties** - Use for colors that need to change with theme
+4. **Neon effects are additive** - They enhance the dark theme, not replace it
+5. **Layout switching is seamless** - Both layouts render the same `<router-view>` content
+6. **Persist immediately to localStorage** - For instant theme application on refresh
+7. **Debounce server saves** - Avoid API spam when user is experimenting with themes
