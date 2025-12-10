@@ -2494,8 +2494,8 @@ configure_portainer() {
 
     echo ""
     echo -e "  ${WHITE}Portainer Options:${NC}"
-    echo -e "    ${CYAN}1)${NC} Agent only - Connect to existing Portainer server"
-    echo -e "    ${CYAN}2)${NC} Full Portainer - Install Portainer server + agent locally"
+    echo -e "    ${CYAN}1)${NC} Agent only - Connect to existing Portainer server (installs agent on port 9001)"
+    echo -e "    ${CYAN}2)${NC} Full Portainer - Install complete Portainer server locally (no agent needed)"
     echo ""
 
     local portainer_choice=""
