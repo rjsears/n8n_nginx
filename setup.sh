@@ -2395,10 +2395,17 @@ main() {
     print_header "n8n HTTPS Interactive Setup v${SCRIPT_VERSION}"
 
     echo -e "  ${GRAY}This script will set up a production-ready n8n instance with:${NC}"
-    echo -e "    • Automated SSL certificates via Let's Encrypt"
+    echo -e "    • Automated SSL certificates via Let's Encrypt (DNS-01)"
     echo -e "    • PostgreSQL 16 with pgvector for AI workflows"
     echo -e "    • Nginx reverse proxy with security headers"
     echo -e "    • ${GREEN}NEW:${NC} Management console for backups and monitoring"
+    echo ""
+    echo -e "  ${GRAY}Optional services available:${NC}"
+    echo -e "    • Cloudflare Tunnel - Secure access without exposing ports"
+    echo -e "    • Tailscale - Private mesh VPN network access"
+    echo -e "    • Adminer - Web-based database management"
+    echo -e "    • Dozzle - Real-time container log viewer"
+    echo -e "    • Portainer Agent - Remote container management"
     echo ""
 
     if ! confirm_prompt "Ready to begin?"; then
