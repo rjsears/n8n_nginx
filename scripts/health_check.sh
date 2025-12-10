@@ -491,12 +491,12 @@ check_network_connectivity() {
         HEALTH_STATUS["network_dns"]="error"
     fi
 
-    # Check internet connectivity
-    if curl -s -o /dev/null --max-time 10 "https://registry.n8n.io" 2>/dev/null; then
-        log OK "Internet connectivity OK (n8n registry reachable)"
+    # Check internet connectivity (npm registry is used for community nodes)
+    if curl -s -o /dev/null --max-time 10 "https://registry.npmjs.org" 2>/dev/null; then
+        log OK "Internet connectivity OK (npm registry reachable)"
         HEALTH_STATUS["network_internet"]="healthy"
     else
-        log WARN "Cannot reach n8n registry (may affect updates)"
+        log WARN "Cannot reach npm registry (may affect community node updates)"
         HEALTH_STATUS["network_internet"]="warning"
     fi
 }
