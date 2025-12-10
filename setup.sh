@@ -185,34 +185,28 @@ get_local_ips() {
 select_from_menu() {
     local prompt="$1"
     shift
-    local options=("$@")
+    local -a options=("$@")
     local selected=0
     local key=""
+    local i
+    local num_options=${#options[@]}
 
     # Hide cursor
     tput civis 2>/dev/null || true
-
-    # Function to draw menu
-    draw_menu() {
-        # Move cursor up to redraw (except first time)
-        if [ "$1" = "redraw" ]; then
-            tput cuu ${#options[@]} 2>/dev/null || true
-        fi
-
-        for i in "${!options[@]}"; do
-            if [ $i -eq $selected ]; then
-                echo -e "    ${CYAN}▶${NC} ${WHITE}${options[$i]}${NC}  "
-            else
-                echo -e "      ${GRAY}${options[$i]}${NC}  "
-            fi
-        done
-    }
 
     echo ""
     echo -e "  ${WHITE}$prompt${NC}"
     echo -e "  ${GRAY}(Use ↑/↓ arrows to navigate, Enter to select)${NC}"
     echo ""
-    draw_menu "first"
+
+    # Draw initial menu
+    for i in "${!options[@]}"; do
+        if [ $i -eq $selected ]; then
+            echo -e "    ${CYAN}▶${NC} ${WHITE}${options[$i]}${NC}  "
+        else
+            echo -e "      ${GRAY}${options[$i]}${NC}  "
+        fi
+    done
 
     # Read keypresses
     while true; do
@@ -229,12 +223,20 @@ select_from_menu() {
                     fi
                     ;;
                 '[B') # Down arrow
-                    if [ $selected -lt $((${#options[@]} - 1)) ]; then
+                    if [ $selected -lt $((num_options - 1)) ]; then
                         ((selected++))
                     fi
                     ;;
             esac
-            draw_menu "redraw"
+            # Redraw menu - move cursor up first
+            tput cuu $num_options 2>/dev/null || printf '\033[%dA' $num_options
+            for i in "${!options[@]}"; do
+                if [ $i -eq $selected ]; then
+                    echo -e "    ${CYAN}▶${NC} ${WHITE}${options[$i]}${NC}  "
+                else
+                    echo -e "      ${GRAY}${options[$i]}${NC}  "
+                fi
+            done
         elif [ "$key" = "" ]; then
             # Enter pressed
             break
