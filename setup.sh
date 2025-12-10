@@ -196,6 +196,58 @@ is_lxc_container() {
     return 1
 }
 
+# Read sensitive input showing first 10 chars, then masking the rest
+# Usage: read_masked_token
+# Returns: value in $MASKED_INPUT
+read_masked_token() {
+    MASKED_INPUT=""
+    local char=""
+    local display=""
+
+    # Disable echo and enable raw mode
+    stty -echo
+
+    while IFS= read -r -n1 char; do
+        # Check for Enter (empty char after read -n1)
+        if [[ -z "$char" ]]; then
+            break
+        fi
+
+        # Check for backspace (ASCII 127 or 8)
+        if [[ "$char" == $'\x7f' ]] || [[ "$char" == $'\x08' ]]; then
+            if [[ -n "$MASKED_INPUT" ]]; then
+                # Remove last character from input
+                MASKED_INPUT="${MASKED_INPUT%?}"
+                # Clear line and redisplay
+                echo -ne "\r\033[K"
+                local len=${#MASKED_INPUT}
+                if [[ $len -le 10 ]]; then
+                    display="$MASKED_INPUT"
+                else
+                    display="${MASKED_INPUT:0:10}$(printf '%*s' $((len - 10)) '' | tr ' ' '*')"
+                fi
+                echo -ne "$display"
+            fi
+            continue
+        fi
+
+        # Add character to input
+        MASKED_INPUT+="$char"
+
+        # Display: first 10 chars visible, rest as *
+        local len=${#MASKED_INPUT}
+        if [[ $len -le 10 ]]; then
+            echo -ne "$char"
+        else
+            echo -ne "*"
+        fi
+    done
+
+    # Re-enable echo
+    stty echo
+    echo ""  # New line after input
+}
+
 # Numbered selection menu
 # Usage: select_from_menu "prompt" "${options[@]}"
 # Returns: selected index in $MENU_SELECTION, selected value in $MENU_VALUE
@@ -2150,17 +2202,15 @@ configure_cloudflare() {
     echo ""
 
     echo -ne "${WHITE}  Enter your Cloudflare API token${NC}: "
-    read CF_API_TOKEN
+    read_masked_token
+    CF_API_TOKEN="$MASKED_INPUT"
 
     if [ -z "$CF_API_TOKEN" ]; then
         print_error "API token is required for Cloudflare"
         exit 1
     fi
 
-    # Show masked token for confirmation
-    local token_preview="${CF_API_TOKEN:0:10}****"
     print_success "Cloudflare credentials saved"
-    echo -e "    ${GRAY}Token: ${token_preview}${NC}"
 
     cat > "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}" << EOF
 dns_cloudflare_api_token = ${CF_API_TOKEN}
@@ -2181,21 +2231,19 @@ configure_route53() {
     echo ""
 
     echo -ne "${WHITE}  Enter your AWS Access Key ID${NC}: "
-    read AWS_ACCESS_KEY_ID
+    read_masked_token
+    AWS_ACCESS_KEY_ID="$MASKED_INPUT"
+
     echo -ne "${WHITE}  Enter your AWS Secret Access Key${NC}: "
-    read AWS_SECRET_ACCESS_KEY
+    read_masked_token
+    AWS_SECRET_ACCESS_KEY="$MASKED_INPUT"
 
     if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
         print_error "Both AWS credentials are required"
         exit 1
     fi
 
-    # Show masked credentials for confirmation
-    local key_preview="${AWS_ACCESS_KEY_ID:0:10}****"
-    local secret_preview="${AWS_SECRET_ACCESS_KEY:0:10}****"
     print_success "AWS credentials saved"
-    echo -e "    ${GRAY}Access Key: ${key_preview}${NC}"
-    echo -e "    ${GRAY}Secret Key: ${secret_preview}${NC}"
 
     cat > "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}" << EOF
 [default]
@@ -2242,17 +2290,15 @@ configure_digitalocean() {
     echo ""
 
     echo -ne "${WHITE}  Enter your DigitalOcean API token${NC}: "
-    read DO_API_TOKEN
+    read_masked_token
+    DO_API_TOKEN="$MASKED_INPUT"
 
     if [ -z "$DO_API_TOKEN" ]; then
         print_error "API token is required"
         exit 1
     fi
 
-    # Show masked token for confirmation
-    local token_preview="${DO_API_TOKEN:0:10}****"
     print_success "DigitalOcean credentials saved"
-    echo -e "    ${GRAY}Token: ${token_preview}${NC}"
 
     cat > "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}" << EOF
 dns_digitalocean_token = ${DO_API_TOKEN}
@@ -2674,7 +2720,8 @@ configure_cloudflare_tunnel() {
     echo ""
 
     echo -ne "${WHITE}  Enter your Cloudflare Tunnel token${NC}: "
-    read CF_TUNNEL_TOKEN
+    read_masked_token
+    CF_TUNNEL_TOKEN="$MASKED_INPUT"
 
     if [ -z "$CF_TUNNEL_TOKEN" ]; then
         print_error "Tunnel token is required for Cloudflare Tunnel"
@@ -2685,10 +2732,7 @@ configure_cloudflare_tunnel() {
     CLOUDFLARE_TUNNEL_TOKEN="$CF_TUNNEL_TOKEN"
     INSTALL_CLOUDFLARE_TUNNEL=true
 
-    # Show masked token for confirmation
-    local token_preview="${CF_TUNNEL_TOKEN:0:10}****"
     print_success "Cloudflare Tunnel configured"
-    echo -e "    ${GRAY}Token: ${token_preview}${NC}"
 }
 
 configure_tailscale() {
@@ -2704,7 +2748,8 @@ configure_tailscale() {
     echo ""
 
     echo -ne "${WHITE}  Enter your Tailscale auth key${NC}: "
-    read TS_AUTH_KEY
+    read_masked_token
+    TS_AUTH_KEY="$MASKED_INPUT"
 
     if [ -z "$TS_AUTH_KEY" ]; then
         print_error "Auth key is required for Tailscale"
@@ -2715,10 +2760,7 @@ configure_tailscale() {
     TAILSCALE_AUTH_KEY="$TS_AUTH_KEY"
     INSTALL_TAILSCALE=true
 
-    # Show masked key for confirmation
-    local key_preview="${TS_AUTH_KEY:0:10}****"
     print_success "Auth key accepted"
-    echo -e "    ${GRAY}Key: ${key_preview}${NC}"
 
     # Optional hostname
     echo ""
