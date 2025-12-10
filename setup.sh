@@ -2123,9 +2123,6 @@ EOF
             proxy_pass http://management/api/health;
         }
     }
-
-    # Close the http block
-    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 }
 EOF
 
@@ -2776,7 +2773,7 @@ show_configuration_summary() {
        [ "$INSTALL_PORTAINER" = true ] || [ "$INSTALL_PORTAINER_AGENT" = true ]; then
         echo -e "  ${WHITE}${BOLD}Optional Services:${NC}"
         if [ "$INSTALL_PORTAINER" = true ]; then
-            echo -e "    Portainer:           ${GREEN}enabled${NC} (port ${PORTAINER_PORT:-9000})"
+            echo -e "    Portainer:           ${GREEN}enabled${NC} (/portainer/)"
         elif [ "$INSTALL_PORTAINER_AGENT" = true ]; then
             echo -e "    Portainer Agent:     ${GREEN}enabled${NC} (port 9001)"
         fi
@@ -2787,10 +2784,10 @@ show_configuration_summary() {
             echo -e "    Tailscale:           ${GREEN}enabled${NC} (${TAILSCALE_HOSTNAME})"
         fi
         if [ "$INSTALL_ADMINER" = true ]; then
-            echo -e "    Adminer:             ${GREEN}enabled${NC} (port ${ADMINER_PORT})"
+            echo -e "    Adminer:             ${GREEN}enabled${NC} (/adminer/)"
         fi
         if [ "$INSTALL_DOZZLE" = true ]; then
-            echo -e "    Dozzle:              ${GREEN}enabled${NC} (port ${DOZZLE_PORT})"
+            echo -e "    Dozzle:              ${GREEN}enabled${NC} (/dozzle/)"
         fi
         echo ""
     fi
@@ -2967,14 +2964,13 @@ show_final_summary_v3() {
     echo -e "    n8n:                 ${CYAN}https://${N8N_DOMAIN}${NC}"
     echo -e "    Management Console:  ${CYAN}https://${N8N_DOMAIN}:${MGMT_PORT}${NC}"
     if [ "$INSTALL_PORTAINER" = true ]; then
-        echo -e "    Portainer (HTTP):    ${CYAN}http://${N8N_DOMAIN}:${PORTAINER_PORT:-9000}${NC}"
-        echo -e "    Portainer (HTTPS):   ${CYAN}https://${N8N_DOMAIN}:9443${NC}"
+        echo -e "    Portainer:           ${CYAN}https://${N8N_DOMAIN}/portainer/${NC}"
     fi
     if [ "$INSTALL_ADMINER" = true ]; then
-        echo -e "    Adminer (DB):        ${CYAN}https://${N8N_DOMAIN}:${ADMINER_PORT}${NC}"
+        echo -e "    Adminer (DB):        ${CYAN}https://${N8N_DOMAIN}/adminer/${NC}"
     fi
     if [ "$INSTALL_DOZZLE" = true ]; then
-        echo -e "    Dozzle (Logs):       ${CYAN}https://${N8N_DOMAIN}:${DOZZLE_PORT}${NC}"
+        echo -e "    Dozzle (Logs):       ${CYAN}https://${N8N_DOMAIN}/dozzle/${NC}"
     fi
     echo ""
     echo -e "  ${WHITE}${BOLD}Management Login:${NC}"
