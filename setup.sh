@@ -1687,18 +1687,7 @@ EOF
       - "${MGMT_PORT}:${MGMT_PORT}"
 EOF
 
-    # Add optional ports for Adminer and Dozzle
-    if [ "$INSTALL_ADMINER" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-      - "${ADMINER_PORT}:${ADMINER_PORT}"
-EOF
-    fi
-
-    if [ "$INSTALL_DOZZLE" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-      - "${DOZZLE_PORT}:${DOZZLE_PORT}"
-EOF
-    fi
+    # Note: Adminer, Dozzle, and Portainer are now accessed via /adminer/, /dozzle/, /portainer/ paths on port 443
 
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
@@ -1738,9 +1727,9 @@ EOF
     image: portainer/portainer-ce:latest
     container_name: n8n_portainer
     restart: always
-    ports:
-      - "${PORTAINER_PORT:-9000}:9000"
-      - "9443:9443"
+    command: --base-url /portainer
+    expose:
+      - "9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
@@ -1830,6 +1819,8 @@ EOF
     environment:
       - ADMINER_DEFAULT_SERVER=postgres
       - ADMINER_DESIGN=nette
+    expose:
+      - "8080"
     depends_on:
       - postgres
     networks:
@@ -1850,6 +1841,9 @@ EOF
     restart: always
     environment:
       - DOZZLE_NO_ANALYTICS=true
+      - DOZZLE_BASE=/dozzle
+    expose:
+      - "8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -2012,6 +2006,72 @@ http {
             access_log off;
             return 200 "healthy\n";
         }
+EOF
+
+    # Add Portainer location if configured
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # Portainer Container Management (configured with --base-url /portainer)
+        location /portainer/ {
+            proxy_pass http://n8n_portainer:9000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /portainer/api/websocket/ {
+            proxy_pass http://n8n_portainer:9000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+EOF
+    fi
+
+    # Add Adminer location if configured
+    if [ "$INSTALL_ADMINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # Adminer Database Management
+        location /adminer/ {
+            proxy_pass http://n8n_adminer:8080/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+        }
+EOF
+    fi
+
+    # Add Dozzle location if configured
+    if [ "$INSTALL_DOZZLE" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # Dozzle Log Viewer (configured with DOZZLE_BASE=/dozzle)
+        location /dozzle/ {
+            proxy_pass http://n8n_dozzle:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+EOF
+    fi
+
+    # Close the main server block
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
     }
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -2063,89 +2123,6 @@ http {
             proxy_pass http://management/api/health;
         }
     }
-EOF
-
-    # Add Adminer server block if configured
-    if [ "$INSTALL_ADMINER" = true ]; then
-        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Adminer Database UI (Port ${ADMINER_PORT})
-    # ═══════════════════════════════════════════════════════════════════════════
-    upstream adminer {
-        server n8n_adminer:8080;
-    }
-
-    server {
-        listen ${ADMINER_PORT} ssl http2;
-        server_name ${N8N_DOMAIN};
-
-        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
-
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-        ssl_prefer_server_ciphers off;
-        ssl_session_cache shared:SSL:10m;
-        ssl_session_timeout 10m;
-
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-XSS-Protection "1; mode=block" always;
-        add_header X-Frame-Options "DENY" always;
-
-        location / {
-            proxy_pass http://adminer;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
-            proxy_http_version 1.1;
-        }
-    }
-EOF
-    fi
-
-    # Add Dozzle server block if configured
-    if [ "$INSTALL_DOZZLE" = true ]; then
-        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Dozzle Log Viewer (Port ${DOZZLE_PORT})
-    # ═══════════════════════════════════════════════════════════════════════════
-    upstream dozzle {
-        server n8n_dozzle:8080;
-    }
-
-    server {
-        listen ${DOZZLE_PORT} ssl http2;
-        server_name ${N8N_DOMAIN};
-
-        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
-
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-        ssl_prefer_server_ciphers off;
-        ssl_session_cache shared:SSL:10m;
-        ssl_session_timeout 10m;
-
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-XSS-Protection "1; mode=block" always;
-        add_header X-Frame-Options "DENY" always;
-
-        location / {
-            proxy_pass http://dozzle;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection "upgrade";
-        }
-    }
-EOF
-    fi
 
     # Close the http block
     cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
@@ -2621,43 +2598,8 @@ configure_portainer() {
             INSTALL_PORTAINER=true
             INSTALL_PORTAINER_AGENT=false  # Full Portainer manages local containers directly
 
-            # Configure Portainer port with validation
-            while true; do
-                echo ""
-                echo -ne "${WHITE}  Portainer web UI port [${DEFAULT_PORTAINER_PORT}]${NC}: "
-                read portainer_port
-                portainer_port=${portainer_port:-$DEFAULT_PORTAINER_PORT}
-
-                if ! [[ "$portainer_port" =~ ^[0-9]+$ ]]; then
-                    print_error "Invalid port number"
-                    continue
-                fi
-
-                if [ "$portainer_port" -lt 1024 ] || [ "$portainer_port" -gt 65535 ]; then
-                    print_error "Port must be between 1024 and 65535"
-                    continue
-                fi
-
-                # Check reserved ports
-                local reserved_ports="80 443 5432 5678 ${MGMT_PORT} 9001"
-                if echo "$reserved_ports" | grep -qw "$portainer_port"; then
-                    print_error "Port $portainer_port is reserved for other services"
-                    continue
-                fi
-
-                # Check if port is in use
-                if command_exists ss && ss -tuln | grep -q ":${portainer_port} "; then
-                    print_error "Port $portainer_port is already in use"
-                    continue
-                fi
-
-                break
-            done
-
-            PORTAINER_PORT=$portainer_port
             print_success "Full Portainer will be installed"
-            echo -e "    ${GRAY}HTTP:  http://\${DOMAIN}:${PORTAINER_PORT}${NC}"
-            echo -e "    ${GRAY}HTTPS: https://\${DOMAIN}:9443${NC}"
+            echo -e "    ${GRAY}URL: https://\${DOMAIN}/portainer/${NC}"
             ;;
     esac
 }
@@ -2778,39 +2720,11 @@ configure_adminer() {
     echo -e "${WHITE}  Adminer Configuration${NC}"
     echo ""
     echo -e "  ${GRAY}Adminer provides a web-based interface for database management.${NC}"
-    echo -e "  ${GRAY}Access will be protected through the management console.${NC}"
     echo ""
 
-    # Configure port
-    while true; do
-        echo -ne "${WHITE}  Adminer port [${DEFAULT_ADMINER_PORT}]${NC}: "
-        read adminer_port
-        adminer_port=${adminer_port:-$DEFAULT_ADMINER_PORT}
-
-        if ! [[ "$adminer_port" =~ ^[0-9]+$ ]]; then
-            print_error "Invalid port number"
-            continue
-        fi
-
-        if [ "$adminer_port" -lt 1024 ] || [ "$adminer_port" -gt 65535 ]; then
-            print_error "Port must be between 1024 and 65535"
-            continue
-        fi
-
-        # Check reserved ports
-        local reserved_ports="80 443 5432 5678 ${MGMT_PORT} 9001"
-        if echo "$reserved_ports" | grep -qw "$adminer_port"; then
-            print_error "Port $adminer_port is reserved for other services"
-            continue
-        fi
-
-        break
-    done
-
-    ADMINER_PORT=$adminer_port
     INSTALL_ADMINER=true
 
-    print_success "Adminer will be available at https://\${DOMAIN}:${ADMINER_PORT}"
+    print_success "Adminer will be available at https://\${DOMAIN}/adminer/"
 }
 
 configure_dozzle() {
@@ -2818,39 +2732,11 @@ configure_dozzle() {
     echo -e "${WHITE}  Dozzle Configuration${NC}"
     echo ""
     echo -e "  ${GRAY}Dozzle provides real-time container log viewing in your browser.${NC}"
-    echo -e "  ${GRAY}Access will be protected through the management console.${NC}"
     echo ""
 
-    # Configure port
-    while true; do
-        echo -ne "${WHITE}  Dozzle port [${DEFAULT_DOZZLE_PORT}]${NC}: "
-        read dozzle_port
-        dozzle_port=${dozzle_port:-$DEFAULT_DOZZLE_PORT}
-
-        if ! [[ "$dozzle_port" =~ ^[0-9]+$ ]]; then
-            print_error "Invalid port number"
-            continue
-        fi
-
-        if [ "$dozzle_port" -lt 1024 ] || [ "$dozzle_port" -gt 65535 ]; then
-            print_error "Port must be between 1024 and 65535"
-            continue
-        fi
-
-        # Check reserved ports
-        local reserved_ports="80 443 5432 5678 ${MGMT_PORT} 9001 ${ADMINER_PORT:-8080}"
-        if echo "$reserved_ports" | grep -qw "$dozzle_port"; then
-            print_error "Port $dozzle_port is reserved for other services"
-            continue
-        fi
-
-        break
-    done
-
-    DOZZLE_PORT=$dozzle_port
     INSTALL_DOZZLE=true
 
-    print_success "Dozzle will be available at https://\${DOMAIN}:${DOZZLE_PORT}"
+    print_success "Dozzle will be available at https://\${DOMAIN}/dozzle/"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
