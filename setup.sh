@@ -53,12 +53,15 @@ DEFAULT_MGMT_PORT="3333"
 # Default ports for optional services
 DEFAULT_ADMINER_PORT="8080"
 DEFAULT_DOZZLE_PORT="9999"
+DEFAULT_PORTAINER_PORT="9000"
 
 # Optional service flags (set during configuration)
 INSTALL_CLOUDFLARE_TUNNEL=false
 INSTALL_TAILSCALE=false
 INSTALL_ADMINER=false
 INSTALL_DOZZLE=false
+INSTALL_PORTAINER=false
+INSTALL_PORTAINER_AGENT=false
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COLORS & STYLING
@@ -1229,11 +1232,33 @@ EOF
 
 EOF
 
-    # Add Portainer Agent if configured
-    if [ "$INSTALL_PORTAINER_AGENT" = true ]; then
+    # Add full Portainer if configured
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Portainer - Container Management UI
+  # ═══════════════════════════════════════════════════════════════════════════
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: n8n_portainer
+    restart: always
+    ports:
+      - "${PORTAINER_PORT:-9000}:9000"
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - n8n_network
+
+EOF
+    fi
+
+    # Add Portainer Agent if configured (for remote management)
+    if [ "$INSTALL_PORTAINER_AGENT" = true ] && [ "$INSTALL_PORTAINER" != true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
   # ═══════════════════════════════════════════════════════════════════════════
-  # Portainer Agent
+  # Portainer Agent (for remote Portainer server)
   # ═══════════════════════════════════════════════════════════════════════════
   portainer_agent:
     image: portainer/agent:latest
@@ -1372,6 +1397,14 @@ EOF
     if [ "$INSTALL_TAILSCALE" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   tailscale_data:
+    driver: local
+EOF
+    fi
+
+    # Add Portainer volume if full Portainer is configured
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  portainer_data:
     driver: local
 EOF
     fi
@@ -1872,14 +1905,50 @@ generate_encryption_key() {
 }
 
 configure_portainer() {
-    print_section "Portainer Agent Configuration"
+    print_section "Portainer Configuration"
 
-    if confirm_prompt "Install Portainer Agent for remote management?" "n"; then
-        INSTALL_PORTAINER_AGENT=true
-        print_success "Portainer Agent will be installed"
-    else
+    echo ""
+    echo -e "  ${GRAY}Portainer provides a web UI for managing Docker containers.${NC}"
+    echo ""
+
+    if ! confirm_prompt "Would you like to use Portainer?" "n"; then
+        INSTALL_PORTAINER=false
         INSTALL_PORTAINER_AGENT=false
+        return
     fi
+
+    echo ""
+    echo -e "  ${WHITE}Portainer Options:${NC}"
+    echo -e "    ${CYAN}1)${NC} Agent only - Connect to existing Portainer server"
+    echo -e "    ${CYAN}2)${NC} Full Portainer - Install Portainer server + agent locally"
+    echo ""
+
+    local portainer_choice=""
+    while [[ ! "$portainer_choice" =~ ^[12]$ ]]; do
+        echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
+        read portainer_choice
+    done
+
+    case $portainer_choice in
+        1)
+            INSTALL_PORTAINER=false
+            INSTALL_PORTAINER_AGENT=true
+            print_success "Portainer Agent will be installed (connect to your existing Portainer server on port 9001)"
+            ;;
+        2)
+            INSTALL_PORTAINER=true
+            INSTALL_PORTAINER_AGENT=true
+
+            # Configure Portainer port
+            local default_portainer_port="9000"
+            echo ""
+            echo -ne "${WHITE}  Portainer web UI port [${default_portainer_port}]${NC}: "
+            read portainer_port
+            PORTAINER_PORT=${portainer_port:-$default_portainer_port}
+
+            print_success "Full Portainer will be installed (UI at https://\${DOMAIN}:${PORTAINER_PORT})"
+            ;;
+    esac
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2103,15 +2172,18 @@ show_configuration_summary() {
     echo -e "  ${WHITE}${BOLD}Other Settings:${NC}"
     echo -e "    Timezone:            ${CYAN}$N8N_TIMEZONE${NC}"
     echo -e "    DNS Provider:        ${CYAN}$DNS_PROVIDER_NAME${NC}"
-    if [ "$INSTALL_PORTAINER_AGENT" = true ]; then
-        echo -e "    Portainer Agent:     ${GREEN}enabled${NC}"
-    fi
     echo ""
 
     # Show optional services if any are enabled
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] || [ "$INSTALL_TAILSCALE" = true ] || \
-       [ "$INSTALL_ADMINER" = true ] || [ "$INSTALL_DOZZLE" = true ]; then
+       [ "$INSTALL_ADMINER" = true ] || [ "$INSTALL_DOZZLE" = true ] || \
+       [ "$INSTALL_PORTAINER" = true ] || [ "$INSTALL_PORTAINER_AGENT" = true ]; then
         echo -e "  ${WHITE}${BOLD}Optional Services:${NC}"
+        if [ "$INSTALL_PORTAINER" = true ]; then
+            echo -e "    Portainer:           ${GREEN}enabled${NC} (port ${PORTAINER_PORT:-9000})"
+        elif [ "$INSTALL_PORTAINER_AGENT" = true ]; then
+            echo -e "    Portainer Agent:     ${GREEN}enabled${NC} (port 9001)"
+        fi
         if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
             echo -e "    Cloudflare Tunnel:   ${GREEN}enabled${NC}"
         fi
@@ -2298,6 +2370,9 @@ show_final_summary_v3() {
     echo -e "  ${WHITE}${BOLD}Access URLs:${NC}"
     echo -e "    n8n:                 ${CYAN}https://${N8N_DOMAIN}${NC}"
     echo -e "    Management Console:  ${CYAN}https://${N8N_DOMAIN}:${MGMT_PORT}${NC}"
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        echo -e "    Portainer:           ${CYAN}https://${N8N_DOMAIN}:${PORTAINER_PORT:-9000}${NC}"
+    fi
     if [ "$INSTALL_ADMINER" = true ]; then
         echo -e "    Adminer (DB):        ${CYAN}https://${N8N_DOMAIN}:${ADMINER_PORT}${NC}"
     fi
