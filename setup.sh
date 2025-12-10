@@ -2488,6 +2488,15 @@ configure_email() {
             fi
         fi
 
+        # Confirm email address
+        echo -ne "${WHITE}  Confirm email address${NC}: "
+        read email_confirm
+
+        if [ "$email_input" != "$email_confirm" ]; then
+            print_error "Email addresses do not match. Please try again."
+            continue
+        fi
+
         LETSENCRYPT_EMAIL="$email_input"
         print_success "Email set to: $LETSENCRYPT_EMAIL"
         break
