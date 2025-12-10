@@ -1566,6 +1566,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:5678/healthz || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - n8n_network
 
@@ -1661,6 +1667,12 @@ EOF
     depends_on:
       - n8n
       - n8n_management
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider --no-check-certificate https://localhost/ || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - n8n_network
 
