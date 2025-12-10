@@ -402,13 +402,14 @@ configure_nfs() {
 
     # Check NFS client
     if ! command_exists showmount; then
-        print_warning "NFS client not installed. Installing..."
-        if command_exists apt-get; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq nfs-common
-        elif command_exists yum; then
-            sudo yum install -y nfs-utils
+        print_warning "NFS client is not installed."
+        if confirm_prompt "Would you like to install NFS client now?"; then
+            if ! install_nfs_client; then
+                NFS_CONFIGURED="false"
+                return
+            fi
         else
-            print_error "Cannot install NFS client automatically. Please install manually."
+            print_error "NFS client is required for NFS backup storage."
             NFS_CONFIGURED="false"
             return
         fi
@@ -806,8 +807,118 @@ rollback_to_v2() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DOCKER INSTALLATION (unchanged from v2)
+# DEPENDENCY INSTALLATION
 # ═══════════════════════════════════════════════════════════════════════════════
+
+install_docker_linux() {
+    print_info "Installing Docker..."
+    echo ""
+
+    # Detect distribution
+    local distro=""
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        distro=$ID
+    elif [ -f /etc/debian_version ]; then
+        distro="debian"
+    elif [ -f /etc/redhat-release ]; then
+        distro="rhel"
+    fi
+
+    case $distro in
+        ubuntu|debian|linuxmint|pop)
+            print_info "Detected Debian/Ubuntu-based system"
+            echo ""
+
+            # Remove old versions
+            sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+
+            # Install prerequisites
+            sudo apt-get update
+            sudo apt-get install -y \
+                ca-certificates \
+                curl \
+                gnupg \
+                lsb-release
+
+            # Add Docker GPG key
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/$distro/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+            # Add Docker repository
+            echo \
+                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$distro \
+                $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            # Install Docker
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+            ;;
+        centos|rhel|fedora|rocky|almalinux)
+            print_info "Detected RHEL/CentOS-based system"
+            echo ""
+
+            # Remove old versions
+            sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
+
+            # Install prerequisites
+            sudo yum install -y yum-utils
+
+            # Add Docker repository
+            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+            # Install Docker
+            sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+            ;;
+        *)
+            print_error "Unsupported distribution: $distro"
+            print_info "Please install Docker manually: https://docs.docker.com/engine/install/"
+            exit 1
+            ;;
+    esac
+
+    # Start and enable Docker
+    sudo systemctl start docker
+    sudo systemctl enable docker
+
+    # Add current user to docker group
+    if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
+        sudo usermod -aG docker "$REAL_USER"
+        print_warning "Added $REAL_USER to docker group. You may need to log out and back in for this to take effect."
+    fi
+
+    print_success "Docker installed successfully!"
+
+    # Verify installation
+    local docker_version=$(docker --version 2>/dev/null | cut -d' ' -f3 | tr -d ',')
+    print_success "Docker version: $docker_version"
+}
+
+install_nfs_client() {
+    print_info "Installing NFS client..."
+
+    # Detect distribution
+    if command_exists apt-get; then
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq nfs-common
+    elif command_exists yum; then
+        sudo yum install -y nfs-utils
+    elif command_exists dnf; then
+        sudo dnf install -y nfs-utils
+    elif command_exists apk; then
+        sudo apk add nfs-utils
+    else
+        print_error "Cannot determine package manager. Please install NFS client manually."
+        return 1
+    fi
+
+    print_success "NFS client installed"
+    return 0
+}
 
 check_and_install_docker() {
     print_section "Docker Environment Check"
@@ -844,13 +955,23 @@ check_and_install_docker() {
             fi
         fi
     else
-        print_error "Docker is not installed. Please install Docker first."
+        print_warning "Docker is not installed."
         echo ""
-        echo -e "  ${GRAY}Installation instructions:${NC}"
-        echo -e "    Linux: https://docs.docker.com/engine/install/"
-        echo -e "    macOS: https://docs.docker.com/desktop/install/mac-install/"
-        echo -e "    Windows: https://docs.docker.com/desktop/install/windows-install/"
-        exit 1
+
+        if [ "$CURRENT_PLATFORM" = "linux" ]; then
+            if confirm_prompt "Would you like to install Docker now?"; then
+                install_docker_linux
+            else
+                print_error "Docker is required. Please install it manually."
+                echo -e "  ${GRAY}https://docs.docker.com/engine/install/${NC}"
+                exit 1
+            fi
+        else
+            print_error "Please install Docker Desktop and run this script again."
+            echo -e "  ${GRAY}macOS: https://docs.docker.com/desktop/install/mac-install/${NC}"
+            echo -e "  ${GRAY}Windows: https://docs.docker.com/desktop/install/windows-install/${NC}"
+            exit 1
+        fi
     fi
 
     # Check Docker Compose
