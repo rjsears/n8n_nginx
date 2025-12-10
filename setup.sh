@@ -1154,6 +1154,107 @@ check_and_install_docker() {
     fi
 }
 
+perform_system_checks() {
+    print_section "System Requirements Check"
+
+    local all_checks_passed=true
+
+    # Detect platform for system checks
+    local CHECK_PLATFORM=""
+    if [ "$(uname)" = "Darwin" ]; then
+        CHECK_PLATFORM="macos"
+    else
+        CHECK_PLATFORM="linux"
+    fi
+
+    # Check available disk space (need at least 5GB)
+    local available_space=""
+    if [ "$CHECK_PLATFORM" = "macos" ]; then
+        available_space=$(df -g "$SCRIPT_DIR" | awk 'NR==2 {print $4}')
+    else
+        available_space=$(df -BG "$SCRIPT_DIR" | awk 'NR==2 {print $4}' | tr -d 'G')
+    fi
+
+    if [ -n "$available_space" ] && [ "$available_space" -ge 5 ] 2>/dev/null; then
+        print_success "Disk space: ${available_space}GB available (5GB required)"
+    else
+        print_warning "Disk space: ${available_space:-unknown}GB available (5GB recommended)"
+        all_checks_passed=false
+    fi
+
+    # Check available memory (recommend at least 2GB)
+    local total_memory=""
+    if [ "$CHECK_PLATFORM" = "macos" ]; then
+        total_memory=$(sysctl -n hw.memsize 2>/dev/null | awk '{printf "%.0f", $1/1024/1024/1024}')
+    else
+        total_memory=$(free -g 2>/dev/null | awk '/^Mem:/{print $2}')
+    fi
+
+    if [ -n "$total_memory" ] && [ "$total_memory" -ge 2 ] 2>/dev/null; then
+        print_success "Memory: ${total_memory}GB total (2GB required)"
+    elif [ -n "$total_memory" ]; then
+        print_warning "Memory: ${total_memory}GB total (2GB recommended)"
+        all_checks_passed=false
+    else
+        print_info "Memory: Unable to determine (2GB recommended)"
+    fi
+
+    # Check if port 443 is available
+    local port_in_use=false
+    if [ "$CHECK_PLATFORM" = "macos" ]; then
+        if lsof -iTCP:443 -sTCP:LISTEN 2>/dev/null | grep -q LISTEN; then
+            port_in_use=true
+        fi
+    else
+        if ss -tulpn 2>/dev/null | grep -q ':443 ' || netstat -tulpn 2>/dev/null | grep -q ':443 '; then
+            port_in_use=true
+        fi
+    fi
+
+    if [ "$port_in_use" = true ]; then
+        print_warning "Port 443 is currently in use"
+        if [ "$CHECK_PLATFORM" = "macos" ]; then
+            lsof -iTCP:443 -sTCP:LISTEN 2>/dev/null || true
+        else
+            ss -tulpn 2>/dev/null | grep ':443 ' || netstat -tulpn 2>/dev/null | grep ':443 ' || true
+        fi
+        all_checks_passed=false
+    else
+        print_success "Port 443 is available"
+    fi
+
+    # Check if openssl is available
+    if command_exists openssl; then
+        print_success "OpenSSL is available"
+    else
+        print_warning "OpenSSL is not installed (needed for encryption key generation)"
+        all_checks_passed=false
+    fi
+
+    # Check if curl is available
+    if command_exists curl; then
+        print_success "curl is available"
+    else
+        print_warning "curl is not installed"
+        all_checks_passed=false
+    fi
+
+    # Check internet connectivity
+    if curl -s --connect-timeout 5 https://hub.docker.com >/dev/null 2>&1; then
+        print_success "Internet connectivity OK"
+    else
+        print_warning "Cannot reach Docker Hub - check internet connection"
+        all_checks_passed=false
+    fi
+
+    if [ "$all_checks_passed" = false ]; then
+        echo ""
+        if ! confirm_prompt "Some checks failed. Continue anyway?"; then
+            exit 1
+        fi
+    fi
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # GENERATE v3.0 DOCKER COMPOSE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1958,97 +2059,122 @@ configure_url() {
     print_section "Domain Configuration"
 
     echo -e "  ${GRAY}Enter the domain name where n8n will be accessible.${NC}"
-    echo -e "  ${GRAY}The domain must resolve to this server's IP address.${NC}"
+    echo -e "  ${GRAY}Example: n8n.yourdomain.com${NC}"
     echo ""
 
-    # Get local IPs for validation
+    prompt_with_default "Enter your n8n domain" "n8n.example.com" "N8N_DOMAIN"
+
+    # Validate domain format
+    if [[ ! "$N8N_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$ ]]; then
+        print_warning "Domain format may be invalid: $N8N_DOMAIN"
+        if ! confirm_prompt "Continue anyway?"; then
+            configure_url
+            return
+        fi
+    fi
+
+    validate_domain
+}
+
+validate_domain() {
+    print_subsection
+    echo -e "${WHITE}  Validating domain configuration...${NC}"
+    echo ""
+
+    # Get local IP addresses
     local local_ips=$(get_local_ips)
+    local domain_ip=""
+    local validation_passed=true
+
+    # Show local IPs
     echo -e "  ${WHITE}This server's IP addresses:${NC}"
-    echo "$local_ips" | while read ip; do
-        [ -n "$ip" ] && echo -e "    ${CYAN}${ip}${NC}"
+    for local_ip in $local_ips; do
+        echo -e "    ${CYAN}${local_ip}${NC}"
     done
     echo ""
 
-    while true; do
-        prompt_with_default "Enter your n8n domain" "n8n.example.com" "N8N_DOMAIN"
+    # Try to resolve the domain
+    print_info "Resolving $N8N_DOMAIN..."
 
-        # Skip validation for example.com domains
-        if [[ "$N8N_DOMAIN" == *"example.com"* ]]; then
-            print_warning "Using example domain - skipping DNS validation"
-            break
-        fi
+    if command_exists dig; then
+        domain_ip=$(dig +short "$N8N_DOMAIN" 2>/dev/null | head -1)
+    elif command_exists nslookup; then
+        domain_ip=$(nslookup "$N8N_DOMAIN" 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | head -1)
+    elif command_exists host; then
+        domain_ip=$(host "$N8N_DOMAIN" 2>/dev/null | grep "has address" | awk '{print $4}' | head -1)
+    elif command_exists getent; then
+        domain_ip=$(getent hosts "$N8N_DOMAIN" 2>/dev/null | awk '{print $1}' | head -1)
+    fi
 
-        # DNS lookup
-        print_info "Checking DNS for ${N8N_DOMAIN}..."
+    if [ -z "$domain_ip" ]; then
+        print_warning "Could not resolve $N8N_DOMAIN to an IP address"
+        echo ""
+        echo -e "  ${YELLOW}This could mean:${NC}"
+        echo -e "    - The DNS record hasn't been created yet"
+        echo -e "    - The DNS hasn't propagated yet"
+        echo -e "    - The domain name is incorrect"
+        echo ""
+        validation_passed=false
+    else
+        print_success "Domain resolves to: $domain_ip"
 
-        local resolved_ip=""
-        if command_exists dig; then
-            resolved_ip=$(dig +short "$N8N_DOMAIN" A 2>/dev/null | head -1)
-        elif command_exists host; then
-            resolved_ip=$(host "$N8N_DOMAIN" 2>/dev/null | grep "has address" | head -1 | awk '{print $NF}')
-        elif command_exists nslookup; then
-            resolved_ip=$(nslookup "$N8N_DOMAIN" 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | head -1)
-        elif command_exists getent; then
-            resolved_ip=$(getent hosts "$N8N_DOMAIN" 2>/dev/null | awk '{print $1}' | head -1)
-        fi
-
-        if [ -z "$resolved_ip" ]; then
-            print_error "Could not resolve ${N8N_DOMAIN}"
-            echo ""
-            echo -e "  ${WHITE}Options:${NC}"
-            echo -e "    ${CYAN}1)${NC} Try a different domain"
-            echo -e "    ${CYAN}2)${NC} Continue anyway (DNS may not be set up yet)"
-            echo ""
-
-            local dns_choice=""
-            while [[ ! "$dns_choice" =~ ^[12]$ ]]; do
-                echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
-                read dns_choice
-            done
-
-            if [ "$dns_choice" = "1" ]; then
-                continue
-            else
-                print_warning "Continuing without DNS validation - ensure DNS is configured before deployment"
+        # Check if the resolved IP matches any local IP
+        local ip_matches=false
+        for local_ip in $local_ips; do
+            if [ "$local_ip" = "$domain_ip" ]; then
+                ip_matches=true
                 break
             fi
-        fi
+        done
 
-        echo -e "  ${WHITE}Domain resolves to:${NC} ${CYAN}${resolved_ip}${NC}"
-
-        # Check if resolved IP matches any local IP
-        if echo "$local_ips" | grep -qw "$resolved_ip"; then
-            print_success "DNS verified - ${N8N_DOMAIN} points to this server"
-            break
+        if [ "$ip_matches" = true ]; then
+            print_success "Domain IP matches this server"
         else
-            print_warning "Domain ${N8N_DOMAIN} resolves to ${resolved_ip}"
-            print_warning "This does not match any IP address on this server"
+            print_warning "Domain IP ($domain_ip) does not match any local IP"
             echo ""
-            echo -e "  ${GRAY}This could be normal if:${NC}"
-            echo -e "    • You're using Cloudflare Tunnel (domain won't point directly to server)"
-            echo -e "    • You're behind a NAT/load balancer"
-            echo -e "    • DNS hasn't propagated yet"
+            echo -e "  ${YELLOW}IMPORTANT:${NC}"
+            echo -e "  ${YELLOW}The domain $N8N_DOMAIN points to $domain_ip${NC}"
+            echo -e "  ${YELLOW}but this server's IPs are different.${NC}"
             echo ""
-            echo -e "  ${WHITE}Options:${NC}"
-            echo -e "    ${CYAN}1)${NC} Try a different domain"
-            echo -e "    ${CYAN}2)${NC} Continue anyway (I know what I'm doing)"
+            echo -e "  ${YELLOW}This will cause the n8n stack to fail because:${NC}"
+            echo -e "    - SSL certificate validation will fail"
+            echo -e "    - Webhooks won't reach this server"
+            echo -e "    - The n8n UI won't be accessible"
             echo ""
-
-            local ip_choice=""
-            while [[ ! "$ip_choice" =~ ^[12]$ ]]; do
-                echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
-                read ip_choice
-            done
-
-            if [ "$ip_choice" = "1" ]; then
-                continue
-            else
-                print_info "Continuing with ${N8N_DOMAIN}"
-                break
-            fi
+            echo -e "  ${GRAY}Note: This is OK if you're using Cloudflare Tunnel${NC}"
+            echo -e "  ${GRAY}or are behind a NAT/load balancer.${NC}"
+            echo ""
+            validation_passed=false
         fi
-    done
+    fi
 
+    # Ping test (if we got an IP)
+    if [ -n "$domain_ip" ]; then
+        print_info "Testing connectivity to $domain_ip..."
+        if ping -c 1 -W 5 "$domain_ip" >/dev/null 2>&1; then
+            print_success "Host $domain_ip is reachable"
+        else
+            print_warning "Cannot ping $domain_ip (may be blocked by firewall)"
+        fi
+    fi
+
+    if [ "$validation_passed" = false ]; then
+        echo ""
+        echo -e "  ${RED}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "  ${RED}║                              WARNING                                      ║${NC}"
+        echo -e "  ${RED}║  The domain validation found issues that may prevent n8n from working.   ║${NC}"
+        echo -e "  ${RED}║  Please ensure your DNS is properly configured before continuing.        ║${NC}"
+        echo -e "  ${RED}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+
+        if ! confirm_prompt "Do you understand the risks and want to continue?"; then
+            echo ""
+            print_info "Please configure your DNS correctly and run this script again."
+            exit 1
+        fi
+    fi
+
+    # Set derived URL values
     N8N_URL="https://${N8N_DOMAIN}"
     WEBHOOK_URL="https://${N8N_DOMAIN}"
     EDITOR_BASE_URL="https://${N8N_DOMAIN}"
@@ -2095,18 +2221,26 @@ configure_email() {
 configure_timezone() {
     print_section "Timezone Configuration"
 
+    local default_tz="America/Los_Angeles"
     local system_tz=""
+
+    # Detect system timezone for reference
     if [ -f /etc/timezone ]; then
         system_tz=$(cat /etc/timezone)
     elif command_exists timedatectl; then
         system_tz=$(timedatectl show -p Timezone --value 2>/dev/null)
     fi
-    system_tz=${system_tz:-America/Los_Angeles}
 
-    if confirm_prompt "Use $system_tz as the timezone?" "y"; then
-        N8N_TIMEZONE="$system_tz"
+    if [ -n "$system_tz" ] && [ "$system_tz" != "$default_tz" ]; then
+        echo -e "  ${WHITE}System timezone detected: ${CYAN}$system_tz${NC}"
+        echo ""
+    fi
+
+    if confirm_prompt "Use $default_tz as the timezone?" "y"; then
+        N8N_TIMEZONE="$default_tz"
     else
-        prompt_with_default "Timezone" "$system_tz" "N8N_TIMEZONE"
+        local tz_suggestion="${system_tz:-$default_tz}"
+        prompt_with_default "Timezone" "$tz_suggestion" "N8N_TIMEZONE"
     fi
 
     print_success "Timezone set to: $N8N_TIMEZONE"
@@ -2742,6 +2876,9 @@ main() {
 
     # Docker check
     check_and_install_docker
+
+    # System requirements check
+    perform_system_checks
 
     # Version detection
     handle_version_detection
