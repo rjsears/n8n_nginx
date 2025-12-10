@@ -1615,6 +1615,8 @@ EOF
     fi
 
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -2611,7 +2613,9 @@ configure_portainer() {
             done
 
             PORTAINER_PORT=$portainer_port
-            print_success "Full Portainer will be installed (UI at https://\${DOMAIN}:${PORTAINER_PORT})"
+            print_success "Full Portainer will be installed"
+            echo -e "    ${GRAY}HTTP:  http://\${DOMAIN}:${PORTAINER_PORT}${NC}"
+            echo -e "    ${GRAY}HTTPS: https://\${DOMAIN}:9443${NC}"
             ;;
     esac
 }
@@ -2690,10 +2694,6 @@ configure_cloudflare_tunnel() {
     local token_preview="${CF_TUNNEL_TOKEN:0:8}...${CF_TUNNEL_TOKEN: -4}"
     print_success "Cloudflare Tunnel configured"
     echo -e "    ${GRAY}Token: ${token_preview}${NC}"
-    echo ""
-    print_info "Configure your tunnel's public hostname in the Cloudflare dashboard:"
-    echo -e "    ${GRAY}• Add a public hostname pointing to http://n8n:5678${NC}"
-    echo -e "    ${GRAY}• (Optional) Add management at http://n8n_management:8000${NC}"
 }
 
 configure_tailscale() {
@@ -3045,7 +3045,8 @@ show_final_summary_v3() {
     echo -e "    n8n:                 ${CYAN}https://${N8N_DOMAIN}${NC}"
     echo -e "    Management Console:  ${CYAN}https://${N8N_DOMAIN}:${MGMT_PORT}${NC}"
     if [ "$INSTALL_PORTAINER" = true ]; then
-        echo -e "    Portainer:           ${CYAN}https://${N8N_DOMAIN}:${PORTAINER_PORT:-9000}${NC}"
+        echo -e "    Portainer (HTTP):    ${CYAN}http://${N8N_DOMAIN}:${PORTAINER_PORT:-9000}${NC}"
+        echo -e "    Portainer (HTTPS):   ${CYAN}https://${N8N_DOMAIN}:9443${NC}"
     fi
     if [ "$INSTALL_ADMINER" = true ]; then
         echo -e "    Adminer (DB):        ${CYAN}https://${N8N_DOMAIN}:${ADMINER_PORT}${NC}"
@@ -3064,7 +3065,6 @@ show_final_summary_v3() {
         echo -e "  ${WHITE}${BOLD}Network Access:${NC}"
         if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
             echo -e "    Cloudflare Tunnel:   ${GREEN}Active${NC}"
-            echo -e "    ${GRAY}Configure public hostnames in Cloudflare dashboard${NC}"
         fi
         if [ "$INSTALL_TAILSCALE" = true ]; then
             echo -e "    Tailscale:           ${GREEN}Active${NC} (${TAILSCALE_HOSTNAME})"
