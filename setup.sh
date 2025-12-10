@@ -2497,22 +2497,14 @@ generate_encryption_key() {
 }
 
 configure_portainer() {
-    print_section "Portainer Configuration"
-
+    print_subsection
+    echo -e "${WHITE}  Portainer Configuration${NC}"
     echo ""
     echo -e "  ${GRAY}Portainer provides a web UI for managing Docker containers.${NC}"
     echo ""
-
-    if ! confirm_prompt "Would you like to use Portainer?" "n"; then
-        INSTALL_PORTAINER=false
-        INSTALL_PORTAINER_AGENT=false
-        return
-    fi
-
-    echo ""
     echo -e "  ${WHITE}Portainer Options:${NC}"
     echo -e "    ${CYAN}1)${NC} Agent only - Connect to existing Portainer server (installs agent on port 9001)"
-    echo -e "    ${CYAN}2)${NC} Full Portainer - Install Portainer server (Local Agent Not Needed)"
+    echo -e "    ${CYAN}2)${NC} Full Portainer - Install Portainer server"
     echo ""
 
     local portainer_choice=""
@@ -2529,10 +2521,9 @@ configure_portainer() {
             ;;
         2)
             INSTALL_PORTAINER=true
-            INSTALL_PORTAINER_AGENT=false  # Full Portainer manages local containers directly
+            INSTALL_PORTAINER_AGENT=false
 
-            print_success "Full Portainer will be installed"
-            echo -e "    ${GRAY}URL: https://\${DOMAIN}/portainer/${NC}"
+            print_success "Full Portainer will be installed at /portainer/"
             ;;
     esac
 }
@@ -2547,14 +2538,24 @@ configure_optional_services() {
     echo ""
     echo -e "  ${GRAY}The following optional services can be added to your installation:${NC}"
     echo ""
-    echo -e "  ${WHITE}${BOLD}Available Optional Services:${NC}"
+    echo -e "  ${WHITE}${BOLD}Container Management:${NC}"
+    echo -e "    ${CYAN}•${NC} Portainer - Docker container management UI"
+    echo ""
+    echo -e "  ${WHITE}${BOLD}External Access:${NC}"
     echo -e "    ${CYAN}•${NC} Cloudflare Tunnel - Secure access without exposing ports"
     echo -e "    ${CYAN}•${NC} Tailscale - Private mesh VPN network access"
+    echo ""
+    echo -e "  ${WHITE}${BOLD}Development Tools:${NC}"
     echo -e "    ${CYAN}•${NC} Adminer - Web-based database management"
     echo -e "    ${CYAN}•${NC} Dozzle - Real-time container log viewer"
     echo ""
 
     if confirm_prompt "Would you like to configure optional services?" "n"; then
+        # Portainer
+        if confirm_prompt "  Install Portainer for container management?" "n"; then
+            configure_portainer
+        fi
+
         # Cloudflare Tunnel
         if confirm_prompt "  Configure Cloudflare Tunnel for secure external access?" "n"; then
             configure_cloudflare_tunnel
@@ -3116,56 +3117,48 @@ main() {
             save_state "Encryption Key" 7
         fi
 
-        # Step 8: Portainer
+        # Step 8: Management Port
         if [ "$CURRENT_STEP" -lt 8 ]; then
-            configure_portainer
-            save_state "Portainer" 8
-        fi
-
-        # Step 9: Management Port
-        if [ "$CURRENT_STEP" -lt 9 ]; then
             configure_management_port
-            save_state "Management Port" 9
+            save_state "Management Port" 8
         fi
 
-        # Step 10: NFS
-        if [ "$CURRENT_STEP" -lt 10 ]; then
+        # Step 9: NFS
+        if [ "$CURRENT_STEP" -lt 9 ]; then
             configure_nfs
-            save_state "NFS Storage" 10
+            save_state "NFS Storage" 9
         fi
 
-        # Step 11: Notifications
-        if [ "$CURRENT_STEP" -lt 11 ]; then
+        # Step 10: Notifications
+        if [ "$CURRENT_STEP" -lt 10 ]; then
             configure_notifications
-            save_state "Notifications" 11
+            save_state "Notifications" 10
         fi
 
-        # Step 12: Admin User
-        if [ "$CURRENT_STEP" -lt 12 ]; then
+        # Step 11: Admin User
+        if [ "$CURRENT_STEP" -lt 11 ]; then
             create_admin_user
-            save_state "Admin User" 12
+            save_state "Admin User" 11
         fi
 
-        # Step 13: Optional Services
-        if [ "$CURRENT_STEP" -lt 13 ]; then
+        # Step 12: Optional Services (Portainer, Cloudflare Tunnel, Tailscale, Adminer, Dozzle)
+        if [ "$CURRENT_STEP" -lt 12 ]; then
             configure_optional_services
-            save_state "Optional Services" 13
+            save_state "Optional Services" 12
         fi
 
         # Summary and confirmation
         if ! show_configuration_summary; then
-            # User wants to reconfigure - restart from management port
-            CURRENT_STEP=8
-            configure_management_port
-            save_state "Management Port" 9
+            # User wants to reconfigure - restart from NFS
+            CURRENT_STEP=9
             configure_nfs
-            save_state "NFS Storage" 10
+            save_state "NFS Storage" 9
             configure_notifications
-            save_state "Notifications" 11
+            save_state "Notifications" 10
             create_admin_user
-            save_state "Admin User" 12
+            save_state "Admin User" 11
             configure_optional_services
-            save_state "Optional Services" 13
+            save_state "Optional Services" 12
 
             # Show summary again
             if ! show_configuration_summary; then
