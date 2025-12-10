@@ -1493,10 +1493,8 @@ generate_env_file() {
     # Generate secrets if not already set
     if command_exists openssl; then
         MGMT_SECRET_KEY=${MGMT_SECRET_KEY:-$(openssl rand -base64 32)}
-        MGMT_DB_PASSWORD=${MGMT_DB_PASSWORD:-$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)}
     else
         MGMT_SECRET_KEY=${MGMT_SECRET_KEY:-$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)}
-        MGMT_DB_PASSWORD=${MGMT_DB_PASSWORD:-$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)}
     fi
 
     cat > "${SCRIPT_DIR}/.env" << EOF
@@ -1519,10 +1517,10 @@ POSTGRES_DB=${DB_NAME}
 # n8n encryption key
 N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
 
-# Management console
+# Management console (uses same DB credentials as n8n)
 MGMT_SECRET_KEY=${MGMT_SECRET_KEY}
 MGMT_DB_USER=${DB_USER}
-MGMT_DB_PASSWORD=${MGMT_DB_PASSWORD}
+MGMT_DB_PASSWORD=${DB_PASSWORD}
 MGMT_PORT=${MGMT_PORT:-3333}
 
 # Timezone
