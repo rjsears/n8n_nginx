@@ -1734,7 +1734,7 @@ EOF
       - n8n
       - n8n_management
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q --spider --no-check-certificate https://localhost/ || exit 1']
+      test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
