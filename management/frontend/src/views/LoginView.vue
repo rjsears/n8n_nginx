@@ -26,7 +26,7 @@ async function handleLogin() {
   error.value = ''
 
   try {
-    await authStore.login(username.value, password.value)
+    await authStore.login({ username: username.value, password: password.value })
     notificationStore.success('Welcome back!')
     router.push('/dashboard')
   } catch (err) {
