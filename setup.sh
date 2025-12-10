@@ -2148,19 +2148,24 @@ configure_cloudflare() {
     echo ""
 
     echo -ne "${WHITE}  Enter your Cloudflare API token${NC}: "
-    read CF_API_TOKEN
+    read -s CF_API_TOKEN
+    echo ""
 
     if [ -z "$CF_API_TOKEN" ]; then
         print_error "API token is required for Cloudflare"
         exit 1
     fi
 
+    # Show masked token for confirmation
+    local token_preview="${CF_API_TOKEN:0:8}...${CF_API_TOKEN: -4}"
+    print_success "Cloudflare credentials saved"
+    echo -e "    ${GRAY}Token: ${token_preview}${NC}"
+
     cat > "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}" << EOF
 dns_cloudflare_api_token = ${CF_API_TOKEN}
 EOF
 
     chmod 600 "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}"
-    print_success "Cloudflare credentials saved"
 
     DNS_CERTBOT_FLAGS="--dns-cloudflare --dns-cloudflare-credentials /credentials.ini --dns-cloudflare-propagation-seconds 60"
 }
@@ -2175,14 +2180,23 @@ configure_route53() {
     echo ""
 
     echo -ne "${WHITE}  Enter your AWS Access Key ID${NC}: "
-    read AWS_ACCESS_KEY_ID
+    read -s AWS_ACCESS_KEY_ID
+    echo ""
     echo -ne "${WHITE}  Enter your AWS Secret Access Key${NC}: "
-    read AWS_SECRET_ACCESS_KEY
+    read -s AWS_SECRET_ACCESS_KEY
+    echo ""
 
     if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
         print_error "Both AWS credentials are required"
         exit 1
     fi
+
+    # Show masked credentials for confirmation
+    local key_preview="${AWS_ACCESS_KEY_ID:0:4}...${AWS_ACCESS_KEY_ID: -4}"
+    local secret_preview="${AWS_SECRET_ACCESS_KEY:0:4}...${AWS_SECRET_ACCESS_KEY: -4}"
+    print_success "AWS credentials saved"
+    echo -e "    ${GRAY}Access Key: ${key_preview}${NC}"
+    echo -e "    ${GRAY}Secret Key: ${secret_preview}${NC}"
 
     cat > "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}" << EOF
 [default]
@@ -2191,7 +2205,6 @@ aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
 EOF
 
     chmod 600 "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}"
-    print_success "AWS credentials saved"
 
     DNS_CERTBOT_FLAGS="--dns-route53"
 }
@@ -2230,19 +2243,24 @@ configure_digitalocean() {
     echo ""
 
     echo -ne "${WHITE}  Enter your DigitalOcean API token${NC}: "
-    read DO_API_TOKEN
+    read -s DO_API_TOKEN
+    echo ""
 
     if [ -z "$DO_API_TOKEN" ]; then
         print_error "API token is required"
         exit 1
     fi
 
+    # Show masked token for confirmation
+    local token_preview="${DO_API_TOKEN:0:8}...${DO_API_TOKEN: -4}"
+    print_success "DigitalOcean credentials saved"
+    echo -e "    ${GRAY}Token: ${token_preview}${NC}"
+
     cat > "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}" << EOF
 dns_digitalocean_token = ${DO_API_TOKEN}
 EOF
 
     chmod 600 "${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE}"
-    print_success "DigitalOcean credentials saved"
 
     DNS_CERTBOT_FLAGS="--dns-digitalocean --dns-digitalocean-credentials /credentials.ini --dns-digitalocean-propagation-seconds 60"
 }
@@ -2703,7 +2721,13 @@ configure_tailscale() {
     TAILSCALE_AUTH_KEY="$TS_AUTH_KEY"
     INSTALL_TAILSCALE=true
 
+    # Show masked key for confirmation
+    local key_preview="${TS_AUTH_KEY:0:8}...${TS_AUTH_KEY: -4}"
+    print_success "Auth key accepted"
+    echo -e "    ${GRAY}Key: ${key_preview}${NC}"
+
     # Optional hostname
+    echo ""
     echo -ne "${WHITE}  Tailscale hostname [n8n-server]${NC}: "
     read ts_hostname
     TAILSCALE_HOSTNAME=${ts_hostname:-n8n-server}
