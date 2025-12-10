@@ -179,75 +179,41 @@ get_local_ips() {
     ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'
 }
 
-# Arrow-key selection menu
+# Numbered selection menu
 # Usage: select_from_menu "prompt" "${options[@]}"
 # Returns: selected index in $MENU_SELECTION, selected value in $MENU_VALUE
 select_from_menu() {
     local prompt="$1"
     shift
     local -a options=("$@")
-    local selected=0
-    local key=""
     local i
     local num_options=${#options[@]}
-
-    # Hide cursor
-    tput civis 2>/dev/null || true
+    local choice=""
 
     echo ""
     echo -e "  ${WHITE}$prompt${NC}"
-    echo -e "  ${GRAY}(Use ↑/↓ arrows to navigate, Enter to select)${NC}"
     echo ""
 
-    # Draw initial menu
+    # Display numbered options
     for i in "${!options[@]}"; do
-        if [ $i -eq $selected ]; then
-            echo -e "    ${CYAN}▶${NC} ${WHITE}${options[$i]}${NC}  "
-        else
-            echo -e "      ${GRAY}${options[$i]}${NC}  "
-        fi
+        echo -e "    ${CYAN}$((i + 1)))${NC} ${options[$i]}"
     done
+    echo ""
 
-    # Read keypresses
+    # Get selection
     while true; do
-        # Read a single character
-        IFS= read -rsn1 key
+        echo -ne "${WHITE}  Enter your choice [1-${num_options}]${NC}: "
+        read choice
 
-        # Check for escape sequence (arrow keys)
-        if [ "$key" = $'\x1b' ]; then
-            read -rsn2 key
-            case "$key" in
-                '[A') # Up arrow
-                    if [ $selected -gt 0 ]; then
-                        ((selected--))
-                    fi
-                    ;;
-                '[B') # Down arrow
-                    if [ $selected -lt $((num_options - 1)) ]; then
-                        ((selected++))
-                    fi
-                    ;;
-            esac
-            # Redraw menu - move cursor up first
-            tput cuu $num_options 2>/dev/null || printf '\033[%dA' $num_options
-            for i in "${!options[@]}"; do
-                if [ $i -eq $selected ]; then
-                    echo -e "    ${CYAN}▶${NC} ${WHITE}${options[$i]}${NC}  "
-                else
-                    echo -e "      ${GRAY}${options[$i]}${NC}  "
-                fi
-            done
-        elif [ "$key" = "" ]; then
-            # Enter pressed
+        # Validate input
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$num_options" ]; then
+            MENU_SELECTION=$((choice - 1))
+            MENU_VALUE="${options[$MENU_SELECTION]}"
             break
+        else
+            print_error "Invalid selection. Please enter a number between 1 and ${num_options}"
         fi
     done
-
-    # Show cursor again
-    tput cnorm 2>/dev/null || true
-
-    MENU_SELECTION=$selected
-    MENU_VALUE="${options[$selected]}"
 }
 
 # Check if IP matches a CIDR range or host specification
