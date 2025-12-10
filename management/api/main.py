@@ -46,6 +46,10 @@ async def lifespan(app: FastAPI):
             auth_service = AuthService(db)
             existing_user = await auth_service.get_user_by_username(app_settings.admin_username)
             if not existing_user:
+                # Validate password is not empty
+                if not app_settings.admin_password or len(app_settings.admin_password.strip()) < 8:
+                    logger.error("ADMIN_PASSWORD must be set and at least 8 characters. Check your environment variables.")
+                    raise ValueError("ADMIN_PASSWORD is required and must be at least 8 characters")
                 await auth_service.create_user(
                     username=app_settings.admin_username,
                     password=app_settings.admin_password,
