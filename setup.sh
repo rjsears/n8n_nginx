@@ -666,43 +666,7 @@ configure_management_port() {
     echo -e "    • System health monitoring"
     echo ""
 
-    local default_port=$DEFAULT_MGMT_PORT
-
-    while true; do
-        echo ""
-        echo -ne "${WHITE}  Management interface port${NC} [${default_port}]: "
-        read mgmt_port
-        mgmt_port=${mgmt_port:-$default_port}
-
-        # Validate port number
-        if ! [[ "$mgmt_port" =~ ^[0-9]+$ ]]; then
-            print_error "Invalid port number"
-            continue
-        fi
-
-        if [ "$mgmt_port" -lt 1024 ] || [ "$mgmt_port" -gt 65535 ]; then
-            print_error "Port must be between 1024 and 65535"
-            continue
-        fi
-
-        # Check reserved ports
-        local reserved_ports="80 443 5432 5678 8080 8443"
-        if echo "$reserved_ports" | grep -qw "$mgmt_port"; then
-            print_error "Port $mgmt_port is reserved for other services"
-            continue
-        fi
-
-        # Check if port is in use
-        if ss -tuln 2>/dev/null | grep -q ":${mgmt_port} "; then
-            print_error "Port $mgmt_port is already in use"
-            continue
-        fi
-
-        break
-    done
-
-    MGMT_PORT=$mgmt_port
-    print_success "Management interface will be available at https://\${DOMAIN}:${MGMT_PORT}"
+    print_success "Management interface will be available at https://\${DOMAIN}/management/"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -906,7 +870,7 @@ configure_notifications() {
     echo -e "    • Twilio SMS, NTFY"
     echo -e "    • And 80+ more services"
     echo ""
-    echo -e "  ${CYAN}Configure at:${NC} https://\${DOMAIN}:\${MGMT_PORT} → Settings → Notifications"
+    echo -e "  ${CYAN}Configure at:${NC} https://\${DOMAIN}/management/ → Settings → Notifications"
     echo ""
 
     NOTIFICATIONS_CONFIGURED="false"
@@ -1684,10 +1648,9 @@ EOF
     restart: always
     ports:
       - "443:443"
-      - "${MGMT_PORT}:${MGMT_PORT}"
 EOF
 
-    # Note: Adminer, Dozzle, and Portainer are now accessed via /adminer/, /dozzle/, /portainer/ paths on port 443
+    # Note: All services (Management, Adminer, Dozzle, Portainer) accessed via paths on port 443
 
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
@@ -2070,57 +2033,30 @@ EOF
 EOF
     fi
 
-    # Close the main server block
-    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
-    }
+    # Add Management Console location block
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Management Console HTTPS Server (Port ${MGMT_PORT})
-    # ═══════════════════════════════════════════════════════════════════════════
-    server {
-        listen ${MGMT_PORT} ssl http2;
-        server_name ${N8N_DOMAIN};
-
-        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
-
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-        ssl_prefer_server_ciphers off;
-        ssl_session_cache shared:SSL:10m;
-        ssl_session_timeout 10m;
-
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-XSS-Protection "1; mode=block" always;
-        add_header X-Frame-Options "DENY" always;
-
-        # API endpoints
-        location /api/ {
-            proxy_pass http://management;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
+        # Management Console
+        location /management/ {
+            proxy_pass http://management/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
             proxy_buffering off;
         }
 
-        # Frontend static files
-        location / {
-            proxy_pass http://management;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
+        location /management/api/ {
+            proxy_pass http://management/api/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection "upgrade";
-        }
-
-        # Health check
-        location /health {
-            access_log off;
-            proxy_pass http://management/api/health;
+            proxy_buffering off;
         }
     }
 }
@@ -2747,16 +2683,17 @@ show_configuration_summary() {
     echo -e "  ${WHITE}${BOLD}Domain & URL:${NC}"
     echo -e "    Domain:              ${CYAN}$N8N_DOMAIN${NC}"
     echo -e "    n8n URL:             ${CYAN}https://$N8N_DOMAIN${NC}"
-    echo -e "    Management URL:      ${CYAN}https://$N8N_DOMAIN:$MGMT_PORT${NC}"
+    echo -e "    Management URL:      ${CYAN}https://$N8N_DOMAIN/management/${NC}"
     echo ""
 
     echo -e "  ${WHITE}${BOLD}Database:${NC}"
     echo -e "    Name:                ${CYAN}$DB_NAME${NC}"
     echo -e "    User:                ${CYAN}$DB_USER${NC}"
+    echo -e "    Password:            ${CYAN}$DB_PASSWORD${NC}"
     echo ""
 
     echo -e "  ${WHITE}${BOLD}Management Console:${NC}"
-    echo -e "    Port:                ${CYAN}$MGMT_PORT${NC}"
+    echo -e "    URL:                 ${CYAN}/management/${NC}"
     echo -e "    Admin User:          ${CYAN}$ADMIN_USER${NC}"
     echo -e "    NFS Storage:         ${CYAN}${NFS_CONFIGURED:-false}${NC}"
     echo -e "    Notifications:       ${CYAN}${NOTIFICATIONS_CONFIGURED:-false}${NC}"
@@ -2962,7 +2899,7 @@ show_final_summary_v3() {
     echo ""
     echo -e "  ${WHITE}${BOLD}Access URLs:${NC}"
     echo -e "    n8n:                 ${CYAN}https://${N8N_DOMAIN}${NC}"
-    echo -e "    Management Console:  ${CYAN}https://${N8N_DOMAIN}:${MGMT_PORT}${NC}"
+    echo -e "    Management Console:  ${CYAN}https://${N8N_DOMAIN}/management/${NC}"
     if [ "$INSTALL_PORTAINER" = true ]; then
         echo -e "    Portainer:           ${CYAN}https://${N8N_DOMAIN}/portainer/${NC}"
     fi
@@ -2977,6 +2914,14 @@ show_final_summary_v3() {
     echo -e "    Username:            ${CYAN}${ADMIN_USER}${NC}"
     echo -e "    Password:            ${GRAY}[as configured]${NC}"
     echo ""
+    if [ "$INSTALL_ADMINER" = true ]; then
+        echo -e "  ${WHITE}${BOLD}Database Credentials (for Adminer):${NC}"
+        echo -e "    Server:              ${CYAN}postgres${NC}"
+        echo -e "    Username:            ${CYAN}${DB_USER}${NC}"
+        echo -e "    Password:            ${CYAN}${DB_PASSWORD}${NC}"
+        echo -e "    Database:            ${CYAN}${DB_NAME}${NC}"
+        echo ""
+    fi
 
     # Show optional services info
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] || [ "$INSTALL_TAILSCALE" = true ]; then
