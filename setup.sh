@@ -1481,8 +1481,6 @@ generate_docker_compose_v3() {
     esac
 
     cat > "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-version: '3.8'
-
 services:
   # ═══════════════════════════════════════════════════════════════════════════
   # PostgreSQL Database
