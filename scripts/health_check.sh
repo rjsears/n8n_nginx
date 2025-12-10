@@ -411,7 +411,14 @@ check_ssl_certificates() {
 
     log INFO "Checking SSL certificates..."
 
-    # Check if nginx container is running (needed to access certificates)
+    # Check if openssl is available on the host
+    if ! command -v openssl &> /dev/null; then
+        log WARN "openssl not installed - cannot check SSL certificates"
+        HEALTH_STATUS["ssl_cert"]="unknown"
+        return 0
+    fi
+
+    # Check if nginx container is running
     if ! docker ps --format '{{.Names}}' | grep -q "^n8n_nginx$"; then
         log WARN "Nginx container not running - cannot check SSL certificates"
         HEALTH_STATUS["ssl_cert"]="unknown"
@@ -428,22 +435,20 @@ check_ssl_certificates() {
         return 0
     fi
 
-    local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
     log INFO "Checking certificate for domain: $domain"
 
-    # Check if certificate exists
-    if ! docker exec n8n_nginx test -f "$cert_path" 2>/dev/null; then
-        log WARN "SSL certificate not found at $cert_path"
-        HEALTH_STATUS["ssl_cert"]="missing"
-        return 0
-    fi
-
-    # Check certificate expiration using openssl inside nginx container
+    # Check certificate expiration by connecting to the HTTPS server
+    # This works regardless of where the cert files are stored
     local expiry_date
-    expiry_date=$(docker exec n8n_nginx openssl x509 -enddate -noout -in "$cert_path" 2>/dev/null | cut -d= -f2)
+    expiry_date=$(echo | timeout 10 openssl s_client -servername "$domain" -connect localhost:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
 
     if [ -z "$expiry_date" ]; then
-        log ERROR "Cannot read SSL certificate"
+        # Fallback: try connecting to the domain directly
+        expiry_date=$(echo | timeout 10 openssl s_client -servername "$domain" -connect "${domain}:443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+    fi
+
+    if [ -z "$expiry_date" ]; then
+        log ERROR "Cannot read SSL certificate from server"
         HEALTH_STATUS["ssl_cert"]="error"
         return 1
     fi
