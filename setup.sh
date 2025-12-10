@@ -2367,9 +2367,6 @@ validate_domain() {
             echo -e "    - Webhooks won't reach this server"
             echo -e "    - The n8n UI won't be accessible"
             echo ""
-            echo -e "  ${GRAY}Note: This is OK if you're using Cloudflare Tunnel${NC}"
-            echo -e "  ${GRAY}or are behind a NAT/load balancer.${NC}"
-            echo ""
             validation_passed=false
         fi
     fi
