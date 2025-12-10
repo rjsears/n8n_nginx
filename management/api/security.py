@@ -27,13 +27,17 @@ pwd_context = CryptContext(
 
 
 def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    return pwd_context.hash(password)
+    """Hash a password using bcrypt. Truncates to 72 bytes (bcrypt limit)."""
+    # bcrypt only uses first 72 bytes of password
+    password_bytes = password.encode('utf-8')[:72]
+    return pwd_context.hash(password_bytes.decode('utf-8', errors='ignore'))
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against its hash. Truncates to 72 bytes (bcrypt limit)."""
+    # bcrypt only uses first 72 bytes of password
+    password_bytes = plain_password.encode('utf-8')[:72]
+    return pwd_context.verify(password_bytes.decode('utf-8', errors='ignore'), hashed_password)
 
 
 def generate_session_token() -> str:
