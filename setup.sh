@@ -903,6 +903,16 @@ install_docker_linux() {
     # Verify installation
     local docker_version=$(docker --version 2>/dev/null | cut -d' ' -f3 | tr -d ',')
     print_success "Docker version: $docker_version"
+
+    # Run hello-world test
+    print_info "Running Docker hello-world test..."
+    if sudo docker run --rm hello-world >/dev/null 2>&1; then
+        print_success "Docker hello-world test passed!"
+    else
+        print_error "Docker hello-world test failed!"
+        print_info "You may need to log out and back in, then run setup.sh again."
+        exit 1
+    fi
 }
 
 install_nfs_client() {
