@@ -38,8 +38,24 @@ async def lifespan(app: FastAPI):
         await init_db()
         logger.info("Database initialized")
 
-        # Create default email templates
+        # Create default admin user if not exists
         from api.database import async_session_maker
+        from api.services.auth_service import AuthService
+        from api.config import settings as app_settings
+        async with async_session_maker() as db:
+            auth_service = AuthService(db)
+            existing_user = await auth_service.get_user_by_username(app_settings.admin_username)
+            if not existing_user:
+                await auth_service.create_user(
+                    username=app_settings.admin_username,
+                    password=app_settings.admin_password,
+                    email=app_settings.admin_email,
+                )
+                logger.info(f"Default admin user '{app_settings.admin_username}' created")
+            else:
+                logger.info(f"Admin user '{app_settings.admin_username}' already exists")
+
+        # Create default email templates
         async with async_session_maker() as db:
             await create_default_templates(db)
         logger.info("Default email templates created")

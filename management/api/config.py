@@ -32,6 +32,20 @@ class Settings(BaseSettings):
         description="32-character key for AES-256 encryption of sensitive data"
     )
 
+    # Default admin credentials (from environment)
+    admin_username: str = Field(
+        default="admin",
+        description="Default admin username"
+    )
+    admin_password: str = Field(
+        default="changeme",
+        description="Default admin password"
+    )
+    admin_email: Optional[str] = Field(
+        default=None,
+        description="Default admin email"
+    )
+
     # Session settings
     session_expire_hours: int = Field(default=24, description="Session expiration in hours")
     max_failed_attempts: int = Field(default=5, description="Max failed login attempts before lockout")
