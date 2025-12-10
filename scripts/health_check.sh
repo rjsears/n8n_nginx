@@ -200,25 +200,23 @@ check_n8n_api() {
 
     log INFO "Checking n8n API availability..."
 
-    # Try to reach n8n health endpoint
-    local n8n_url="http://localhost:5678/healthz"
-
-    if curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$n8n_url" 2>/dev/null | grep -q "^[23]"; then
+    # Try via nginx container (which can reach n8n on Docker network)
+    if docker exec n8n_nginx curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://n8n:5678/healthz" 2>/dev/null | grep -q "^[23]"; then
         log OK "n8n API is responding"
         HEALTH_STATUS["n8n_api"]="healthy"
         return 0
-    else
-        # Try internal docker network
-        if docker exec n8n curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://localhost:5678/healthz" 2>/dev/null | grep -q "^[23]"; then
-            log OK "n8n API is responding (via container)"
-            HEALTH_STATUS["n8n_api"]="healthy"
-            return 0
-        fi
-
-        log ERROR "n8n API is not responding"
-        HEALTH_STATUS["n8n_api"]="error"
-        return 1
     fi
+
+    # Try via wget in n8n container (n8n image has wget but not curl)
+    if docker exec n8n wget -q -O /dev/null --timeout=5 "http://localhost:5678/healthz" 2>/dev/null; then
+        log OK "n8n API is responding (via container)"
+        HEALTH_STATUS["n8n_api"]="healthy"
+        return 0
+    fi
+
+    log ERROR "n8n API is not responding"
+    HEALTH_STATUS["n8n_api"]="error"
+    return 1
 }
 
 check_postgres_connection() {
