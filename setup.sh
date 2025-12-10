@@ -1668,7 +1668,7 @@ EOF
 
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     expose:
-      - "8000"
+      - "80"
     depends_on:
       postgres:
         condition: service_healthy
@@ -1942,9 +1942,9 @@ http {
         server ${N8N_CONTAINER}:5678;
     }
 
-    # Upstream to management console
+    # Upstream to management console (connects to internal nginx on port 80)
     upstream management {
-        server ${DEFAULT_MANAGEMENT_CONTAINER}:8000;
+        server ${DEFAULT_MANAGEMENT_CONTAINER}:80;
     }
 
     # ═══════════════════════════════════════════════════════════════════════════
