@@ -179,6 +179,177 @@ get_local_ips() {
     ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'
 }
 
+# Arrow-key selection menu
+# Usage: select_from_menu "prompt" "${options[@]}"
+# Returns: selected index in $MENU_SELECTION, selected value in $MENU_VALUE
+select_from_menu() {
+    local prompt="$1"
+    shift
+    local options=("$@")
+    local selected=0
+    local key=""
+
+    # Hide cursor
+    tput civis 2>/dev/null || true
+
+    # Function to draw menu
+    draw_menu() {
+        # Move cursor up to redraw (except first time)
+        if [ "$1" = "redraw" ]; then
+            tput cuu ${#options[@]} 2>/dev/null || true
+        fi
+
+        for i in "${!options[@]}"; do
+            if [ $i -eq $selected ]; then
+                echo -e "    ${CYAN}▶${NC} ${WHITE}${options[$i]}${NC}  "
+            else
+                echo -e "      ${GRAY}${options[$i]}${NC}  "
+            fi
+        done
+    }
+
+    echo ""
+    echo -e "  ${WHITE}$prompt${NC}"
+    echo -e "  ${GRAY}(Use ↑/↓ arrows to navigate, Enter to select)${NC}"
+    echo ""
+    draw_menu "first"
+
+    # Read keypresses
+    while true; do
+        # Read a single character
+        IFS= read -rsn1 key
+
+        # Check for escape sequence (arrow keys)
+        if [ "$key" = $'\x1b' ]; then
+            read -rsn2 key
+            case "$key" in
+                '[A') # Up arrow
+                    if [ $selected -gt 0 ]; then
+                        ((selected--))
+                    fi
+                    ;;
+                '[B') # Down arrow
+                    if [ $selected -lt $((${#options[@]} - 1)) ]; then
+                        ((selected++))
+                    fi
+                    ;;
+            esac
+            draw_menu "redraw"
+        elif [ "$key" = "" ]; then
+            # Enter pressed
+            break
+        fi
+    done
+
+    # Show cursor again
+    tput cnorm 2>/dev/null || true
+
+    MENU_SELECTION=$selected
+    MENU_VALUE="${options[$selected]}"
+}
+
+# Check if IP matches a CIDR range or host specification
+# Usage: ip_matches_spec "192.168.1.50" "192.168.1.0/24"
+ip_matches_spec() {
+    local ip="$1"
+    local spec="$2"
+
+    # Handle wildcards
+    if [ "$spec" = "*" ] || [ "$spec" = "(everyone)" ]; then
+        return 0
+    fi
+
+    # Exact match
+    if [ "$ip" = "$spec" ]; then
+        return 0
+    fi
+
+    # Handle CIDR notation (e.g., 192.168.1.0/24)
+    if [[ "$spec" == *"/"* ]]; then
+        local network="${spec%/*}"
+        local prefix="${spec#*/}"
+
+        # Convert IPs to integers for comparison
+        local ip_int=0
+        local net_int=0
+        local IFS='.'
+
+        read -ra ip_parts <<< "$ip"
+        read -ra net_parts <<< "$network"
+
+        ip_int=$(( (ip_parts[0] << 24) + (ip_parts[1] << 16) + (ip_parts[2] << 8) + ip_parts[3] ))
+        net_int=$(( (net_parts[0] << 24) + (net_parts[1] << 16) + (net_parts[2] << 8) + net_parts[3] ))
+
+        # Calculate mask
+        local mask=$(( 0xFFFFFFFF << (32 - prefix) & 0xFFFFFFFF ))
+
+        if [ $(( ip_int & mask )) -eq $(( net_int & mask )) ]; then
+            return 0
+        fi
+    fi
+
+    # Handle hostname patterns (simple prefix match for things like 192.168.1.)
+    if [[ "$ip" == "$spec"* ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Get NFS exports accessible to this machine
+# Usage: get_accessible_exports "nfs_server"
+# Returns: Array of accessible export paths in ACCESSIBLE_EXPORTS
+get_accessible_exports() {
+    local nfs_server="$1"
+    ACCESSIBLE_EXPORTS=()
+
+    # Get local IPs
+    local local_ips=$(get_local_ips)
+
+    # Get all exports
+    local exports_output
+    exports_output=$(showmount -e "$nfs_server" 2>/dev/null | tail -n +2)
+
+    if [ -z "$exports_output" ]; then
+        return 1
+    fi
+
+    # Parse each export line
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+
+        # Parse export path and allowed hosts
+        # Format: /path/to/export  host1,host2,192.168.1.0/24
+        local export_path=$(echo "$line" | awk '{print $1}')
+        local allowed_hosts=$(echo "$line" | awk '{print $2}')
+
+        # Check if any local IP matches allowed hosts
+        local can_access=false
+
+        # Split allowed hosts by comma
+        IFS=',' read -ra hosts <<< "$allowed_hosts"
+        for host_spec in "${hosts[@]}"; do
+            # Check against each local IP
+            for local_ip in $local_ips; do
+                if ip_matches_spec "$local_ip" "$host_spec"; then
+                    can_access=true
+                    break 2
+                fi
+            done
+        done
+
+        if [ "$can_access" = true ]; then
+            ACCESSIBLE_EXPORTS+=("$export_path")
+        fi
+    done <<< "$exports_output"
+
+    if [ ${#ACCESSIBLE_EXPORTS[@]} -eq 0 ]; then
+        return 1
+    fi
+
+    return 0
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # STATE MANAGEMENT FOR RESUME CAPABILITY
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -555,24 +726,69 @@ configure_nfs() {
         break
     done
 
-    # Show available exports
+    # Get accessible exports filtered by local IP
     echo ""
-    print_info "Available NFS exports:"
-    showmount -e "$nfs_server" | tail -n +2
+    print_info "Checking for accessible NFS exports..."
+
+    local local_ips=$(get_local_ips)
+    echo -e "  ${WHITE}This server's IP addresses:${NC}"
+    for lip in $local_ips; do
+        echo -e "    ${CYAN}${lip}${NC}"
+    done
     echo ""
 
-    # Get export path with retry loop
-    while true; do
+    local nfs_path=""
+    local use_manual_entry=false
+
+    if get_accessible_exports "$nfs_server"; then
+        if [ ${#ACCESSIBLE_EXPORTS[@]} -eq 1 ]; then
+            # Only one export available
+            print_success "Found 1 accessible export: ${ACCESSIBLE_EXPORTS[0]}"
+            if confirm_prompt "Use ${ACCESSIBLE_EXPORTS[0]}?"; then
+                nfs_path="${ACCESSIBLE_EXPORTS[0]}"
+            else
+                use_manual_entry=true
+            fi
+        else
+            # Multiple exports - use arrow menu
+            print_success "Found ${#ACCESSIBLE_EXPORTS[@]} accessible exports"
+
+            # Add manual entry option
+            local menu_options=("${ACCESSIBLE_EXPORTS[@]}" "[Enter path manually]")
+
+            select_from_menu "Select NFS export:" "${menu_options[@]}"
+
+            if [ "$MENU_VALUE" = "[Enter path manually]" ]; then
+                use_manual_entry=true
+            else
+                nfs_path="$MENU_VALUE"
+            fi
+        fi
+    else
+        print_warning "No exports found that allow access from this server's IP addresses"
+        echo ""
+        echo -e "  ${GRAY}All exports on server:${NC}"
+        showmount -e "$nfs_server" 2>/dev/null | tail -n +2 | sed 's/^/    /'
+        echo ""
+        use_manual_entry=true
+    fi
+
+    # Manual entry fallback
+    if [ "$use_manual_entry" = true ]; then
+        echo ""
         echo -ne "${WHITE}  NFS export path (e.g., /mnt/backups)${NC}: "
         read nfs_path
 
         if [ -z "$nfs_path" ]; then
             print_error "NFS path is required"
-            continue
+            NFS_CONFIGURED="false"
+            return
         fi
+    fi
 
-        # Test mount
-        print_info "Testing NFS mount..."
+    # Test the selected/entered mount with retry loop
+    while true; do
+        print_info "Testing NFS mount: ${nfs_server}:${nfs_path}..."
         local test_mount="/tmp/nfs_test_$$"
         mkdir -p "$test_mount"
 
@@ -607,8 +823,12 @@ configure_nfs() {
 
             case $nfs_choice in
                 1)
-                    # Continue the loop to try different path
-                    continue
+                    # Let them pick again or enter manually
+                    echo -ne "${WHITE}  NFS export path${NC}: "
+                    read nfs_path
+                    if [ -z "$nfs_path" ]; then
+                        continue
+                    fi
                     ;;
                 2)
                     # Restart from server selection
