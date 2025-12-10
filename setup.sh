@@ -2393,11 +2393,34 @@ validate_domain() {
         echo -e "  ${RED}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
 
-        if ! confirm_prompt "Do you understand the risks and want to continue?"; then
-            echo ""
-            print_info "Please configure your DNS correctly and run this script again."
-            exit 1
-        fi
+        echo -e "  ${WHITE}Options:${NC}"
+        echo -e "    ${CYAN}1)${NC} Re-enter domain name (if misspelled)"
+        echo -e "    ${CYAN}2)${NC} Continue anyway (I understand the risks)"
+        echo -e "    ${CYAN}3)${NC} Exit setup"
+        echo ""
+
+        local domain_choice=""
+        while [[ ! "$domain_choice" =~ ^[1-3]$ ]]; do
+            echo -ne "${WHITE}  Enter your choice [1-3]${NC}: "
+            read domain_choice
+        done
+
+        case $domain_choice in
+            1)
+                # Re-enter domain
+                configure_url
+                return
+                ;;
+            2)
+                # Continue with risks
+                print_warning "Continuing with unvalidated domain configuration..."
+                ;;
+            3)
+                echo ""
+                print_info "Please configure your DNS correctly and run this script again."
+                exit 1
+                ;;
+        esac
     fi
 
     # Set derived URL values
