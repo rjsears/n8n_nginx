@@ -2435,7 +2435,37 @@ configure_containers() {
 configure_email() {
     print_section "Let's Encrypt Email Configuration"
 
-    prompt_with_default "Email address for Let's Encrypt" "admin@yourdomain.com" "LETSENCRYPT_EMAIL"
+    echo ""
+    echo -e "  ${GRAY}Let's Encrypt requires a valid email for certificate expiration notices.${NC}"
+    echo ""
+
+    while true; do
+        echo -ne "${WHITE}  Email address for Let's Encrypt${NC}: "
+        read email_input
+
+        if [ -z "$email_input" ]; then
+            print_error "Email address is required"
+            continue
+        fi
+
+        # Basic email format validation
+        if [[ ! "$email_input" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            print_error "Invalid email format. Please enter a valid email address."
+            continue
+        fi
+
+        # Check for placeholder emails
+        if [[ "$email_input" =~ (example\.com|yourdomain\.com|test\.com|domain\.com)$ ]]; then
+            print_warning "This looks like a placeholder email address."
+            if ! confirm_prompt "Are you sure you want to use '$email_input'?" "n"; then
+                continue
+            fi
+        fi
+
+        LETSENCRYPT_EMAIL="$email_input"
+        print_success "Email set to: $LETSENCRYPT_EMAIL"
+        break
+    done
 }
 
 configure_timezone() {
