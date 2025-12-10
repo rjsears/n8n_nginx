@@ -1958,9 +1958,96 @@ configure_url() {
     print_section "Domain Configuration"
 
     echo -e "  ${GRAY}Enter the domain name where n8n will be accessible.${NC}"
+    echo -e "  ${GRAY}The domain must resolve to this server's IP address.${NC}"
     echo ""
 
-    prompt_with_default "Enter your n8n domain" "n8n.example.com" "N8N_DOMAIN"
+    # Get local IPs for validation
+    local local_ips=$(get_local_ips)
+    echo -e "  ${WHITE}This server's IP addresses:${NC}"
+    echo "$local_ips" | while read ip; do
+        [ -n "$ip" ] && echo -e "    ${CYAN}${ip}${NC}"
+    done
+    echo ""
+
+    while true; do
+        prompt_with_default "Enter your n8n domain" "n8n.example.com" "N8N_DOMAIN"
+
+        # Skip validation for example.com domains
+        if [[ "$N8N_DOMAIN" == *"example.com"* ]]; then
+            print_warning "Using example domain - skipping DNS validation"
+            break
+        fi
+
+        # DNS lookup
+        print_info "Checking DNS for ${N8N_DOMAIN}..."
+
+        local resolved_ip=""
+        if command_exists dig; then
+            resolved_ip=$(dig +short "$N8N_DOMAIN" A 2>/dev/null | head -1)
+        elif command_exists host; then
+            resolved_ip=$(host "$N8N_DOMAIN" 2>/dev/null | grep "has address" | head -1 | awk '{print $NF}')
+        elif command_exists nslookup; then
+            resolved_ip=$(nslookup "$N8N_DOMAIN" 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | head -1)
+        elif command_exists getent; then
+            resolved_ip=$(getent hosts "$N8N_DOMAIN" 2>/dev/null | awk '{print $1}' | head -1)
+        fi
+
+        if [ -z "$resolved_ip" ]; then
+            print_error "Could not resolve ${N8N_DOMAIN}"
+            echo ""
+            echo -e "  ${WHITE}Options:${NC}"
+            echo -e "    ${CYAN}1)${NC} Try a different domain"
+            echo -e "    ${CYAN}2)${NC} Continue anyway (DNS may not be set up yet)"
+            echo ""
+
+            local dns_choice=""
+            while [[ ! "$dns_choice" =~ ^[12]$ ]]; do
+                echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
+                read dns_choice
+            done
+
+            if [ "$dns_choice" = "1" ]; then
+                continue
+            else
+                print_warning "Continuing without DNS validation - ensure DNS is configured before deployment"
+                break
+            fi
+        fi
+
+        echo -e "  ${WHITE}Domain resolves to:${NC} ${CYAN}${resolved_ip}${NC}"
+
+        # Check if resolved IP matches any local IP
+        if echo "$local_ips" | grep -qw "$resolved_ip"; then
+            print_success "DNS verified - ${N8N_DOMAIN} points to this server"
+            break
+        else
+            print_warning "Domain ${N8N_DOMAIN} resolves to ${resolved_ip}"
+            print_warning "This does not match any IP address on this server"
+            echo ""
+            echo -e "  ${GRAY}This could be normal if:${NC}"
+            echo -e "    • You're using Cloudflare Tunnel (domain won't point directly to server)"
+            echo -e "    • You're behind a NAT/load balancer"
+            echo -e "    • DNS hasn't propagated yet"
+            echo ""
+            echo -e "  ${WHITE}Options:${NC}"
+            echo -e "    ${CYAN}1)${NC} Try a different domain"
+            echo -e "    ${CYAN}2)${NC} Continue anyway (I know what I'm doing)"
+            echo ""
+
+            local ip_choice=""
+            while [[ ! "$ip_choice" =~ ^[12]$ ]]; do
+                echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
+                read ip_choice
+            done
+
+            if [ "$ip_choice" = "1" ]; then
+                continue
+            else
+                print_info "Continuing with ${N8N_DOMAIN}"
+                break
+            fi
+        fi
+    done
 
     N8N_URL="https://${N8N_DOMAIN}"
     WEBHOOK_URL="https://${N8N_DOMAIN}"
