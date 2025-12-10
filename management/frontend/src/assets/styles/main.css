@@ -71,7 +71,7 @@ body {
 
   .input {
     @apply w-full px-3 py-2 rounded-lg border border-[var(--color-border)];
-    @apply bg-surface text-primary placeholder-muted;
+    @apply bg-surface text-primary placeholder:text-gray-400;
     @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
   }
 
