@@ -553,7 +553,7 @@ check_recent_errors() {
     # Check n8n container logs for errors
     if docker ps --format '{{.Names}}' | grep -q "^n8n$"; then
         local error_count
-        error_count=$(docker logs n8n --since 1h 2>&1 | grep -ci "error" || echo "0")
+        error_count=$(docker logs n8n --since 1h 2>&1 | grep -ci "error") || error_count=0
 
         if [ "$error_count" -gt 10 ]; then
             log WARN "n8n: $error_count errors in last hour"
@@ -567,7 +567,7 @@ check_recent_errors() {
     # Check nginx logs
     if docker ps --format '{{.Names}}' | grep -q "^n8n_nginx$"; then
         local nginx_errors
-        nginx_errors=$(docker logs n8n_nginx --since 1h 2>&1 | grep -ci "error" || echo "0")
+        nginx_errors=$(docker logs n8n_nginx --since 1h 2>&1 | grep -ci "error") || nginx_errors=0
 
         if [ "$nginx_errors" -gt 50 ]; then
             log WARN "nginx: $nginx_errors errors in last hour"
