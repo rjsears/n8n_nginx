@@ -1740,7 +1740,6 @@ EOF
       - tailscale_data:/var/lib/tailscale
     cap_add:
       - NET_ADMIN
-      - SYS_MODULE
     networks:
       - n8n_network
 
