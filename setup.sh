@@ -2150,8 +2150,7 @@ configure_cloudflare() {
     echo ""
 
     echo -ne "${WHITE}  Enter your Cloudflare API token${NC}: "
-    read -s CF_API_TOKEN
-    echo ""
+    read CF_API_TOKEN
 
     if [ -z "$CF_API_TOKEN" ]; then
         print_error "API token is required for Cloudflare"
@@ -2159,7 +2158,7 @@ configure_cloudflare() {
     fi
 
     # Show masked token for confirmation
-    local token_preview="${CF_API_TOKEN:0:8}...${CF_API_TOKEN: -4}"
+    local token_preview="${CF_API_TOKEN:0:10}****"
     print_success "Cloudflare credentials saved"
     echo -e "    ${GRAY}Token: ${token_preview}${NC}"
 
@@ -2182,11 +2181,9 @@ configure_route53() {
     echo ""
 
     echo -ne "${WHITE}  Enter your AWS Access Key ID${NC}: "
-    read -s AWS_ACCESS_KEY_ID
-    echo ""
+    read AWS_ACCESS_KEY_ID
     echo -ne "${WHITE}  Enter your AWS Secret Access Key${NC}: "
-    read -s AWS_SECRET_ACCESS_KEY
-    echo ""
+    read AWS_SECRET_ACCESS_KEY
 
     if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
         print_error "Both AWS credentials are required"
@@ -2194,8 +2191,8 @@ configure_route53() {
     fi
 
     # Show masked credentials for confirmation
-    local key_preview="${AWS_ACCESS_KEY_ID:0:4}...${AWS_ACCESS_KEY_ID: -4}"
-    local secret_preview="${AWS_SECRET_ACCESS_KEY:0:4}...${AWS_SECRET_ACCESS_KEY: -4}"
+    local key_preview="${AWS_ACCESS_KEY_ID:0:10}****"
+    local secret_preview="${AWS_SECRET_ACCESS_KEY:0:10}****"
     print_success "AWS credentials saved"
     echo -e "    ${GRAY}Access Key: ${key_preview}${NC}"
     echo -e "    ${GRAY}Secret Key: ${secret_preview}${NC}"
@@ -2245,8 +2242,7 @@ configure_digitalocean() {
     echo ""
 
     echo -ne "${WHITE}  Enter your DigitalOcean API token${NC}: "
-    read -s DO_API_TOKEN
-    echo ""
+    read DO_API_TOKEN
 
     if [ -z "$DO_API_TOKEN" ]; then
         print_error "API token is required"
@@ -2254,7 +2250,7 @@ configure_digitalocean() {
     fi
 
     # Show masked token for confirmation
-    local token_preview="${DO_API_TOKEN:0:8}...${DO_API_TOKEN: -4}"
+    local token_preview="${DO_API_TOKEN:0:10}****"
     print_success "DigitalOcean credentials saved"
     echo -e "    ${GRAY}Token: ${token_preview}${NC}"
 
@@ -2678,8 +2674,7 @@ configure_cloudflare_tunnel() {
     echo ""
 
     echo -ne "${WHITE}  Enter your Cloudflare Tunnel token${NC}: "
-    read -s CF_TUNNEL_TOKEN
-    echo ""
+    read CF_TUNNEL_TOKEN
 
     if [ -z "$CF_TUNNEL_TOKEN" ]; then
         print_error "Tunnel token is required for Cloudflare Tunnel"
@@ -2691,7 +2686,7 @@ configure_cloudflare_tunnel() {
     INSTALL_CLOUDFLARE_TUNNEL=true
 
     # Show masked token for confirmation
-    local token_preview="${CF_TUNNEL_TOKEN:0:8}...${CF_TUNNEL_TOKEN: -4}"
+    local token_preview="${CF_TUNNEL_TOKEN:0:10}****"
     print_success "Cloudflare Tunnel configured"
     echo -e "    ${GRAY}Token: ${token_preview}${NC}"
 }
@@ -2709,8 +2704,7 @@ configure_tailscale() {
     echo ""
 
     echo -ne "${WHITE}  Enter your Tailscale auth key${NC}: "
-    read -s TS_AUTH_KEY
-    echo ""
+    read TS_AUTH_KEY
 
     if [ -z "$TS_AUTH_KEY" ]; then
         print_error "Auth key is required for Tailscale"
@@ -2722,7 +2716,7 @@ configure_tailscale() {
     INSTALL_TAILSCALE=true
 
     # Show masked key for confirmation
-    local key_preview="${TS_AUTH_KEY:0:8}...${TS_AUTH_KEY: -4}"
+    local key_preview="${TS_AUTH_KEY:0:10}****"
     print_success "Auth key accepted"
     echo -e "    ${GRAY}Key: ${key_preview}${NC}"
 
