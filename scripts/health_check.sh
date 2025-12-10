@@ -411,17 +411,36 @@ check_ssl_certificates() {
 
     log INFO "Checking SSL certificates..."
 
-    local cert_file="${PROJECT_ROOT}/certs/cert.pem"
+    # Check if nginx container is running (needed to access certificates)
+    if ! docker ps --format '{{.Names}}' | grep -q "^n8n_nginx$"; then
+        log WARN "Nginx container not running - cannot check SSL certificates"
+        HEALTH_STATUS["ssl_cert"]="unknown"
+        return 0
+    fi
 
-    if [ ! -f "$cert_file" ]; then
-        log WARN "SSL certificate not found at $cert_file"
+    # Get the domain from nginx.conf inside the container
+    local domain
+    domain=$(docker exec n8n_nginx grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf 2>/dev/null | sed -n 's|.*live/\([^/]*\)/.*|\1|p')
+
+    if [ -z "$domain" ]; then
+        log WARN "Cannot determine domain from nginx config"
+        HEALTH_STATUS["ssl_cert"]="unknown"
+        return 0
+    fi
+
+    local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
+    log INFO "Checking certificate for domain: $domain"
+
+    # Check if certificate exists
+    if ! docker exec n8n_nginx test -f "$cert_path" 2>/dev/null; then
+        log WARN "SSL certificate not found at $cert_path"
         HEALTH_STATUS["ssl_cert"]="missing"
         return 0
     fi
 
-    # Check certificate expiration
+    # Check certificate expiration using openssl inside nginx container
     local expiry_date
-    expiry_date=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | cut -d= -f2)
+    expiry_date=$(docker exec n8n_nginx openssl x509 -enddate -noout -in "$cert_path" 2>/dev/null | cut -d= -f2)
 
     if [ -z "$expiry_date" ]; then
         log ERROR "Cannot read SSL certificate"
@@ -444,7 +463,7 @@ check_ssl_certificates() {
         log WARN "SSL certificate expires in $days_until_expiry days"
         HEALTH_STATUS["ssl_cert"]="warning"
     else
-        log OK "SSL certificate valid for $days_until_expiry days"
+        log OK "SSL certificate valid for $days_until_expiry days (expires: $expiry_date)"
         HEALTH_STATUS["ssl_cert"]="healthy"
     fi
 }
