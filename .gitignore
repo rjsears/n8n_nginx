@@ -47,3 +47,17 @@ Thumbs.db
 *.swp
 *.swo
 *.swn
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+
+# Node.js
+node_modules/
+dist/
+.npm
