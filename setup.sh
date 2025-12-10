@@ -235,6 +235,13 @@ clear_state() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 detect_current_version() {
+    # Only consider it an existing installation if the config file exists
+    # This prevents false detection from template files in the repo
+    if [ ! -f "${CONFIG_FILE}" ]; then
+        echo "none"
+        return
+    fi
+
     if [ -f "${SCRIPT_DIR}/docker-compose.yaml" ]; then
         if grep -q "n8n_management" "${SCRIPT_DIR}/docker-compose.yaml" 2>/dev/null; then
             echo "3.0"
