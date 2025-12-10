@@ -50,6 +50,16 @@ DEFAULT_MGMT_DB_NAME="n8n_management"
 # Default management settings
 DEFAULT_MGMT_PORT="3333"
 
+# Default ports for optional services
+DEFAULT_ADMINER_PORT="8080"
+DEFAULT_DOZZLE_PORT="9999"
+
+# Optional service flags (set during configuration)
+INSTALL_CLOUDFLARE_TUNNEL=false
+INSTALL_TAILSCALE=false
+INSTALL_ADMINER=false
+INSTALL_DOZZLE=false
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # COLORS & STYLING
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1193,6 +1203,22 @@ EOF
     ports:
       - "443:443"
       - "${MGMT_PORT}:${MGMT_PORT}"
+EOF
+
+    # Add optional ports for Adminer and Dozzle
+    if [ "$INSTALL_ADMINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+      - "${ADMINER_PORT}:${ADMINER_PORT}"
+EOF
+    fi
+
+    if [ "$INSTALL_DOZZLE" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+      - "${DOZZLE_PORT}:${DOZZLE_PORT}"
+EOF
+    fi
+
+    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - certbot_data:/var/www/certbot:ro
@@ -1242,6 +1268,93 @@ EOF
 EOF
     fi
 
+    # Add Cloudflare Tunnel if configured
+    if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Cloudflare Tunnel
+  # ═══════════════════════════════════════════════════════════════════════════
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: n8n_cloudflared
+    restart: always
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - n8n_network
+
+EOF
+    fi
+
+    # Add Tailscale if configured
+    if [ "$INSTALL_TAILSCALE" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Tailscale VPN
+  # ═══════════════════════════════════════════════════════════════════════════
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: n8n_tailscale
+    restart: always
+    hostname: ${TAILSCALE_HOSTNAME}
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=true
+      - TS_EXTRA_ARGS=--accept-routes
+    volumes:
+      - tailscale_data:/var/lib/tailscale
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    networks:
+      - n8n_network
+
+EOF
+    fi
+
+    # Add Adminer if configured
+    if [ "$INSTALL_ADMINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Adminer - Database Management
+  # ═══════════════════════════════════════════════════════════════════════════
+  adminer:
+    image: adminer:latest
+    container_name: n8n_adminer
+    restart: always
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=nette
+    depends_on:
+      - postgres
+    networks:
+      - n8n_network
+
+EOF
+    fi
+
+    # Add Dozzle if configured
+    if [ "$INSTALL_DOZZLE" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Dozzle - Container Log Viewer
+  # ═══════════════════════════════════════════════════════════════════════════
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: n8n_dozzle
+    restart: always
+    environment:
+      - DOZZLE_NO_ANALYTICS=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - n8n_network
+
+EOF
+    fi
+
     # Add volumes section
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1269,6 +1382,14 @@ EOF
       type: nfs
       o: addr=${NFS_SERVER},rw,nolock,soft
       device: ":${NFS_PATH}"
+EOF
+    fi
+
+    # Add Tailscale volume if configured
+    if [ "$INSTALL_TAILSCALE" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  tailscale_data:
+    driver: local
 EOF
     fi
 
@@ -1431,6 +1552,92 @@ http {
             proxy_pass http://management/api/health;
         }
     }
+EOF
+
+    # Add Adminer server block if configured
+    if [ "$INSTALL_ADMINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Adminer Database UI (Port ${ADMINER_PORT})
+    # ═══════════════════════════════════════════════════════════════════════════
+    upstream adminer {
+        server n8n_adminer:8080;
+    }
+
+    server {
+        listen ${ADMINER_PORT} ssl http2;
+        server_name ${N8N_DOMAIN};
+
+        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Frame-Options "DENY" always;
+
+        location / {
+            proxy_pass http://adminer;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_http_version 1.1;
+        }
+    }
+EOF
+    fi
+
+    # Add Dozzle server block if configured
+    if [ "$INSTALL_DOZZLE" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Dozzle Log Viewer (Port ${DOZZLE_PORT})
+    # ═══════════════════════════════════════════════════════════════════════════
+    upstream dozzle {
+        server n8n_dozzle:8080;
+    }
+
+    server {
+        listen ${DOZZLE_PORT} ssl http2;
+        server_name ${N8N_DOMAIN};
+
+        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Frame-Options "DENY" always;
+
+        location / {
+            proxy_pass http://dozzle;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+EOF
+    fi
+
+    # Close the http block
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 }
 EOF
 
@@ -1693,6 +1900,198 @@ configure_portainer() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# OPTIONAL SERVICES CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+configure_optional_services() {
+    print_section "Optional Services Configuration"
+
+    echo ""
+    echo -e "  ${GRAY}The following optional services can be added to your installation:${NC}"
+    echo ""
+    echo -e "  ${WHITE}${BOLD}Available Optional Services:${NC}"
+    echo -e "    ${CYAN}•${NC} Cloudflare Tunnel - Secure access without exposing ports"
+    echo -e "    ${CYAN}•${NC} Tailscale - Private mesh VPN network access"
+    echo -e "    ${CYAN}•${NC} Adminer - Web-based database management"
+    echo -e "    ${CYAN}•${NC} Dozzle - Real-time container log viewer"
+    echo ""
+
+    if confirm_prompt "Would you like to configure optional services?" "n"; then
+        # Cloudflare Tunnel
+        if confirm_prompt "  Configure Cloudflare Tunnel for secure external access?" "n"; then
+            configure_cloudflare_tunnel
+        fi
+
+        # Tailscale
+        if confirm_prompt "  Configure Tailscale for private VPN access?" "n"; then
+            configure_tailscale
+        fi
+
+        # Adminer
+        if confirm_prompt "  Install Adminer for database management?" "n"; then
+            configure_adminer
+        fi
+
+        # Dozzle
+        if confirm_prompt "  Install Dozzle for container log viewing?" "n"; then
+            configure_dozzle
+        fi
+    else
+        print_info "Skipping optional services. You can add them later by running setup again."
+    fi
+}
+
+configure_cloudflare_tunnel() {
+    print_subsection
+    echo -e "${WHITE}  Cloudflare Tunnel Configuration${NC}"
+    echo ""
+    echo -e "  ${GRAY}Cloudflare Tunnel provides secure access to your n8n instance${NC}"
+    echo -e "  ${GRAY}without exposing any ports to the public internet.${NC}"
+    echo ""
+    echo -e "  ${GRAY}Requirements:${NC}"
+    echo -e "    • Cloudflare account with your domain"
+    echo -e "    • Cloudflare Tunnel token from Zero Trust dashboard"
+    echo ""
+    echo -e "  ${GRAY}Create a tunnel at: https://one.dash.cloudflare.com${NC}"
+    echo -e "  ${GRAY}Navigate to: Networks → Tunnels → Create a tunnel${NC}"
+    echo ""
+
+    echo -ne "${WHITE}  Enter your Cloudflare Tunnel token${NC}: "
+    read -s CF_TUNNEL_TOKEN
+    echo ""
+
+    if [ -z "$CF_TUNNEL_TOKEN" ]; then
+        print_error "Tunnel token is required for Cloudflare Tunnel"
+        INSTALL_CLOUDFLARE_TUNNEL=false
+        return
+    fi
+
+    CLOUDFLARE_TUNNEL_TOKEN="$CF_TUNNEL_TOKEN"
+    INSTALL_CLOUDFLARE_TUNNEL=true
+
+    print_success "Cloudflare Tunnel configured"
+    echo ""
+    print_info "Configure your tunnel's public hostname in the Cloudflare dashboard:"
+    echo -e "    ${GRAY}• Add a public hostname pointing to http://n8n:5678${NC}"
+    echo -e "    ${GRAY}• (Optional) Add management at http://n8n_management:8000${NC}"
+}
+
+configure_tailscale() {
+    print_subsection
+    echo -e "${WHITE}  Tailscale Configuration${NC}"
+    echo ""
+    echo -e "  ${GRAY}Tailscale provides private access to your n8n instance${NC}"
+    echo -e "  ${GRAY}over a secure mesh VPN network.${NC}"
+    echo ""
+    echo -e "  ${GRAY}Requirements:${NC}"
+    echo -e "    • Tailscale account"
+    echo -e "    • Auth key from: https://login.tailscale.com/admin/settings/keys${NC}"
+    echo ""
+
+    echo -ne "${WHITE}  Enter your Tailscale auth key${NC}: "
+    read -s TS_AUTH_KEY
+    echo ""
+
+    if [ -z "$TS_AUTH_KEY" ]; then
+        print_error "Auth key is required for Tailscale"
+        INSTALL_TAILSCALE=false
+        return
+    fi
+
+    TAILSCALE_AUTH_KEY="$TS_AUTH_KEY"
+    INSTALL_TAILSCALE=true
+
+    # Optional hostname
+    echo -ne "${WHITE}  Tailscale hostname [n8n-server]${NC}: "
+    read ts_hostname
+    TAILSCALE_HOSTNAME=${ts_hostname:-n8n-server}
+
+    print_success "Tailscale configured"
+    echo ""
+    print_info "Your n8n instance will be accessible at: ${TAILSCALE_HOSTNAME}.your-tailnet.ts.net"
+}
+
+configure_adminer() {
+    print_subsection
+    echo -e "${WHITE}  Adminer Configuration${NC}"
+    echo ""
+    echo -e "  ${GRAY}Adminer provides a web-based interface for database management.${NC}"
+    echo -e "  ${GRAY}Access will be protected through the management console.${NC}"
+    echo ""
+
+    # Configure port
+    while true; do
+        echo -ne "${WHITE}  Adminer port [${DEFAULT_ADMINER_PORT}]${NC}: "
+        read adminer_port
+        adminer_port=${adminer_port:-$DEFAULT_ADMINER_PORT}
+
+        if ! [[ "$adminer_port" =~ ^[0-9]+$ ]]; then
+            print_error "Invalid port number"
+            continue
+        fi
+
+        if [ "$adminer_port" -lt 1024 ] || [ "$adminer_port" -gt 65535 ]; then
+            print_error "Port must be between 1024 and 65535"
+            continue
+        fi
+
+        # Check reserved ports
+        local reserved_ports="80 443 5432 5678 ${MGMT_PORT} 9001"
+        if echo "$reserved_ports" | grep -qw "$adminer_port"; then
+            print_error "Port $adminer_port is reserved for other services"
+            continue
+        fi
+
+        break
+    done
+
+    ADMINER_PORT=$adminer_port
+    INSTALL_ADMINER=true
+
+    print_success "Adminer will be available at https://\${DOMAIN}:${ADMINER_PORT}"
+}
+
+configure_dozzle() {
+    print_subsection
+    echo -e "${WHITE}  Dozzle Configuration${NC}"
+    echo ""
+    echo -e "  ${GRAY}Dozzle provides real-time container log viewing in your browser.${NC}"
+    echo -e "  ${GRAY}Access will be protected through the management console.${NC}"
+    echo ""
+
+    # Configure port
+    while true; do
+        echo -ne "${WHITE}  Dozzle port [${DEFAULT_DOZZLE_PORT}]${NC}: "
+        read dozzle_port
+        dozzle_port=${dozzle_port:-$DEFAULT_DOZZLE_PORT}
+
+        if ! [[ "$dozzle_port" =~ ^[0-9]+$ ]]; then
+            print_error "Invalid port number"
+            continue
+        fi
+
+        if [ "$dozzle_port" -lt 1024 ] || [ "$dozzle_port" -gt 65535 ]; then
+            print_error "Port must be between 1024 and 65535"
+            continue
+        fi
+
+        # Check reserved ports
+        local reserved_ports="80 443 5432 5678 ${MGMT_PORT} 9001 ${ADMINER_PORT:-8080}"
+        if echo "$reserved_ports" | grep -qw "$dozzle_port"; then
+            print_error "Port $dozzle_port is reserved for other services"
+            continue
+        fi
+
+        break
+    done
+
+    DOZZLE_PORT=$dozzle_port
+    INSTALL_DOZZLE=true
+
+    print_success "Dozzle will be available at https://\${DOMAIN}:${DOZZLE_PORT}"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1725,6 +2124,25 @@ show_configuration_summary() {
         echo -e "    Portainer Agent:     ${GREEN}enabled${NC}"
     fi
     echo ""
+
+    # Show optional services if any are enabled
+    if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] || [ "$INSTALL_TAILSCALE" = true ] || \
+       [ "$INSTALL_ADMINER" = true ] || [ "$INSTALL_DOZZLE" = true ]; then
+        echo -e "  ${WHITE}${BOLD}Optional Services:${NC}"
+        if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
+            echo -e "    Cloudflare Tunnel:   ${GREEN}enabled${NC}"
+        fi
+        if [ "$INSTALL_TAILSCALE" = true ]; then
+            echo -e "    Tailscale:           ${GREEN}enabled${NC} (${TAILSCALE_HOSTNAME})"
+        fi
+        if [ "$INSTALL_ADMINER" = true ]; then
+            echo -e "    Adminer:             ${GREEN}enabled${NC} (port ${ADMINER_PORT})"
+        fi
+        if [ "$INSTALL_DOZZLE" = true ]; then
+            echo -e "    Dozzle:              ${GREEN}enabled${NC} (port ${DOZZLE_PORT})"
+        fi
+        echo ""
+    fi
 
     if ! confirm_prompt "Is this configuration correct?"; then
         return 1
@@ -1897,11 +2315,31 @@ show_final_summary_v3() {
     echo -e "  ${WHITE}${BOLD}Access URLs:${NC}"
     echo -e "    n8n:                 ${CYAN}https://${N8N_DOMAIN}${NC}"
     echo -e "    Management Console:  ${CYAN}https://${N8N_DOMAIN}:${MGMT_PORT}${NC}"
+    if [ "$INSTALL_ADMINER" = true ]; then
+        echo -e "    Adminer (DB):        ${CYAN}https://${N8N_DOMAIN}:${ADMINER_PORT}${NC}"
+    fi
+    if [ "$INSTALL_DOZZLE" = true ]; then
+        echo -e "    Dozzle (Logs):       ${CYAN}https://${N8N_DOMAIN}:${DOZZLE_PORT}${NC}"
+    fi
     echo ""
     echo -e "  ${WHITE}${BOLD}Management Login:${NC}"
     echo -e "    Username:            ${CYAN}${ADMIN_USER}${NC}"
     echo -e "    Password:            ${GRAY}[as configured]${NC}"
     echo ""
+
+    # Show optional services info
+    if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] || [ "$INSTALL_TAILSCALE" = true ]; then
+        echo -e "  ${WHITE}${BOLD}Network Access:${NC}"
+        if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
+            echo -e "    Cloudflare Tunnel:   ${GREEN}Active${NC}"
+            echo -e "    ${GRAY}Configure public hostnames in Cloudflare dashboard${NC}"
+        fi
+        if [ "$INSTALL_TAILSCALE" = true ]; then
+            echo -e "    Tailscale:           ${GREEN}Active${NC} (${TAILSCALE_HOSTNAME})"
+        fi
+        echo ""
+    fi
+
     echo -e "  ${WHITE}${BOLD}Useful Commands:${NC}"
     echo -e "    ${GRAY}View logs:${NC}         docker compose logs -f"
     echo -e "    ${GRAY}Stop services:${NC}     docker compose down"
@@ -2018,12 +2456,16 @@ main() {
         configure_notifications
         create_admin_user
 
+        # Optional services (Cloudflare Tunnel, Tailscale, Adminer, Dozzle)
+        configure_optional_services
+
         # Summary and confirmation
         while ! show_configuration_summary; do
             configure_management_port
             configure_nfs
             configure_notifications
             create_admin_user
+            configure_optional_services
         done
 
         # Generate files
@@ -2048,6 +2490,13 @@ PORTAINER_AGENT_ENABLED=${INSTALL_PORTAINER_AGENT}
 MGMT_PORT=${MGMT_PORT}
 NFS_CONFIGURED=${NFS_CONFIGURED}
 ADMIN_USER=${ADMIN_USER}
+# Optional Services
+CLOUDFLARE_TUNNEL_ENABLED=${INSTALL_CLOUDFLARE_TUNNEL}
+TAILSCALE_ENABLED=${INSTALL_TAILSCALE}
+ADMINER_ENABLED=${INSTALL_ADMINER}
+ADMINER_PORT=${ADMINER_PORT:-$DEFAULT_ADMINER_PORT}
+DOZZLE_ENABLED=${INSTALL_DOZZLE}
+DOZZLE_PORT=${DOZZLE_PORT:-$DEFAULT_DOZZLE_PORT}
 EOF
         chmod 600 "${CONFIG_FILE}"
 
