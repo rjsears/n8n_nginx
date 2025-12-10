@@ -73,10 +73,10 @@ test_project_structure() {
     assert_file_exists "setup.sh exists" "${PROJECT_ROOT}/setup.sh"
     assert_success "setup.sh is executable" "[ -x '${PROJECT_ROOT}/setup.sh' ]"
 
-    # Management backend
-    assert_dir_exists "Management backend directory exists" "${PROJECT_ROOT}/management/backend"
-    assert_file_exists "Backend main.py exists" "${PROJECT_ROOT}/management/backend/main.py"
-    assert_file_exists "Backend requirements.txt exists" "${PROJECT_ROOT}/management/backend/requirements.txt"
+    # Management backend (API)
+    assert_dir_exists "Management API directory exists" "${PROJECT_ROOT}/management/api"
+    assert_file_exists "Backend main.py exists" "${PROJECT_ROOT}/management/api/main.py"
+    assert_file_exists "Backend requirements.txt exists" "${PROJECT_ROOT}/management/requirements.txt"
 
     # Management frontend
     assert_dir_exists "Management frontend directory exists" "${PROJECT_ROOT}/management/frontend"
@@ -84,11 +84,12 @@ test_project_structure() {
     assert_file_exists "Frontend vite.config.js exists" "${PROJECT_ROOT}/management/frontend/vite.config.js"
 
     # Docker files
-    assert_file_exists "Backend Dockerfile exists" "${PROJECT_ROOT}/management/backend/Dockerfile"
-    assert_file_exists "Frontend Dockerfile exists" "${PROJECT_ROOT}/management/frontend/Dockerfile"
+    assert_file_exists "Management Dockerfile exists" "${PROJECT_ROOT}/management/Dockerfile"
 
-    # Configuration templates
-    assert_dir_exists "Templates directory exists" "${PROJECT_ROOT}/templates" || skip_test "Templates directory" "May not exist yet"
+    # API subdirectories
+    assert_dir_exists "API models directory exists" "${PROJECT_ROOT}/management/api/models"
+    assert_dir_exists "API routers directory exists" "${PROJECT_ROOT}/management/api/routers"
+    assert_dir_exists "API services directory exists" "${PROJECT_ROOT}/management/api/services"
 }
 
 test_setup_script_syntax() {
@@ -112,28 +113,39 @@ test_setup_script_syntax() {
 test_backend_code() {
     log_section "Testing Backend Code"
 
-    local backend_dir="${PROJECT_ROOT}/management/backend"
+    local api_dir="${PROJECT_ROOT}/management/api"
+    local mgmt_dir="${PROJECT_ROOT}/management"
 
     # Python syntax check
     if command -v python3 &> /dev/null; then
-        assert_success "main.py has valid Python syntax" "python3 -m py_compile '${backend_dir}/main.py'"
+        assert_success "main.py has valid Python syntax" "python3 -m py_compile '${api_dir}/main.py'"
 
         # Check for required API modules
-        if [ -d "${backend_dir}/api" ]; then
-            for py_file in "${backend_dir}/api"/*.py; do
+        if [ -d "${api_dir}/routers" ]; then
+            for py_file in "${api_dir}/routers"/*.py; do
                 if [ -f "$py_file" ]; then
                     local filename=$(basename "$py_file")
-                    assert_success "${filename} has valid Python syntax" "python3 -m py_compile '$py_file'"
+                    assert_success "routers/${filename} has valid Python syntax" "python3 -m py_compile '$py_file'"
                 fi
             done
         fi
 
-        # Check for required core modules
-        if [ -d "${backend_dir}/core" ]; then
-            for py_file in "${backend_dir}/core"/*.py; do
+        # Check for required service modules
+        if [ -d "${api_dir}/services" ]; then
+            for py_file in "${api_dir}/services"/*.py; do
                 if [ -f "$py_file" ]; then
                     local filename=$(basename "$py_file")
-                    assert_success "${filename} has valid Python syntax" "python3 -m py_compile '$py_file'"
+                    assert_success "services/${filename} has valid Python syntax" "python3 -m py_compile '$py_file'"
+                fi
+            done
+        fi
+
+        # Check for model modules
+        if [ -d "${api_dir}/models" ]; then
+            for py_file in "${api_dir}/models"/*.py; do
+                if [ -f "$py_file" ]; then
+                    local filename=$(basename "$py_file")
+                    assert_success "models/${filename} has valid Python syntax" "python3 -m py_compile '$py_file'"
                 fi
             done
         fi
@@ -142,9 +154,9 @@ test_backend_code() {
     fi
 
     # Check requirements.txt
-    assert_file_contains "FastAPI is in requirements" "${backend_dir}/requirements.txt" "fastapi"
-    assert_file_contains "Uvicorn is in requirements" "${backend_dir}/requirements.txt" "uvicorn"
-    assert_file_contains "SQLAlchemy is in requirements" "${backend_dir}/requirements.txt" "sqlalchemy"
+    assert_file_contains "FastAPI is in requirements" "${mgmt_dir}/requirements.txt" "fastapi"
+    assert_file_contains "Uvicorn is in requirements" "${mgmt_dir}/requirements.txt" "uvicorn"
+    assert_file_contains "SQLAlchemy is in requirements" "${mgmt_dir}/requirements.txt" "sqlalchemy"
 }
 
 test_frontend_code() {
@@ -181,20 +193,15 @@ test_frontend_code() {
 test_docker_configuration() {
     log_section "Testing Docker Configuration"
 
-    local backend_dockerfile="${PROJECT_ROOT}/management/backend/Dockerfile"
-    local frontend_dockerfile="${PROJECT_ROOT}/management/frontend/Dockerfile"
+    local mgmt_dockerfile="${PROJECT_ROOT}/management/Dockerfile"
 
-    # Backend Dockerfile checks
-    assert_file_contains "Backend uses Python base image" "$backend_dockerfile" "python"
-    assert_file_contains "Backend exposes port" "$backend_dockerfile" "EXPOSE"
-
-    # Frontend Dockerfile checks
-    assert_file_contains "Frontend uses node base image" "$frontend_dockerfile" "node"
-    assert_file_contains "Frontend has build stage" "$frontend_dockerfile" "build"
+    # Management Dockerfile checks (combined backend + frontend)
+    assert_file_exists "Management Dockerfile exists" "$mgmt_dockerfile"
+    assert_file_contains "Dockerfile uses Python base image" "$mgmt_dockerfile" "python"
+    assert_file_contains "Dockerfile has EXPOSE directive" "$mgmt_dockerfile" "EXPOSE"
 
     # Validate Dockerfile syntax (basic check)
-    assert_success "Backend Dockerfile has FROM instruction" "grep -q '^FROM' '$backend_dockerfile'"
-    assert_success "Frontend Dockerfile has FROM instruction" "grep -q '^FROM' '$frontend_dockerfile'"
+    assert_success "Dockerfile has FROM instruction" "grep -q '^FROM' '$mgmt_dockerfile'"
 }
 
 test_port_validation() {
@@ -226,10 +233,10 @@ test_security_features() {
     assert_file_contains "Secret/key generation" "${PROJECT_ROOT}/setup.sh" "openssl\|secret\|SECRET"
 
     # Backend security checks
-    local backend_dir="${PROJECT_ROOT}/management/backend"
-    if [ -f "${backend_dir}/core/security.py" ]; then
-        assert_file_contains "JWT handling in security" "${backend_dir}/core/security.py" "jwt\|JWT"
-        assert_file_contains "Password hashing in security" "${backend_dir}/core/security.py" "hash\|bcrypt"
+    local api_dir="${PROJECT_ROOT}/management/api"
+    if [ -f "${api_dir}/security.py" ]; then
+        assert_file_contains "Token handling in security" "${api_dir}/security.py" "token\|Token"
+        assert_file_contains "Password hashing in security" "${api_dir}/security.py" "hash\|bcrypt"
     fi
 }
 
@@ -291,19 +298,14 @@ test_docker_build() {
 
     require_docker
 
-    local backend_dir="${PROJECT_ROOT}/management/backend"
-    local frontend_dir="${PROJECT_ROOT}/management/frontend"
+    local mgmt_dir="${PROJECT_ROOT}/management"
 
-    # Build backend image
-    assert_success "Backend Docker image builds" \
-        "docker build -t n8n-management-backend:test '$backend_dir'"
-
-    # Build frontend image
-    assert_success "Frontend Docker image builds" \
-        "docker build -t n8n-management-frontend:test '$frontend_dir'"
+    # Build management image (combined backend + frontend)
+    assert_success "Management Docker image builds" \
+        "docker build -t n8n-management:test '$mgmt_dir'"
 
     # Cleanup test images
-    docker rmi n8n-management-backend:test n8n-management-frontend:test 2>/dev/null || true
+    docker rmi n8n-management:test 2>/dev/null || true
 }
 
 test_service_startup() {
