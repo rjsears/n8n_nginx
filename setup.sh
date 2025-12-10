@@ -303,8 +303,11 @@ get_accessible_exports() {
     local nfs_server="$1"
     ACCESSIBLE_EXPORTS=()
 
-    # Get local IPs
-    local local_ips=$(get_local_ips)
+    # Get local IPs into an array
+    local -a local_ip_array=()
+    while IFS= read -r ip; do
+        [ -n "$ip" ] && local_ip_array+=("$ip")
+    done <<< "$(get_local_ips)"
 
     # Get all exports
     local exports_output
@@ -326,11 +329,12 @@ get_accessible_exports() {
         # Check if any local IP matches allowed hosts
         local can_access=false
 
-        # Split allowed hosts by comma
-        IFS=',' read -ra hosts <<< "$allowed_hosts"
-        for host_spec in "${hosts[@]}"; do
+        # Split allowed hosts by comma (using tr to handle it safely)
+        local host_spec
+        for host_spec in $(echo "$allowed_hosts" | tr ',' ' '); do
             # Check against each local IP
-            for local_ip in $local_ips; do
+            local local_ip
+            for local_ip in "${local_ip_array[@]}"; do
                 if ip_matches_spec "$local_ip" "$host_spec"; then
                     can_access=true
                     break 2
