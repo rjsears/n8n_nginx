@@ -488,178 +488,23 @@ configure_nfs() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 configure_notifications() {
-    print_section "Notification System Configuration"
+    print_section "Notification System"
 
     echo ""
-    echo -e "  ${GRAY}The notification system can alert you about backups, container issues, and more.${NC}"
-    echo -e "  ${GRAY}You can configure this later through the management interface.${NC}"
+    echo -e "  ${GRAY}Notifications are configured via the Management Console after setup.${NC}"
+    echo ""
+    echo -e "  ${WHITE}Supported notification services (via Apprise):${NC}"
+    echo -e "    • Email (SMTP, Gmail, SES)"
+    echo -e "    • Slack, Discord, Microsoft Teams"
+    echo -e "    • Telegram, Pushover, Pushbullet"
+    echo -e "    • Twilio SMS, NTFY"
+    echo -e "    • And 80+ more services"
+    echo ""
+    echo -e "  ${CYAN}Configure at:${NC} https://\${DOMAIN}:\${MGMT_PORT} → Settings → Notifications"
     echo ""
 
-    if ! confirm_prompt "Configure notifications now?" "n"; then
-        NOTIFICATIONS_CONFIGURED="false"
-        print_info "Skipping notification setup. Configure later in the management UI."
-        return
-    fi
-
-    echo ""
-    echo -e "  ${WHITE}Select notification method:${NC}"
-    echo -e "    ${CYAN}1)${NC} Email (SMTP)"
-    echo -e "    ${CYAN}2)${NC} Slack"
-    echo -e "    ${CYAN}3)${NC} Discord"
-    echo -e "    ${CYAN}4)${NC} NTFY (Push notifications)"
-    echo -e "    ${CYAN}5)${NC} Skip for now"
-    echo ""
-
-    echo -ne "${WHITE}  Choice [1-5]${NC}: "
-    read notif_choice
-
-    case $notif_choice in
-        1)
-            configure_email_notifications
-            ;;
-        2)
-            configure_slack_notifications
-            ;;
-        3)
-            configure_discord_notifications
-            ;;
-        4)
-            configure_ntfy_notifications
-            ;;
-        *)
-            print_info "Skipping notification setup"
-            NOTIFICATIONS_CONFIGURED="false"
-            return
-            ;;
-    esac
-
-    NOTIFICATIONS_CONFIGURED="true"
-    save_state "notifications" "complete"
-}
-
-configure_email_notifications() {
-    echo ""
-    echo -e "  ${WHITE}Email Provider Options:${NC}"
-    echo -e "    ${CYAN}1)${NC} Gmail Corporate Relay (IP whitelisted, no password)"
-    echo -e "    ${CYAN}2)${NC} Gmail with App Password"
-    echo -e "    ${CYAN}3)${NC} Custom SMTP server"
-    echo ""
-
-    echo -ne "${WHITE}  Email provider [1-3]${NC}: "
-    read email_provider
-
-    case $email_provider in
-        1)
-            EMAIL_PROVIDER="gmail_relay"
-            EMAIL_HOST="smtp-relay.gmail.com"
-            EMAIL_PORT="587"
-            EMAIL_USE_TLS="true"
-            EMAIL_USER=""
-            EMAIL_PASSWORD=""
-            echo -ne "${WHITE}  From email address${NC}: "
-            read EMAIL_FROM
-            echo ""
-            print_warning "Ensure your server's IP is whitelisted in Google Admin Console"
-            ;;
-        2)
-            EMAIL_PROVIDER="gmail_app_password"
-            EMAIL_HOST="smtp.gmail.com"
-            EMAIL_PORT="587"
-            EMAIL_USE_TLS="true"
-            echo -ne "${WHITE}  Gmail address${NC}: "
-            read EMAIL_FROM
-            EMAIL_USER="$EMAIL_FROM"
-            echo -ne "${WHITE}  App Password (from Google Account settings)${NC}: "
-            read -s EMAIL_PASSWORD
-            echo ""
-            ;;
-        3)
-            EMAIL_PROVIDER="smtp"
-            echo -ne "${WHITE}  SMTP host${NC}: "
-            read EMAIL_HOST
-            echo -ne "${WHITE}  SMTP port [587]${NC}: "
-            read EMAIL_PORT
-            EMAIL_PORT=${EMAIL_PORT:-587}
-            echo -ne "${WHITE}  Use TLS [y/n]${NC}: "
-            read use_tls
-            EMAIL_USE_TLS=$([[ "$use_tls" =~ ^[yY] ]] && echo "true" || echo "false")
-            echo -ne "${WHITE}  Username${NC}: "
-            read EMAIL_USER
-            echo -ne "${WHITE}  Password${NC}: "
-            read -s EMAIL_PASSWORD
-            echo ""
-            echo -ne "${WHITE}  From email${NC}: "
-            read EMAIL_FROM
-            ;;
-        *)
-            print_info "Skipping email configuration"
-            return
-            ;;
-    esac
-
-    # Test email
-    if confirm_prompt "Send a test email?" "n"; then
-        echo -ne "${WHITE}  Test recipient email${NC}: "
-        read test_email
-        TEST_EMAIL_RECIPIENT="$test_email"
-    fi
-
-    print_success "Email notification configured"
-}
-
-configure_slack_notifications() {
-    echo ""
-    echo -e "  ${GRAY}To use Slack notifications, you need a Slack Webhook URL.${NC}"
-    echo -e "  ${GRAY}Create one at: https://api.slack.com/messaging/webhooks${NC}"
-    echo ""
-
-    echo -ne "${WHITE}  Slack Webhook URL${NC}: "
-    read SLACK_WEBHOOK_URL
-
-    if [ -n "$SLACK_WEBHOOK_URL" ]; then
-        NOTIF_TYPE="slack"
-        NOTIF_CONFIG="$SLACK_WEBHOOK_URL"
-        print_success "Slack notification configured"
-    fi
-}
-
-configure_discord_notifications() {
-    echo ""
-    echo -e "  ${GRAY}To use Discord notifications, you need a Discord Webhook URL.${NC}"
-    echo -e "  ${GRAY}Create one in your Discord server: Server Settings → Integrations → Webhooks${NC}"
-    echo ""
-
-    echo -ne "${WHITE}  Discord Webhook URL${NC}: "
-    read DISCORD_WEBHOOK_URL
-
-    if [ -n "$DISCORD_WEBHOOK_URL" ]; then
-        NOTIF_TYPE="discord"
-        NOTIF_CONFIG="$DISCORD_WEBHOOK_URL"
-        print_success "Discord notification configured"
-    fi
-}
-
-configure_ntfy_notifications() {
-    echo ""
-    echo -e "  ${GRAY}NTFY provides push notifications to your phone.${NC}"
-    echo -e "  ${GRAY}Install the NTFY app and subscribe to your topic.${NC}"
-    echo -e "  ${GRAY}Default server: https://ntfy.sh${NC}"
-    echo ""
-
-    echo -ne "${WHITE}  NTFY server [https://ntfy.sh]${NC}: "
-    read ntfy_server
-    NTFY_SERVER=${ntfy_server:-https://ntfy.sh}
-
-    echo -ne "${WHITE}  NTFY topic (unique identifier)${NC}: "
-    read NTFY_TOPIC
-
-    if [ -n "$NTFY_TOPIC" ]; then
-        NOTIF_TYPE="ntfy"
-        NOTIF_CONFIG="${NTFY_SERVER}/${NTFY_TOPIC}"
-        print_success "NTFY notification configured"
-        echo ""
-        print_info "Subscribe to this topic in your NTFY app: $NTFY_TOPIC"
-    fi
+    NOTIFICATIONS_CONFIGURED="false"
+    print_success "Notifications will be configured in the Management Console"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
