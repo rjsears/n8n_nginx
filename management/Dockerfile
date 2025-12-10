@@ -1,7 +1,7 @@
 # n8n Management Container
 # Provides backup, monitoring, and administration for n8n infrastructure
 
-FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-bookworm AS backend
 
 LABEL maintainer="n8n Management System"
 LABEL version="3.0.0"
@@ -54,6 +54,25 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Remove gcc after pip install (no longer needed)
 RUN apt-get purge -y gcc && apt-get autoremove -y
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Build Frontend (separate stage for smaller final image)
+# ═══════════════════════════════════════════════════════════════════════════
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /frontend
+
+# Copy frontend source
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Final Stage
+# ═══════════════════════════════════════════════════════════════════════════
+FROM backend AS final
+
 # Create application directories
 RUN mkdir -p /app/api \
     /app/static \
@@ -73,6 +92,9 @@ RUN chmod +x /app/scripts/*.sh 2>/dev/null || true
 
 # Copy API application
 COPY api/ /app/api/
+
+# Copy built frontend from builder stage
+COPY --from=frontend-builder /frontend/dist/ /app/static/
 
 # Create non-root user for running services (nginx and uvicorn)
 # Note: We still need root for NFS mounting and Docker socket access
