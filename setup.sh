@@ -1560,6 +1560,7 @@ services:
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      - N8N_TRUST_PROXY=true
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
