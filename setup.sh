@@ -2654,7 +2654,10 @@ configure_cloudflare_tunnel() {
     CLOUDFLARE_TUNNEL_TOKEN="$CF_TUNNEL_TOKEN"
     INSTALL_CLOUDFLARE_TUNNEL=true
 
+    # Show masked token for confirmation
+    local token_preview="${CF_TUNNEL_TOKEN:0:8}...${CF_TUNNEL_TOKEN: -4}"
     print_success "Cloudflare Tunnel configured"
+    echo -e "    ${GRAY}Token: ${token_preview}${NC}"
     echo ""
     print_info "Configure your tunnel's public hostname in the Cloudflare dashboard:"
     echo -e "    ${GRAY}• Add a public hostname pointing to http://n8n:5678${NC}"
