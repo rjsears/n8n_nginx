@@ -179,6 +179,23 @@ get_local_ips() {
     ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'
 }
 
+# Check if running inside an LXC container
+is_lxc_container() {
+    # Check systemd-detect-virt
+    if command_exists systemd-detect-virt && [ "$(systemd-detect-virt)" = "lxc" ]; then
+        return 0
+    fi
+    # Check /proc/1/environ for container=lxc
+    if grep -qa 'container=lxc' /proc/1/environ 2>/dev/null; then
+        return 0
+    fi
+    # Check for container-manager
+    if [ -f /run/host/container-manager ]; then
+        return 0
+    fi
+    return 1
+}
+
 # Numbered selection menu
 # Usage: select_from_menu "prompt" "${options[@]}"
 # Returns: selected index in $MENU_SELECTION, selected value in $MENU_VALUE
@@ -3118,6 +3135,32 @@ main() {
 
     if ! confirm_prompt "Ready to begin?"; then
         exit 0
+    fi
+
+    # Check if running in LXC container and show warning
+    if is_lxc_container; then
+        echo ""
+        echo -e "  ${RED}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "  ${RED}║${NC}                          ${WHITE}${BOLD}LXC CONTAINER DETECTED${NC}                           ${RED}║${NC}"
+        echo -e "  ${RED}╠═══════════════════════════════════════════════════════════════════════════╣${NC}"
+        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}  ${YELLOW}IMPORTANT:${NC} Docker inside LXC requires special Proxmox configuration.     ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}  On your ${WHITE}Proxmox host${NC}, add this line to the container config:             ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}      ${CYAN}/etc/pve/lxc/<CTID>.conf${NC}                                             ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}      ${WHITE}lxc.apparmor.profile: unconfined${NC}                                     ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}  Then restart this container from Proxmox before continuing.              ${RED}║${NC}"
+        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+        echo -e "  ${RED}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        if ! confirm_prompt "Have you added this configuration and restarted the container?"; then
+            echo ""
+            print_info "Please configure Proxmox and restart the container, then run this script again."
+            exit 0
+        fi
     fi
 
     # Check for resume
