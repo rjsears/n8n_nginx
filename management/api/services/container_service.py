@@ -5,6 +5,7 @@ Container service - handles Docker container management via socket.
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, UTC
 from typing import Optional, List, Dict, Any
+from dateutil import parser as dateutil_parser
 import logging
 import asyncio
 
@@ -256,6 +257,15 @@ class ContainerService:
             logger.error(f"Failed to get logs for {name}: {e}")
             raise
 
+    def _parse_docker_datetime(self, dt_str: Optional[str]) -> Optional[datetime]:
+        """Parse Docker's ISO datetime string to datetime object."""
+        if not dt_str:
+            return None
+        try:
+            return dateutil_parser.isoparse(dt_str)
+        except (ValueError, TypeError):
+            return None
+
     async def _update_cache(self, containers: List[Dict[str, Any]]) -> None:
         """Update container status cache."""
         if not self.db:
@@ -274,7 +284,7 @@ class ContainerService:
                 status=c["status"],
                 health=c["health"],
                 image=c["image"],
-                started_at=c.get("started_at"),
+                started_at=self._parse_docker_datetime(c.get("started_at")),
                 last_updated=datetime.now(UTC),
             )
             self.db.add(cache)
