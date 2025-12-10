@@ -1937,15 +1937,42 @@ configure_portainer() {
             ;;
         2)
             INSTALL_PORTAINER=true
-            INSTALL_PORTAINER_AGENT=true
+            INSTALL_PORTAINER_AGENT=false  # Full Portainer manages local containers directly
 
-            # Configure Portainer port
-            local default_portainer_port="9000"
-            echo ""
-            echo -ne "${WHITE}  Portainer web UI port [${default_portainer_port}]${NC}: "
-            read portainer_port
-            PORTAINER_PORT=${portainer_port:-$default_portainer_port}
+            # Configure Portainer port with validation
+            while true; do
+                echo ""
+                echo -ne "${WHITE}  Portainer web UI port [${DEFAULT_PORTAINER_PORT}]${NC}: "
+                read portainer_port
+                portainer_port=${portainer_port:-$DEFAULT_PORTAINER_PORT}
 
+                if ! [[ "$portainer_port" =~ ^[0-9]+$ ]]; then
+                    print_error "Invalid port number"
+                    continue
+                fi
+
+                if [ "$portainer_port" -lt 1024 ] || [ "$portainer_port" -gt 65535 ]; then
+                    print_error "Port must be between 1024 and 65535"
+                    continue
+                fi
+
+                # Check reserved ports
+                local reserved_ports="80 443 5432 5678 ${MGMT_PORT} 9001"
+                if echo "$reserved_ports" | grep -qw "$portainer_port"; then
+                    print_error "Port $portainer_port is reserved for other services"
+                    continue
+                fi
+
+                # Check if port is in use
+                if command_exists ss && ss -tuln | grep -q ":${portainer_port} "; then
+                    print_error "Port $portainer_port is already in use"
+                    continue
+                fi
+
+                break
+            done
+
+            PORTAINER_PORT=$portainer_port
             print_success "Full Portainer will be installed (UI at https://\${DOMAIN}:${PORTAINER_PORT})"
             ;;
     esac
@@ -2480,7 +2507,7 @@ main() {
     echo -e "    • Tailscale - Private mesh VPN network access"
     echo -e "    • Adminer - Web-based database management"
     echo -e "    • Dozzle - Real-time container log viewer"
-    echo -e "    • Portainer Agent - Remote container management"
+    echo -e "    • Portainer / Portainer Agent - Container management UI"
     echo ""
 
     if ! confirm_prompt "Ready to begin?"; then
