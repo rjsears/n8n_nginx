@@ -35,6 +35,7 @@ redmail==0.6.0
 # Data Validation
 pydantic==2.6.1
 pydantic-settings==2.1.0
+email-validator==2.1.0
 
 # Environment
 python-dotenv==1.0.1
