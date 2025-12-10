@@ -183,54 +183,157 @@ get_local_ips() {
 # STATE MANAGEMENT FOR RESUME CAPABILITY
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Current step tracking (numeric for easy comparison)
+CURRENT_STEP=0
+
 save_state() {
-    local phase=$1
-    local step=$2
+    local step_name=$1
+    CURRENT_STEP=$2
+
     cat > "$STATE_FILE" << EOF
-{
-    "version": "3.0",
-    "phase": "$phase",
-    "step": "$step",
-    "timestamp": "$(date -Iseconds)",
-    "domain": "$N8N_DOMAIN",
-    "mgmt_port": "$MGMT_PORT",
-    "nfs_configured": "$NFS_CONFIGURED",
-    "notifications_configured": "$NOTIFICATIONS_CONFIGURED"
-}
+# n8n Setup State File - DO NOT EDIT MANUALLY
+# Generated: $(date -Iseconds)
+SAVED_STEP_NAME="$step_name"
+SAVED_STEP_NUM="$CURRENT_STEP"
+
+# DNS Configuration
+SAVED_DNS_PROVIDER="$DNS_PROVIDER_NAME"
+SAVED_DNS_CERTBOT_IMAGE="$DNS_CERTBOT_IMAGE"
+SAVED_DNS_CERTBOT_FLAGS="$DNS_CERTBOT_FLAGS"
+SAVED_DNS_CREDENTIALS_FILE="$DNS_CREDENTIALS_FILE"
+
+# Domain Configuration
+SAVED_N8N_DOMAIN="$N8N_DOMAIN"
+SAVED_LETSENCRYPT_EMAIL="$LETSENCRYPT_EMAIL"
+
+# Database Configuration
+SAVED_DB_NAME="$DB_NAME"
+SAVED_DB_USER="$DB_USER"
+SAVED_DB_PASSWORD="$DB_PASSWORD"
+
+# Container Names
+SAVED_POSTGRES_CONTAINER="$POSTGRES_CONTAINER"
+SAVED_N8N_CONTAINER="$N8N_CONTAINER"
+SAVED_NGINX_CONTAINER="$NGINX_CONTAINER"
+SAVED_CERTBOT_CONTAINER="$CERTBOT_CONTAINER"
+
+# Timezone & Encryption
+SAVED_N8N_TIMEZONE="$N8N_TIMEZONE"
+SAVED_N8N_ENCRYPTION_KEY="$N8N_ENCRYPTION_KEY"
+
+# Management Configuration
+SAVED_MGMT_PORT="$MGMT_PORT"
+SAVED_ADMIN_USER="$ADMIN_USER"
+SAVED_ADMIN_PASSWORD="$ADMIN_PASSWORD"
+
+# NFS Configuration
+SAVED_NFS_CONFIGURED="$NFS_CONFIGURED"
+SAVED_NFS_SERVER="$NFS_SERVER"
+SAVED_NFS_PATH="$NFS_PATH"
+
+# Optional Services
+SAVED_INSTALL_PORTAINER="$INSTALL_PORTAINER"
+SAVED_INSTALL_PORTAINER_AGENT="$INSTALL_PORTAINER_AGENT"
+SAVED_PORTAINER_PORT="$PORTAINER_PORT"
+SAVED_INSTALL_CLOUDFLARE_TUNNEL="$INSTALL_CLOUDFLARE_TUNNEL"
+SAVED_CLOUDFLARE_TUNNEL_TOKEN="$CLOUDFLARE_TUNNEL_TOKEN"
+SAVED_INSTALL_TAILSCALE="$INSTALL_TAILSCALE"
+SAVED_TAILSCALE_AUTH_KEY="$TAILSCALE_AUTH_KEY"
+SAVED_TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME"
+SAVED_INSTALL_ADMINER="$INSTALL_ADMINER"
+SAVED_ADMINER_PORT="$ADMINER_PORT"
+SAVED_INSTALL_DOZZLE="$INSTALL_DOZZLE"
+SAVED_DOZZLE_PORT="$DOZZLE_PORT"
 EOF
+    chmod 600 "$STATE_FILE"
 }
 
 load_state() {
     if [ -f "$STATE_FILE" ]; then
-        if command_exists jq; then
-            SAVED_PHASE=$(jq -r '.phase' "$STATE_FILE" 2>/dev/null)
-            SAVED_STEP=$(jq -r '.step' "$STATE_FILE" 2>/dev/null)
-            SAVED_DOMAIN=$(jq -r '.domain' "$STATE_FILE" 2>/dev/null)
-            SAVED_MGMT_PORT=$(jq -r '.mgmt_port' "$STATE_FILE" 2>/dev/null)
-        else
-            # Fallback to grep/sed parsing
-            SAVED_PHASE=$(grep '"phase"' "$STATE_FILE" | sed 's/.*: *"\([^"]*\)".*/\1/')
-            SAVED_STEP=$(grep '"step"' "$STATE_FILE" | sed 's/.*: *"\([^"]*\)".*/\1/')
-            SAVED_DOMAIN=$(grep '"domain"' "$STATE_FILE" | sed 's/.*: *"\([^"]*\)".*/\1/')
-            SAVED_MGMT_PORT=$(grep '"mgmt_port"' "$STATE_FILE" | sed 's/.*: *"\([^"]*\)".*/\1/')
-        fi
+        # Source the state file to load all variables
+        source "$STATE_FILE"
+
+        # Restore all saved values
+        DNS_PROVIDER_NAME="${SAVED_DNS_PROVIDER:-}"
+        DNS_CERTBOT_IMAGE="${SAVED_DNS_CERTBOT_IMAGE:-}"
+        DNS_CERTBOT_FLAGS="${SAVED_DNS_CERTBOT_FLAGS:-}"
+        DNS_CREDENTIALS_FILE="${SAVED_DNS_CREDENTIALS_FILE:-}"
+
+        N8N_DOMAIN="${SAVED_N8N_DOMAIN:-}"
+        LETSENCRYPT_EMAIL="${SAVED_LETSENCRYPT_EMAIL:-}"
+
+        DB_NAME="${SAVED_DB_NAME:-}"
+        DB_USER="${SAVED_DB_USER:-}"
+        DB_PASSWORD="${SAVED_DB_PASSWORD:-}"
+
+        POSTGRES_CONTAINER="${SAVED_POSTGRES_CONTAINER:-}"
+        N8N_CONTAINER="${SAVED_N8N_CONTAINER:-}"
+        NGINX_CONTAINER="${SAVED_NGINX_CONTAINER:-}"
+        CERTBOT_CONTAINER="${SAVED_CERTBOT_CONTAINER:-}"
+
+        N8N_TIMEZONE="${SAVED_N8N_TIMEZONE:-}"
+        N8N_ENCRYPTION_KEY="${SAVED_N8N_ENCRYPTION_KEY:-}"
+
+        MGMT_PORT="${SAVED_MGMT_PORT:-}"
+        ADMIN_USER="${SAVED_ADMIN_USER:-}"
+        ADMIN_PASSWORD="${SAVED_ADMIN_PASSWORD:-}"
+
+        NFS_CONFIGURED="${SAVED_NFS_CONFIGURED:-false}"
+        NFS_SERVER="${SAVED_NFS_SERVER:-}"
+        NFS_PATH="${SAVED_NFS_PATH:-}"
+
+        INSTALL_PORTAINER="${SAVED_INSTALL_PORTAINER:-false}"
+        INSTALL_PORTAINER_AGENT="${SAVED_INSTALL_PORTAINER_AGENT:-false}"
+        PORTAINER_PORT="${SAVED_PORTAINER_PORT:-}"
+        INSTALL_CLOUDFLARE_TUNNEL="${SAVED_INSTALL_CLOUDFLARE_TUNNEL:-false}"
+        CLOUDFLARE_TUNNEL_TOKEN="${SAVED_CLOUDFLARE_TUNNEL_TOKEN:-}"
+        INSTALL_TAILSCALE="${SAVED_INSTALL_TAILSCALE:-false}"
+        TAILSCALE_AUTH_KEY="${SAVED_TAILSCALE_AUTH_KEY:-}"
+        TAILSCALE_HOSTNAME="${SAVED_TAILSCALE_HOSTNAME:-}"
+        INSTALL_ADMINER="${SAVED_INSTALL_ADMINER:-false}"
+        ADMINER_PORT="${SAVED_ADMINER_PORT:-}"
+        INSTALL_DOZZLE="${SAVED_INSTALL_DOZZLE:-false}"
+        DOZZLE_PORT="${SAVED_DOZZLE_PORT:-}"
+
+        CURRENT_STEP="${SAVED_STEP_NUM:-0}"
         return 0
     fi
     return 1
 }
 
 check_resume() {
-    if load_state; then
-        print_warning "Previous installation detected at phase: $SAVED_PHASE, step: $SAVED_STEP"
-        if confirm_prompt "Would you like to resume from where you left off?"; then
+    if [ -f "$STATE_FILE" ] && load_state; then
+        print_warning "Previous incomplete installation detected."
+        echo ""
+        echo -e "  ${WHITE}Last completed step:${NC} ${CYAN}${SAVED_STEP_NAME}${NC}"
+        if [ -n "$N8N_DOMAIN" ]; then
+            echo -e "  ${WHITE}Domain:${NC} ${CYAN}${N8N_DOMAIN}${NC}"
+        fi
+        echo ""
+        echo -e "  ${WHITE}Options:${NC}"
+        echo -e "    ${CYAN}1)${NC} Resume from where you left off"
+        echo -e "    ${CYAN}2)${NC} Start fresh (clears saved progress)"
+        echo ""
+
+        local resume_choice=""
+        while [[ ! "$resume_choice" =~ ^[12]$ ]]; do
+            echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
+            read resume_choice
+        done
+
+        if [ "$resume_choice" = "1" ]; then
             return 0  # Resume
+        else
+            clear_state
+            return 1  # Start fresh
         fi
     fi
-    return 1  # Start fresh
+    return 1  # No state file, start fresh
 }
 
 clear_state() {
     rm -f "$STATE_FILE"
+    CURRENT_STEP=0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -458,40 +561,71 @@ configure_nfs() {
     showmount -e "$nfs_server" | tail -n +2
     echo ""
 
-    # Get export path
-    echo -ne "${WHITE}  NFS export path (e.g., /mnt/backups)${NC}: "
-    read nfs_path
+    # Get export path with retry loop
+    while true; do
+        echo -ne "${WHITE}  NFS export path (e.g., /mnt/backups)${NC}: "
+        read nfs_path
 
-    if [ -z "$nfs_path" ]; then
-        print_error "NFS path is required"
-        NFS_CONFIGURED="false"
-        return
-    fi
-
-    # Test mount
-    print_info "Testing NFS mount..."
-    local test_mount="/tmp/nfs_test_$$"
-    mkdir -p "$test_mount"
-
-    if mount -t nfs -o ro,nolock,soft,timeo=10 "${nfs_server}:${nfs_path}" "$test_mount" 2>/dev/null; then
-        print_success "NFS mount successful"
-        umount "$test_mount" 2>/dev/null || true
-        rmdir "$test_mount" 2>/dev/null || true
-
-        NFS_SERVER="$nfs_server"
-        NFS_PATH="$nfs_path"
-        NFS_CONFIGURED="true"
-
-        save_state "nfs" "complete"
-    else
-        print_error "Failed to mount NFS share"
-        rmdir "$test_mount" 2>/dev/null || true
-        if confirm_prompt "Continue without NFS?"; then
-            NFS_CONFIGURED="false"
-        else
-            exit 1
+        if [ -z "$nfs_path" ]; then
+            print_error "NFS path is required"
+            continue
         fi
-    fi
+
+        # Test mount
+        print_info "Testing NFS mount..."
+        local test_mount="/tmp/nfs_test_$$"
+        mkdir -p "$test_mount"
+
+        if mount -t nfs -o ro,nolock,soft,timeo=10 "${nfs_server}:${nfs_path}" "$test_mount" 2>/dev/null; then
+            print_success "NFS mount successful"
+            umount "$test_mount" 2>/dev/null || true
+            rmdir "$test_mount" 2>/dev/null || true
+
+            NFS_SERVER="$nfs_server"
+            NFS_PATH="$nfs_path"
+            NFS_CONFIGURED="true"
+
+            save_state "nfs" "complete"
+            return
+        else
+            print_error "Failed to mount NFS share: ${nfs_server}:${nfs_path}"
+            rmdir "$test_mount" 2>/dev/null || true
+
+            echo ""
+            echo -e "  ${WHITE}Options:${NC}"
+            echo -e "    ${CYAN}1)${NC} Try a different export path"
+            echo -e "    ${CYAN}2)${NC} Try a different NFS server"
+            echo -e "    ${CYAN}3)${NC} Continue without NFS (backups stored locally)"
+            echo -e "    ${CYAN}4)${NC} Exit setup"
+            echo ""
+
+            local nfs_choice=""
+            while [[ ! "$nfs_choice" =~ ^[1-4]$ ]]; do
+                echo -ne "${WHITE}  Enter your choice [1-4]${NC}: "
+                read nfs_choice
+            done
+
+            case $nfs_choice in
+                1)
+                    # Continue the loop to try different path
+                    continue
+                    ;;
+                2)
+                    # Restart from server selection
+                    configure_nfs
+                    return
+                    ;;
+                3)
+                    NFS_CONFIGURED="false"
+                    print_info "Continuing without NFS. Backups will be stored locally."
+                    return
+                    ;;
+                4)
+                    exit 1
+                    ;;
+            esac
+        fi
+    done
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2533,32 +2667,107 @@ main() {
         run_migration_v2_to_v3
     else
         # Fresh install or reconfigure
-        configure_dns_provider
-        configure_url
-        configure_database
-        configure_containers
-        configure_email
-        configure_timezone
-        generate_encryption_key
-        configure_portainer
+        # Each step saves state so user can resume if interrupted
 
-        # v3.0 specific configuration
-        configure_management_port
-        configure_nfs
-        configure_notifications
-        create_admin_user
+        # Step 1: DNS Provider
+        if [ "$CURRENT_STEP" -lt 1 ]; then
+            configure_dns_provider
+            save_state "DNS Provider" 1
+        fi
 
-        # Optional services (Cloudflare Tunnel, Tailscale, Adminer, Dozzle)
-        configure_optional_services
+        # Step 2: URL/Domain
+        if [ "$CURRENT_STEP" -lt 2 ]; then
+            configure_url
+            save_state "Domain Configuration" 2
+        fi
+
+        # Step 3: Database
+        if [ "$CURRENT_STEP" -lt 3 ]; then
+            configure_database
+            save_state "Database Configuration" 3
+        fi
+
+        # Step 4: Container Names
+        if [ "$CURRENT_STEP" -lt 4 ]; then
+            configure_containers
+            save_state "Container Names" 4
+        fi
+
+        # Step 5: Email
+        if [ "$CURRENT_STEP" -lt 5 ]; then
+            configure_email
+            save_state "Email Configuration" 5
+        fi
+
+        # Step 6: Timezone
+        if [ "$CURRENT_STEP" -lt 6 ]; then
+            configure_timezone
+            save_state "Timezone" 6
+        fi
+
+        # Step 7: Encryption Key
+        if [ "$CURRENT_STEP" -lt 7 ]; then
+            generate_encryption_key
+            save_state "Encryption Key" 7
+        fi
+
+        # Step 8: Portainer
+        if [ "$CURRENT_STEP" -lt 8 ]; then
+            configure_portainer
+            save_state "Portainer" 8
+        fi
+
+        # Step 9: Management Port
+        if [ "$CURRENT_STEP" -lt 9 ]; then
+            configure_management_port
+            save_state "Management Port" 9
+        fi
+
+        # Step 10: NFS
+        if [ "$CURRENT_STEP" -lt 10 ]; then
+            configure_nfs
+            save_state "NFS Storage" 10
+        fi
+
+        # Step 11: Notifications
+        if [ "$CURRENT_STEP" -lt 11 ]; then
+            configure_notifications
+            save_state "Notifications" 11
+        fi
+
+        # Step 12: Admin User
+        if [ "$CURRENT_STEP" -lt 12 ]; then
+            create_admin_user
+            save_state "Admin User" 12
+        fi
+
+        # Step 13: Optional Services
+        if [ "$CURRENT_STEP" -lt 13 ]; then
+            configure_optional_services
+            save_state "Optional Services" 13
+        fi
 
         # Summary and confirmation
-        while ! show_configuration_summary; do
+        if ! show_configuration_summary; then
+            # User wants to reconfigure - restart from management port
+            CURRENT_STEP=8
             configure_management_port
+            save_state "Management Port" 9
             configure_nfs
+            save_state "NFS Storage" 10
             configure_notifications
+            save_state "Notifications" 11
             create_admin_user
+            save_state "Admin User" 12
             configure_optional_services
-        done
+            save_state "Optional Services" 13
+
+            # Show summary again
+            if ! show_configuration_summary; then
+                print_error "Configuration cancelled"
+                exit 1
+            fi
+        fi
 
         # Generate files
         print_section "Generating Configuration Files"
