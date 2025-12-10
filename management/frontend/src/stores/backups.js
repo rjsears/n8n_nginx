@@ -147,6 +147,7 @@ export const useBackupStore = defineStore('backups', () => {
     // Actions
     fetchSchedules,
     fetchHistory,
+    fetchBackups: fetchHistory,  // Alias for dashboard compatibility
     fetchStats,
     createSchedule,
     updateSchedule,
