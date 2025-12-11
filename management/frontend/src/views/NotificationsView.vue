@@ -8,6 +8,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import NotificationServiceDialog from '@/components/notifications/NotificationServiceDialog.vue'
 import {
   BellIcon,
   PlusIcon,
@@ -28,6 +29,7 @@ const loading = ref(true)
 const channels = ref([])
 const history = ref([])
 const deleteDialog = ref({ open: false, channel: null, loading: false })
+const serviceDialog = ref({ open: false, service: null })
 const testingChannel = ref(null)
 
 // Channel type icons
@@ -88,6 +90,48 @@ function openDeleteDialog(channel) {
   deleteDialog.value = { open: true, channel, loading: false }
 }
 
+function openAddDialog() {
+  serviceDialog.value = { open: true, service: null }
+}
+
+function openEditDialog(channel) {
+  serviceDialog.value = { open: true, service: channel }
+}
+
+async function handleServiceSave(formData) {
+  try {
+    if (formData.id) {
+      // Update existing service
+      const response = await notificationsApi.updateService(formData.id, {
+        name: formData.name,
+        service_type: formData.service_type,
+        enabled: formData.enabled,
+        priority: formData.priority,
+        config: formData.config,
+      })
+      const index = channels.value.findIndex(c => c.id === formData.id)
+      if (index !== -1) {
+        channels.value[index] = response.data
+      }
+      notificationStore.success('Channel updated')
+    } else {
+      // Create new service
+      const response = await notificationsApi.createService({
+        name: formData.name,
+        service_type: formData.service_type,
+        enabled: formData.enabled,
+        priority: formData.priority,
+        config: formData.config,
+      })
+      channels.value.push(response.data)
+      notificationStore.success('Channel created')
+    }
+    serviceDialog.value.open = false
+  } catch (error) {
+    notificationStore.error('Failed to save channel: ' + (error.response?.data?.detail || 'Unknown error'))
+  }
+}
+
 async function confirmDelete() {
   if (!deleteDialog.value.channel) return
 
@@ -123,6 +167,7 @@ onMounted(loadData)
         <p class="text-secondary mt-1">Configure notification channels and view history</p>
       </div>
       <button
+        @click="openAddDialog"
         :class="[
           'btn-primary flex items-center gap-2',
           themeStore.isNeon ? 'neon-btn-cyan' : ''
@@ -203,7 +248,7 @@ onMounted(loadData)
           title="No channels configured"
           description="Add a notification channel to start receiving alerts."
           action-text="Add Channel"
-          @action="() => {}"
+          @action="openAddDialog"
         />
 
         <div v-else class="space-y-3">
@@ -222,7 +267,7 @@ onMounted(loadData)
                 ]"
               >
                 <component
-                  :is="channelIcons[channel.type] || BellIcon"
+                  :is="channelIcons[channel.service_type] || BellIcon"
                   :class="[
                     'h-6 w-6',
                     channel.enabled ? 'text-blue-500' : 'text-gray-500'
@@ -234,7 +279,7 @@ onMounted(loadData)
                   <p class="font-medium text-primary">{{ channel.name }}</p>
                   <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" />
                 </div>
-                <p class="text-sm text-secondary mt-0.5 capitalize">{{ channel.type }}</p>
+                <p class="text-sm text-secondary mt-0.5 capitalize">{{ channel.service_type }}</p>
                 <p class="text-xs text-muted mt-0.5">
                   Events: {{ channel.events?.join(', ') || 'All' }}
                 </p>
@@ -251,7 +296,7 @@ onMounted(loadData)
                   :class="['h-4 w-4', testingChannel === channel.id && 'animate-pulse']"
                 />
               </button>
-              <button class="btn-secondary p-2" title="Edit">
+              <button @click="openEditDialog(channel)" class="btn-secondary p-2" title="Edit">
                 <PencilSquareIcon class="h-4 w-4" />
               </button>
               <button
@@ -306,7 +351,7 @@ onMounted(loadData)
                   <span class="font-medium text-primary">{{ item.event_type }}</span>
                 </td>
                 <td class="py-3 px-4 text-sm text-secondary">
-                  {{ item.channel_name }}
+                  {{ item.service_name }}
                 </td>
                 <td class="py-3 px-4">
                   <StatusBadge :status="item.status" size="sm" />
@@ -331,6 +376,15 @@ onMounted(loadData)
       :loading="deleteDialog.loading"
       @confirm="confirmDelete"
       @cancel="deleteDialog.open = false"
+    />
+
+    <!-- Add/Edit Service Dialog -->
+    <NotificationServiceDialog
+      :open="serviceDialog.open"
+      :service="serviceDialog.service"
+      @save="handleServiceSave"
+      @cancel="serviceDialog.open = false"
+      @update:open="(val) => serviceDialog.open = val"
     />
   </div>
 </template>
