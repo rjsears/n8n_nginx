@@ -10,17 +10,25 @@ export const useContainerStore = defineStore('containers', () => {
   const error = ref(null)
   const lastUpdated = ref(null)
 
-  // Getters
+  // Getters - with defensive array checks
+  const containerList = computed(() =>
+    Array.isArray(containers.value) ? containers.value : []
+  )
+
   const runningCount = computed(() =>
-    containers.value.filter(c => c.status === 'running').length
+    containerList.value.filter(c => c.status === 'running').length
+  )
+
+  const stoppedCount = computed(() =>
+    containerList.value.filter(c => c.status !== 'running').length
   )
 
   const unhealthyCount = computed(() =>
-    containers.value.filter(c => c.health === 'unhealthy').length
+    containerList.value.filter(c => c.health === 'unhealthy').length
   )
 
   const allHealthy = computed(() =>
-    containers.value.every(c =>
+    containerList.value.length > 0 && containerList.value.every(c =>
       c.status === 'running' && c.health !== 'unhealthy'
     )
   )
@@ -32,10 +40,11 @@ export const useContainerStore = defineStore('containers', () => {
 
     try {
       const response = await api.get('/containers/')
-      containers.value = response.data
+      containers.value = Array.isArray(response.data) ? response.data : []
       lastUpdated.value = new Date()
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to fetch containers'
+      containers.value = []
     } finally {
       loading.value = false
     }
@@ -112,6 +121,7 @@ export const useContainerStore = defineStore('containers', () => {
     lastUpdated,
     // Getters
     runningCount,
+    stoppedCount,
     unhealthyCount,
     allHealthy,
     // Actions

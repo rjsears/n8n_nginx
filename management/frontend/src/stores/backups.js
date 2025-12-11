@@ -11,14 +11,19 @@ export const useBackupStore = defineStore('backups', () => {
   const error = ref(null)
 
   // Getters
-  const recentBackups = computed(() => history.value.slice(0, 10))
+  // Alias for dashboard compatibility
+  const backups = computed(() => Array.isArray(history.value) ? history.value : [])
+
+  const recentBackups = computed(() => backups.value.slice(0, 10))
+
+  const lastBackup = computed(() => backups.value[0] || null)
 
   const successfulBackups = computed(() =>
-    history.value.filter(b => b.status === 'success')
+    backups.value.filter(b => b.status === 'success')
   )
 
   const failedBackups = computed(() =>
-    history.value.filter(b => b.status === 'failed')
+    backups.value.filter(b => b.status === 'failed')
   )
 
   // Actions
@@ -42,9 +47,10 @@ export const useBackupStore = defineStore('backups', () => {
 
     try {
       const response = await api.get('/backups/history', { params })
-      history.value = response.data
+      history.value = Array.isArray(response.data) ? response.data : []
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to fetch history'
+      history.value = []
     } finally {
       loading.value = false
     }
@@ -141,6 +147,8 @@ export const useBackupStore = defineStore('backups', () => {
     loading,
     error,
     // Getters
+    backups,
+    lastBackup,
     recentBackups,
     successfulBackups,
     failedBackups,
