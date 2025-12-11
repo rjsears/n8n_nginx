@@ -1018,6 +1018,9 @@ run_migration_v2_to_v3() {
     # Generate .env file with all configuration values
     generate_env_file
 
+    # Generate authentication files for tools (Portainer, Dozzle)
+    generate_tool_auth_files
+
     # Generate new docker-compose.yaml with management services
     generate_docker_compose_v3
 
@@ -1484,6 +1487,73 @@ perform_system_checks() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# GENERATE AUTH FILES FOR TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+generate_bcrypt_hash() {
+    local password="$1"
+    local hash=""
+
+    # Try Python with bcrypt first
+    if command_exists python3; then
+        hash=$(python3 -c "
+import sys
+try:
+    import bcrypt
+    print(bcrypt.hashpw(sys.argv[1].encode(), bcrypt.gensalt()).decode())
+except ImportError:
+    try:
+        from passlib.hash import bcrypt as passlib_bcrypt
+        print(passlib_bcrypt.hash(sys.argv[1]))
+    except ImportError:
+        sys.exit(1)
+" "$password" 2>/dev/null)
+    fi
+
+    # Fallback to htpasswd if available
+    if [ -z "$hash" ] && command_exists htpasswd; then
+        hash=$(htpasswd -nbB admin "$password" 2>/dev/null | cut -d: -f2)
+    fi
+
+    # Fallback to Docker if available
+    if [ -z "$hash" ] && command_exists docker; then
+        hash=$(docker run --rm httpd:2.4-alpine htpasswd -nbB admin "$password" 2>/dev/null | cut -d: -f2)
+    fi
+
+    echo "$hash"
+}
+
+generate_tool_auth_files() {
+    print_info "Generating authentication files for tools..."
+
+    # Generate bcrypt hash of admin password
+    local bcrypt_hash
+    bcrypt_hash=$(generate_bcrypt_hash "$ADMIN_PASS")
+
+    if [ -z "$bcrypt_hash" ]; then
+        print_warn "Could not generate bcrypt hash - tools will use default authentication"
+        return 1
+    fi
+
+    # Save hash for Portainer (will be used in docker-compose)
+    PORTAINER_ADMIN_HASH="$bcrypt_hash"
+
+    # Create Dozzle users.yml
+    mkdir -p "${SCRIPT_DIR}/dozzle"
+    cat > "${SCRIPT_DIR}/dozzle/users.yml" << EOF
+users:
+  ${ADMIN_USER}:
+    password: "${bcrypt_hash}"
+    name: "${ADMIN_USER}"
+    email: "${ADMIN_EMAIL:-admin@localhost}"
+EOF
+    chmod 600 "${SCRIPT_DIR}/dozzle/users.yml"
+
+    print_success "Tool authentication files generated"
+    return 0
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # GENERATE .env FILE
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1759,6 +1829,12 @@ EOF
 
     # Add full Portainer if configured
     if [ "$INSTALL_PORTAINER" = true ]; then
+        # Build Portainer command with optional admin password
+        local portainer_cmd="--base-url /portainer"
+        if [ -n "$PORTAINER_ADMIN_HASH" ]; then
+            portainer_cmd="$portainer_cmd --admin-password='${PORTAINER_ADMIN_HASH}'"
+        fi
+
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   # ═══════════════════════════════════════════════════════════════════════════
   # Portainer - Container Management UI
@@ -1767,7 +1843,7 @@ EOF
     image: portainer/portainer-ce:latest
     container_name: n8n_portainer
     restart: always
-    command: --base-url /portainer
+    command: ${portainer_cmd}
     expose:
       - "9000"
     volumes:
@@ -1882,10 +1958,12 @@ EOF
     environment:
       - DOZZLE_NO_ANALYTICS=true
       - DOZZLE_BASE=/dozzle
+      - DOZZLE_AUTH_PROVIDER=simple
     expose:
       - "8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dozzle/users.yml:/data/users.yml:ro
     networks:
       - n8n_network
 
@@ -3248,6 +3326,7 @@ main() {
         # Generate files
         print_section "Generating Configuration Files"
         generate_env_file
+        generate_tool_auth_files
         generate_docker_compose_v3
         generate_nginx_conf_v3
         create_letsencrypt_volume
