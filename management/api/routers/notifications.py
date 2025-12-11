@@ -2,9 +2,11 @@
 Notifications API routes.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
+import secrets
+import logging
 
 from api.database import get_db
 from api.dependencies import get_current_user
@@ -20,10 +22,29 @@ from api.schemas.notifications import (
     NotificationTestRequest,
     NotificationEventType,
     EventTypeInfo,
+    WebhookNotificationRequest,
+    WebhookNotificationResponse,
 )
 from api.schemas.common import SuccessResponse, PaginatedResponse
+from api.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# Generate webhook API key if not configured
+_webhook_api_key: Optional[str] = None
+
+def get_webhook_api_key() -> str:
+    """Get or generate the webhook API key."""
+    global _webhook_api_key
+    if _webhook_api_key is None:
+        if settings.webhook_api_key:
+            _webhook_api_key = settings.webhook_api_key
+        else:
+            # Generate a random key on first access
+            _webhook_api_key = secrets.token_urlsafe(32)
+            logger.info(f"Generated webhook API key (store in WEBHOOK_API_KEY env var for persistence)")
+    return _webhook_api_key
 
 
 # Services
@@ -63,6 +84,7 @@ async def create_service(
         service_type=data.service_type.value,
         config=data.config,
         enabled=data.enabled,
+        webhook_enabled=data.webhook_enabled,
         priority=data.priority,
     )
     return NotificationServiceResponse.model_validate(created)
@@ -320,3 +342,73 @@ async def list_history(
         status=notification_status,
     )
     return [NotificationHistoryResponse.model_validate(h) for h in history]
+
+
+# Webhook
+
+@router.post("/webhook", response_model=WebhookNotificationResponse)
+async def send_webhook_notification(
+    request: WebhookNotificationRequest,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Send notification to all webhook-enabled channels.
+
+    This endpoint is designed for n8n workflows to send notifications
+    without needing to configure each notification channel individually.
+
+    Authentication: Include API key as either:
+    - Header: X-API-Key: your-api-key
+    - Header: Authorization: Bearer your-api-key
+    """
+    # Extract API key from headers
+    api_key = x_api_key
+    if not api_key and authorization:
+        if authorization.startswith("Bearer "):
+            api_key = authorization[7:]
+
+    # Validate API key
+    expected_key = get_webhook_api_key()
+    if not api_key or not secrets.compare_digest(api_key, expected_key):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Send to all webhook-enabled services
+    service = NotificationService(db)
+    result = await service.send_webhook_notification(
+        title=request.title,
+        message=request.message,
+        priority=request.priority.value,
+    )
+
+    return WebhookNotificationResponse(**result)
+
+
+@router.get("/webhook/info")
+async def get_webhook_info(
+    _=Depends(get_current_user),
+):
+    """
+    Get webhook endpoint information including API key.
+    Only accessible to authenticated users.
+    """
+    return {
+        "endpoint": "/api/notifications/webhook",
+        "api_key": get_webhook_api_key(),
+        "method": "POST",
+        "headers": {
+            "X-API-Key": "your-api-key",
+            "Content-Type": "application/json",
+        },
+        "body_schema": {
+            "title": "string (optional, default: 'Notification')",
+            "message": "string (required)",
+            "priority": "string (optional: 'low', 'normal', 'high', 'critical')",
+        },
+        "example_curl": 'curl -X POST -H "X-API-Key: YOUR_KEY" -H "Content-Type: application/json" -d \'{"title": "Alert", "message": "Something happened!"}\' http://your-host/api/notifications/webhook',
+    }

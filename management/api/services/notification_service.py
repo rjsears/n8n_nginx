@@ -242,6 +242,7 @@ class NotificationService:
         service_type: str,
         config: Dict[str, Any],
         enabled: bool = True,
+        webhook_enabled: bool = False,
         priority: int = 0,
     ) -> NotificationServiceModel:
         """Create a notification service."""
@@ -250,6 +251,7 @@ class NotificationService:
             service_type=service_type,
             config=config,
             enabled=enabled,
+            webhook_enabled=webhook_enabled,
             priority=priority,
         )
         self.db.add(service)
@@ -318,6 +320,97 @@ class NotificationService:
             await self.db.commit()
 
             return {"success": False, "error": str(e)}
+
+    # Webhook routing
+
+    async def get_webhook_enabled_services(self) -> List[NotificationServiceModel]:
+        """Get all services with webhook routing enabled."""
+        result = await self.db.execute(
+            select(NotificationServiceModel)
+            .where(NotificationServiceModel.webhook_enabled == True)
+            .where(NotificationServiceModel.enabled == True)
+            .order_by(NotificationServiceModel.priority.desc())
+        )
+        return list(result.scalars().all())
+
+    async def send_webhook_notification(
+        self,
+        title: str,
+        message: str,
+        priority: str = "normal",
+    ) -> Dict[str, Any]:
+        """
+        Send notification to all webhook-enabled services.
+        Used by n8n workflows to send notifications without configuring each channel.
+        """
+        services = await self.get_webhook_enabled_services()
+
+        if not services:
+            return {
+                "success": False,
+                "channels_notified": 0,
+                "channels": [],
+                "errors": ["No webhook-enabled notification channels configured"],
+            }
+
+        channels_notified = []
+        errors = []
+
+        for service in services:
+            try:
+                if service.service_type == "apprise":
+                    success = await self.dispatcher.send_apprise(service.config, title, message, priority)
+                elif service.service_type == "ntfy":
+                    success = await self.dispatcher.send_ntfy(service.config, title, message, priority)
+                elif service.service_type == "webhook":
+                    success = await self.dispatcher.send_webhook(service.config, title, message, {"source": "n8n_webhook"})
+                elif service.service_type == "email":
+                    success = await self.dispatcher.send_email(service.config, title, message, priority)
+                else:
+                    success = False
+                    errors.append(f"{service.name}: Unsupported service type")
+
+                if success:
+                    channels_notified.append(service.name)
+                    # Log to history
+                    history = NotificationHistory(
+                        event_type="webhook.notification",
+                        event_data={"title": title, "message": message[:500], "priority": priority},
+                        severity=priority,
+                        service_id=service.id,
+                        service_name=service.name,
+                        rule_id=None,
+                        status="sent",
+                        sent_at=datetime.now(UTC),
+                    )
+                    self.db.add(history)
+                else:
+                    errors.append(f"{service.name}: Send returned false")
+
+            except Exception as e:
+                logger.error(f"Webhook notification failed for {service.name}: {e}")
+                errors.append(f"{service.name}: {str(e)}")
+                # Log failure to history
+                history = NotificationHistory(
+                    event_type="webhook.notification",
+                    event_data={"title": title, "message": message[:500], "priority": priority},
+                    severity=priority,
+                    service_id=service.id,
+                    service_name=service.name,
+                    rule_id=None,
+                    status="failed",
+                    error_message=str(e),
+                )
+                self.db.add(history)
+
+        await self.db.commit()
+
+        return {
+            "success": len(channels_notified) > 0,
+            "channels_notified": len(channels_notified),
+            "channels": channels_notified,
+            "errors": errors,
+        }
 
     # Rule management
 

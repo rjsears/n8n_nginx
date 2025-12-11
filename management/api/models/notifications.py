@@ -25,6 +25,9 @@ class NotificationService(Base):
     config = Column(JSONB, nullable=False)  # Service-specific config (encrypted if contains secrets)
     priority = Column(Integer, default=0)  # Higher = preferred
 
+    # Webhook routing - when enabled, this service receives messages from the webhook endpoint
+    webhook_enabled = Column(Boolean, default=False)
+
     # Testing status
     last_test = Column(DateTime(timezone=True), nullable=True)
     last_test_result = Column(String(20), nullable=True)  # 'success', 'failed', 'pending'

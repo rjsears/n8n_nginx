@@ -110,6 +110,9 @@ export const notificationsApi = {
   deleteRule: (id) => api.delete(`/notifications/rules/${id}`),
   getEventTypes: () => api.get('/notifications/event-types'),
   getHistory: (params) => api.get('/notifications/history', { params }),
+  // Webhook integration for n8n workflows
+  getWebhookInfo: () => api.get('/notifications/webhook/info'),
+  sendWebhook: (data) => api.post('/notifications/webhook', data),
 }
 
 export const emailApi = {

@@ -19,6 +19,7 @@ const form = ref({
   name: '',
   service_type: 'apprise',
   enabled: true,
+  webhook_enabled: false,
   priority: 0,
   config: {
     url: '',
@@ -98,6 +99,7 @@ watch(() => props.open, (isOpen) => {
         name: props.service.name || '',
         service_type: props.service.service_type || 'apprise',
         enabled: props.service.enabled ?? true,
+        webhook_enabled: props.service.webhook_enabled ?? false,
         priority: props.service.priority || 0,
         config: { ...props.service.config } || { url: '' },
       }
@@ -107,6 +109,7 @@ watch(() => props.open, (isOpen) => {
         name: '',
         service_type: 'apprise',
         enabled: true,
+        webhook_enabled: false,
         priority: 0,
         config: { url: '' },
       }
@@ -523,6 +526,32 @@ const appriseExamples = [
                     class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
                   ></div>
                 </label>
+              </div>
+
+              <!-- Webhook Enabled Toggle -->
+              <div class="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div>
+                  <label class="text-sm font-medium text-gray-900 dark:text-white">n8n Webhook Routing</label>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">Receive notifications from n8n workflows via webhook</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="form.webhook_enabled"
+                    class="sr-only peer"
+                  />
+                  <div
+                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-500"
+                  ></div>
+                </label>
+              </div>
+
+              <!-- Webhook Info -->
+              <div v-if="form.webhook_enabled" class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-xs">
+                <p class="text-green-700 dark:text-green-300">
+                  <strong>Webhook Enabled:</strong> This channel will receive notifications sent via the webhook endpoint.
+                  n8n workflows can send messages here without additional configuration.
+                </p>
               </div>
             </form>
           </div>

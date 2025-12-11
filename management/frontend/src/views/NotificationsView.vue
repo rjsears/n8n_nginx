@@ -20,6 +20,10 @@ import {
   EnvelopeIcon,
   ChatBubbleLeftIcon,
   GlobeAltIcon,
+  LinkIcon,
+  ClipboardDocumentIcon,
+  EyeIcon,
+  EyeSlashIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -28,6 +32,8 @@ const notificationStore = useNotificationStore()
 const loading = ref(true)
 const channels = ref([])
 const history = ref([])
+const webhookInfo = ref(null)
+const showApiKey = ref(false)
 const deleteDialog = ref({ open: false, channel: null, loading: false })
 const serviceDialog = ref({ open: false, service: null })
 const testingChannel = ref(null)
@@ -47,6 +53,7 @@ const stats = computed(() => {
   return {
     total: channelsList.length,
     active: channelsList.filter((c) => c.enabled).length,
+    webhookEnabled: channelsList.filter((c) => c.webhook_enabled).length,
     sent: historyList.filter((h) => h.status === 'sent').length,
     failed: historyList.filter((h) => h.status === 'failed').length,
   }
@@ -55,13 +62,15 @@ const stats = computed(() => {
 async function loadData() {
   loading.value = true
   try {
-    const [servicesRes, historyRes] = await Promise.all([
+    const [servicesRes, historyRes, webhookRes] = await Promise.all([
       notificationsApi.getServices(),
       notificationsApi.getHistory(),
+      notificationsApi.getWebhookInfo(),
     ])
     // Ensure we always have arrays
     channels.value = Array.isArray(servicesRes.data) ? servicesRes.data : []
     history.value = Array.isArray(historyRes.data) ? historyRes.data : []
+    webhookInfo.value = webhookRes.data
   } catch (error) {
     console.error('Failed to load notification data:', error)
     notificationStore.error('Failed to load notification data')
@@ -71,6 +80,19 @@ async function loadData() {
   } finally {
     loading.value = false
   }
+}
+
+function copyToClipboard(text, name) {
+  navigator.clipboard.writeText(text).then(() => {
+    notificationStore.success(`${name} copied to clipboard`)
+  }).catch(() => {
+    notificationStore.error('Failed to copy to clipboard')
+  })
+}
+
+function getWebhookUrl() {
+  const baseUrl = window.location.origin
+  return `${baseUrl}/api/notifications/webhook`
 }
 
 async function testChannel(channel) {
@@ -115,6 +137,7 @@ async function handleServiceSave(formData) {
         name: formData.name,
         service_type: formData.service_type,
         enabled: formData.enabled,
+        webhook_enabled: formData.webhook_enabled,
         priority: formData.priority,
         config: formData.config,
       })
@@ -129,6 +152,7 @@ async function handleServiceSave(formData) {
         name: formData.name,
         service_type: formData.service_type,
         enabled: formData.enabled,
+        webhook_enabled: formData.webhook_enabled,
         priority: formData.priority,
         config: formData.config,
       })
@@ -224,6 +248,20 @@ onMounted(loadData)
         <Card :neon="true" :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
+              <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
+                <LinkIcon class="h-5 w-5 text-green-500" />
+              </div>
+              <div>
+                <p class="text-sm text-secondary">Webhook Enabled</p>
+                <p class="text-xl font-bold text-primary">{{ stats.webhookEnabled }}</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card :neon="true" :padding="false">
+          <div class="p-4">
+            <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
                 <PaperAirplaneIcon class="h-5 w-5 text-purple-500" />
               </div>
@@ -234,21 +272,81 @@ onMounted(loadData)
             </div>
           </div>
         </Card>
+      </div>
 
-        <Card :neon="true" :padding="false">
-          <div class="p-4">
-            <div class="flex items-center gap-3">
-              <div class="p-2 rounded-lg bg-red-100 dark:bg-red-500/20">
-                <XCircleIcon class="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <p class="text-sm text-secondary">Failed</p>
-                <p class="text-xl font-bold text-primary">{{ stats.failed }}</p>
-              </div>
+      <!-- n8n Webhook Integration -->
+      <Card v-if="webhookInfo" title="n8n Webhook Integration" subtitle="Send notifications from n8n workflows" :neon="true">
+        <div class="space-y-4">
+          <p class="text-sm text-secondary">
+            Use this webhook endpoint in your n8n workflows to send notifications through all channels with "n8n Webhook Routing" enabled.
+            {{ stats.webhookEnabled > 0 ? `Currently ${stats.webhookEnabled} channel(s) will receive webhook notifications.` : 'Enable webhook routing on channels to receive notifications.' }}
+          </p>
+
+          <!-- Webhook URL -->
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">Webhook URL</label>
+            <div class="flex items-center gap-2">
+              <input
+                type="text"
+                :value="getWebhookUrl()"
+                readonly
+                class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+              />
+              <button
+                @click="copyToClipboard(getWebhookUrl(), 'Webhook URL')"
+                class="btn-secondary p-2"
+                title="Copy URL"
+              >
+                <ClipboardDocumentIcon class="h-5 w-5" />
+              </button>
             </div>
           </div>
-        </Card>
-      </div>
+
+          <!-- API Key -->
+          <div>
+            <label class="block text-sm font-medium text-primary mb-1">API Key</label>
+            <div class="flex items-center gap-2">
+              <input
+                :type="showApiKey ? 'text' : 'password'"
+                :value="webhookInfo.api_key"
+                readonly
+                class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+              />
+              <button
+                @click="showApiKey = !showApiKey"
+                class="btn-secondary p-2"
+                :title="showApiKey ? 'Hide API Key' : 'Show API Key'"
+              >
+                <EyeSlashIcon v-if="showApiKey" class="h-5 w-5" />
+                <EyeIcon v-else class="h-5 w-5" />
+              </button>
+              <button
+                @click="copyToClipboard(webhookInfo.api_key, 'API Key')"
+                class="btn-secondary p-2"
+                title="Copy API Key"
+              >
+                <ClipboardDocumentIcon class="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Usage Example -->
+          <div class="bg-gray-100 dark:bg-gray-700 rounded-lg p-4">
+            <p class="text-xs font-medium text-secondary mb-2">n8n HTTP Request Node Configuration:</p>
+            <pre class="text-xs font-mono text-gray-600 dark:text-gray-300 overflow-x-auto whitespace-pre-wrap">POST {{ getWebhookUrl() }}
+Headers:
+  X-API-Key: {{ showApiKey ? webhookInfo.api_key : '••••••••••••••••' }}
+  Content-Type: application/json
+
+Body:
+{
+  "title": "Alert Title",
+  "message": "Your notification message",
+  "priority": "normal"  // low, normal, high, critical
+}</pre>
+          </div>
+        </div>
+      </Card>
 
       <!-- Notification Channels -->
       <Card title="Notification Channels" subtitle="Configure where alerts are sent" :neon="true">
@@ -288,11 +386,15 @@ onMounted(loadData)
                 <div class="flex items-center gap-2">
                   <p class="font-medium text-primary">{{ channel.name }}</p>
                   <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" />
+                  <span
+                    v-if="channel.webhook_enabled"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300"
+                  >
+                    <LinkIcon class="h-3 w-3" />
+                    Webhook
+                  </span>
                 </div>
                 <p class="text-sm text-secondary mt-0.5 capitalize">{{ channel.service_type }}</p>
-                <p class="text-xs text-muted mt-0.5">
-                  Events: {{ channel.events?.join(', ') || 'All' }}
-                </p>
               </div>
             </div>
             <div class="flex items-center gap-2">

@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     api_rate_limit: int = Field(default=30, description="API requests per second per IP")
     login_rate_limit: int = Field(default=5, description="Login attempts per minute per IP")
 
+    # Webhook API key for n8n notification routing
+    webhook_api_key: Optional[str] = Field(
+        default=None,
+        description="API key for webhook notification endpoint. If not set, a random key is generated on startup."
+    )
+
     # Debug
     debug: bool = Field(default=False, description="Enable debug mode")
     log_level: str = Field(default="INFO", description="Logging level")

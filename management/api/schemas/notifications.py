@@ -73,6 +73,7 @@ class NotificationServiceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     service_type: ServiceType
     enabled: bool = True
+    webhook_enabled: bool = False
     config: Dict[str, Any]
     priority: int = Field(default=0, ge=0, le=100)
 
@@ -81,6 +82,7 @@ class NotificationServiceUpdate(BaseModel):
     """Update notification service."""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     enabled: Optional[bool] = None
+    webhook_enabled: Optional[bool] = None
     config: Optional[Dict[str, Any]] = None
     priority: Optional[int] = Field(None, ge=0, le=100)
 
@@ -91,6 +93,7 @@ class NotificationServiceResponse(BaseModel):
     name: str
     service_type: str
     enabled: bool
+    webhook_enabled: bool = False
     config: Dict[str, Any]  # Sensitive fields redacted
     priority: int
     last_test: Optional[datetime] = None
@@ -189,3 +192,19 @@ class EventTypeInfo(BaseModel):
     category: str
     description: str
     default_priority: str
+
+
+class WebhookNotificationRequest(BaseModel):
+    """Webhook notification request from n8n or external sources."""
+    title: str = Field(default="Notification", max_length=500)
+    message: str = Field(..., min_length=1)
+    priority: NotificationPriority = NotificationPriority.NORMAL
+    tags: Optional[List[str]] = None  # Future: route to specific channel groups
+
+
+class WebhookNotificationResponse(BaseModel):
+    """Response from webhook notification endpoint."""
+    success: bool
+    channels_notified: int
+    channels: List[str] = []
+    errors: List[str] = []
