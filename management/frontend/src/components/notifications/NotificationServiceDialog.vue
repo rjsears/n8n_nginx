@@ -33,6 +33,62 @@ const serviceTypes = [
   { id: 'webhook', name: 'Webhook', description: 'Custom HTTP webhook endpoint' },
 ]
 
+// Email provider presets
+const emailPresets = [
+  { id: 'gmail_relay', name: 'Gmail Relay (IP Whitelist)', description: 'For Google Workspace with IP whitelisting' },
+  { id: 'gmail_app', name: 'Gmail (App Password)', description: 'Gmail with app-specific password' },
+  { id: 'internal', name: 'Internal Mail Server', description: 'Local/internal SMTP server without auth' },
+  { id: 'custom', name: 'Custom SMTP', description: 'Standard SMTP with authentication' },
+]
+
+// Apply email preset configurations
+function applyEmailPreset(presetId) {
+  const presets = {
+    gmail_relay: {
+      smtp_server: 'smtp-relay.gmail.com',
+      smtp_port: 587,
+      smtp_user: '',
+      smtp_password: '',
+      use_tls: true,
+      use_starttls: true,
+    },
+    gmail_app: {
+      smtp_server: 'smtp.gmail.com',
+      smtp_port: 587,
+      smtp_user: '',
+      smtp_password: '',
+      use_tls: true,
+      use_starttls: true,
+    },
+    internal: {
+      smtp_server: '',
+      smtp_port: 25,
+      smtp_user: '',
+      smtp_password: '',
+      use_tls: false,
+      use_starttls: false,
+    },
+    custom: {
+      smtp_server: '',
+      smtp_port: 587,
+      smtp_user: '',
+      smtp_password: '',
+      use_tls: true,
+      use_starttls: true,
+    },
+  }
+
+  const preset = presets[presetId] || presets.custom
+  form.value.config = {
+    ...form.value.config,
+    ...preset,
+    email_preset: presetId,
+    // Preserve user-entered values
+    from_email: form.value.config.from_email || '',
+    to_emails: form.value.config.to_emails || '',
+  }
+}
+
 // Reset form when dialog opens/closes
 watch(() => props.open, (isOpen) => {
   if (isOpen) {
@@ -70,11 +126,13 @@ watch(() => form.value.service_type, (newType) => {
     }
   } else if (newType === 'email') {
     form.value.config = {
+      email_preset: form.value.config.email_preset || 'custom',
       smtp_server: form.value.config.smtp_server || '',
       smtp_port: form.value.config.smtp_port || 587,
       smtp_user: form.value.config.smtp_user || '',
       smtp_password: form.value.config.smtp_password || '',
       use_tls: form.value.config.use_tls ?? true,
+      use_starttls: form.value.config.use_starttls ?? true,
       from_email: form.value.config.from_email || '',
       to_emails: form.value.config.to_emails || '',
     }
@@ -99,7 +157,9 @@ const isValid = computed(() => {
   } else if (form.value.service_type === 'ntfy') {
     return !!form.value.config.topic?.trim()
   } else if (form.value.service_type === 'email') {
-    return !!form.value.config.smtp_server?.trim() && !!form.value.config.to_emails?.trim()
+    return !!form.value.config.smtp_server?.trim() &&
+           !!form.value.config.from_email?.trim() &&
+           !!form.value.config.to_emails?.trim()
   } else if (form.value.service_type === 'webhook') {
     return !!form.value.config.url?.trim()
   }
@@ -275,6 +335,30 @@ const appriseExamples = [
 
               <!-- Email Config -->
               <template v-if="form.service_type === 'email'">
+                <!-- Provider Preset -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                    Email Provider
+                  </label>
+                  <select
+                    v-model="form.config.email_preset"
+                    @change="applyEmailPreset(form.config.email_preset)"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option
+                      v-for="preset in emailPresets"
+                      :key="preset.id"
+                      :value="preset.id"
+                    >
+                      {{ preset.name }}
+                    </option>
+                  </select>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ emailPresets.find(p => p.id === form.config.email_preset)?.description }}
+                  </p>
+                </div>
+
+                <!-- SMTP Server & Port -->
                 <div class="grid grid-cols-2 gap-4">
                   <div>
                     <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
@@ -284,7 +368,7 @@ const appriseExamples = [
                       v-model="form.config.smtp_server"
                       type="text"
                       class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="smtp.gmail.com"
+                      :placeholder="form.config.email_preset === 'internal' ? 'mail.internal.local' : 'smtp.example.com'"
                       required
                     />
                   </div>
@@ -296,48 +380,70 @@ const appriseExamples = [
                       v-model="form.config.smtp_port"
                       type="number"
                       class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="587"
                     />
                   </div>
                 </div>
-                <div class="grid grid-cols-2 gap-4">
-                  <div>
-                    <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
-                      Username
-                    </label>
-                    <input
-                      v-model="form.config.smtp_user"
-                      type="text"
-                      class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="user@example.com"
-                    />
+
+                <!-- Authentication (shown for custom and gmail_app) -->
+                <template v-if="form.config.email_preset === 'custom' || form.config.email_preset === 'gmail_app'">
+                  <div class="grid grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                        {{ form.config.email_preset === 'gmail_app' ? 'Gmail Address' : 'Username' }}
+                      </label>
+                      <input
+                        v-model="form.config.smtp_user"
+                        type="text"
+                        class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        :placeholder="form.config.email_preset === 'gmail_app' ? 'user@gmail.com' : 'user@example.com'"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                        {{ form.config.email_preset === 'gmail_app' ? 'App Password' : 'Password' }}
+                      </label>
+                      <input
+                        v-model="form.config.smtp_password"
+                        type="password"
+                        class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="••••••••"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
-                      Password
-                    </label>
-                    <input
-                      v-model="form.config.smtp_password"
-                      type="password"
-                      class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="••••••••"
-                    />
-                  </div>
+                  <p v-if="form.config.email_preset === 'gmail_app'" class="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+                    Generate an app password at <a href="https://myaccount.google.com/apppasswords" target="_blank" class="text-blue-500 hover:underline">Google Account Settings</a>
+                  </p>
+                </template>
+
+                <!-- Gmail Relay Note -->
+                <div v-if="form.config.email_preset === 'gmail_relay'" class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                  <p class="text-xs text-blue-700 dark:text-blue-300">
+                    <strong>Gmail Relay:</strong> Requires your server's IP to be whitelisted in Google Workspace Admin Console under Apps → Google Workspace → Gmail → Routing → SMTP relay service.
+                  </p>
                 </div>
+
+                <!-- Internal Server Note -->
+                <div v-if="form.config.email_preset === 'internal'" class="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3">
+                  <p class="text-xs text-amber-700 dark:text-amber-300">
+                    <strong>Internal Server:</strong> No authentication required. Ensure your mail server accepts connections from this host.
+                  </p>
+                </div>
+
+                <!-- From Email -->
                 <div>
                   <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
-                    From Email
+                    From Email *
                   </label>
                   <input
                     v-model="form.config.from_email"
                     type="email"
                     class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="alerts@example.com"
+                    placeholder="n8n-alerts@yourdomain.com"
+                    required
                   />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Defaults to username if not specified
-                  </p>
                 </div>
+
+                <!-- To Emails -->
                 <div>
                   <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                     To Emails *
@@ -353,15 +459,17 @@ const appriseExamples = [
                     Comma-separated list of recipient addresses
                   </p>
                 </div>
-                <div class="flex items-center justify-between">
+
+                <!-- TLS Toggle (only for custom) -->
+                <div v-if="form.config.email_preset === 'custom'" class="flex items-center justify-between">
                   <div>
-                    <label class="text-sm font-medium text-gray-900 dark:text-white">Use TLS</label>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Enable STARTTLS encryption</p>
+                    <label class="text-sm font-medium text-gray-900 dark:text-white">Use STARTTLS</label>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Enable TLS encryption (recommended)</p>
                   </div>
                   <label class="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      v-model="form.config.use_tls"
+                      v-model="form.config.use_starttls"
                       class="sr-only peer"
                     />
                     <div

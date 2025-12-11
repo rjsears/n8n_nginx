@@ -123,66 +123,86 @@ class NotificationDispatcher:
             raise
 
     async def send_email(self, config: Dict[str, Any], title: str, body: str, priority: str) -> bool:
-        """Send notification via SMTP email."""
+        """Send notification via SMTP email using red-mail."""
         try:
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
+            from redmail import EmailSender
 
             smtp_server = config.get("smtp_server", "localhost")
             smtp_port = config.get("smtp_port", 587)
             smtp_user = config.get("smtp_user", "")
             smtp_password = config.get("smtp_password", "")
             use_tls = config.get("use_tls", True)
-            from_email = config.get("from_email", smtp_user)
+            use_starttls = config.get("use_starttls", True)
+            from_email = config.get("from_email", smtp_user or f"n8n@{smtp_server}")
             to_emails = config.get("to_emails", [])
 
             if isinstance(to_emails, str):
-                to_emails = [e.strip() for e in to_emails.split(",")]
+                to_emails = [e.strip() for e in to_emails.split(",") if e.strip()]
 
             if not to_emails:
                 raise ValueError("No recipient email addresses configured")
 
-            # Create message
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = title
-            msg["From"] = from_email
-            msg["To"] = ", ".join(to_emails)
+            # Determine if this is Gmail relay (no auth needed with IP whitelist)
+            is_gmail_relay = "gmail" in smtp_server.lower() and not smtp_user
 
-            # Add priority header
-            if priority == "critical":
-                msg["X-Priority"] = "1"
-                msg["Importance"] = "high"
-            elif priority == "high":
-                msg["X-Priority"] = "2"
-                msg["Importance"] = "high"
+            # Create email sender with appropriate configuration
+            if is_gmail_relay:
+                # Gmail relay with IP whitelisting - no auth needed
+                email = EmailSender(
+                    host=smtp_server,
+                    port=smtp_port,
+                    use_starttls=use_starttls,
+                )
+            elif smtp_user and smtp_password:
+                # Authenticated SMTP
+                email = EmailSender(
+                    host=smtp_server,
+                    port=smtp_port,
+                    username=smtp_user,
+                    password=smtp_password,
+                    use_starttls=use_starttls if use_tls else False,
+                )
+            else:
+                # Unauthenticated SMTP (internal mail servers)
+                email = EmailSender(
+                    host=smtp_server,
+                    port=smtp_port,
+                    use_starttls=use_starttls if use_tls else False,
+                )
 
-            # Plain text body
-            text_part = MIMEText(body, "plain")
-            msg.attach(text_part)
-
-            # HTML body (simple formatting)
+            # Build HTML body with simple formatting
             html_body = f"""
             <html>
-            <body>
-                <h2>{title}</h2>
-                <p>{body.replace(chr(10), '<br>')}</p>
-                <hr>
-                <p style="color: #666; font-size: 12px;">This is an automated notification from n8n Management Console.</p>
+            <body style="font-family: Arial, sans-serif; padding: 20px;">
+                <h2 style="color: #333;">{title}</h2>
+                <p style="color: #555; line-height: 1.6;">{body.replace(chr(10), '<br>')}</p>
+                <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+                <p style="color: #999; font-size: 12px;">
+                    This is an automated notification from n8n Management Console.
+                </p>
             </body>
             </html>
             """
-            html_part = MIMEText(html_body, "html")
-            msg.attach(html_part)
 
-            # Send email
+            # Set priority headers
+            headers = {}
+            if priority == "critical":
+                headers["X-Priority"] = "1"
+                headers["Importance"] = "high"
+            elif priority == "high":
+                headers["X-Priority"] = "2"
+                headers["Importance"] = "high"
+
+            # Send email using red-mail (blocking call wrapped in thread)
             def _send():
-                with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
-                    if use_tls:
-                        server.starttls()
-                    if smtp_user and smtp_password:
-                        server.login(smtp_user, smtp_password)
-                    server.sendmail(from_email, to_emails, msg.as_string())
+                email.send(
+                    subject=title,
+                    sender=from_email,
+                    receivers=to_emails,
+                    text=body,
+                    html=html_body,
+                    headers=headers if headers else None,
+                )
                 return True
 
             result = await asyncio.to_thread(_send)
