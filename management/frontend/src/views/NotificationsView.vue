@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useThemeStore } from '@/stores/theme'
 import { useNotificationStore } from '@/stores/notifications'
-import api from '@/services/api'
+import { notificationsApi } from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -49,11 +49,11 @@ const stats = computed(() => ({
 async function loadData() {
   loading.value = true
   try {
-    const [channelsRes, historyRes] = await Promise.all([
-      api.notifications.getChannels(),
-      api.notifications.getHistory(),
+    const [servicesRes, historyRes] = await Promise.all([
+      notificationsApi.getServices(),
+      notificationsApi.getHistory(),
     ])
-    channels.value = channelsRes.data
+    channels.value = servicesRes.data
     history.value = historyRes.data
   } catch (error) {
     notificationStore.error('Failed to load notification data')
@@ -65,7 +65,7 @@ async function loadData() {
 async function testChannel(channel) {
   testingChannel.value = channel.id
   try {
-    await api.notifications.testChannel(channel.id)
+    await notificationsApi.testService(channel.id)
     notificationStore.success('Test notification sent!')
   } catch (error) {
     notificationStore.error('Test failed: ' + (error.response?.data?.detail || 'Unknown error'))
@@ -76,7 +76,7 @@ async function testChannel(channel) {
 
 async function toggleChannel(channel) {
   try {
-    await api.notifications.updateChannel(channel.id, { enabled: !channel.enabled })
+    await notificationsApi.updateService(channel.id, { enabled: !channel.enabled })
     channel.enabled = !channel.enabled
     notificationStore.success(`Channel ${channel.enabled ? 'enabled' : 'disabled'}`)
   } catch (error) {
@@ -93,7 +93,7 @@ async function confirmDelete() {
 
   deleteDialog.value.loading = true
   try {
-    await api.notifications.deleteChannel(deleteDialog.value.channel.id)
+    await notificationsApi.deleteService(deleteDialog.value.channel.id)
     channels.value = channels.value.filter((c) => c.id !== deleteDialog.value.channel.id)
     notificationStore.success('Channel deleted')
     deleteDialog.value.open = false

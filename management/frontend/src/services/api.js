@@ -3,7 +3,7 @@ import router from '@/router'
 
 // Create axios instance
 const api = axios.create({
-  baseURL: '/management/api',
+  baseURL: '/api',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -136,4 +136,39 @@ export const settingsApi = {
   updateConfig: (type, data) => api.put(`/settings/config/${type}`, data),
   getNfsStatus: () => api.get('/settings/nfs/status'),
   updateNfsConfig: (data) => api.put('/settings/nfs/config', data),
+  // Aliases for view compatibility
+  getAll: () => api.get('/settings/'),
+}
+
+// Attach APIs to the main instance for api.xxx.method() pattern compatibility
+api.auth = authApi
+api.system = {
+  ...systemApi,
+  // Aliases for SystemView compatibility
+  getInfo: systemApi.info,
+  getHealth: systemApi.health,
+}
+api.backups = backupsApi
+api.containers = containersApi
+api.notifications = {
+  ...notificationsApi,
+  // Aliases for channel terminology compatibility (in case any code uses old names)
+  getChannels: notificationsApi.getServices,
+  testChannel: (id, data) => notificationsApi.testService(id, data),
+  updateChannel: (id, data) => notificationsApi.updateService(id, data),
+  deleteChannel: (id) => notificationsApi.deleteService(id),
+  getHistory: (params) => api.get('/notifications/history', { params }),
+}
+api.email = emailApi
+api.flows = {
+  ...flowsApi,
+  // Aliases for FlowsView compatibility
+  getWorkflows: () => api.get('/flows/list'),
+  getExecutions: () => Promise.resolve({ data: [] }),  // Placeholder until backend implemented
+  toggleWorkflow: (id, active) => Promise.reject(new Error('Not implemented')),
+  executeWorkflow: (id) => Promise.reject(new Error('Not implemented')),
+}
+api.settings = {
+  ...settingsApi,
+  getAll: () => api.get('/settings/'),
 }
