@@ -24,6 +24,8 @@ import {
   ClipboardDocumentIcon,
   EyeIcon,
   EyeSlashIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -34,6 +36,7 @@ const channels = ref([])
 const history = ref([])
 const webhookInfo = ref(null)
 const showApiKey = ref(false)
+const webhookExpanded = ref(false)
 const deleteDialog = ref({ open: false, channel: null, loading: false })
 const serviceDialog = ref({ open: false, service: null })
 const testingChannel = ref(null)
@@ -274,80 +277,6 @@ onMounted(loadData)
         </Card>
       </div>
 
-      <!-- n8n Webhook Integration -->
-      <Card v-if="webhookInfo" title="n8n Webhook Integration" subtitle="Send notifications from n8n workflows" :neon="true">
-        <div class="space-y-4">
-          <p class="text-sm text-secondary">
-            Use this webhook endpoint in your n8n workflows to send notifications through all channels with "n8n Webhook Routing" enabled.
-            {{ stats.webhookEnabled > 0 ? `Currently ${stats.webhookEnabled} channel(s) will receive webhook notifications.` : 'Enable webhook routing on channels to receive notifications.' }}
-          </p>
-
-          <!-- Webhook URL -->
-          <div>
-            <label class="block text-sm font-medium text-primary mb-1">Webhook URL</label>
-            <div class="flex items-center gap-2">
-              <input
-                type="text"
-                :value="getWebhookUrl()"
-                readonly
-                class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
-              />
-              <button
-                @click="copyToClipboard(getWebhookUrl(), 'Webhook URL')"
-                class="btn-secondary p-2"
-                title="Copy URL"
-              >
-                <ClipboardDocumentIcon class="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-
-          <!-- API Key -->
-          <div>
-            <label class="block text-sm font-medium text-primary mb-1">API Key</label>
-            <div class="flex items-center gap-2">
-              <input
-                :type="showApiKey ? 'text' : 'password'"
-                :value="webhookInfo.api_key"
-                readonly
-                class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
-              />
-              <button
-                @click="showApiKey = !showApiKey"
-                class="btn-secondary p-2"
-                :title="showApiKey ? 'Hide API Key' : 'Show API Key'"
-              >
-                <EyeSlashIcon v-if="showApiKey" class="h-5 w-5" />
-                <EyeIcon v-else class="h-5 w-5" />
-              </button>
-              <button
-                @click="copyToClipboard(webhookInfo.api_key, 'API Key')"
-                class="btn-secondary p-2"
-                title="Copy API Key"
-              >
-                <ClipboardDocumentIcon class="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-
-          <!-- Usage Example -->
-          <div class="bg-gray-100 dark:bg-gray-700 rounded-lg p-4">
-            <p class="text-xs font-medium text-secondary mb-2">n8n HTTP Request Node Configuration:</p>
-            <pre class="text-xs font-mono text-gray-600 dark:text-gray-300 overflow-x-auto whitespace-pre-wrap">POST {{ getWebhookUrl() }}
-Headers:
-  X-API-Key: {{ showApiKey ? webhookInfo.api_key : '••••••••••••••••' }}
-  Content-Type: application/json
-
-Body:
-{
-  "title": "Alert Title",
-  "message": "Your notification message",
-  "priority": "normal"  // low, normal, high, critical
-}</pre>
-          </div>
-        </div>
-      </Card>
-
       <!-- Notification Channels -->
       <Card title="Notification Channels" subtitle="Configure where alerts are sent" :neon="true">
         <EmptyState
@@ -476,6 +405,112 @@ Body:
           </table>
         </div>
       </Card>
+
+      <!-- n8n Webhook Integration (Collapsible) -->
+      <Card v-if="webhookInfo" :neon="true" :padding="false">
+        <div
+          @click="webhookExpanded = !webhookExpanded"
+          class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+        >
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
+              <LinkIcon class="h-5 w-5 text-green-500" />
+            </div>
+            <div>
+              <h3 class="font-semibold text-primary">n8n Webhook Integration</h3>
+              <p class="text-sm text-secondary">Send notifications from n8n workflows</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs px-2 py-1 rounded-full bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300">
+              {{ stats.webhookEnabled }} channel{{ stats.webhookEnabled !== 1 ? 's' : '' }} enabled
+            </span>
+            <ChevronDownIcon v-if="webhookExpanded" class="h-5 w-5 text-secondary" />
+            <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+          </div>
+        </div>
+
+        <Transition name="collapse">
+          <div v-if="webhookExpanded" class="px-4 pb-4 space-y-4 border-t border-gray-200 dark:border-gray-700">
+            <p class="text-sm text-secondary pt-4">
+              Use this webhook endpoint in your n8n workflows to send notifications through all channels with "n8n Webhook Routing" enabled.
+            </p>
+
+            <!-- Webhook URL -->
+            <div>
+              <label class="block text-sm font-medium text-primary mb-1">Webhook URL</label>
+              <div class="flex items-center gap-2">
+                <input
+                  type="text"
+                  :value="getWebhookUrl()"
+                  readonly
+                  class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+                />
+                <button
+                  @click.stop="copyToClipboard(getWebhookUrl(), 'Webhook URL')"
+                  class="btn-secondary p-2"
+                  title="Copy URL"
+                >
+                  <ClipboardDocumentIcon class="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- API Key -->
+            <div>
+              <label class="block text-sm font-medium text-primary mb-1">API Key</label>
+              <div class="flex items-center gap-2">
+                <input
+                  :type="showApiKey ? 'text' : 'password'"
+                  :value="webhookInfo.api_key"
+                  readonly
+                  class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+                />
+                <button
+                  @click.stop="showApiKey = !showApiKey"
+                  class="btn-secondary p-2"
+                  :title="showApiKey ? 'Hide API Key' : 'Show API Key'"
+                >
+                  <EyeSlashIcon v-if="showApiKey" class="h-5 w-5" />
+                  <EyeIcon v-else class="h-5 w-5" />
+                </button>
+                <button
+                  @click.stop="copyToClipboard(webhookInfo.api_key, 'API Key')"
+                  class="btn-secondary p-2"
+                  title="Copy API Key"
+                >
+                  <ClipboardDocumentIcon class="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- n8n Credential Tip -->
+            <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+              <p class="text-xs text-blue-700 dark:text-blue-300">
+                <strong>Tip:</strong> In n8n, create a "Header Auth" credential with Name: <code class="bg-blue-100 dark:bg-blue-800 px-1 rounded">X-API-Key</code> and Value: your API key above.
+                Then attach this credential to your HTTP Request node for secure, reusable authentication.
+              </p>
+            </div>
+
+            <!-- Usage Example -->
+            <div class="bg-gray-100 dark:bg-gray-700 rounded-lg p-4">
+              <p class="text-xs font-medium text-secondary mb-2">n8n HTTP Request Node:</p>
+              <div class="text-xs font-mono text-gray-600 dark:text-gray-300 space-y-1">
+                <p><strong>Method:</strong> POST</p>
+                <p><strong>URL:</strong> {{ getWebhookUrl() }}</p>
+                <p><strong>Authentication:</strong> Header Auth (create credential with X-API-Key)</p>
+                <p><strong>Body Content Type:</strong> JSON</p>
+                <p><strong>Body:</strong></p>
+                <pre class="mt-1 overflow-x-auto whitespace-pre-wrap">{
+  "title": "Alert Title",
+  "message": "Your notification message",
+  "priority": "normal"
+}</pre>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </Card>
     </template>
 
     <!-- Delete Confirmation Dialog -->
@@ -500,3 +535,21 @@ Body:
     />
   </div>
 </template>
+
+<style scoped>
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+.collapse-enter-from,
+.collapse-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+.collapse-enter-to,
+.collapse-leave-from {
+  opacity: 1;
+  max-height: 500px;
+}
+</style>
