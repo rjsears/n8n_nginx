@@ -133,35 +133,35 @@ const appriseExamples = [
         />
 
         <!-- Dialog -->
-        <div class="relative bg-surface rounded-lg shadow-xl max-w-lg w-full border border-[var(--color-border)] max-h-[90vh] overflow-hidden flex flex-col">
+        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full border border-gray-200 dark:border-gray-700 max-h-[90vh] overflow-hidden flex flex-col">
           <!-- Header -->
-          <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-full bg-blue-100 dark:bg-blue-500/20">
                 <BellIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
-              <h3 class="text-lg font-semibold text-primary">{{ dialogTitle }}</h3>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ dialogTitle }}</h3>
             </div>
             <button
               @click="close"
-              class="p-1 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover"
+              class="p-1 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <XMarkIcon class="h-5 w-5" />
             </button>
           </div>
 
           <!-- Content -->
-          <div class="px-6 py-4 overflow-y-auto flex-1">
+          <div class="px-6 py-4 overflow-y-auto flex-1 bg-white dark:bg-gray-800">
             <form @submit.prevent="save" class="space-y-4">
               <!-- Name -->
               <div>
-                <label class="block text-sm font-medium text-primary mb-1">
+                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                   Channel Name *
                 </label>
                 <input
                   v-model="form.name"
                   type="text"
-                  class="input-field w-full"
+                  class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="e.g., Discord Alerts"
                   required
                 />
@@ -169,12 +169,12 @@ const appriseExamples = [
 
               <!-- Service Type -->
               <div>
-                <label class="block text-sm font-medium text-primary mb-1">
+                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                   Service Type *
                 </label>
                 <select
                   v-model="form.service_type"
-                  class="input-field w-full"
+                  class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option
                     v-for="type in serviceTypes"
@@ -189,17 +189,17 @@ const appriseExamples = [
               <!-- Apprise Config -->
               <template v-if="form.service_type === 'apprise'">
                 <div>
-                  <label class="block text-sm font-medium text-primary mb-1">
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                     Apprise URL *
                   </label>
                   <input
                     v-model="form.config.url"
                     type="text"
-                    class="input-field w-full font-mono text-sm"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="discord://webhook_id/webhook_token"
                     required
                   />
-                  <p class="mt-1 text-xs text-secondary">
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Enter your Apprise notification URL.
                     <a href="https://github.com/caronc/apprise/wiki" target="_blank" class="text-blue-500 hover:underline">
                       See documentation
@@ -208,15 +208,15 @@ const appriseExamples = [
                 </div>
 
                 <!-- Examples -->
-                <div class="bg-surface-hover rounded-lg p-3">
-                  <p class="text-xs font-medium text-secondary mb-2">URL Examples:</p>
+                <div class="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
+                  <p class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-2">URL Examples:</p>
                   <div class="space-y-1">
                     <div
                       v-for="example in appriseExamples"
                       :key="example.name"
-                      class="text-xs font-mono text-muted"
+                      class="text-xs font-mono text-gray-500 dark:text-gray-400"
                     >
-                      <span class="text-primary">{{ example.name }}:</span> {{ example.url }}
+                      <span class="text-gray-900 dark:text-white">{{ example.name }}:</span> {{ example.url }}
                     </div>
                   </div>
                 </div>
@@ -225,36 +225,36 @@ const appriseExamples = [
               <!-- NTFY Config -->
               <template v-if="form.service_type === 'ntfy'">
                 <div>
-                  <label class="block text-sm font-medium text-primary mb-1">
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                     Server
                   </label>
                   <input
                     v-model="form.config.server"
                     type="text"
-                    class="input-field w-full"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="https://ntfy.sh"
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-primary mb-1">
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                     Topic *
                   </label>
                   <input
                     v-model="form.config.topic"
                     type="text"
-                    class="input-field w-full"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="my-n8n-alerts"
                     required
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-primary mb-1">
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                     Access Token (optional)
                   </label>
                   <input
                     v-model="form.config.token"
                     type="password"
-                    class="input-field w-full"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="tk_xxx..."
                   />
                 </div>
@@ -263,24 +263,24 @@ const appriseExamples = [
               <!-- Webhook Config -->
               <template v-if="form.service_type === 'webhook'">
                 <div>
-                  <label class="block text-sm font-medium text-primary mb-1">
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                     Webhook URL *
                   </label>
                   <input
                     v-model="form.config.url"
                     type="url"
-                    class="input-field w-full"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="https://your-server.com/webhook"
                     required
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-primary mb-1">
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
                     HTTP Method
                   </label>
                   <select
                     v-model="form.config.method"
-                    class="input-field w-full"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="POST">POST</option>
                     <option value="GET">GET</option>
@@ -291,8 +291,8 @@ const appriseExamples = [
               <!-- Enabled Toggle -->
               <div class="flex items-center justify-between">
                 <div>
-                  <label class="text-sm font-medium text-primary">Enabled</label>
-                  <p class="text-xs text-secondary">Send notifications through this channel</p>
+                  <label class="text-sm font-medium text-gray-900 dark:text-white">Enabled</label>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">Send notifications through this channel</p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer">
                   <input
@@ -309,17 +309,17 @@ const appriseExamples = [
           </div>
 
           <!-- Footer -->
-          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-[var(--color-border)]">
+          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
             <button
               @click="close"
-              class="btn-secondary"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
               :disabled="loading"
             >
               Cancel
             </button>
             <button
               @click="save"
-              class="btn-primary"
+              class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               :disabled="loading || !isValid"
             >
               <span v-if="loading" class="flex items-center gap-2">
@@ -346,10 +346,5 @@ const appriseExamples = [
 .modal-enter-from,
 .modal-leave-to {
   opacity: 0;
-}
-
-.input-field {
-  @apply px-3 py-2 rounded-lg border border-[var(--color-border)] bg-surface text-primary;
-  @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
 }
 </style>

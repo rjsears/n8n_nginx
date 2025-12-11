@@ -176,6 +176,7 @@ onMounted(loadData)
         <p class="text-secondary mt-1">Configure notification channels and view history</p>
       </div>
       <button
+        v-if="!loading && channels.length > 0"
         @click="openAddDialog"
         :class="[
           'btn-primary flex items-center gap-2',
