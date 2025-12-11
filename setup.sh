@@ -1841,7 +1841,9 @@ EOF
         # Build Portainer command with optional admin password
         local portainer_cmd="--base-url /portainer"
         if [ -n "$PORTAINER_ADMIN_HASH" ]; then
-            portainer_cmd="$portainer_cmd --admin-password='${PORTAINER_ADMIN_HASH}'"
+            # Escape $ as $$ for Docker Compose
+            local escaped_hash="${PORTAINER_ADMIN_HASH//\$/\$\$}"
+            portainer_cmd="$portainer_cmd --admin-password='${escaped_hash}'"
         fi
 
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
