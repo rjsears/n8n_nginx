@@ -1593,6 +1593,11 @@ MGMT_DB_USER=${DB_USER}
 MGMT_DB_PASSWORD=${DB_PASSWORD}
 MGMT_PORT=${MGMT_PORT:-3333}
 
+# Admin credentials (for management console)
+ADMIN_USER=${ADMIN_USER}
+ADMIN_PASS=${ADMIN_PASS}
+ADMIN_EMAIL=${ADMIN_EMAIL:-admin@localhost}
+
 # Timezone
 TIMEZONE=${N8N_TIMEZONE}
 
@@ -1728,6 +1733,10 @@ services:
       - N8N_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
       # Security
       - SECRET_KEY=${MGMT_SECRET_KEY}
+      # Admin user (created on first startup)
+      - ADMIN_USERNAME=${ADMIN_USER}
+      - ADMIN_PASSWORD=${ADMIN_PASS}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@localhost}
       # Server
       - HOST=0.0.0.0
       - PORT=8000
