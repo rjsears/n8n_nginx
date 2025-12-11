@@ -26,6 +26,9 @@ import {
   EyeSlashIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  KeyIcon,
+  ArrowPathIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -37,6 +40,8 @@ const history = ref([])
 const webhookInfo = ref(null)
 const showApiKey = ref(false)
 const webhookExpanded = ref(false)
+const generatingKey = ref(false)
+const regenerateDialog = ref({ open: false, loading: false })
 const deleteDialog = ref({ open: false, channel: null, loading: false })
 const serviceDialog = ref({ open: false, service: null })
 const testingChannel = ref(null)
@@ -91,6 +96,49 @@ function copyToClipboard(text, name) {
   }).catch(() => {
     notificationStore.error('Failed to copy to clipboard')
   })
+}
+
+async function generateApiKey() {
+  generatingKey.value = true
+  try {
+    const response = await notificationsApi.generateWebhookKey()
+    webhookInfo.value = {
+      ...webhookInfo.value,
+      api_key: response.data.api_key,
+      has_key: true,
+    }
+    notificationStore.success('API key generated successfully')
+    // Auto-expand to show the new key
+    webhookExpanded.value = true
+    showApiKey.value = true
+  } catch (error) {
+    notificationStore.error('Failed to generate API key: ' + (error.response?.data?.detail || 'Unknown error'))
+  } finally {
+    generatingKey.value = false
+  }
+}
+
+function openRegenerateDialog() {
+  regenerateDialog.value = { open: true, loading: false }
+}
+
+async function confirmRegenerateKey() {
+  regenerateDialog.value.loading = true
+  try {
+    const response = await notificationsApi.regenerateWebhookKey()
+    webhookInfo.value = {
+      ...webhookInfo.value,
+      api_key: response.data.api_key,
+      has_key: true,
+    }
+    notificationStore.success('API key regenerated. Remember to update your n8n credentials!')
+    regenerateDialog.value.open = false
+    showApiKey.value = true
+  } catch (error) {
+    notificationStore.error('Failed to regenerate API key: ' + (error.response?.data?.detail || 'Unknown error'))
+  } finally {
+    regenerateDialog.value.loading = false
+  }
 }
 
 function getWebhookUrl() {
@@ -459,29 +507,63 @@ onMounted(loadData)
             <!-- API Key -->
             <div>
               <label class="block text-sm font-medium text-primary mb-1">API Key</label>
-              <div class="flex items-center gap-2">
-                <input
-                  :type="showApiKey ? 'text' : 'password'"
-                  :value="webhookInfo.api_key"
-                  readonly
-                  class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
-                />
-                <button
-                  @click.stop="showApiKey = !showApiKey"
-                  class="btn-secondary p-2"
-                  :title="showApiKey ? 'Hide API Key' : 'Show API Key'"
-                >
-                  <EyeSlashIcon v-if="showApiKey" class="h-5 w-5" />
-                  <EyeIcon v-else class="h-5 w-5" />
-                </button>
-                <button
-                  @click.stop="copyToClipboard(webhookInfo.api_key, 'API Key')"
-                  class="btn-secondary p-2"
-                  title="Copy API Key"
-                >
-                  <ClipboardDocumentIcon class="h-5 w-5" />
-                </button>
+
+              <!-- No API Key - Generate Button -->
+              <div v-if="!webhookInfo.has_key" class="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4">
+                <div class="flex items-start gap-3">
+                  <KeyIcon class="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
+                  <div class="flex-1">
+                    <p class="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
+                      No API key configured. Generate one to enable webhook notifications from n8n.
+                    </p>
+                    <button
+                      @click.stop="generateApiKey"
+                      :disabled="generatingKey"
+                      class="inline-flex items-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                    >
+                      <KeyIcon class="h-4 w-4" />
+                      {{ generatingKey ? 'Generating...' : 'Generate API Key' }}
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              <!-- Has API Key - Show with Regenerate -->
+              <template v-else>
+                <div class="flex items-center gap-2">
+                  <input
+                    :type="showApiKey ? 'text' : 'password'"
+                    :value="webhookInfo.api_key"
+                    readonly
+                    class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+                  />
+                  <button
+                    @click.stop="showApiKey = !showApiKey"
+                    class="btn-secondary p-2"
+                    :title="showApiKey ? 'Hide API Key' : 'Show API Key'"
+                  >
+                    <EyeSlashIcon v-if="showApiKey" class="h-5 w-5" />
+                    <EyeIcon v-else class="h-5 w-5" />
+                  </button>
+                  <button
+                    @click.stop="copyToClipboard(webhookInfo.api_key, 'API Key')"
+                    class="btn-secondary p-2"
+                    title="Copy API Key"
+                  >
+                    <ClipboardDocumentIcon class="h-5 w-5" />
+                  </button>
+                  <button
+                    @click.stop="openRegenerateDialog"
+                    class="btn-secondary p-2 text-orange-500 hover:text-orange-600"
+                    title="Regenerate API Key"
+                  >
+                    <ArrowPathIcon class="h-5 w-5" />
+                  </button>
+                </div>
+                <p class="text-xs text-secondary mt-1">
+                  Click the refresh icon to regenerate if your key is compromised.
+                </p>
+              </template>
             </div>
 
             <!-- n8n Credential Tip -->
@@ -523,6 +605,18 @@ onMounted(loadData)
       :loading="deleteDialog.loading"
       @confirm="confirmDelete"
       @cancel="deleteDialog.open = false"
+    />
+
+    <!-- Regenerate API Key Confirmation Dialog -->
+    <ConfirmDialog
+      :open="regenerateDialog.open"
+      title="Regenerate API Key"
+      message="This will invalidate the current API key. Any n8n workflows using the old key will stop working until you update their credentials with the new key. Are you sure?"
+      confirm-text="Regenerate"
+      :danger="true"
+      :loading="regenerateDialog.loading"
+      @confirm="confirmRegenerateKey"
+      @cancel="regenerateDialog.open = false"
     />
 
     <!-- Add/Edit Service Dialog -->

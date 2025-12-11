@@ -4,7 +4,9 @@ Notifications API routes.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List, Optional
+from datetime import datetime, UTC
 import secrets
 import logging
 
@@ -26,25 +28,56 @@ from api.schemas.notifications import (
     WebhookNotificationResponse,
 )
 from api.schemas.common import SuccessResponse, PaginatedResponse
-from api.config import settings
+from api.models.settings import Settings as SettingsModel
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Generate webhook API key if not configured
-_webhook_api_key: Optional[str] = None
+# Webhook API key constants
+WEBHOOK_API_KEY_SETTING = "webhook_api_key"
+WEBHOOK_API_KEY_CATEGORY = "notifications"
 
-def get_webhook_api_key() -> str:
-    """Get or generate the webhook API key."""
-    global _webhook_api_key
-    if _webhook_api_key is None:
-        if settings.webhook_api_key:
-            _webhook_api_key = settings.webhook_api_key
-        else:
-            # Generate a random key on first access
-            _webhook_api_key = secrets.token_urlsafe(32)
-            logger.info(f"Generated webhook API key (store in WEBHOOK_API_KEY env var for persistence)")
-    return _webhook_api_key
+
+async def get_webhook_api_key_from_db(db: AsyncSession) -> Optional[str]:
+    """Get webhook API key from database."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == WEBHOOK_API_KEY_SETTING)
+    )
+    setting = result.scalar_one_or_none()
+    if setting and setting.value:
+        return setting.value.get("key")
+    return None
+
+
+async def save_webhook_api_key_to_db(db: AsyncSession, api_key: str, user_id: int = None) -> None:
+    """Save webhook API key to database."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == WEBHOOK_API_KEY_SETTING)
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        setting.value = {"key": api_key, "created_at": datetime.now(UTC).isoformat()}
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = user_id
+    else:
+        setting = SettingsModel(
+            key=WEBHOOK_API_KEY_SETTING,
+            value={"key": api_key, "created_at": datetime.now(UTC).isoformat()},
+            category=WEBHOOK_API_KEY_CATEGORY,
+            description="API key for n8n webhook notification endpoint",
+            is_secret=True,
+            updated_by=user_id,
+        )
+        db.add(setting)
+
+    await db.commit()
+    logger.info("Webhook API key saved to database")
+
+
+def generate_api_key() -> str:
+    """Generate a new secure API key."""
+    return secrets.token_urlsafe(32)
 
 
 # Services
@@ -369,8 +402,14 @@ async def send_webhook_notification(
         if authorization.startswith("Bearer "):
             api_key = authorization[7:]
 
-    # Validate API key
-    expected_key = get_webhook_api_key()
+    # Validate API key from database
+    expected_key = await get_webhook_api_key_from_db(db)
+    if not expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook API key not configured. Generate one in the management console.",
+        )
+
     if not api_key or not secrets.compare_digest(api_key, expected_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -392,14 +431,18 @@ async def send_webhook_notification(
 @router.get("/webhook/info")
 async def get_webhook_info(
     _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get webhook endpoint information including API key.
     Only accessible to authenticated users.
     """
+    api_key = await get_webhook_api_key_from_db(db)
+
     return {
         "endpoint": "/api/notifications/webhook",
-        "api_key": get_webhook_api_key(),
+        "api_key": api_key,
+        "has_key": api_key is not None,
         "method": "POST",
         "headers": {
             "X-API-Key": "your-api-key",
@@ -410,5 +453,50 @@ async def get_webhook_info(
             "message": "string (required)",
             "priority": "string (optional: 'low', 'normal', 'high', 'critical')",
         },
-        "example_curl": 'curl -X POST -H "X-API-Key: YOUR_KEY" -H "Content-Type: application/json" -d \'{"title": "Alert", "message": "Something happened!"}\' http://your-host/api/notifications/webhook',
+    }
+
+
+@router.post("/webhook/generate-key")
+async def generate_webhook_key(
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generate a new webhook API key.
+    Only generates if no key exists. Use regenerate to replace existing key.
+    """
+    existing_key = await get_webhook_api_key_from_db(db)
+    if existing_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="API key already exists. Use regenerate endpoint to create a new one.",
+        )
+
+    new_key = generate_api_key()
+    await save_webhook_api_key_to_db(db, new_key, user.id)
+
+    return {
+        "success": True,
+        "message": "Webhook API key generated successfully",
+        "api_key": new_key,
+    }
+
+
+@router.post("/webhook/regenerate-key")
+async def regenerate_webhook_key(
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Regenerate the webhook API key (revokes the old key).
+    Use this if your API key is compromised.
+    WARNING: This will invalidate any existing n8n credentials using the old key.
+    """
+    new_key = generate_api_key()
+    await save_webhook_api_key_to_db(db, new_key, user.id)
+
+    return {
+        "success": True,
+        "message": "Webhook API key regenerated. Update your n8n credentials with the new key.",
+        "api_key": new_key,
     }

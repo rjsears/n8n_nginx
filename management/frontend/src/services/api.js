@@ -113,6 +113,8 @@ export const notificationsApi = {
   // Webhook integration for n8n workflows
   getWebhookInfo: () => api.get('/notifications/webhook/info'),
   sendWebhook: (data) => api.post('/notifications/webhook', data),
+  generateWebhookKey: () => api.post('/notifications/webhook/generate-key'),
+  regenerateWebhookKey: () => api.post('/notifications/webhook/regenerate-key'),
 }
 
 export const emailApi = {
