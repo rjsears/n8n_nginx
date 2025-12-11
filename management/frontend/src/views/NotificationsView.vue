@@ -40,13 +40,17 @@ const channelIcons = {
   webhook: GlobeAltIcon,
 }
 
-// Stats
-const stats = computed(() => ({
-  total: channels.value.length,
-  active: channels.value.filter((c) => c.enabled).length,
-  sent: history.value.filter((h) => h.status === 'sent').length,
-  failed: history.value.filter((h) => h.status === 'failed').length,
-}))
+// Stats - with defensive array checks
+const stats = computed(() => {
+  const channelsList = Array.isArray(channels.value) ? channels.value : []
+  const historyList = Array.isArray(history.value) ? history.value : []
+  return {
+    total: channelsList.length,
+    active: channelsList.filter((c) => c.enabled).length,
+    sent: historyList.filter((h) => h.status === 'sent').length,
+    failed: historyList.filter((h) => h.status === 'failed').length,
+  }
+})
 
 async function loadData() {
   loading.value = true
@@ -55,10 +59,15 @@ async function loadData() {
       notificationsApi.getServices(),
       notificationsApi.getHistory(),
     ])
-    channels.value = servicesRes.data
-    history.value = historyRes.data
+    // Ensure we always have arrays
+    channels.value = Array.isArray(servicesRes.data) ? servicesRes.data : []
+    history.value = Array.isArray(historyRes.data) ? historyRes.data : []
   } catch (error) {
+    console.error('Failed to load notification data:', error)
     notificationStore.error('Failed to load notification data')
+    // Reset to empty arrays on error
+    channels.value = []
+    history.value = []
   } finally {
     loading.value = false
   }
