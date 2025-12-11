@@ -29,6 +29,7 @@ const form = ref({
 const serviceTypes = [
   { id: 'apprise', name: 'Apprise', description: 'Universal notification library (Discord, Slack, Telegram, etc.)' },
   { id: 'ntfy', name: 'NTFY', description: 'Simple push notifications via ntfy.sh' },
+  { id: 'email', name: 'Email', description: 'Direct SMTP email notifications' },
   { id: 'webhook', name: 'Webhook', description: 'Custom HTTP webhook endpoint' },
 ]
 
@@ -67,6 +68,16 @@ watch(() => form.value.service_type, (newType) => {
       topic: form.value.config.topic || '',
       token: form.value.config.token || '',
     }
+  } else if (newType === 'email') {
+    form.value.config = {
+      smtp_server: form.value.config.smtp_server || '',
+      smtp_port: form.value.config.smtp_port || 587,
+      smtp_user: form.value.config.smtp_user || '',
+      smtp_password: form.value.config.smtp_password || '',
+      use_tls: form.value.config.use_tls ?? true,
+      from_email: form.value.config.from_email || '',
+      to_emails: form.value.config.to_emails || '',
+    }
   } else if (newType === 'webhook') {
     form.value.config = {
       url: form.value.config.url || '',
@@ -87,6 +98,8 @@ const isValid = computed(() => {
     return !!form.value.config.url?.trim()
   } else if (form.value.service_type === 'ntfy') {
     return !!form.value.config.topic?.trim()
+  } else if (form.value.service_type === 'email') {
+    return !!form.value.config.smtp_server?.trim() && !!form.value.config.to_emails?.trim()
   } else if (form.value.service_type === 'webhook') {
     return !!form.value.config.url?.trim()
   }
@@ -257,6 +270,104 @@ const appriseExamples = [
                     class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="tk_xxx..."
                   />
+                </div>
+              </template>
+
+              <!-- Email Config -->
+              <template v-if="form.service_type === 'email'">
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                      SMTP Server *
+                    </label>
+                    <input
+                      v-model="form.config.smtp_server"
+                      type="text"
+                      class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="smtp.gmail.com"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                      Port
+                    </label>
+                    <input
+                      v-model="form.config.smtp_port"
+                      type="number"
+                      class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="587"
+                    />
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                      Username
+                    </label>
+                    <input
+                      v-model="form.config.smtp_user"
+                      type="text"
+                      class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="user@example.com"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                      Password
+                    </label>
+                    <input
+                      v-model="form.config.smtp_password"
+                      type="password"
+                      class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                    From Email
+                  </label>
+                  <input
+                    v-model="form.config.from_email"
+                    type="email"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="alerts@example.com"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Defaults to username if not specified
+                  </p>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                    To Emails *
+                  </label>
+                  <input
+                    v-model="form.config.to_emails"
+                    type="text"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="admin@example.com, ops@example.com"
+                    required
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Comma-separated list of recipient addresses
+                  </p>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="text-sm font-medium text-gray-900 dark:text-white">Use TLS</label>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Enable STARTTLS encryption</p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      v-model="form.config.use_tls"
+                      class="sr-only peer"
+                    />
+                    <div
+                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                    ></div>
+                  </label>
                 </div>
               </template>
 

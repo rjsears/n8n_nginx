@@ -122,6 +122,76 @@ class NotificationDispatcher:
             logger.error(f"Webhook notification failed: {e}")
             raise
 
+    async def send_email(self, config: Dict[str, Any], title: str, body: str, priority: str) -> bool:
+        """Send notification via SMTP email."""
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+
+            smtp_server = config.get("smtp_server", "localhost")
+            smtp_port = config.get("smtp_port", 587)
+            smtp_user = config.get("smtp_user", "")
+            smtp_password = config.get("smtp_password", "")
+            use_tls = config.get("use_tls", True)
+            from_email = config.get("from_email", smtp_user)
+            to_emails = config.get("to_emails", [])
+
+            if isinstance(to_emails, str):
+                to_emails = [e.strip() for e in to_emails.split(",")]
+
+            if not to_emails:
+                raise ValueError("No recipient email addresses configured")
+
+            # Create message
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = title
+            msg["From"] = from_email
+            msg["To"] = ", ".join(to_emails)
+
+            # Add priority header
+            if priority == "critical":
+                msg["X-Priority"] = "1"
+                msg["Importance"] = "high"
+            elif priority == "high":
+                msg["X-Priority"] = "2"
+                msg["Importance"] = "high"
+
+            # Plain text body
+            text_part = MIMEText(body, "plain")
+            msg.attach(text_part)
+
+            # HTML body (simple formatting)
+            html_body = f"""
+            <html>
+            <body>
+                <h2>{title}</h2>
+                <p>{body.replace(chr(10), '<br>')}</p>
+                <hr>
+                <p style="color: #666; font-size: 12px;">This is an automated notification from n8n Management Console.</p>
+            </body>
+            </html>
+            """
+            html_part = MIMEText(html_body, "html")
+            msg.attach(html_part)
+
+            # Send email
+            def _send():
+                with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
+                    if use_tls:
+                        server.starttls()
+                    if smtp_user and smtp_password:
+                        server.login(smtp_user, smtp_password)
+                    server.sendmail(from_email, to_emails, msg.as_string())
+                return True
+
+            result = await asyncio.to_thread(_send)
+            return result
+
+        except Exception as e:
+            logger.error(f"Email notification failed: {e}")
+            raise
+
 
 class NotificationService:
     """Notification management service."""
@@ -208,6 +278,8 @@ class NotificationService:
                 success = await self.dispatcher.send_ntfy(service.config, title, message, "normal")
             elif service.service_type == "webhook":
                 success = await self.dispatcher.send_webhook(service.config, title, message, {})
+            elif service.service_type == "email":
+                success = await self.dispatcher.send_email(service.config, title, message, "normal")
             else:
                 return {"success": False, "error": f"Unsupported service type: {service.service_type}"}
 
@@ -363,6 +435,8 @@ class NotificationService:
                 success = await self.dispatcher.send_ntfy(service.config, title, body, rule.priority)
             elif service.service_type == "webhook":
                 success = await self.dispatcher.send_webhook(service.config, title, body, event_data)
+            elif service.service_type == "email":
+                success = await self.dispatcher.send_email(service.config, title, body, rule.priority)
             else:
                 success = False
 
