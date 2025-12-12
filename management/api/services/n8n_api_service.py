@@ -275,8 +275,6 @@ class N8nApiService:
             "settings": {
                 "executionOrder": "v1",
             },
-            "staticData": None,
-            "active": False,
         }
 
     async def create_notification_test_workflow(
