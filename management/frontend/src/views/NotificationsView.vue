@@ -44,7 +44,19 @@ const webhookInfo = ref(null)
 const showApiKey = ref(false)
 const webhookExpanded = ref(false)
 const historyExpanded = ref(false)
+const expandedHistoryItems = ref(new Set())
 const generatingKey = ref(false)
+
+// Toggle individual history item expansion
+function toggleHistoryItem(itemId) {
+  if (expandedHistoryItems.value.has(itemId)) {
+    expandedHistoryItems.value.delete(itemId)
+  } else {
+    expandedHistoryItems.value.add(itemId)
+  }
+  // Force reactivity
+  expandedHistoryItems.value = new Set(expandedHistoryItems.value)
+}
 const regenerateDialog = ref({ open: false, loading: false })
 const deleteDialog = ref({ open: false, channel: null, loading: false })
 const serviceDialog = ref({ open: false, service: null })
@@ -489,49 +501,90 @@ onMounted(loadData)
               class="pt-4"
             />
 
-            <div v-else class="overflow-x-auto pt-2">
-              <table class="w-full">
-                <thead>
-                  <tr class="border-b border-[var(--color-border)]">
-                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Event</th>
-                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Message</th>
-                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Channel</th>
-                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
-                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="item in history.slice(0, 20)"
-                    :key="item.id"
-                    class="border-b border-[var(--color-border)] last:border-0"
+            <div v-else class="space-y-2 pt-2">
+              <div
+                v-for="item in history.slice(0, 20)"
+                :key="item.id"
+                class="border border-[var(--color-border)] rounded-lg overflow-hidden"
+              >
+                <!-- Collapsed Header Row -->
+                <div
+                  @click="toggleHistoryItem(item.id)"
+                  class="flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                >
+                  <component
+                    :is="expandedHistoryItems.has(item.id) ? ChevronDownIcon : ChevronRightIcon"
+                    class="h-4 w-4 text-secondary flex-shrink-0"
+                  />
+                  <div class="flex-1 min-w-0 flex items-center gap-4">
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium text-primary truncate">
+                        {{ item.event_data?.title || item.event_type }}
+                      </p>
+                      <p class="text-xs text-secondary truncate">
+                        {{ item.service_name }} • {{ new Date(item.sent_at).toLocaleString() }}
+                      </p>
+                    </div>
+                    <StatusBadge :status="item.status" size="sm" class="flex-shrink-0" />
+                  </div>
+                </div>
+
+                <!-- Expanded Details -->
+                <Transition name="collapse">
+                  <div
+                    v-if="expandedHistoryItems.has(item.id)"
+                    class="px-4 pb-4 pt-2 border-t border-[var(--color-border)] bg-gray-50 dark:bg-gray-800/50"
                   >
-                    <td class="py-3 px-4">
-                      <span class="font-medium text-primary">{{ item.event_type }}</span>
-                    </td>
-                    <td class="py-3 px-4">
-                      <div v-if="item.event_data" class="max-w-xs">
-                        <p v-if="item.event_data.title" class="text-sm font-medium text-primary truncate">
-                          {{ item.event_data.title }}
-                        </p>
-                        <p v-if="item.event_data.message" class="text-xs text-secondary truncate">
-                          {{ item.event_data.message }}
-                        </p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <!-- Left Column -->
+                      <div class="space-y-3">
+                        <div>
+                          <label class="text-xs font-medium text-secondary uppercase tracking-wide">Event Type</label>
+                          <p class="text-sm text-primary font-mono mt-1">{{ item.event_type }}</p>
+                        </div>
+                        <div>
+                          <label class="text-xs font-medium text-secondary uppercase tracking-wide">Channel</label>
+                          <p class="text-sm text-primary mt-1">{{ item.service_name }}</p>
+                        </div>
+                        <div>
+                          <label class="text-xs font-medium text-secondary uppercase tracking-wide">Status</label>
+                          <div class="mt-1">
+                            <StatusBadge :status="item.status" size="sm" />
+                          </div>
+                        </div>
+                        <div>
+                          <label class="text-xs font-medium text-secondary uppercase tracking-wide">Sent At</label>
+                          <p class="text-sm text-primary mt-1">{{ new Date(item.sent_at).toLocaleString() }}</p>
+                        </div>
+                        <div v-if="item.error_message">
+                          <label class="text-xs font-medium text-red-500 uppercase tracking-wide">Error</label>
+                          <p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ item.error_message }}</p>
+                        </div>
                       </div>
-                      <span v-else class="text-xs text-secondary italic">No message</span>
-                    </td>
-                    <td class="py-3 px-4 text-sm text-secondary">
-                      {{ item.service_name }}
-                    </td>
-                    <td class="py-3 px-4">
-                      <StatusBadge :status="item.status" size="sm" />
-                    </td>
-                    <td class="py-3 px-4 text-sm text-secondary whitespace-nowrap">
-                      {{ new Date(item.sent_at).toLocaleString() }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+
+                      <!-- Right Column - Message Content -->
+                      <div class="space-y-3">
+                        <div v-if="item.event_data?.title">
+                          <label class="text-xs font-medium text-secondary uppercase tracking-wide">Title</label>
+                          <p class="text-sm text-primary mt-1">{{ item.event_data.title }}</p>
+                        </div>
+                        <div v-if="item.event_data?.message">
+                          <label class="text-xs font-medium text-secondary uppercase tracking-wide">Message</label>
+                          <p class="text-sm text-primary mt-1 whitespace-pre-wrap break-words">{{ item.event_data.message }}</p>
+                        </div>
+                        <div v-if="item.event_data?.priority">
+                          <label class="text-xs font-medium text-secondary uppercase tracking-wide">Priority</label>
+                          <p class="text-sm text-primary mt-1 capitalize">{{ item.event_data.priority }}</p>
+                        </div>
+                        <div v-if="item.severity">
+                          <label class="text-xs font-medium text-secondary uppercase tracking-wide">Severity</label>
+                          <p class="text-sm text-primary mt-1 capitalize">{{ item.severity }}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Transition>
+              </div>
             </div>
           </div>
         </Transition>
