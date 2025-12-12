@@ -29,6 +29,8 @@ import {
   KeyIcon,
   ArrowPathIcon,
   ExclamationTriangleIcon,
+  PlayIcon,
+  Cog6ToothIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -45,6 +47,8 @@ const regenerateDialog = ref({ open: false, loading: false })
 const deleteDialog = ref({ open: false, channel: null, loading: false })
 const serviceDialog = ref({ open: false, service: null })
 const testingChannel = ref(null)
+const n8nStatus = ref({ checking: false, configured: false, connected: false, error: null })
+const creatingWorkflow = ref(false)
 
 // Channel type icons
 const channelIcons = {
@@ -138,6 +142,44 @@ async function confirmRegenerateKey() {
     notificationStore.error('Failed to regenerate API key: ' + (error.response?.data?.detail || 'Unknown error'))
   } finally {
     regenerateDialog.value.loading = false
+  }
+}
+
+async function checkN8nStatus() {
+  n8nStatus.value.checking = true
+  n8nStatus.value.error = null
+  try {
+    const response = await notificationsApi.getN8nStatus()
+    n8nStatus.value.configured = response.data.configured
+    n8nStatus.value.connected = response.data.connected
+    if (!response.data.configured) {
+      n8nStatus.value.error = 'N8N_API_KEY not configured in environment'
+    } else if (!response.data.connected) {
+      n8nStatus.value.error = response.data.error || 'Cannot connect to n8n API'
+    }
+  } catch (error) {
+    n8nStatus.value.configured = false
+    n8nStatus.value.connected = false
+    n8nStatus.value.error = error.response?.data?.detail || 'Failed to check n8n status'
+  } finally {
+    n8nStatus.value.checking = false
+  }
+}
+
+async function createTestWorkflow() {
+  creatingWorkflow.value = true
+  try {
+    const response = await notificationsApi.createTestWorkflow()
+    if (response.data.success) {
+      const workflowId = response.data.workflow_id
+      notificationStore.success(`Test workflow created! ID: ${workflowId}. Open n8n to configure the credential and run it.`)
+    } else {
+      notificationStore.error('Failed to create workflow: ' + (response.data.error || 'Unknown error'))
+    }
+  } catch (error) {
+    notificationStore.error('Failed to create workflow: ' + (error.response?.data?.detail || 'Unknown error'))
+  } finally {
+    creatingWorkflow.value = false
   }
 }
 
@@ -590,6 +632,72 @@ onMounted(loadData)
 }</pre>
               </div>
             </div>
+
+            <!-- Create Test Workflow -->
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <Cog6ToothIcon class="h-5 w-5 text-secondary" />
+                  <h4 class="font-medium text-primary">Create Test Workflow</h4>
+                </div>
+                <button
+                  @click.stop="checkN8nStatus"
+                  :disabled="n8nStatus.checking"
+                  class="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
+                >
+                  <ArrowPathIcon :class="['h-3 w-3', n8nStatus.checking && 'animate-spin']" />
+                  {{ n8nStatus.checking ? 'Checking...' : 'Check n8n API' }}
+                </button>
+              </div>
+
+              <p class="text-sm text-secondary mb-3">
+                Automatically create a test workflow in n8n to verify webhook notifications are working.
+              </p>
+
+              <!-- n8n Status -->
+              <div v-if="n8nStatus.error" class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 mb-3">
+                <div class="flex items-start gap-2">
+                  <XCircleIcon class="h-5 w-5 text-red-500 mt-0.5" />
+                  <div>
+                    <p class="text-sm font-medium text-red-700 dark:text-red-300">n8n API not available</p>
+                    <p class="text-xs text-red-600 dark:text-red-400 mt-1">{{ n8nStatus.error }}</p>
+                    <p class="text-xs text-red-600 dark:text-red-400 mt-1">
+                      Set <code class="bg-red-100 dark:bg-red-800 px-1 rounded">N8N_API_KEY</code> in environment to enable.
+                      Generate an API key in n8n: Settings → API.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else-if="n8nStatus.connected" class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 mb-3">
+                <div class="flex items-center gap-2">
+                  <CheckCircleIcon class="h-5 w-5 text-green-500" />
+                  <p class="text-sm text-green-700 dark:text-green-300">n8n API connected</p>
+                </div>
+              </div>
+
+              <button
+                @click.stop="createTestWorkflow"
+                :disabled="creatingWorkflow || !webhookInfo.has_key"
+                :class="[
+                  'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors',
+                  webhookInfo.has_key
+                    ? 'bg-green-600 hover:bg-green-700 text-white disabled:opacity-50'
+                    : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                ]"
+              >
+                <PlayIcon class="h-4 w-4" />
+                {{ creatingWorkflow ? 'Creating...' : 'Create Test Workflow in n8n' }}
+              </button>
+
+              <p v-if="!webhookInfo.has_key" class="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
+                Generate an API key above first before creating the test workflow.
+              </p>
+              <p v-else class="text-xs text-secondary mt-2">
+                This will create a "Management Console - Test Notifications" workflow in n8n.
+                After creation, open n8n to configure the Header Auth credential and run it.
+              </p>
+            </div>
           </div>
         </Transition>
       </Card>
@@ -644,6 +752,6 @@ onMounted(loadData)
 .collapse-enter-to,
 .collapse-leave-from {
   opacity: 1;
-  max-height: 500px;
+  max-height: 800px;
 }
 </style>

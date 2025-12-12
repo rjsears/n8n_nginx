@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     docker_socket: str = Field(default="/var/run/docker.sock", description="Docker socket path")
     container_prefix: str = Field(default="n8n_", description="Container name prefix for this project")
 
+    # n8n API integration
+    n8n_api_url: str = Field(
+        default="http://n8n:5678/api/v1",
+        description="n8n REST API URL (internal Docker network)"
+    )
+    n8n_api_key: Optional[str] = Field(
+        default=None,
+        description="n8n API key for workflow management (generate in n8n Settings > API)"
+    )
+
     # API settings
     api_rate_limit: int = Field(default=30, description="API requests per second per IP")
     login_rate_limit: int = Field(default=5, description="Login attempts per minute per IP")

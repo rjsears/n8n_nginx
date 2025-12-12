@@ -500,3 +500,88 @@ async def regenerate_webhook_key(
         "message": "Webhook API key regenerated. Update your n8n credentials with the new key.",
         "api_key": new_key,
     }
+
+
+@router.get("/webhook/n8n-status")
+async def get_n8n_api_status(
+    _=Depends(get_current_user),
+):
+    """
+    Check n8n API connection status.
+    Returns whether n8n API is configured and reachable.
+    """
+    from api.services.n8n_api_service import n8n_api
+
+    if not n8n_api.is_configured():
+        return {
+            "configured": False,
+            "connected": False,
+            "message": "n8n API key not configured. Set N8N_API_KEY environment variable.",
+        }
+
+    result = await n8n_api.test_connection()
+    return {
+        "configured": True,
+        "connected": result.get("success", False),
+        "message": result.get("message") or result.get("error"),
+    }
+
+
+@router.post("/webhook/create-test-workflow")
+async def create_test_workflow(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create a test notification workflow in n8n.
+
+    This creates a workflow that:
+    1. Has a Manual Trigger (click to run)
+    2. Sends a test notification to the webhook endpoint
+    3. Shows success/failure result
+
+    Note: After creation, you must configure the HTTP Header Auth credential
+    in n8n with your webhook API key.
+    """
+    from api.services.n8n_api_service import n8n_api
+
+    # Check n8n API is configured
+    if not n8n_api.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="n8n API not configured. Set N8N_API_KEY environment variable.",
+        )
+
+    # Check we have a webhook API key
+    webhook_api_key = await get_webhook_api_key_from_db(db)
+    if not webhook_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Generate a webhook API key first.",
+        )
+
+    # Build webhook URL (use internal Docker network URL for n8n)
+    # n8n will call management container internally
+    webhook_url = "http://n8n_management:8000/api/notifications/webhook"
+
+    # Create the workflow
+    result = await n8n_api.create_notification_test_workflow(webhook_url, webhook_api_key)
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result.get("error", "Failed to create workflow"),
+        )
+
+    return {
+        "success": True,
+        "message": "Test workflow created in n8n. Configure the HTTP Header Auth credential with your API key, then click 'Execute Workflow' to test.",
+        "workflow_id": result.get("workflow_id"),
+        "workflow_name": "Management Console - Test Notifications",
+        "next_steps": [
+            "1. Open n8n and find the 'Management Console - Test Notifications' workflow",
+            "2. Click on the 'Send Notification' node",
+            "3. Create a new 'Header Auth' credential with Name: 'X-API-Key' and Value: your webhook API key",
+            "4. Save and click 'Execute Workflow' to test",
+        ],
+    }
