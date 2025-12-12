@@ -1,9 +1,19 @@
 import axios from 'axios'
 import router from '@/router'
 
+// Determine API base URL based on current path
+// If accessed via /management/, use /management/api, otherwise use /api
+const getBaseUrl = () => {
+  const path = window.location.pathname
+  if (path.startsWith('/management')) {
+    return '/management/api'
+  }
+  return '/api'
+}
+
 // Create axios instance
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: getBaseUrl(),
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
