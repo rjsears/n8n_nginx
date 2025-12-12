@@ -31,6 +31,7 @@ import {
   ExclamationTriangleIcon,
   PlayIcon,
   Cog6ToothIcon,
+  ClockIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -42,6 +43,7 @@ const history = ref([])
 const webhookInfo = ref(null)
 const showApiKey = ref(false)
 const webhookExpanded = ref(false)
+const historyExpanded = ref(false)
 const generatingKey = ref(false)
 const regenerateDialog = ref({ open: false, loading: false })
 const deleteDialog = ref({ open: false, channel: null, loading: false })
@@ -453,47 +455,74 @@ onMounted(loadData)
         </div>
       </Card>
 
-      <!-- Notification History -->
-      <Card title="Recent Notifications" subtitle="Last 20 notifications" :neon="true">
-        <EmptyState
-          v-if="history.length === 0"
-          :icon="BellIcon"
-          title="No notifications sent"
-          description="Notifications will appear here once they are triggered."
-        />
-
-        <div v-else class="overflow-x-auto">
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-[var(--color-border)]">
-                <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Event</th>
-                <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Channel</th>
-                <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
-                <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="item in history.slice(0, 20)"
-                :key="item.id"
-                class="border-b border-[var(--color-border)] last:border-0"
-              >
-                <td class="py-3 px-4">
-                  <span class="font-medium text-primary">{{ item.event_type }}</span>
-                </td>
-                <td class="py-3 px-4 text-sm text-secondary">
-                  {{ item.service_name }}
-                </td>
-                <td class="py-3 px-4">
-                  <StatusBadge :status="item.status" size="sm" />
-                </td>
-                <td class="py-3 px-4 text-sm text-secondary">
-                  {{ new Date(item.sent_at).toLocaleString() }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+      <!-- Notification History (Collapsible) -->
+      <Card :neon="true" :padding="false">
+        <div
+          @click="historyExpanded = !historyExpanded"
+          class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+        >
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
+              <ClockIcon class="h-5 w-5 text-purple-500" />
+            </div>
+            <div>
+              <h3 class="font-semibold text-primary">Recent Notifications</h3>
+              <p class="text-sm text-secondary">Last 20 notifications sent</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs px-2 py-1 rounded-full bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">
+              {{ history.length }} total
+            </span>
+            <ChevronDownIcon v-if="historyExpanded" class="h-5 w-5 text-secondary" />
+            <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+          </div>
         </div>
+
+        <Transition name="collapse">
+          <div v-if="historyExpanded" class="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
+            <EmptyState
+              v-if="history.length === 0"
+              :icon="BellIcon"
+              title="No notifications sent"
+              description="Notifications will appear here once they are triggered."
+              class="pt-4"
+            />
+
+            <div v-else class="overflow-x-auto pt-2">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b border-[var(--color-border)]">
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Event</th>
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Channel</th>
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="item in history.slice(0, 20)"
+                    :key="item.id"
+                    class="border-b border-[var(--color-border)] last:border-0"
+                  >
+                    <td class="py-3 px-4">
+                      <span class="font-medium text-primary">{{ item.event_type }}</span>
+                    </td>
+                    <td class="py-3 px-4 text-sm text-secondary">
+                      {{ item.service_name }}
+                    </td>
+                    <td class="py-3 px-4">
+                      <StatusBadge :status="item.status" size="sm" />
+                    </td>
+                    <td class="py-3 px-4 text-sm text-secondary">
+                      {{ new Date(item.sent_at).toLocaleString() }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Transition>
       </Card>
 
       <!-- n8n Webhook Integration (Collapsible) -->
