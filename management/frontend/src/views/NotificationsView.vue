@@ -494,6 +494,7 @@ onMounted(loadData)
                 <thead>
                   <tr class="border-b border-[var(--color-border)]">
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Event</th>
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Message</th>
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Channel</th>
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Time</th>
@@ -508,13 +509,24 @@ onMounted(loadData)
                     <td class="py-3 px-4">
                       <span class="font-medium text-primary">{{ item.event_type }}</span>
                     </td>
+                    <td class="py-3 px-4">
+                      <div v-if="item.event_data" class="max-w-xs">
+                        <p v-if="item.event_data.title" class="text-sm font-medium text-primary truncate">
+                          {{ item.event_data.title }}
+                        </p>
+                        <p v-if="item.event_data.message" class="text-xs text-secondary truncate">
+                          {{ item.event_data.message }}
+                        </p>
+                      </div>
+                      <span v-else class="text-xs text-secondary italic">No message</span>
+                    </td>
                     <td class="py-3 px-4 text-sm text-secondary">
                       {{ item.service_name }}
                     </td>
                     <td class="py-3 px-4">
                       <StatusBadge :status="item.status" size="sm" />
                     </td>
-                    <td class="py-3 px-4 text-sm text-secondary">
+                    <td class="py-3 px-4 text-sm text-secondary whitespace-nowrap">
                       {{ new Date(item.sent_at).toLocaleString() }}
                     </td>
                   </tr>
