@@ -556,7 +556,7 @@ async def create_test_workflow(
     2. Sends a test notification to the webhook endpoint
     3. Shows success/failure result
 
-    Note: After creation, you must configure the HTTP Header Auth credential
+    Note: After creation, you must configure the Header Auth credential
     in n8n with your webhook API key.
     """
     from api.services.n8n_api_service import n8n_api
@@ -591,13 +591,15 @@ async def create_test_workflow(
 
     return {
         "success": True,
-        "message": "Test workflow created in n8n. Configure the HTTP Header Auth credential with your API key, then click 'Execute Workflow' to test.",
+        "message": "Test workflow created in n8n. Configure the Header Auth credential with your API key, then click 'Execute Workflow' to test.",
         "workflow_id": result.get("workflow_id"),
         "workflow_name": "Management Console - Test Notifications",
         "next_steps": [
             "1. Open n8n and find the 'Management Console - Test Notifications' workflow",
             "2. Click on the 'Send Notification' node",
-            "3. Create a new 'Header Auth' credential with Name: 'X-API-Key' and Value: your webhook API key",
+            "3. Create a new 'Header Auth' credential:",
+            "   - Name (header name): X-API-Key",
+            "   - Value: paste your webhook API key from the management console",
             "4. Save and click 'Execute Workflow' to test",
         ],
     }
