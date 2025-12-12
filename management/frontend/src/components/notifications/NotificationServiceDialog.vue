@@ -93,6 +93,9 @@ function applyEmailPreset(presetId) {
 // Reset form when dialog opens/closes
 watch(() => props.open, (isOpen) => {
   if (isOpen) {
+    // Reset loading state when dialog opens
+    loading.value = false
+
     if (props.service) {
       // Editing existing service
       form.value = {
