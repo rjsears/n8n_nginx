@@ -58,8 +58,11 @@ class NotificationDispatcher:
         try:
             import httpx
 
-            server = config.get("server", "https://ntfy.sh")
-            topic = config["topic"]
+            server = config.get("server", "https://ntfy.sh").rstrip("/")
+            topic = config.get("topic", "").strip()
+
+            if not topic:
+                raise ValueError("NTFY topic is required")
 
             # Map priority
             priority_map = {
@@ -80,14 +83,24 @@ class NotificationDispatcher:
             if config.get("token"):
                 headers["Authorization"] = f"Bearer {config['token']}"
 
+            url = f"{server}/{topic}"
+            logger.debug(f"Sending NTFY notification to {url}")
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"{server}/{topic}",
+                    url,
                     content=body,
                     headers=headers,
                     timeout=30.0,
                 )
-                return response.status_code == 200
+
+                # ntfy returns 200 on success
+                if response.status_code == 200:
+                    logger.info(f"NTFY notification sent successfully to {topic}")
+                    return True
+                else:
+                    logger.error(f"NTFY notification failed: HTTP {response.status_code} - {response.text}")
+                    raise ValueError(f"NTFY returned HTTP {response.status_code}: {response.text[:200]}")
 
         except Exception as e:
             logger.error(f"NTFY notification failed: {e}")
