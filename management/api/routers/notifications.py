@@ -465,21 +465,30 @@ async def generate_webhook_key(
     Generate a new webhook API key.
     Only generates if no key exists. Use regenerate to replace existing key.
     """
-    existing_key = await get_webhook_api_key_from_db(db)
-    if existing_key:
+    try:
+        existing_key = await get_webhook_api_key_from_db(db)
+        if existing_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key already exists. Use regenerate endpoint to create a new one.",
+            )
+
+        new_key = generate_api_key()
+        await save_webhook_api_key_to_db(db, new_key, user.id if user else None)
+
+        return {
+            "success": True,
+            "message": "Webhook API key generated successfully",
+            "api_key": new_key,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to generate webhook API key")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="API key already exists. Use regenerate endpoint to create a new one.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate API key: {str(e)}",
         )
-
-    new_key = generate_api_key()
-    await save_webhook_api_key_to_db(db, new_key, user.id)
-
-    return {
-        "success": True,
-        "message": "Webhook API key generated successfully",
-        "api_key": new_key,
-    }
 
 
 @router.post("/webhook/regenerate-key")
@@ -492,14 +501,21 @@ async def regenerate_webhook_key(
     Use this if your API key is compromised.
     WARNING: This will invalidate any existing n8n credentials using the old key.
     """
-    new_key = generate_api_key()
-    await save_webhook_api_key_to_db(db, new_key, user.id)
+    try:
+        new_key = generate_api_key()
+        await save_webhook_api_key_to_db(db, new_key, user.id if user else None)
 
-    return {
-        "success": True,
-        "message": "Webhook API key regenerated. Update your n8n credentials with the new key.",
-        "api_key": new_key,
-    }
+        return {
+            "success": True,
+            "message": "Webhook API key regenerated. Update your n8n credentials with the new key.",
+            "api_key": new_key,
+        }
+    except Exception as e:
+        logger.exception("Failed to regenerate webhook API key")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to regenerate API key: {str(e)}",
+        )
 
 
 @router.get("/webhook/n8n-status")
