@@ -1746,6 +1746,8 @@ services:
       - NFS_PATH=${NFS_PATH:-}
       # Timezone
       - TZ=${TIMEZONE:-America/Los_Angeles}
+      # n8n API Integration (for creating test workflows)
+      - N8N_API_KEY=${N8N_API_KEY:-}
 EOF
 
     # Add notification environment variables if configured
