@@ -661,10 +661,14 @@ onMounted(loadData)
                   <div>
                     <p class="text-sm font-medium text-red-700 dark:text-red-300">n8n API not available</p>
                     <p class="text-xs text-red-600 dark:text-red-400 mt-1">{{ n8nStatus.error }}</p>
-                    <p class="text-xs text-red-600 dark:text-red-400 mt-1">
-                      Set <code class="bg-red-100 dark:bg-red-800 px-1 rounded">N8N_API_KEY</code> in environment to enable.
-                      Generate an API key in n8n: Settings → API.
-                    </p>
+                    <div class="text-xs text-red-600 dark:text-red-400 mt-2 space-y-1">
+                      <p class="font-medium">To enable n8n API integration:</p>
+                      <ol class="list-decimal list-inside space-y-0.5 ml-1">
+                        <li>Generate an API key in n8n: Settings → API</li>
+                        <li>Add <code class="bg-red-100 dark:bg-red-800 px-1 rounded">N8N_API_KEY=your_key</code> to your <code class="bg-red-100 dark:bg-red-800 px-1 rounded">.env</code> file</li>
+                        <li>Restart the management container: <code class="bg-red-100 dark:bg-red-800 px-1 rounded">docker compose up -d n8n_management</code></li>
+                      </ol>
+                    </div>
                   </div>
                 </div>
               </div>
