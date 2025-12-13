@@ -81,6 +81,9 @@ export const systemApi = {
   info: () => api.get('/system/info'),
   dockerInfo: () => api.get('/system/docker/info'),
   audit: (params) => api.get('/system/audit', { params }),
+  network: () => api.get('/system/network'),
+  ssl: () => api.get('/system/ssl'),
+  terminalTargets: () => api.get('/system/terminal/targets'),
 }
 
 export const backupsApi = {
@@ -165,6 +168,9 @@ api.system = {
   // Aliases for SystemView compatibility
   getInfo: systemApi.info,
   getHealth: systemApi.health,
+  getNetwork: systemApi.network,
+  getSsl: systemApi.ssl,
+  getTerminalTargets: systemApi.terminalTargets,
 }
 api.backups = backupsApi
 api.containers = containersApi

@@ -228,3 +228,219 @@ async def get_timezone(
             "offset": "unknown",
             "current_time": datetime.now(UTC).isoformat(),
         }
+
+
+@router.get("/network")
+async def get_network_info(
+    _=Depends(get_current_user),
+):
+    """Get network configuration information."""
+    import socket
+    import subprocess
+
+    interfaces = []
+    for name, addrs in psutil.net_if_addrs().items():
+        # Skip loopback
+        if name == "lo":
+            continue
+
+        iface_info = {"name": name, "addresses": []}
+        for addr in addrs:
+            if addr.family == socket.AF_INET:
+                iface_info["addresses"].append({
+                    "type": "ipv4",
+                    "address": addr.address,
+                    "netmask": addr.netmask,
+                    "broadcast": addr.broadcast,
+                })
+            elif addr.family == socket.AF_INET6:
+                iface_info["addresses"].append({
+                    "type": "ipv6",
+                    "address": addr.address,
+                    "netmask": addr.netmask,
+                })
+
+        if iface_info["addresses"]:
+            interfaces.append(iface_info)
+
+    # Get default gateway
+    gateway = None
+    try:
+        gateways = psutil.net_if_stats()
+        # Try to get default route from /proc/net/route
+        with open("/proc/net/route", "r") as f:
+            for line in f.readlines()[1:]:
+                parts = line.strip().split()
+                if len(parts) >= 3 and parts[1] == "00000000":
+                    # Convert hex gateway to IP
+                    gw_hex = parts[2]
+                    gw_bytes = bytes.fromhex(gw_hex)
+                    gateway = f"{gw_bytes[3]}.{gw_bytes[2]}.{gw_bytes[1]}.{gw_bytes[0]}"
+                    break
+    except Exception:
+        pass
+
+    # Get DNS servers from /etc/resolv.conf
+    dns_servers = []
+    try:
+        with open("/etc/resolv.conf", "r") as f:
+            for line in f:
+                if line.strip().startswith("nameserver"):
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        dns_servers.append(parts[1])
+    except Exception:
+        pass
+
+    # Get hostname
+    hostname = socket.gethostname()
+    try:
+        fqdn = socket.getfqdn()
+    except Exception:
+        fqdn = hostname
+
+    return {
+        "hostname": hostname,
+        "fqdn": fqdn,
+        "interfaces": interfaces,
+        "gateway": gateway,
+        "dns_servers": dns_servers,
+    }
+
+
+@router.get("/ssl")
+async def get_ssl_info(
+    _=Depends(get_current_user),
+):
+    """Get SSL certificate information."""
+    import ssl
+    import subprocess
+
+    ssl_info = {
+        "configured": False,
+        "certificates": [],
+    }
+
+    # Common certificate locations to check
+    cert_paths = [
+        "/etc/letsencrypt/live",
+        "/etc/ssl/certs",
+        "/app/certs",
+        "/certs",
+    ]
+
+    # Try to find Let's Encrypt certificates
+    letsencrypt_path = "/etc/letsencrypt/live"
+    try:
+        if os.path.exists(letsencrypt_path):
+            for domain_dir in os.listdir(letsencrypt_path):
+                cert_path = os.path.join(letsencrypt_path, domain_dir, "cert.pem")
+                fullchain_path = os.path.join(letsencrypt_path, domain_dir, "fullchain.pem")
+
+                if os.path.exists(cert_path):
+                    try:
+                        # Use openssl to get certificate info
+                        result = subprocess.run(
+                            ["openssl", "x509", "-in", cert_path, "-noout",
+                             "-subject", "-issuer", "-dates", "-ext", "subjectAltName"],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+
+                        if result.returncode == 0:
+                            output = result.stdout
+                            cert_info = {
+                                "domain": domain_dir,
+                                "path": cert_path,
+                                "type": "Let's Encrypt",
+                            }
+
+                            # Parse the output
+                            for line in output.split("\n"):
+                                line = line.strip()
+                                if line.startswith("subject="):
+                                    cert_info["subject"] = line.replace("subject=", "").strip()
+                                elif line.startswith("issuer="):
+                                    cert_info["issuer"] = line.replace("issuer=", "").strip()
+                                elif line.startswith("notBefore="):
+                                    cert_info["valid_from"] = line.replace("notBefore=", "").strip()
+                                elif line.startswith("notAfter="):
+                                    cert_info["valid_until"] = line.replace("notAfter=", "").strip()
+                                elif "DNS:" in line:
+                                    # Extract SANs
+                                    sans = [s.strip().replace("DNS:", "") for s in line.split(",") if "DNS:" in s]
+                                    cert_info["san"] = sans
+
+                            # Calculate days until expiry
+                            if "valid_until" in cert_info:
+                                try:
+                                    from datetime import datetime
+                                    expiry = datetime.strptime(
+                                        cert_info["valid_until"],
+                                        "%b %d %H:%M:%S %Y %Z"
+                                    )
+                                    days_left = (expiry - datetime.now()).days
+                                    cert_info["days_until_expiry"] = days_left
+                                    cert_info["status"] = "valid" if days_left > 0 else "expired"
+                                    if days_left <= 7:
+                                        cert_info["warning"] = "Certificate expiring soon!"
+                                    elif days_left <= 30:
+                                        cert_info["warning"] = "Certificate expires within 30 days"
+                                except Exception:
+                                    pass
+
+                            ssl_info["certificates"].append(cert_info)
+                            ssl_info["configured"] = True
+
+                    except subprocess.TimeoutExpired:
+                        pass
+                    except Exception as e:
+                        pass
+
+    except PermissionError:
+        ssl_info["error"] = "Permission denied reading certificate directory"
+    except Exception as e:
+        ssl_info["error"] = str(e)
+
+    return ssl_info
+
+
+@router.get("/terminal/targets")
+async def get_terminal_targets(
+    _=Depends(get_current_user),
+):
+    """Get available terminal connection targets (containers)."""
+    try:
+        import docker
+        client = docker.from_env()
+
+        targets = []
+
+        # Add option for host (if privileged mode is available)
+        targets.append({
+            "id": "host",
+            "name": "Host System",
+            "type": "host",
+            "status": "available",
+            "description": "Connect to Docker host via alpine container",
+        })
+
+        # List running containers
+        containers = client.containers.list(all=False)  # Only running containers
+        for container in containers:
+            targets.append({
+                "id": container.id[:12],
+                "name": container.name,
+                "type": "container",
+                "status": container.status,
+                "image": container.image.tags[0] if container.image.tags else "unknown",
+            })
+
+        return {"targets": targets}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list terminal targets: {e}",
+        )
