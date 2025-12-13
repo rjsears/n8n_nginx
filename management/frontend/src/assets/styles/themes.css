@@ -64,8 +64,14 @@
 .dark .border-t,
 .dark .border-b,
 .dark .border-l,
-.dark .border-r {
+.dark .border-r,
+.dark [class*="border-"] {
+  --tw-border-opacity: 1 !important;
   border-color: #64748b !important;
+}
+
+.dark * {
+  --color-border: #64748b;
 }
 
 /* Alternative dark theme (softer) */
