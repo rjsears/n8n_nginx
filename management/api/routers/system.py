@@ -150,28 +150,6 @@ async def list_audit_actions(
     return [row[0] for row in result.all()]
 
 
-def _get_uptime_seconds() -> float:
-    """Get system uptime in seconds.
-
-    Note: Inside a Docker container, this returns the container's uptime,
-    not the host's uptime. For true host uptime, the host's /proc would
-    need to be mounted into the container.
-    """
-    try:
-        # Read from /proc/uptime - simplest and most reliable method
-        with open("/proc/uptime", "r") as f:
-            return float(f.read().split()[0])
-    except Exception:
-        pass
-
-    # Fallback to psutil
-    try:
-        boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=UTC)
-        return (datetime.now(UTC) - boot_time).total_seconds()
-    except Exception:
-        return 0
-
-
 @router.get("/info")
 async def get_system_info(
     _=Depends(get_current_user),
@@ -179,22 +157,9 @@ async def get_system_info(
     """Get system information."""
     import platform
 
-    # Get uptime using robust multi-method approach
-    uptime_seconds = _get_uptime_seconds()
-
-    # Format uptime as human-readable
-    days, remainder = divmod(int(uptime_seconds), 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    if days > 0:
-        uptime_human = f"{days}d {hours}h {minutes}m"
-    elif hours > 0:
-        uptime_human = f"{hours}h {minutes}m"
-    else:
-        uptime_human = f"{minutes}m {seconds}s"
-
-    boot_time = datetime.now(UTC) - timedelta(seconds=uptime_seconds)
+    # Get uptime
+    boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=UTC)
+    uptime = datetime.now(UTC) - boot_time
 
     return {
         "hostname": platform.node(),
@@ -205,8 +170,8 @@ async def get_system_info(
         "processor": platform.processor(),
         "python_version": platform.python_version(),
         "boot_time": boot_time.isoformat(),
-        "uptime_seconds": int(uptime_seconds),
-        "uptime_human": uptime_human,
+        "uptime_seconds": int(uptime.total_seconds()),
+        "uptime_human": str(uptime).split(".")[0],  # Remove microseconds
     }
 
 
