@@ -126,10 +126,16 @@ const healthLoading = ref(false)
 const healthLastUpdated = ref(null)
 const healthLoadingMessages = [
   'Running health checks...',
-  'Still working, just a moment...',
-  'Almost done, gathering all the data...',
-  'Checking containers and services...',
-  'Analyzing system resources...',
+  'Still here, just a moment...',
+  'Poking the containers to see if they respond...',
+  'Asking Docker nicely for information...',
+  'Counting all the bits and bytes...',
+  'Making sure nothing is on fire...',
+  'Consulting the server spirits...',
+  'Almost done, gathering the last pieces...',
+  'Checking if SSL certificates are happy...',
+  'Verifying databases are awake...',
+  'Double-checking everything twice...',
 ]
 const healthLoadingMessageIndex = ref(0)
 let healthLoadingInterval = null
@@ -682,7 +688,7 @@ onUnmounted(() => {
 
     <!-- Health Tab -->
     <template v-if="activeTab === 'health'">
-      <LoadingSpinner v-if="healthLoading" size="lg" :text="healthLoadingMessages[healthLoadingMessageIndex]" class="py-12" />
+      <LoadingSpinner v-if="healthLoading" size="lg" :text="healthLoadingMessages[healthLoadingMessageIndex]" textClass="text-lg" class="py-12" />
 
       <template v-else>
         <!-- Overall Status Banner -->
