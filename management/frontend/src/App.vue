@@ -56,6 +56,11 @@ onMounted(async () => {
 </template>
 
 <style>
+/* Light mode - subtle gray boxes for stats */
+.bg-surface-hover {
+  background-color: #f3f4f6;
+}
+
 /* Dark mode CSS variables - applied directly so dark mode works
    while light mode keeps its current appearance */
 .dark {
