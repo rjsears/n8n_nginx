@@ -858,13 +858,17 @@ onUnmounted(() => {
                     {{ healthData.checks?.database?.details?.n8n_db || 'N/A' }}
                   </span>
                 </div>
-                <div v-if="healthData.checks?.database?.details?.version" class="flex justify-between items-center text-sm">
+                <div class="flex justify-between items-center text-sm">
                   <span class="text-secondary">Version</span>
-                  <span class="font-medium text-primary">PostgreSQL {{ healthData.checks?.database?.details?.version }}</span>
+                  <span class="font-medium text-primary">PostgreSQL {{ healthData.checks?.database?.details?.version || 'N/A' }}</span>
                 </div>
-                <div v-if="healthData.checks?.database?.details?.user" class="flex justify-between items-center text-sm">
+                <div class="flex justify-between items-center text-sm">
                   <span class="text-secondary">User</span>
-                  <span class="font-medium text-primary">{{ healthData.checks?.database?.details?.user }}</span>
+                  <span class="font-medium text-primary">{{ healthData.checks?.database?.details?.user || 'N/A' }}</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Name</span>
+                  <span class="font-medium text-primary">n8n</span>
                 </div>
               </div>
             </div>
@@ -1059,6 +1063,14 @@ onUnmounted(() => {
                   <span :class="['font-medium', healthData.checks?.database?.details?.management_db === 'ok' ? 'text-emerald-500' : healthData.checks?.database?.details?.management_db === 'warning' ? 'text-amber-500' : 'text-red-500']">
                     {{ healthData.checks?.database?.details?.management_db || 'N/A' }}
                   </span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Version</span>
+                  <span class="font-medium text-primary">PostgreSQL {{ healthData.checks?.database?.details?.version || 'N/A' }}</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">User</span>
+                  <span class="font-medium text-primary">{{ healthData.checks?.database?.details?.user || 'N/A' }}</span>
                 </div>
                 <div class="flex justify-between items-center text-sm">
                   <span class="text-secondary">Name</span>
