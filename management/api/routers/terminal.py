@@ -69,7 +69,19 @@ class TerminalSession:
             # Determine shell to use
             shell = self._detect_shell()
 
-            # Create exec instance
+            # Get container's default user and working directory
+            container_config = self.container.attrs.get("Config", {})
+            default_user = container_config.get("User", "")
+            working_dir = container_config.get("WorkingDir", "")
+
+            # Build environment with proper PATH
+            env_vars = container_config.get("Env", [])
+            # Ensure common bin paths are in PATH
+            has_path = any(e.startswith("PATH=") for e in env_vars)
+            if not has_path:
+                env_vars.append("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+
+            # Create exec instance with full environment
             exec_instance = self.client.api.exec_create(
                 self.container.id,
                 shell,
@@ -77,6 +89,9 @@ class TerminalSession:
                 tty=True,
                 stdout=True,
                 stderr=True,
+                user=default_user if default_user else None,
+                workdir=working_dir if working_dir else None,
+                environment=env_vars,
             )
             self.exec_id = exec_instance["Id"]
 
