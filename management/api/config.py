@@ -79,6 +79,10 @@ class Settings(BaseSettings):
         default=None,
         description="n8n API key for workflow management (generate in n8n Settings > API)"
     )
+    n8n_web_url: Optional[str] = Field(
+        default=None,
+        description="n8n web UI URL (browser-accessible). If not set, uses '/n8n' as relative path."
+    )
 
     # API settings
     api_rate_limit: int = Field(default=30, description="API requests per second per IP")

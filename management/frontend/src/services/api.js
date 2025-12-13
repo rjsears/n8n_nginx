@@ -185,6 +185,7 @@ api.flows = {
   getExecutions: (limit = 20) => api.get('/flows/executions', { params: { limit } }),
   toggleWorkflow: (id, active) => api.post(`/flows/${id}/toggle`, { active }),
   executeWorkflow: (id) => api.post(`/flows/${id}/execute`),
+  getN8nUrl: () => api.get('/flows/n8n-url'),
 }
 api.settings = {
   ...settingsApi,

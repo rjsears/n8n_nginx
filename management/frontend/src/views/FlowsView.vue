@@ -22,6 +22,7 @@ import {
   InformationCircleIcon,
   RocketLaunchIcon,
   ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -33,6 +34,7 @@ const executions = ref([])
 const searchQuery = ref('')
 const filterActive = ref('all')
 const actionLoading = ref(null)
+const n8nUrl = ref('/n8n') // Default, will be loaded from API
 
 // Confirm dialog state
 const showActivateConfirm = ref(false)
@@ -88,12 +90,14 @@ const executionStats = computed(() => {
 async function loadData() {
   loading.value = true
   try {
-    const [workflowsRes, executionsRes] = await Promise.all([
+    const [workflowsRes, executionsRes, n8nUrlRes] = await Promise.all([
       api.flows.getWorkflows(),
       api.flows.getExecutions(),
+      api.flows.getN8nUrl(),
     ])
     workflows.value = workflowsRes.data
     executions.value = executionsRes.data
+    n8nUrl.value = n8nUrlRes.data.url
   } catch (error) {
     const detail = error.response?.data?.detail || 'Unknown error'
     notificationStore.error(`Failed to load workflow data: ${detail}`)
@@ -190,6 +194,18 @@ async function downloadWorkflow(workflow) {
   } finally {
     actionLoading.value = null
   }
+}
+
+function openExecutionInN8n(execution) {
+  // n8n execution URL format: /workflow/{workflowId}/executions/{executionId}
+  const url = `${n8nUrl.value}/workflow/${execution.workflowId}/executions/${execution.id}`
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function openWorkflowInN8n(workflow) {
+  // n8n workflow URL format: /workflow/{workflowId}
+  const url = `${n8nUrl.value}/workflow/${workflow.id}`
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 function formatDuration(ms) {
@@ -384,6 +400,13 @@ onMounted(loadData)
             </div>
             <div class="flex items-center gap-2">
               <button
+                @click="openWorkflowInN8n(workflow)"
+                class="btn-secondary p-2"
+                title="Open in n8n"
+              >
+                <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+              </button>
+              <button
                 @click="downloadWorkflow(workflow)"
                 :disabled="actionLoading === workflow.id"
                 class="btn-secondary p-2"
@@ -433,6 +456,7 @@ onMounted(loadData)
                 <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
                 <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Duration</th>
                 <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Started</th>
+                <th class="text-right py-3 px-4 text-sm font-medium text-secondary">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -455,6 +479,15 @@ onMounted(loadData)
                 </td>
                 <td class="py-3 px-4 text-sm text-secondary">
                   {{ new Date(execution.startedAt).toLocaleString() }}
+                </td>
+                <td class="py-3 px-4 text-right">
+                  <button
+                    @click="openExecutionInN8n(execution)"
+                    class="btn-secondary p-1.5"
+                    title="View in n8n"
+                  >
+                    <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+                  </button>
                 </td>
               </tr>
             </tbody>

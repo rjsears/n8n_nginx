@@ -522,3 +522,22 @@ async def get_flow_stats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get flow stats: {e}",
         )
+
+
+@router.get("/n8n-url")
+async def get_n8n_url(
+    _=Depends(get_current_user),
+):
+    """
+    Get the n8n web URL for linking to workflows and executions.
+    Returns the configured N8N_WEB_URL or a default relative path.
+    """
+    from api.config import settings
+
+    # Use configured URL or default to relative path
+    n8n_url = settings.n8n_web_url or "/n8n"
+
+    return {
+        "url": n8n_url.rstrip("/"),
+        "configured": settings.n8n_web_url is not None,
+    }
