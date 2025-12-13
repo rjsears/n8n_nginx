@@ -150,6 +150,8 @@ services:
       - mgmt_logs:/app/logs
       # Configuration persistence
       - mgmt_config:/app/config
+      # Host .env file for environment variable management (read-write)
+      - ./.env:/app/host_env/.env:rw
     depends_on:
       postgres:
         condition: service_healthy

@@ -38,6 +38,10 @@ import {
   ServerIcon,
   XCircleIcon,
   InformationCircleIcon,
+  KeyIcon,
+  Cog6ToothIcon,
+  EyeIcon,
+  EyeSlashIcon,
 } from '@heroicons/vue/24/outline'
 import { Line } from 'vue-chartjs'
 import {
@@ -203,6 +207,24 @@ const peersExpanded = ref(false)
 // External services state
 const externalServices = ref([])
 const externalServicesLoading = ref(false)
+
+// API Key editing state for Cloudflare and Tailscale
+const cloudflareTokenModal = ref(false)
+const cloudflareToken = ref('')
+const cloudflareTokenLoading = ref(false)
+const cloudflareTokenMasked = ref('')
+const cloudflareTokenIsSet = ref(false)
+const showCloudflareToken = ref(false)
+
+const tailscaleKeyModal = ref(false)
+const tailscaleKey = ref('')
+const tailscaleKeyLoading = ref(false)
+const tailscaleKeyMasked = ref('')
+const tailscaleKeyIsSet = ref(false)
+const showTailscaleKey = ref(false)
+
+// Container restart state
+const restartingContainer = ref('')
 
 // Terminal state
 const terminalTargets = ref([])
@@ -516,6 +538,126 @@ async function runHealthCheck() {
   }
 }
 
+// Cloudflare Token Management
+async function loadCloudflareTokenStatus() {
+  try {
+    const response = await api.settings.getEnvVariable('CLOUDFLARE_TUNNEL_TOKEN')
+    cloudflareTokenIsSet.value = response.data.is_set
+    cloudflareTokenMasked.value = response.data.masked_value || ''
+  } catch (error) {
+    console.error('Failed to load Cloudflare token status:', error)
+  }
+}
+
+function openCloudflareTokenModal() {
+  cloudflareToken.value = ''
+  showCloudflareToken.value = false
+  cloudflareTokenModal.value = true
+}
+
+function closeCloudflareTokenModal() {
+  cloudflareTokenModal.value = false
+  cloudflareToken.value = ''
+  showCloudflareToken.value = false
+}
+
+async function saveCloudflareToken() {
+  if (!cloudflareToken.value.trim()) {
+    notificationStore.error('Token cannot be empty')
+    return
+  }
+
+  cloudflareTokenLoading.value = true
+  try {
+    const response = await api.settings.updateEnvVariable('CLOUDFLARE_TUNNEL_TOKEN', cloudflareToken.value.trim())
+    cloudflareTokenIsSet.value = true
+    cloudflareTokenMasked.value = response.data.masked_value || ''
+    cloudflareTokenModal.value = false
+    cloudflareToken.value = ''
+    showCloudflareToken.value = false
+
+    if (response.data.requires_restart) {
+      notificationStore.success('Cloudflare token saved. Restart the container to apply changes.')
+    } else {
+      notificationStore.success('Cloudflare token saved successfully')
+    }
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to save token')
+  } finally {
+    cloudflareTokenLoading.value = false
+  }
+}
+
+// Tailscale Key Management
+async function loadTailscaleKeyStatus() {
+  try {
+    const response = await api.settings.getEnvVariable('TAILSCALE_AUTH_KEY')
+    tailscaleKeyIsSet.value = response.data.is_set
+    tailscaleKeyMasked.value = response.data.masked_value || ''
+  } catch (error) {
+    console.error('Failed to load Tailscale key status:', error)
+  }
+}
+
+function openTailscaleKeyModal() {
+  tailscaleKey.value = ''
+  showTailscaleKey.value = false
+  tailscaleKeyModal.value = true
+}
+
+function closeTailscaleKeyModal() {
+  tailscaleKeyModal.value = false
+  tailscaleKey.value = ''
+  showTailscaleKey.value = false
+}
+
+async function saveTailscaleKey() {
+  if (!tailscaleKey.value.trim()) {
+    notificationStore.error('Auth key cannot be empty')
+    return
+  }
+
+  tailscaleKeyLoading.value = true
+  try {
+    const response = await api.settings.updateEnvVariable('TAILSCALE_AUTH_KEY', tailscaleKey.value.trim())
+    tailscaleKeyIsSet.value = true
+    tailscaleKeyMasked.value = response.data.masked_value || ''
+    tailscaleKeyModal.value = false
+    tailscaleKey.value = ''
+    showTailscaleKey.value = false
+
+    if (response.data.requires_restart) {
+      notificationStore.success('Tailscale auth key saved. Restart the container to apply changes.')
+    } else {
+      notificationStore.success('Tailscale auth key saved successfully')
+    }
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to save auth key')
+  } finally {
+    tailscaleKeyLoading.value = false
+  }
+}
+
+// Container Restart
+async function restartContainer(containerName, displayName) {
+  restartingContainer.value = containerName
+  try {
+    await api.settings.restartContainer(containerName, 'Configuration update')
+    notificationStore.success(`${displayName} restarted successfully`)
+
+    // Reload the relevant info after restart
+    if (containerName === 'n8n_cloudflared') {
+      setTimeout(() => loadNetworkInfo(), 3000)
+    } else if (containerName === 'n8n_tailscale') {
+      setTimeout(() => loadNetworkInfo(), 3000)
+    }
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || `Failed to restart ${displayName}`)
+  } finally {
+    restartingContainer.value = ''
+  }
+}
+
 // Terminal functions
 async function initTerminal() {
   if (terminal) return
@@ -668,6 +810,11 @@ watch(activeTab, async (newTab) => {
     if (externalServices.value.length === 0) {
       await loadExternalServices()
     }
+    // Load token statuses
+    await Promise.all([
+      loadCloudflareTokenStatus(),
+      loadTailscaleKeyStatus(),
+    ])
   } else if (newTab === 'ssl' && !sslInfo.value.configured && !sslInfo.value.error) {
     await loadSslInfo()
   } else if (newTab === 'terminal') {
@@ -1608,7 +1755,34 @@ onUnmounted(() => {
         <!-- VPN & Tunnel Services -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           <!-- Cloudflare Tunnel -->
-          <Card title="Cloudflare Tunnel" :neon="true">
+          <Card :neon="true" :padding="false">
+            <template #header>
+              <div class="flex items-center justify-between w-full px-4 py-3">
+                <div class="flex items-center gap-2">
+                  <CloudIcon class="h-5 w-5 text-orange-500" />
+                  <h3 class="font-semibold text-primary">Cloudflare Tunnel</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    @click="openCloudflareTokenModal"
+                    class="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-hover transition-colors"
+                    title="Configure Tunnel Token"
+                  >
+                    <Cog6ToothIcon class="h-5 w-5" />
+                  </button>
+                  <button
+                    v-if="cloudflareInfo.running"
+                    @click="restartContainer('n8n_cloudflared', 'Cloudflare Tunnel')"
+                    :disabled="restartingContainer === 'n8n_cloudflared'"
+                    class="p-1.5 rounded-lg text-muted hover:text-amber-500 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                    title="Restart Container"
+                  >
+                    <ArrowPathIcon :class="['h-5 w-5', restartingContainer === 'n8n_cloudflared' ? 'animate-spin' : '']" />
+                  </button>
+                </div>
+              </div>
+            </template>
+            <div class="p-4">
             <div v-if="cloudflareInfo.error && !cloudflareInfo.installed" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-500/10 rounded-lg">
               <CloudIcon class="h-6 w-6 text-gray-400" />
               <p class="text-muted">{{ cloudflareInfo.error }}</p>
@@ -1724,10 +1898,38 @@ onUnmounted(() => {
                 </div>
               </div>
             </template>
+            </div>
           </Card>
 
           <!-- Tailscale -->
-          <Card title="Tailscale VPN" :neon="true">
+          <Card :neon="true" :padding="false">
+            <template #header>
+              <div class="flex items-center justify-between w-full px-4 py-3">
+                <div class="flex items-center gap-2">
+                  <LinkIcon class="h-5 w-5 text-blue-500" />
+                  <h3 class="font-semibold text-primary">Tailscale VPN</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    @click="openTailscaleKeyModal"
+                    class="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-hover transition-colors"
+                    title="Configure Auth Key"
+                  >
+                    <Cog6ToothIcon class="h-5 w-5" />
+                  </button>
+                  <button
+                    v-if="tailscaleInfo.running"
+                    @click="restartContainer('n8n_tailscale', 'Tailscale VPN')"
+                    :disabled="restartingContainer === 'n8n_tailscale'"
+                    class="p-1.5 rounded-lg text-muted hover:text-amber-500 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                    title="Restart Container"
+                  >
+                    <ArrowPathIcon :class="['h-5 w-5', restartingContainer === 'n8n_tailscale' ? 'animate-spin' : '']" />
+                  </button>
+                </div>
+              </div>
+            </template>
+            <div class="p-4">
             <div v-if="tailscaleInfo.error && !tailscaleInfo.installed" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-500/10 rounded-lg">
               <LinkIcon class="h-6 w-6 text-gray-400" />
               <p class="text-muted">{{ tailscaleInfo.error }}</p>
@@ -1826,6 +2028,7 @@ onUnmounted(() => {
                 </div>
               </div>
             </template>
+            </div>
           </Card>
         </div>
       </template>
@@ -1920,6 +2123,170 @@ onUnmounted(() => {
         </div>
       </Card>
     </template>
+
+    <!-- Cloudflare Token Modal -->
+    <Teleport to="body">
+      <div
+        v-if="cloudflareTokenModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      >
+        <div class="fixed inset-0 bg-black/50" @click="closeCloudflareTokenModal"></div>
+        <div class="relative bg-surface rounded-xl shadow-2xl max-w-md w-full p-6 border border-[var(--color-border)]">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="p-2 rounded-lg bg-orange-100 dark:bg-orange-500/20">
+              <CloudIcon class="h-6 w-6 text-orange-500" />
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-primary">Cloudflare Tunnel Token</h3>
+              <p class="text-sm text-muted">Update your tunnel authentication token</p>
+            </div>
+          </div>
+
+          <!-- Current Status -->
+          <div class="mb-4 p-3 rounded-lg bg-surface-hover">
+            <div class="flex items-center justify-between">
+              <span class="text-secondary text-sm">Current Status</span>
+              <span
+                :class="[
+                  'flex items-center gap-2 text-sm font-medium',
+                  cloudflareTokenIsSet ? 'text-emerald-500' : 'text-amber-500'
+                ]"
+              >
+                <span :class="['w-2 h-2 rounded-full', cloudflareTokenIsSet ? 'bg-emerald-500' : 'bg-amber-500']"></span>
+                {{ cloudflareTokenIsSet ? 'Configured' : 'Not Set' }}
+              </span>
+            </div>
+            <div v-if="cloudflareTokenIsSet" class="mt-2 flex items-center justify-between">
+              <span class="text-secondary text-sm">Current Token</span>
+              <span class="font-mono text-sm text-primary">{{ cloudflareTokenMasked }}</span>
+            </div>
+          </div>
+
+          <!-- Input -->
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-primary mb-1.5">New Token</label>
+            <div class="relative">
+              <KeyIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted" />
+              <input
+                v-model="cloudflareToken"
+                :type="showCloudflareToken ? 'text' : 'password'"
+                placeholder="Enter Cloudflare tunnel token"
+                class="input-field pl-10 pr-10 w-full"
+              />
+              <button
+                type="button"
+                @click="showCloudflareToken = !showCloudflareToken"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-secondary"
+              >
+                <EyeSlashIcon v-if="showCloudflareToken" class="h-5 w-5" />
+                <EyeIcon v-else class="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Info -->
+          <div class="mb-6 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+            <p class="text-sm text-amber-700 dark:text-amber-400">
+              After saving, you'll need to restart the Cloudflare container for changes to take effect.
+            </p>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex gap-3 justify-end">
+            <button @click="closeCloudflareTokenModal" class="btn-secondary">Cancel</button>
+            <button
+              @click="saveCloudflareToken"
+              :disabled="cloudflareTokenLoading || !cloudflareToken.trim()"
+              class="btn-primary"
+            >
+              {{ cloudflareTokenLoading ? 'Saving...' : 'Save Token' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Tailscale Auth Key Modal -->
+    <Teleport to="body">
+      <div
+        v-if="tailscaleKeyModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      >
+        <div class="fixed inset-0 bg-black/50" @click="closeTailscaleKeyModal"></div>
+        <div class="relative bg-surface rounded-xl shadow-2xl max-w-md w-full p-6 border border-[var(--color-border)]">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
+              <LinkIcon class="h-6 w-6 text-blue-500" />
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-primary">Tailscale Auth Key</h3>
+              <p class="text-sm text-muted">Update your Tailscale authentication key</p>
+            </div>
+          </div>
+
+          <!-- Current Status -->
+          <div class="mb-4 p-3 rounded-lg bg-surface-hover">
+            <div class="flex items-center justify-between">
+              <span class="text-secondary text-sm">Current Status</span>
+              <span
+                :class="[
+                  'flex items-center gap-2 text-sm font-medium',
+                  tailscaleKeyIsSet ? 'text-emerald-500' : 'text-amber-500'
+                ]"
+              >
+                <span :class="['w-2 h-2 rounded-full', tailscaleKeyIsSet ? 'bg-emerald-500' : 'bg-amber-500']"></span>
+                {{ tailscaleKeyIsSet ? 'Configured' : 'Not Set' }}
+              </span>
+            </div>
+            <div v-if="tailscaleKeyIsSet" class="mt-2 flex items-center justify-between">
+              <span class="text-secondary text-sm">Current Key</span>
+              <span class="font-mono text-sm text-primary">{{ tailscaleKeyMasked }}</span>
+            </div>
+          </div>
+
+          <!-- Input -->
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-primary mb-1.5">New Auth Key</label>
+            <div class="relative">
+              <KeyIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted" />
+              <input
+                v-model="tailscaleKey"
+                :type="showTailscaleKey ? 'text' : 'password'"
+                placeholder="Enter Tailscale auth key"
+                class="input-field pl-10 pr-10 w-full"
+              />
+              <button
+                type="button"
+                @click="showTailscaleKey = !showTailscaleKey"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-secondary"
+              >
+                <EyeSlashIcon v-if="showTailscaleKey" class="h-5 w-5" />
+                <EyeIcon v-else class="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Info -->
+          <div class="mb-6 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+            <p class="text-sm text-amber-700 dark:text-amber-400">
+              After saving, you'll need to restart the Tailscale container for changes to take effect.
+            </p>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex gap-3 justify-end">
+            <button @click="closeTailscaleKeyModal" class="btn-secondary">Cancel</button>
+            <button
+              @click="saveTailscaleKey"
+              :disabled="tailscaleKeyLoading || !tailscaleKey.trim()"
+              class="btn-primary"
+            >
+              {{ tailscaleKeyLoading ? 'Saving...' : 'Save Key' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 

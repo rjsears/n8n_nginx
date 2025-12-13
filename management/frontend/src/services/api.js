@@ -162,6 +162,15 @@ export const settingsApi = {
   updateConfig: (type, data) => api.put(`/settings/config/${type}`, data),
   getNfsStatus: () => api.get('/settings/nfs/status'),
   updateNfsConfig: (data) => api.put('/settings/nfs/config', data),
+  // Environment variable management
+  getEnvVariables: () => api.get('/settings/env'),
+  getEnvVariable: (key) => api.get(`/settings/env/${key}`),
+  updateEnvVariable: (key, value) => api.put(`/settings/env/${key}`, { key, value }),
+  // Debug mode
+  getDebugMode: () => api.get('/settings/debug'),
+  setDebugMode: (enabled) => api.put('/settings/debug', { enabled }),
+  // Container restart
+  restartContainer: (containerName, reason) => api.post('/settings/container/restart', { container_name: containerName, reason }),
   // Aliases for view compatibility
   getAll: () => api.get('/settings/'),
 }

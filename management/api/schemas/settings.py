@@ -82,3 +82,42 @@ class GeneralConfigUpdate(BaseModel):
     timezone: str = "America/Los_Angeles"
     backup_compression: str = Field(default="gzip", pattern="^(none|gzip|zstd)$")
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR)$")
+
+
+class EnvVariableUpdate(BaseModel):
+    """Update an environment variable in the .env file."""
+    key: str = Field(..., min_length=1, description="Environment variable name")
+    value: str = Field(..., description="Environment variable value")
+
+
+class EnvVariableResponse(BaseModel):
+    """Response for environment variable operations."""
+    key: str
+    is_set: bool
+    masked_value: Optional[str] = None
+    requires_restart: bool = False
+    affected_containers: List[str] = []
+
+
+class DebugModeUpdate(BaseModel):
+    """Update debug mode setting."""
+    enabled: bool = Field(..., description="Enable or disable debug mode")
+
+
+class DebugModeResponse(BaseModel):
+    """Debug mode status response."""
+    enabled: bool
+    log_level: str
+
+
+class ContainerRestartRequest(BaseModel):
+    """Request to restart a container."""
+    container_name: str = Field(..., min_length=1)
+    reason: Optional[str] = None
+
+
+class ContainerRestartResponse(BaseModel):
+    """Response for container restart operation."""
+    success: bool
+    message: str
+    container_name: str
