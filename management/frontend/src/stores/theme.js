@@ -2,52 +2,29 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '@/services/api'
 
-// Theme presets mapping to individual settings
-const THEME_PRESETS = {
-  modern_light: { layout: 'horizontal', colorMode: 'light', neonEffects: false },
-  modern_dark: { layout: 'horizontal', colorMode: 'dark', neonEffects: false },
-  dashboard_light: { layout: 'sidebar', colorMode: 'light', neonEffects: false },
-  dashboard_dark_neon: { layout: 'sidebar', colorMode: 'dark', neonEffects: true },
-}
-
 export const useThemeStore = defineStore('theme', () => {
   // Internal state
-  const _currentPreset = ref(localStorage.getItem('theme_preset') || 'modern_light')
-  const _layoutMode = ref('horizontal') // 'horizontal' or 'sidebar'
   const _colorMode = ref('light') // 'light' or 'dark'
-  const _neonEffects = ref(false)
+  const _layoutMode = ref('horizontal') // 'horizontal' or 'sidebar'
   const _sidebarCollapsed = ref(false)
 
   // Read-only getters
   const isDark = computed(() => _colorMode.value === 'dark')
-  const isNeon = computed(() => _neonEffects.value && isDark.value)
   const isSidebar = computed(() => _layoutMode.value === 'sidebar')
-  const currentPreset = computed(() => _currentPreset.value)
   const sidebarCollapsed = computed(() => _sidebarCollapsed.value)
 
-  const themeClasses = computed(() => {
-    const classes = []
-    if (isDark.value) classes.push('dark')
-    if (isNeon.value) classes.push('neon-enabled')
-    if (isSidebar.value) classes.push('layout-sidebar')
-    else classes.push('layout-horizontal')
-    return classes.join(' ')
-  })
+  // For compatibility - maps to the color mode
+  const currentPreset = computed(() => _colorMode.value === 'dark' ? 'modern_dark' : 'modern_light')
 
-  // Writable computed properties for v-model binding
-  const layout = computed({
-    get: () => _layoutMode.value,
-    set: (val) => setLayoutMode(val)
-  })
-
+  // Writable computed for v-model binding
   const colorMode = computed({
     get: () => _colorMode.value,
     set: (val) => setColorMode(val)
   })
 
-  const neonEffects = computed({
-    get: () => _neonEffects.value,
-    set: (val) => setNeonEffects(val)
+  const layout = computed({
+    get: () => _layoutMode.value,
+    set: (val) => setLayoutMode(val)
   })
 
   // Apply theme to DOM
@@ -56,18 +33,16 @@ export const useThemeStore = defineStore('theme', () => {
     const body = document.body
 
     // Reset classes
-    html.classList.remove('dark', 'neon-enabled', 'layout-sidebar', 'layout-horizontal')
-    body.classList.remove('dark', 'neon-enabled', 'layout-sidebar', 'layout-horizontal')
+    html.classList.remove('dark', 'layout-sidebar', 'layout-horizontal')
+    body.classList.remove('dark', 'layout-sidebar', 'layout-horizontal')
 
-    // Apply new classes
+    // Apply dark mode
     if (isDark.value) {
       html.classList.add('dark')
       body.classList.add('dark')
     }
-    if (isNeon.value) {
-      html.classList.add('neon-enabled')
-      body.classList.add('neon-enabled')
-    }
+
+    // Apply layout
     if (isSidebar.value) {
       html.classList.add('layout-sidebar')
       body.classList.add('layout-sidebar')
@@ -77,32 +52,13 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
-  // Update preset based on current settings
-  function updatePresetFromSettings() {
-    for (const [name, preset] of Object.entries(THEME_PRESETS)) {
-      if (
-        preset.layout === _layoutMode.value &&
-        preset.colorMode === _colorMode.value &&
-        preset.neonEffects === _neonEffects.value
-      ) {
-        _currentPreset.value = name
-        localStorage.setItem('theme_preset', name)
-        return
-      }
-    }
-    // No match - custom combination
-    _currentPreset.value = 'custom'
-  }
-
   // Save to server
   async function saveToServer() {
     try {
       await api.put('/settings/appearance', {
         value: {
-          preset: _currentPreset.value,
-          layout: _layoutMode.value,
           colorMode: _colorMode.value,
-          neonEffects: _neonEffects.value,
+          layout: _layoutMode.value,
         }
       })
     } catch {
@@ -111,43 +67,31 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   // Actions
-  function setPreset(presetName) {
-    if (!THEME_PRESETS[presetName]) return
-
-    const preset = THEME_PRESETS[presetName]
-    _currentPreset.value = presetName
-    _layoutMode.value = preset.layout
-    _colorMode.value = preset.colorMode
-    _neonEffects.value = preset.neonEffects
-
-    localStorage.setItem('theme_preset', presetName)
-    applyTheme()
-    saveToServer()
-  }
-
   function setColorMode(mode) {
     _colorMode.value = mode
-    updatePresetFromSettings()
+    localStorage.setItem('color_mode', mode)
     applyTheme()
     saveToServer()
   }
 
   function setLayoutMode(mode) {
     _layoutMode.value = mode
-    updatePresetFromSettings()
+    localStorage.setItem('layout_mode', mode)
     applyTheme()
     saveToServer()
   }
 
-  function setNeonEffects(enabled) {
-    _neonEffects.value = enabled
-    updatePresetFromSettings()
-    applyTheme()
-    saveToServer()
+  function setPreset(presetName) {
+    // For compatibility - presets just set color mode
+    if (presetName === 'modern_dark') {
+      setColorMode('dark')
+    } else {
+      setColorMode('light')
+    }
   }
 
-  function toggleNeonEffects() {
-    setNeonEffects(!_neonEffects.value)
+  function toggleColorMode() {
+    setColorMode(_colorMode.value === 'light' ? 'dark' : 'light')
   }
 
   function toggleSidebar() {
@@ -155,24 +99,14 @@ export const useThemeStore = defineStore('theme', () => {
     localStorage.setItem('sidebar_collapsed', _sidebarCollapsed.value)
   }
 
-  function toggleColorMode() {
-    setColorMode(_colorMode.value === 'light' ? 'dark' : 'light')
-  }
-
   async function loadFromServer() {
     try {
       const response = await api.get('/settings/appearance')
       if (response.data?.value) {
         const settings = response.data.value
-        if (settings.preset && THEME_PRESETS[settings.preset]) {
-          setPreset(settings.preset)
-        } else {
-          _layoutMode.value = settings.layout || 'horizontal'
-          _colorMode.value = settings.colorMode || 'light'
-          _neonEffects.value = settings.neonEffects || false
-          updatePresetFromSettings()
-          applyTheme()
-        }
+        _colorMode.value = settings.colorMode || 'light'
+        _layoutMode.value = settings.layout || 'horizontal'
+        applyTheme()
       }
     } catch {
       // Use local storage fallback
@@ -182,24 +116,28 @@ export const useThemeStore = defineStore('theme', () => {
 
   function init() {
     // Load from local storage
-    const savedPreset = localStorage.getItem('theme_preset')
+    const savedColorMode = localStorage.getItem('color_mode')
+    const savedLayout = localStorage.getItem('layout_mode')
     const savedCollapsed = localStorage.getItem('sidebar_collapsed')
 
-    if (savedPreset && THEME_PRESETS[savedPreset]) {
-      setPreset(savedPreset)
+    if (savedColorMode) {
+      _colorMode.value = savedColorMode
     } else {
       // System preference
       if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        setPreset('modern_dark')
-      } else {
-        // Apply default
-        applyTheme()
+        _colorMode.value = 'dark'
       }
+    }
+
+    if (savedLayout) {
+      _layoutMode.value = savedLayout
     }
 
     if (savedCollapsed !== null) {
       _sidebarCollapsed.value = savedCollapsed === 'true'
     }
+
+    applyTheme()
   }
 
   return {
@@ -208,24 +146,21 @@ export const useThemeStore = defineStore('theme', () => {
     sidebarCollapsed,
     // Computed getters
     isDark,
-    isNeon,
     isSidebar,
-    themeClasses,
     // Writable computed for v-model binding
-    layout,
     colorMode,
-    neonEffects,
-    // Also expose internal refs for direct reading (legacy compatibility)
+    layout,
+    // Legacy compatibility
     layoutMode: _layoutMode,
+    isNeon: computed(() => false), // Disabled
+    neonEffects: computed(() => false), // Disabled
     // Actions
     setPreset,
-    applyPreset: setPreset, // Alias for SettingsView compatibility
+    applyPreset: setPreset,
     setColorMode,
     setLayoutMode,
-    setNeonEffects,
-    toggleNeonEffects,
-    toggleSidebar,
     toggleColorMode,
+    toggleSidebar,
     applyTheme,
     loadFromServer,
     init,

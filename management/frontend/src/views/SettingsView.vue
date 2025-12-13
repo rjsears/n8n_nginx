@@ -20,9 +20,9 @@ import {
   CheckIcon,
   SunIcon,
   MoonIcon,
-  ComputerDesktopIcon,
-  SparklesIcon,
   BugAntIcon,
+  Bars3Icon,
+  ViewColumnsIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -83,37 +83,7 @@ const settings = ref({
   },
 })
 
-// Theme presets
-const themePresets = [
-  {
-    id: 'modern_light',
-    name: 'Modern Light',
-    description: 'Clean, minimal design with light colors',
-    icon: SunIcon,
-    preview: 'bg-white border-gray-200',
-  },
-  {
-    id: 'modern_dark',
-    name: 'Modern Dark',
-    description: 'Sleek dark theme for reduced eye strain',
-    icon: MoonIcon,
-    preview: 'bg-gray-900 border-gray-700',
-  },
-  {
-    id: 'dashboard_light',
-    name: 'Dashboard Light',
-    description: 'Sidebar layout with light theme',
-    icon: ComputerDesktopIcon,
-    preview: 'bg-gray-50 border-gray-200',
-  },
-  {
-    id: 'dashboard_dark_neon',
-    name: 'Cyberpunk Neon',
-    description: 'Dark theme with neon glow effects',
-    icon: SparklesIcon,
-    preview: 'bg-gray-950 border-cyan-500',
-  },
-]
+// No longer using theme presets - removed in favor of simpler light/dark toggle
 
 const tabs = [
   { id: 'appearance', name: 'Appearance', icon: PaintBrushIcon },
@@ -195,10 +165,7 @@ async function changePassword() {
   }
 }
 
-function applyThemePreset(presetId) {
-  themeStore.applyPreset(presetId)
-  notificationStore.success('Theme applied')
-}
+// Theme is now applied directly via themeStore.setColorMode()
 
 async function toggleDebugMode() {
   debugModeLoading.value = true
@@ -294,82 +261,138 @@ onMounted(async () => {
 
       <!-- Appearance Tab -->
       <div v-if="activeTab === 'appearance'" class="space-y-6">
-        <Card title="Theme Presets" subtitle="Choose your preferred look and feel" :neon="true">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              v-for="preset in themePresets"
-              :key="preset.id"
-              @click="applyThemePreset(preset.id)"
+        <Card title="Theme" subtitle="Choose your preferred color scheme and navigation layout">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Modern Light Theme Card -->
+            <div
               :class="[
-                'relative flex items-start gap-4 p-4 rounded-lg border-2 transition-all text-left',
-                themeStore.currentPreset === preset.id
-                  ? themeStore.isNeon
-                    ? 'border-cyan-500 bg-cyan-500/10'
-                    : 'border-blue-500 bg-blue-500/10'
-                  : 'border-[var(--color-border)] hover:border-blue-300 dark:hover:border-blue-700'
+                'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
+                !themeStore.isDark
+                  ? 'border-blue-500 ring-2 ring-blue-500/20'
+                  : 'border-gray-200 hover:border-gray-300'
               ]"
+              @click="themeStore.setColorMode('light')"
             >
-              <div
-                :class="[
-                  'w-12 h-12 rounded-lg border-2 flex items-center justify-center',
-                  preset.preview
-                ]"
-              >
-                <component :is="preset.icon" class="h-6 w-6" />
+              <!-- Preview Area -->
+              <div class="bg-white p-4 border-b border-gray-200">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-300 to-orange-400 flex items-center justify-center">
+                    <SunIcon class="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p class="font-semibold text-gray-900">Modern Light</p>
+                    <p class="text-xs text-gray-500">Clean and bright interface</p>
+                  </div>
+                  <CheckIcon
+                    v-if="!themeStore.isDark"
+                    class="h-6 w-6 text-blue-500 ml-auto"
+                  />
+                </div>
+                <!-- Mini preview -->
+                <div class="bg-gray-50 rounded-lg p-2 space-y-1">
+                  <div class="h-2 w-3/4 bg-gray-200 rounded"></div>
+                  <div class="h-2 w-1/2 bg-gray-200 rounded"></div>
+                  <div class="h-2 w-2/3 bg-gray-200 rounded"></div>
+                </div>
               </div>
-              <div class="flex-1">
-                <p class="font-medium text-primary">{{ preset.name }}</p>
-                <p class="text-sm text-secondary mt-0.5">{{ preset.description }}</p>
+              <!-- Layout Toggle -->
+              <div class="bg-gray-50 p-3" @click.stop>
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-medium text-gray-700">Navigation</span>
+                  <div class="flex items-center gap-2 bg-white rounded-lg p-1 border border-gray-200">
+                    <button
+                      @click="themeStore.setLayoutMode('horizontal')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'horizontal'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      ]"
+                    >
+                      <Bars3Icon class="h-4 w-4" />
+                      Top
+                    </button>
+                    <button
+                      @click="themeStore.setLayoutMode('sidebar')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'sidebar'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      ]"
+                    >
+                      <ViewColumnsIcon class="h-4 w-4" />
+                      Side
+                    </button>
+                  </div>
+                </div>
               </div>
-              <CheckIcon
-                v-if="themeStore.currentPreset === preset.id"
-                :class="[
-                  'h-5 w-5 absolute top-4 right-4',
-                  themeStore.isNeon ? 'text-cyan-400' : 'text-blue-500'
-                ]"
-              />
-            </button>
-          </div>
-        </Card>
+            </div>
 
-        <Card title="Layout Options" :neon="true">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Layout Style</p>
-                <p class="text-sm text-secondary">Choose navigation layout</p>
+            <!-- Modern Dark Theme Card -->
+            <div
+              :class="[
+                'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
+                themeStore.isDark
+                  ? 'border-blue-500 ring-2 ring-blue-500/20'
+                  : 'border-gray-200 hover:border-gray-300'
+              ]"
+              @click="themeStore.setColorMode('dark')"
+            >
+              <!-- Preview Area -->
+              <div class="bg-slate-900 p-4 border-b border-slate-700">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <MoonIcon class="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p class="font-semibold text-white">Modern Dark</p>
+                    <p class="text-xs text-slate-400">Easy on the eyes at night</p>
+                  </div>
+                  <CheckIcon
+                    v-if="themeStore.isDark"
+                    class="h-6 w-6 text-blue-400 ml-auto"
+                  />
+                </div>
+                <!-- Mini preview -->
+                <div class="bg-slate-800 rounded-lg p-2 space-y-1">
+                  <div class="h-2 w-3/4 bg-slate-700 rounded"></div>
+                  <div class="h-2 w-1/2 bg-slate-700 rounded"></div>
+                  <div class="h-2 w-2/3 bg-slate-700 rounded"></div>
+                </div>
               </div>
-              <select v-model="themeStore.layout" class="select-field w-48">
-                <option value="horizontal">Horizontal (Top Nav)</option>
-                <option value="sidebar">Sidebar (Side Nav)</option>
-              </select>
-            </div>
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Color Mode</p>
-                <p class="text-sm text-secondary">Light or dark appearance</p>
+              <!-- Layout Toggle -->
+              <div class="bg-slate-800 p-3" @click.stop>
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-medium text-slate-300">Navigation</span>
+                  <div class="flex items-center gap-2 bg-slate-900 rounded-lg p-1 border border-slate-700">
+                    <button
+                      @click="themeStore.setLayoutMode('horizontal')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'horizontal'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-slate-400 hover:bg-slate-800'
+                      ]"
+                    >
+                      <Bars3Icon class="h-4 w-4" />
+                      Top
+                    </button>
+                    <button
+                      @click="themeStore.setLayoutMode('sidebar')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'sidebar'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-slate-400 hover:bg-slate-800'
+                      ]"
+                    >
+                      <ViewColumnsIcon class="h-4 w-4" />
+                      Side
+                    </button>
+                  </div>
+                </div>
               </div>
-              <select v-model="themeStore.colorMode" class="select-field w-48">
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </div>
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Neon Effects</p>
-                <p class="text-sm text-secondary">Enable glowing neon effects (dark mode)</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  v-model="themeStore.neonEffects"
-                  :disabled="themeStore.colorMode === 'light'"
-                  class="sr-only peer"
-                />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-cyan-500 peer-disabled:opacity-50"
-                ></div>
-              </label>
             </div>
           </div>
         </Card>
