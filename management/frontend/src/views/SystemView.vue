@@ -29,6 +29,13 @@ import {
   SunIcon,
   MoonIcon,
   ChevronDownIcon,
+  HeartIcon,
+  BoltIcon,
+  DocumentTextIcon,
+  ArchiveBoxIcon,
+  ServerIcon,
+  XCircleIcon,
+  InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 import { Line } from 'vue-chartjs'
 import {
@@ -64,6 +71,7 @@ const activeTab = ref('overview')
 
 // Tab definitions
 const tabs = [
+  { id: 'health', name: 'Health', icon: SignalIcon },
   { id: 'overview', name: 'Overview', icon: CpuChipIcon },
   { id: 'network', name: 'Network', icon: GlobeAltIcon },
   { id: 'ssl', name: 'SSL', icon: ShieldCheckIcon },
@@ -105,8 +113,18 @@ const systemInfo = ref({
   },
 })
 
-// Health checks
-const healthChecks = ref([])
+// Health checks (comprehensive)
+const healthData = ref({
+  overall_status: 'loading',
+  warnings: 0,
+  errors: 0,
+  checks: {},
+  container_memory: {},
+  ssl_certificates: [],
+  docker_disk_usage_gb: 0,
+})
+const healthLoading = ref(false)
+const healthLastUpdated = ref(null)
 
 // Network info state
 const networkInfo = ref({
@@ -301,7 +319,6 @@ async function loadData() {
       api.system.getHealth(),
     ])
     systemInfo.value = systemRes.data
-    healthChecks.value = healthRes.data.checks || []
 
     // Update chart data with real values
     cpuHistory.value.push(systemInfo.value.cpu?.usage || 0)
@@ -312,6 +329,20 @@ async function loadData() {
     notificationStore.error('Failed to load system information')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadHealthData() {
+  healthLoading.value = true
+  try {
+    const response = await api.system.getHealthFull()
+    healthData.value = response.data
+    healthLastUpdated.value = new Date()
+  } catch (error) {
+    notificationStore.error('Failed to load health data')
+    healthData.value.overall_status = 'error'
+  } finally {
+    healthLoading.value = false
   }
 }
 
@@ -511,7 +542,9 @@ function toggleTerminalTheme() {
 
 // Watch for tab changes
 watch(activeTab, async (newTab) => {
-  if (newTab === 'network' && networkInfo.value.interfaces.length === 0) {
+  if (newTab === 'health' && healthData.value.overall_status === 'loading') {
+    await loadHealthData()
+  } else if (newTab === 'network' && networkInfo.value.interfaces.length === 0) {
     await loadNetworkInfo()
   } else if (newTab === 'ssl' && !sslInfo.value.configured && !sslInfo.value.error) {
     await loadSslInfo()
@@ -528,6 +561,11 @@ onMounted(async () => {
   // Check for query params to set initial tab and target
   if (route.query.tab) {
     activeTab.value = route.query.tab
+
+    // If going to health tab, load health data
+    if (route.query.tab === 'health') {
+      await loadHealthData()
+    }
 
     // If going to terminal tab with a target, pre-select it
     if (route.query.tab === 'terminal' && route.query.target) {
@@ -596,6 +634,562 @@ onUnmounted(() => {
     </div>
 
     <LoadingSpinner v-if="loading && activeTab === 'overview'" size="lg" text="Loading system info..." class="py-12" />
+
+    <!-- Health Tab -->
+    <template v-if="activeTab === 'health'">
+      <LoadingSpinner v-if="healthLoading" size="lg" text="Running health checks..." class="py-12" />
+
+      <template v-else>
+        <!-- Overall Status Banner -->
+        <div
+          :class="[
+            'rounded-xl p-6 border-2 relative overflow-hidden',
+            healthData.overall_status === 'healthy'
+              ? 'bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 border-emerald-500/50'
+              : healthData.overall_status === 'warning'
+                ? 'bg-gradient-to-r from-amber-500/10 to-amber-500/5 border-amber-500/50'
+                : 'bg-gradient-to-r from-red-500/10 to-red-500/5 border-red-500/50'
+          ]"
+        >
+          <!-- Animated pulse background for healthy status -->
+          <div
+            v-if="healthData.overall_status === 'healthy'"
+            class="absolute inset-0 bg-emerald-500/5 animate-pulse"
+          ></div>
+
+          <div class="relative flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <div
+                :class="[
+                  'p-4 rounded-2xl',
+                  healthData.overall_status === 'healthy'
+                    ? 'bg-emerald-500/20'
+                    : healthData.overall_status === 'warning'
+                      ? 'bg-amber-500/20'
+                      : 'bg-red-500/20'
+                ]"
+              >
+                <HeartIcon
+                  :class="[
+                    'h-10 w-10',
+                    healthData.overall_status === 'healthy'
+                      ? 'text-emerald-500'
+                      : healthData.overall_status === 'warning'
+                        ? 'text-amber-500'
+                        : 'text-red-500'
+                  ]"
+                />
+              </div>
+              <div>
+                <h2 class="text-2xl font-bold text-primary">
+                  System Health:
+                  <span
+                    :class="[
+                      healthData.overall_status === 'healthy'
+                        ? 'text-emerald-500'
+                        : healthData.overall_status === 'warning'
+                          ? 'text-amber-500'
+                          : 'text-red-500'
+                    ]"
+                  >
+                    {{ healthData.overall_status?.toUpperCase() || 'CHECKING' }}
+                  </span>
+                </h2>
+                <p class="text-secondary mt-1">
+                  {{ healthData.version }} •
+                  Last updated: {{ healthLastUpdated ? new Date(healthLastUpdated).toLocaleTimeString() : 'Never' }}
+                </p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-6">
+              <!-- Counters -->
+              <div class="text-center">
+                <p class="text-3xl font-bold text-emerald-500">{{ healthData.checks ? Object.values(healthData.checks).filter(c => c.status === 'ok').length : 0 }}</p>
+                <p class="text-xs text-muted uppercase tracking-wide">Passed</p>
+              </div>
+              <div class="text-center">
+                <p class="text-3xl font-bold text-amber-500">{{ healthData.warnings || 0 }}</p>
+                <p class="text-xs text-muted uppercase tracking-wide">Warnings</p>
+              </div>
+              <div class="text-center">
+                <p class="text-3xl font-bold text-red-500">{{ healthData.errors || 0 }}</p>
+                <p class="text-xs text-muted uppercase tracking-wide">Errors</p>
+              </div>
+
+              <button
+                @click="loadHealthData"
+                :disabled="healthLoading"
+                class="btn-secondary flex items-center gap-2 ml-4"
+              >
+                <ArrowPathIcon :class="['h-4 w-4', healthLoading ? 'animate-spin' : '']" />
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Health Check Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-6">
+          <!-- Docker Containers -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
+                  <ServerIcon class="h-5 w-5 text-blue-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">Docker Containers</h3>
+                  <p class="text-xs text-muted">Container status and health</p>
+                </div>
+                <span
+                  :class="[
+                    'px-2 py-1 rounded-full text-xs font-medium',
+                    healthData.checks?.docker?.status === 'ok'
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : healthData.checks?.docker?.status === 'warning'
+                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
+                        : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ healthData.checks?.docker?.status?.toUpperCase() || 'N/A' }}
+                </span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Running</span>
+                  <span class="font-medium text-emerald-500">{{ healthData.checks?.docker?.details?.running || 0 }}</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Stopped</span>
+                  <span class="font-medium text-gray-500">{{ healthData.checks?.docker?.details?.stopped || 0 }}</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Unhealthy</span>
+                  <span :class="['font-medium', (healthData.checks?.docker?.details?.unhealthy || 0) > 0 ? 'text-red-500' : 'text-gray-500']">
+                    {{ healthData.checks?.docker?.details?.unhealthy || 0 }}
+                  </span>
+                </div>
+              </div>
+              <!-- Unhealthy containers list -->
+              <div v-if="healthData.checks?.docker?.details?.unhealthy_containers?.length" class="mt-3 pt-3 border-t border-[var(--color-border)]">
+                <p class="text-xs text-red-500 font-medium mb-1">Unhealthy:</p>
+                <div class="flex flex-wrap gap-1">
+                  <span
+                    v-for="name in healthData.checks?.docker?.details?.unhealthy_containers"
+                    :key="name"
+                    class="px-2 py-0.5 text-xs bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 rounded"
+                  >
+                    {{ name }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <!-- Services -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
+                  <BoltIcon class="h-5 w-5 text-purple-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">Core Services</h3>
+                  <p class="text-xs text-muted">n8n, Nginx, Management API</p>
+                </div>
+                <span
+                  :class="[
+                    'px-2 py-1 rounded-full text-xs font-medium',
+                    healthData.checks?.services?.status === 'ok'
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ healthData.checks?.services?.status?.toUpperCase() || 'N/A' }}
+                </span>
+              </div>
+              <div class="space-y-2">
+                <div
+                  v-for="(status, service) in healthData.checks?.services?.details"
+                  :key="service"
+                  class="flex justify-between items-center text-sm"
+                >
+                  <span class="text-secondary capitalize">{{ service.replace('_', ' ') }}</span>
+                  <span
+                    :class="[
+                      'flex items-center gap-1 font-medium',
+                      status === 'ok' ? 'text-emerald-500' : 'text-red-500'
+                    ]"
+                  >
+                    <CheckCircleIcon v-if="status === 'ok'" class="h-4 w-4" />
+                    <XCircleIcon v-else class="h-4 w-4" />
+                    {{ status }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <!-- Database -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
+                  <CircleStackIcon class="h-5 w-5 text-amber-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">Database</h3>
+                  <p class="text-xs text-muted">PostgreSQL health</p>
+                </div>
+                <span
+                  :class="[
+                    'px-2 py-1 rounded-full text-xs font-medium',
+                    healthData.checks?.database?.status === 'ok'
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ healthData.checks?.database?.status?.toUpperCase() || 'N/A' }}
+                </span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Connection</span>
+                  <span :class="['font-medium', healthData.checks?.database?.details?.connection === 'ok' ? 'text-emerald-500' : 'text-red-500']">
+                    {{ healthData.checks?.database?.details?.connection || 'N/A' }}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Queries</span>
+                  <span :class="['font-medium', healthData.checks?.database?.details?.query === 'ok' ? 'text-emerald-500' : 'text-red-500']">
+                    {{ healthData.checks?.database?.details?.query || 'N/A' }}
+                  </span>
+                </div>
+                <div v-if="healthData.checks?.database?.details?.version" class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Version</span>
+                  <span class="font-medium text-primary">{{ healthData.checks?.database?.details?.version }}</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <!-- System Resources -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-cyan-100 dark:bg-cyan-500/20">
+                  <CpuChipIcon class="h-5 w-5 text-cyan-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">System Resources</h3>
+                  <p class="text-xs text-muted">CPU, Memory, Disk</p>
+                </div>
+                <span
+                  :class="[
+                    'px-2 py-1 rounded-full text-xs font-medium',
+                    healthData.checks?.resources?.status === 'ok'
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : healthData.checks?.resources?.status === 'warning'
+                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
+                        : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ healthData.checks?.resources?.status?.toUpperCase() || 'N/A' }}
+                </span>
+              </div>
+              <div class="space-y-3">
+                <!-- Disk -->
+                <div>
+                  <div class="flex justify-between items-center text-sm mb-1">
+                    <span class="text-secondary">Disk</span>
+                    <span class="font-medium text-primary">{{ healthData.checks?.resources?.details?.disk_percent || 0 }}%</span>
+                  </div>
+                  <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      :class="[
+                        'h-full rounded-full transition-all',
+                        (healthData.checks?.resources?.details?.disk_percent || 0) >= 90 ? 'bg-red-500' :
+                        (healthData.checks?.resources?.details?.disk_percent || 0) >= 75 ? 'bg-amber-500' : 'bg-cyan-500'
+                      ]"
+                      :style="{ width: `${healthData.checks?.resources?.details?.disk_percent || 0}%` }"
+                    ></div>
+                  </div>
+                  <p class="text-xs text-muted mt-1">{{ healthData.checks?.resources?.details?.disk_free_gb?.toFixed(1) || 0 }} GB free</p>
+                </div>
+                <!-- Memory -->
+                <div>
+                  <div class="flex justify-between items-center text-sm mb-1">
+                    <span class="text-secondary">Memory</span>
+                    <span class="font-medium text-primary">{{ healthData.checks?.resources?.details?.memory_percent || 0 }}%</span>
+                  </div>
+                  <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      :class="[
+                        'h-full rounded-full transition-all',
+                        (healthData.checks?.resources?.details?.memory_percent || 0) >= 90 ? 'bg-red-500' :
+                        (healthData.checks?.resources?.details?.memory_percent || 0) >= 75 ? 'bg-amber-500' : 'bg-purple-500'
+                      ]"
+                      :style="{ width: `${healthData.checks?.resources?.details?.memory_percent || 0}%` }"
+                    ></div>
+                  </div>
+                </div>
+                <!-- CPU -->
+                <div>
+                  <div class="flex justify-between items-center text-sm mb-1">
+                    <span class="text-secondary">CPU</span>
+                    <span class="font-medium text-primary">{{ healthData.checks?.resources?.details?.cpu_percent?.toFixed(1) || 0 }}%</span>
+                  </div>
+                  <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      :class="[
+                        'h-full rounded-full transition-all',
+                        (healthData.checks?.resources?.details?.cpu_percent || 0) >= 90 ? 'bg-red-500' :
+                        (healthData.checks?.resources?.details?.cpu_percent || 0) >= 75 ? 'bg-amber-500' : 'bg-blue-500'
+                      ]"
+                      :style="{ width: `${healthData.checks?.resources?.details?.cpu_percent || 0}%` }"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <!-- SSL Certificates -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
+                  <LockClosedIcon class="h-5 w-5 text-emerald-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">SSL Certificates</h3>
+                  <p class="text-xs text-muted">Certificate validity</p>
+                </div>
+                <span
+                  :class="[
+                    'px-2 py-1 rounded-full text-xs font-medium',
+                    healthData.checks?.ssl?.status === 'ok'
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : healthData.checks?.ssl?.status === 'warning'
+                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
+                        : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ healthData.checks?.ssl?.status?.toUpperCase() || 'N/A' }}
+                </span>
+              </div>
+              <div v-if="healthData.ssl_certificates?.length" class="space-y-2">
+                <div
+                  v-for="cert in healthData.ssl_certificates"
+                  :key="cert.domain"
+                  class="flex justify-between items-center text-sm p-2 rounded bg-surface-hover"
+                >
+                  <span class="font-medium text-primary truncate max-w-[150px]" :title="cert.domain">{{ cert.domain }}</span>
+                  <span
+                    :class="[
+                      'text-xs px-2 py-0.5 rounded',
+                      cert.days_until_expiry > 30 ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' :
+                      cert.days_until_expiry > 7 ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400' :
+                      'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                    ]"
+                  >
+                    {{ cert.days_until_expiry }}d
+                  </span>
+                </div>
+              </div>
+              <div v-else class="text-sm text-muted">No certificates found</div>
+            </div>
+          </Card>
+
+          <!-- Network -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
+                  <GlobeAltIcon class="h-5 w-5 text-indigo-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">Network</h3>
+                  <p class="text-xs text-muted">Connectivity status</p>
+                </div>
+                <span
+                  :class="[
+                    'px-2 py-1 rounded-full text-xs font-medium',
+                    healthData.checks?.network?.status === 'ok'
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ healthData.checks?.network?.status?.toUpperCase() || 'N/A' }}
+                </span>
+              </div>
+              <div class="space-y-2">
+                <div
+                  v-for="(status, target) in healthData.checks?.network?.details"
+                  :key="target"
+                  class="flex justify-between items-center text-sm"
+                >
+                  <span class="text-secondary capitalize">{{ target.replace('_', ' ') }}</span>
+                  <span
+                    :class="[
+                      'flex items-center gap-1 font-medium',
+                      status === 'ok' ? 'text-emerald-500' : 'text-red-500'
+                    ]"
+                  >
+                    <CheckCircleIcon v-if="status === 'ok'" class="h-4 w-4" />
+                    <XCircleIcon v-else class="h-4 w-4" />
+                    {{ status }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <!-- Backups -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-teal-100 dark:bg-teal-500/20">
+                  <ArchiveBoxIcon class="h-5 w-5 text-teal-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">Backups</h3>
+                  <p class="text-xs text-muted">Backup status</p>
+                </div>
+                <span
+                  :class="[
+                    'px-2 py-1 rounded-full text-xs font-medium',
+                    healthData.checks?.backups?.status === 'ok'
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : healthData.checks?.backups?.status === 'warning'
+                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
+                        : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ healthData.checks?.backups?.status?.toUpperCase() || 'N/A' }}
+                </span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Recent (24h)</span>
+                  <span class="font-medium text-primary">{{ healthData.checks?.backups?.details?.recent_count || 0 }}</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Failed (24h)</span>
+                  <span :class="['font-medium', (healthData.checks?.backups?.details?.failed_count || 0) > 0 ? 'text-red-500' : 'text-gray-500']">
+                    {{ healthData.checks?.backups?.details?.failed_count || 0 }}
+                  </span>
+                </div>
+                <div v-if="healthData.checks?.backups?.details?.last_backup" class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Last Backup</span>
+                  <span class="font-medium text-primary text-xs">
+                    {{ new Date(healthData.checks?.backups?.details?.last_backup).toLocaleString() }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <!-- Recent Logs -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-rose-100 dark:bg-rose-500/20">
+                  <DocumentTextIcon class="h-5 w-5 text-rose-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">Recent Logs</h3>
+                  <p class="text-xs text-muted">Error analysis</p>
+                </div>
+                <span
+                  :class="[
+                    'px-2 py-1 rounded-full text-xs font-medium',
+                    healthData.checks?.logs?.status === 'ok'
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : healthData.checks?.logs?.status === 'warning'
+                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
+                        : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ healthData.checks?.logs?.status?.toUpperCase() || 'N/A' }}
+                </span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Errors (1h)</span>
+                  <span :class="['font-medium', (healthData.checks?.logs?.details?.error_count || 0) > 10 ? 'text-red-500' : (healthData.checks?.logs?.details?.error_count || 0) > 0 ? 'text-amber-500' : 'text-gray-500']">
+                    {{ healthData.checks?.logs?.details?.error_count || 0 }}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Warnings (1h)</span>
+                  <span class="font-medium text-amber-500">{{ healthData.checks?.logs?.details?.warning_count || 0 }}</span>
+                </div>
+              </div>
+              <!-- Recent errors -->
+              <div v-if="healthData.checks?.logs?.details?.recent_errors?.length" class="mt-3 pt-3 border-t border-[var(--color-border)]">
+                <p class="text-xs text-muted mb-2">Recent Errors:</p>
+                <div class="space-y-1 max-h-24 overflow-y-auto">
+                  <div
+                    v-for="(err, i) in healthData.checks?.logs?.details?.recent_errors?.slice(0, 3)"
+                    :key="i"
+                    class="text-xs text-red-500 dark:text-red-400 font-mono truncate"
+                    :title="err"
+                  >
+                    {{ err }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <!-- Docker Disk -->
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-lg bg-orange-100 dark:bg-orange-500/20">
+                  <ServerStackIcon class="h-5 w-5 text-orange-500" />
+                </div>
+                <div class="flex-1">
+                  <h3 class="font-semibold text-primary">Docker Storage</h3>
+                  <p class="text-xs text-muted">Images, volumes, containers</p>
+                </div>
+              </div>
+              <div class="text-center py-4">
+                <p class="text-4xl font-bold text-primary">
+                  {{ healthData.docker_disk_usage_gb?.toFixed(1) || '0.0' }}
+                  <span class="text-lg text-muted">GB</span>
+                </p>
+                <p class="text-xs text-muted mt-1">Total Docker disk usage</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        <!-- Container Memory Usage -->
+        <Card v-if="healthData.container_memory && Object.keys(healthData.container_memory).length" title="Container Memory Usage" class="mt-6" :neon="true">
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+            <div
+              v-for="(memory, name) in healthData.container_memory"
+              :key="name"
+              class="p-3 rounded-lg bg-surface-hover border border-[var(--color-border)]"
+            >
+              <p class="font-medium text-primary text-sm truncate" :title="name">{{ name }}</p>
+              <p
+                :class="[
+                  'text-2xl font-bold mt-1',
+                  memory > 500 ? 'text-red-500' : memory > 200 ? 'text-amber-500' : 'text-emerald-500'
+                ]"
+              >
+                {{ memory?.toFixed(0) || 0 }}
+                <span class="text-xs text-muted font-normal">MB</span>
+              </p>
+            </div>
+          </div>
+        </Card>
+      </template>
+    </template>
 
     <!-- Overview Tab -->
     <template v-if="activeTab === 'overview' && !loading">

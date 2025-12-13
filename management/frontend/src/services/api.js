@@ -77,6 +77,7 @@ export const authApi = {
 
 export const systemApi = {
   health: () => api.get('/system/health'),
+  healthFull: () => api.get('/system/health/full'),
   metrics: () => api.get('/system/metrics'),
   info: () => api.get('/system/info'),
   dockerInfo: () => api.get('/system/docker/info'),
@@ -170,6 +171,7 @@ api.system = {
   // Aliases for SystemView compatibility
   getInfo: systemApi.info,
   getHealth: systemApi.health,
+  getHealthFull: systemApi.healthFull,
   getNetwork: systemApi.network,
   getSsl: systemApi.ssl,
   getCloudflare: systemApi.cloudflare,
