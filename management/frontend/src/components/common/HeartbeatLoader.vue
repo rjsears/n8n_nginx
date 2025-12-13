@@ -13,31 +13,18 @@ defineProps({
 
 <template>
   <div class="flex flex-col items-center justify-center gap-6">
-    <!-- EKG Monitor Display - Clean white style -->
+    <!-- EKG Line - No background box -->
     <div class="ekg-monitor">
       <svg
         class="ekg-svg"
         viewBox="0 0 400 80"
         preserveAspectRatio="xMidYMid meet"
       >
-        <!-- Grid lines for monitor effect -->
-        <defs>
-          <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(220, 38, 38, 0.1)" stroke-width="0.5"/>
-          </pattern>
-        </defs>
-
-        <!-- Grid background -->
-        <rect width="100%" height="100%" fill="url(#grid)"/>
-
-        <!-- Base flatline (very dim) -->
-        <line x1="0" y1="40" x2="400" y2="40" stroke="rgba(220, 38, 38, 0.15)" stroke-width="1"/>
-
-        <!-- EKG trace - dark red line -->
+        <!-- EKG trace - dark red line only -->
         <path
           class="ekg-trace"
           fill="none"
-          stroke="#b91c1c"
+          stroke="#dc2626"
           stroke-width="2.5"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -56,13 +43,7 @@ defineProps({
 <style scoped>
 .ekg-monitor {
   width: 420px;
-  padding: 16px;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(220, 38, 38, 0.15);
+  /* No background, no border, no shadow - just the line */
 }
 
 .ekg-svg {
@@ -88,9 +69,3 @@ defineProps({
 }
 </style>
 
-<!-- Unscoped style for dark mode (scoped styles can't target :root) -->
-<style>
-.dark .ekg-monitor {
-  background: #ffffff;
-}
-</style>

@@ -151,49 +151,25 @@ async def list_audit_actions(
 
 
 def _get_uptime_seconds() -> float:
-    """Get HOST system uptime in seconds.
+    """Get system uptime in seconds.
 
-    Since the management API runs inside a Docker container, we need to
-    query the host's uptime via Docker with host PID namespace access.
+    Note: Inside a Docker container, this returns the container's uptime,
+    not the host's uptime. For true host uptime, the host's /proc would
+    need to be mounted into the container.
     """
-    import subprocess
-
-    uptime_seconds = None
-
-    # Method 1: Query host's /proc/uptime via Docker with host PID namespace
-    # This is the most reliable way to get host uptime from inside a container
     try:
-        result = subprocess.run(
-            [
-                "docker", "run", "--rm", "--pid=host",
-                "alpine", "cat", "/proc/uptime"
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            uptime_seconds = float(result.stdout.strip().split()[0])
+        # Read from /proc/uptime - simplest and most reliable method
+        with open("/proc/uptime", "r") as f:
+            return float(f.read().split()[0])
     except Exception:
         pass
 
-    # Method 2: Try reading /proc/uptime directly (works if host /proc is mounted)
-    if uptime_seconds is None:
-        try:
-            with open("/proc/uptime", "r") as f:
-                uptime_seconds = float(f.read().split()[0])
-        except Exception:
-            pass
-
-    # Method 3: Fallback to psutil (often wrong in containers but better than nothing)
-    if uptime_seconds is None:
-        try:
-            boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=UTC)
-            uptime_seconds = (datetime.now(UTC) - boot_time).total_seconds()
-        except Exception:
-            uptime_seconds = 0
-
-    return uptime_seconds
+    # Fallback to psutil
+    try:
+        boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=UTC)
+        return (datetime.now(UTC) - boot_time).total_seconds()
+    except Exception:
+        return 0
 
 
 @router.get("/info")
