@@ -21,6 +21,7 @@ import {
   FunnelIcon,
   InformationCircleIcon,
   RocketLaunchIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -157,6 +158,35 @@ async function executeWorkflow(workflow) {
     const detail = error.response?.data?.detail || error.message || 'Unknown error'
     notificationStore.error(`Failed to execute workflow: ${detail}`)
     console.error('Execute workflow error:', error.response?.data || error)
+  } finally {
+    actionLoading.value = null
+  }
+}
+
+async function downloadWorkflow(workflow) {
+  actionLoading.value = workflow.id
+  try {
+    const response = await api.flows.export(workflow.id)
+    const data = response.data
+
+    // Create blob and download
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    // Sanitize filename
+    const safeName = workflow.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()
+    link.download = `${safeName}_workflow.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+
+    notificationStore.success(`Workflow "${workflow.name}" downloaded`)
+  } catch (error) {
+    const detail = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to download workflow: ${detail}`)
+    console.error('Download workflow error:', error.response?.data || error)
   } finally {
     actionLoading.value = null
   }
@@ -353,6 +383,14 @@ onMounted(loadData)
               </div>
             </div>
             <div class="flex items-center gap-2">
+              <button
+                @click="downloadWorkflow(workflow)"
+                :disabled="actionLoading === workflow.id"
+                class="btn-secondary p-2"
+                title="Download Workflow"
+              >
+                <ArrowDownTrayIcon class="h-4 w-4" />
+              </button>
               <button
                 @click="executeWorkflow(workflow)"
                 :disabled="actionLoading === workflow.id"
