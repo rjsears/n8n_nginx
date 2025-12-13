@@ -9,5 +9,15 @@
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
+    <style id="dark-mode-overrides">
+      /* Dark mode border override - using CSS variable */
+      :root.dark,
+      html.dark,
+      html.dark body,
+      html.dark #app,
+      html.dark * {
+        --color-border: #64748b;
+      }
+    </style>
   </body>
 </html>
