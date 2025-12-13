@@ -127,9 +127,8 @@ class TerminalSession:
         # Try common shells
         if self.target_type == "host":
             # For host access, chroot into the mounted host filesystem
-            # This ensures we're actually working in the host's filesystem,
-            # not the alpine container's overlay
-            return ["chroot", "/host", "/bin/bash", "-l"]
+            # and use su to get a proper root login shell with correct environment
+            return ["chroot", "/host", "/bin/su", "-"]
 
         # For containers, try to detect the shell
         try:
