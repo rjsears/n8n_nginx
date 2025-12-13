@@ -59,6 +59,17 @@ class FlowRestoreResponse(BaseModel):
     reason: Optional[str] = None
 
 
+class ExecutionInfo(BaseModel):
+    """Workflow execution information."""
+    id: str
+    workflowId: str
+    workflowName: str
+    status: str  # success, error, waiting, running
+    startedAt: Optional[str] = None
+    stoppedAt: Optional[str] = None
+    executionTime: Optional[int] = None  # milliseconds
+
+
 @router.get("/list", response_model=List[FlowInfo])
 async def list_flows(
     active_only: bool = False,
@@ -122,6 +133,71 @@ async def list_flows(
         )
 
 
+@router.get("/executions", response_model=List[ExecutionInfo])
+async def list_executions(
+    limit: int = 20,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_n8n_db),
+):
+    """
+    List recent workflow executions from the n8n database.
+    """
+    from sqlalchemy import text
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Query execution_entity table with workflow name join
+        query = """
+            SELECT
+                e.id,
+                e."workflowId",
+                COALESCE(w.name, 'Unknown Workflow') as workflow_name,
+                e.status,
+                e."startedAt",
+                e."stoppedAt"
+            FROM execution_entity e
+            LEFT JOIN workflow_entity w ON e."workflowId"::text = w.id::text
+            ORDER BY e."startedAt" DESC
+            LIMIT :limit
+        """
+
+        result = await db.execute(text(query), {"limit": limit})
+        rows = result.fetchall()
+
+        executions = []
+        for row in rows:
+            started_at = row[4]
+            stopped_at = row[5]
+
+            # Calculate execution time in milliseconds
+            execution_time = None
+            if started_at and stopped_at:
+                try:
+                    diff = stopped_at - started_at
+                    execution_time = int(diff.total_seconds() * 1000)
+                except Exception:
+                    pass
+
+            executions.append(ExecutionInfo(
+                id=str(row[0]),
+                workflowId=str(row[1]) if row[1] else "",
+                workflowName=row[2] or "Unknown",
+                status=row[3] or "unknown",
+                startedAt=started_at.isoformat() if started_at else None,
+                stoppedAt=stopped_at.isoformat() if stopped_at else None,
+                executionTime=execution_time,
+            ))
+
+        return executions
+    except Exception as e:
+        logger.error(f"Failed to list executions: {e}")
+        # Return empty list instead of error for executions
+        # This allows the page to load even if execution history isn't available
+        return []
+
+
 @router.post("/{workflow_id}/toggle")
 async def toggle_workflow(
     workflow_id: str,
@@ -172,9 +248,10 @@ async def execute_workflow(
     """
     Execute a workflow manually.
     Requires n8n API key to be configured.
+    Note: This may not work for all workflow types - workflows with webhook triggers
+    should be triggered via their webhook URL instead.
     """
     import logging
-    import httpx
     logger = logging.getLogger(__name__)
 
     if not n8n_api.is_configured():
@@ -184,54 +261,23 @@ async def execute_workflow(
         )
 
     try:
-        # n8n API endpoint for executing workflows
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{n8n_api.base_url}/workflows/{workflow_id}/run",
-                headers=n8n_api._get_headers(),
-                json={},
-            )
+        result = await n8n_api.execute_workflow(workflow_id)
 
-            if response.status_code == 200:
-                data = response.json()
-                return ExecuteWorkflowResponse(
-                    success=True,
-                    execution_id=data.get("data", {}).get("executionId"),
-                    message="Workflow execution started",
-                )
-            elif response.status_code == 404:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Workflow not found",
-                )
-            elif response.status_code == 400:
-                # Try to get detailed error from response
-                try:
-                    error_data = response.json()
-                    error_msg = error_data.get("message", response.text)
-                except Exception:
-                    error_msg = response.text
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot execute workflow: {error_msg}",
-                )
-            else:
-                try:
-                    error_data = response.json()
-                    error_msg = error_data.get("message", response.text)
-                except Exception:
-                    error_msg = response.text
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"n8n API error ({response.status_code}): {error_msg}",
-                )
+        if result.get("success"):
+            return ExecuteWorkflowResponse(
+                success=True,
+                execution_id=result.get("execution_id"),
+                message="Workflow execution started",
+            )
+        else:
+            error = result.get("error", "Unknown error")
+            logger.error(f"Failed to execute workflow {workflow_id}: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error,
+            )
     except HTTPException:
         raise
-    except httpx.ConnectError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Cannot connect to n8n API. Ensure n8n container is running.",
-        )
     except Exception as e:
         logger.error(f"Error executing workflow {workflow_id}: {e}")
         raise HTTPException(

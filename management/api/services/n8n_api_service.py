@@ -141,24 +141,95 @@ class N8nApiService:
             return {"success": False, "error": str(e)}
 
     async def activate_workflow(self, workflow_id: str, active: bool = True) -> Dict[str, Any]:
-        """Activate or deactivate a workflow."""
+        """Activate or deactivate a workflow using n8n public API."""
+        if not self.api_key:
+            return {"success": False, "error": "n8n API key not configured"}
+
+        # n8n public API uses separate endpoints for activate/deactivate
+        endpoint = "activate" if active else "deactivate"
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/workflows/{workflow_id}/{endpoint}",
+                    headers=self._get_headers(),
+                )
+                if response.status_code == 200:
+                    return {"success": True, "workflow": response.json()}
+                elif response.status_code == 401:
+                    return {"success": False, "error": "Invalid n8n API key"}
+                elif response.status_code == 404:
+                    return {"success": False, "error": "Workflow not found"}
+                else:
+                    # Try to get error details from response
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("message", response.text)
+                    except Exception:
+                        error_msg = response.text
+                    return {
+                        "success": False,
+                        "error": f"Failed to {endpoint} workflow ({response.status_code}): {error_msg}",
+                    }
+        except httpx.ConnectError:
+            return {"success": False, "error": "Cannot connect to n8n API"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def execute_workflow(self, workflow_id: str, data: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Execute a workflow manually.
+        Note: The n8n public API doesn't have a direct execute endpoint.
+        Workflows should typically be triggered via webhooks.
+        This uses the internal REST API which may not be available in all setups.
+        """
         if not self.api_key:
             return {"success": False, "error": "n8n API key not configured"}
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.patch(
-                    f"{self.base_url}/workflows/{workflow_id}",
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                # Try the public API endpoint first (may not exist in all versions)
+                response = await client.post(
+                    f"{self.base_url}/workflows/{workflow_id}/run",
                     headers=self._get_headers(),
-                    json={"active": active},
+                    json=data or {},
                 )
+
                 if response.status_code == 200:
-                    return {"success": True, "workflow": response.json()}
-                else:
+                    result = response.json()
+                    return {
+                        "success": True,
+                        "execution_id": result.get("data", {}).get("executionId"),
+                        "data": result,
+                    }
+                elif response.status_code == 404:
+                    # Endpoint doesn't exist or workflow not found
                     return {
                         "success": False,
-                        "error": f"Failed to update workflow: {response.status_code}",
+                        "error": "Workflow not found or execute endpoint not available. "
+                                 "Try using a webhook trigger instead.",
                     }
+                elif response.status_code == 401:
+                    return {"success": False, "error": "Invalid n8n API key"}
+                elif response.status_code == 400:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("message", response.text)
+                    except Exception:
+                        error_msg = response.text
+                    return {"success": False, "error": f"Cannot execute: {error_msg}"}
+                else:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("message", response.text)
+                    except Exception:
+                        error_msg = response.text
+                    return {
+                        "success": False,
+                        "error": f"Execute failed ({response.status_code}): {error_msg}",
+                    }
+        except httpx.ConnectError:
+            return {"success": False, "error": "Cannot connect to n8n API"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

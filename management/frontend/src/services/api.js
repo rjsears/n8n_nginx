@@ -182,7 +182,7 @@ api.flows = {
   ...flowsApi,
   // Aliases for FlowsView compatibility
   getWorkflows: () => api.get('/flows/list'),
-  getExecutions: () => Promise.resolve({ data: [] }),  // Placeholder until backend implemented
+  getExecutions: (limit = 20) => api.get('/flows/executions', { params: { limit } }),
   toggleWorkflow: (id, active) => api.post(`/flows/${id}/toggle`, { active }),
   executeWorkflow: (id) => api.post(`/flows/${id}/execute`),
 }
