@@ -366,7 +366,19 @@ async function loadData() {
     memoryHistory.value.push(systemInfo.value.memory?.percent || 0)
     memoryHistory.value.shift()
   } catch (error) {
-    notificationStore.error('Failed to load system information')
+    console.error('System info load failed:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+    })
+
+    let errorMessage = 'Failed to load system information'
+    if (!error.response) {
+      errorMessage = 'Cannot connect to server'
+    } else if (error.response?.status === 500) {
+      errorMessage = `System info error: ${error.response?.data?.detail || 'Internal server error'}`
+    }
+    notificationStore.error(errorMessage)
   } finally {
     loading.value = false
   }
@@ -387,8 +399,38 @@ async function loadHealthData() {
     healthData.value = response.data
     healthLastUpdated.value = new Date()
   } catch (error) {
-    notificationStore.error('Failed to load health data')
+    // Always log detailed error to console for debugging
+    console.error('Health data load failed:', {
+      message: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      url: error.config?.url,
+    })
+
+    // Build user-friendly error message with details
+    let errorMessage = 'Failed to load health data'
+    const detail = error.response?.data?.detail
+
+    if (error.response?.status === 401) {
+      errorMessage = 'Session expired - please log in again'
+    } else if (error.response?.status === 500) {
+      if (typeof detail === 'object' && detail?.message) {
+        errorMessage = `Health check error: ${detail.message}`
+      } else if (typeof detail === 'string') {
+        errorMessage = `Health check error: ${detail}`
+      } else {
+        errorMessage = 'Health check failed - check browser console for details'
+      }
+    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      errorMessage = 'Health check timed out - the server may be busy'
+    } else if (!error.response) {
+      errorMessage = 'Cannot connect to server - check if the management API is running'
+    }
+
+    notificationStore.error(errorMessage)
     healthData.value.overall_status = 'error'
+    healthData.value.error = errorMessage
   } finally {
     // Stop rotating messages
     if (healthLoadingInterval) {
@@ -412,7 +454,9 @@ async function loadNetworkInfo() {
     cloudflareInfo.value = cloudflareRes.data
     tailscaleInfo.value = tailscaleRes.data
   } catch (error) {
-    notificationStore.error('Failed to load network information')
+    console.error('Network info load failed:', error.response?.data || error.message)
+    const detail = error.response?.data?.detail
+    notificationStore.error(detail ? `Network error: ${detail}` : 'Failed to load network information')
   } finally {
     networkLoading.value = false
   }
@@ -424,7 +468,9 @@ async function loadSslInfo() {
     const response = await api.system.getSsl()
     sslInfo.value = response.data
   } catch (error) {
-    notificationStore.error('Failed to load SSL information')
+    console.error('SSL info load failed:', error.response?.data || error.message)
+    const detail = error.response?.data?.detail
+    notificationStore.error(detail ? `SSL error: ${detail}` : 'Failed to load SSL information')
   } finally {
     sslLoading.value = false
   }

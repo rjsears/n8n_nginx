@@ -88,6 +88,7 @@ export const systemApi = {
   tailscale: () => api.get('/system/tailscale'),
   terminalTargets: () => api.get('/system/terminal/targets'),
   externalServices: () => api.get('/system/external-services'),
+  debug: () => api.get('/system/debug'),
 }
 
 export const backupsApi = {
@@ -179,6 +180,7 @@ api.system = {
   getTailscale: systemApi.tailscale,
   getTerminalTargets: systemApi.terminalTargets,
   getExternalServices: systemApi.externalServices,
+  getDebug: systemApi.debug,
 }
 api.backups = backupsApi
 api.containers = containersApi

@@ -1691,8 +1691,11 @@ async def get_full_health_check(
         set_check("logs", logs_status, logs_details)
 
     except Exception as e:
+        import traceback
         health_data["overall_status"] = "error"
         health_data["error"] = str(e)
+        health_data["error_traceback"] = traceback.format_exc() if settings.debug else None
+        health_data["error_type"] = type(e).__name__
 
     # Determine overall status
     if health_data["errors"] > 0:
@@ -1703,3 +1706,37 @@ async def get_full_health_check(
         health_data["overall_status"] = "healthy"
 
     return health_data
+
+
+@router.get("/debug")
+async def get_debug_status(
+    _=Depends(get_current_user),
+):
+    """Get current debug mode status and settings."""
+    return {
+        "debug_enabled": settings.debug,
+        "log_level": settings.log_level,
+        "environment": {
+            "debug": settings.debug,
+            "database_url": "***" if settings.database_url else None,
+            "docker_socket": settings.docker_socket,
+            "container_prefix": settings.container_prefix,
+        }
+    }
+
+
+@router.post("/debug/test-error")
+async def test_error_handling(
+    _=Depends(get_current_user),
+):
+    """Test endpoint that intentionally raises an error for debugging."""
+    raise HTTPException(
+        status_code=500,
+        detail={
+            "message": "This is a test error for debugging",
+            "debug_info": {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "debug_mode": settings.debug,
+            }
+        }
+    )
