@@ -23,6 +23,8 @@ import {
   RocketLaunchIcon,
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -35,6 +37,7 @@ const searchQuery = ref('')
 const filterActive = ref('all')
 const actionLoading = ref(null)
 const n8nUrl = ref('/n8n') // Default, will be loaded from API
+const executionsExpanded = ref(false)
 
 // Confirm dialog state
 const showActivateConfirm = ref(false)
@@ -304,28 +307,6 @@ onMounted(loadData)
         </Card>
       </div>
 
-      <!-- Execution Stats -->
-      <Card title="Execution Summary" subtitle="Recent execution status breakdown" :neon="true">
-        <div class="flex items-center gap-8">
-          <div class="flex items-center gap-2">
-            <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
-            <span class="text-sm text-secondary">Success: {{ executionStats.success }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="w-3 h-3 rounded-full bg-red-500"></div>
-            <span class="text-sm text-secondary">Error: {{ executionStats.error }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="w-3 h-3 rounded-full bg-amber-500"></div>
-            <span class="text-sm text-secondary">Waiting: {{ executionStats.waiting }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="w-3 h-3 rounded-full bg-blue-500"></div>
-            <span class="text-sm text-secondary">Running: {{ executionStats.running }}</span>
-          </div>
-        </div>
-      </Card>
-
       <!-- Search and Filters -->
       <Card :neon="true" :padding="false">
         <div class="p-4 flex items-center gap-4">
@@ -439,60 +420,97 @@ onMounted(loadData)
         </div>
       </Card>
 
-      <!-- Recent Executions -->
-      <Card title="Recent Executions" subtitle="Last 20 workflow executions" :neon="true">
-        <EmptyState
-          v-if="executions.length === 0"
-          :icon="ClockIcon"
-          title="No executions"
-          description="No workflow executions have been recorded yet."
-        />
-
-        <div v-else class="overflow-x-auto">
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-[var(--color-border)]">
-                <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Workflow</th>
-                <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
-                <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Duration</th>
-                <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Started</th>
-                <th class="text-right py-3 px-4 text-sm font-medium text-secondary">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="execution in executions.slice(0, 20)"
-                :key="execution.id"
-                class="border-b border-[var(--color-border)] last:border-0"
-              >
-                <td class="py-3 px-4">
-                  <span class="font-medium text-primary">{{ execution.workflowName }}</span>
-                </td>
-                <td class="py-3 px-4">
-                  <StatusBadge
-                    :status="execution.status === 'success' ? 'success' : execution.status === 'error' ? 'failed' : execution.status"
-                    size="sm"
-                  />
-                </td>
-                <td class="py-3 px-4 text-sm text-secondary">
-                  {{ formatDuration(execution.executionTime) }}
-                </td>
-                <td class="py-3 px-4 text-sm text-secondary">
-                  {{ new Date(execution.startedAt).toLocaleString() }}
-                </td>
-                <td class="py-3 px-4 text-right">
-                  <button
-                    @click="openExecutionInN8n(execution)"
-                    class="btn-secondary p-1.5"
-                    title="View in n8n"
-                  >
-                    <ArrowTopRightOnSquareIcon class="h-4 w-4" />
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+      <!-- Recent Executions (Collapsible) -->
+      <Card :neon="true" :padding="false">
+        <!-- Collapsible Header -->
+        <div
+          @click="executionsExpanded = !executionsExpanded"
+          class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+        >
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
+              <ClockIcon class="h-5 w-5 text-purple-500" />
+            </div>
+            <div>
+              <h3 class="font-semibold text-primary">Recent Executions</h3>
+              <p class="text-sm text-muted">Last 20 workflow executions</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xs px-2 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                {{ executionStats.success }} success
+              </span>
+              <span v-if="executionStats.error > 0" class="text-xs px-2 py-1 rounded-full bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300">
+                {{ executionStats.error }} error
+              </span>
+              <span class="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-500/20 text-gray-700 dark:text-gray-300">
+                {{ executions.length }} total
+              </span>
+            </div>
+            <ChevronDownIcon v-if="executionsExpanded" class="h-5 w-5 text-secondary" />
+            <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+          </div>
         </div>
+
+        <!-- Collapsible Content -->
+        <Transition name="collapse">
+          <div v-if="executionsExpanded" class="border-t border-[var(--color-border)]">
+            <EmptyState
+              v-if="executions.length === 0"
+              :icon="ClockIcon"
+              title="No executions"
+              description="No workflow executions have been recorded yet."
+              class="py-8"
+            />
+
+            <div v-else class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b border-[var(--color-border)] bg-gray-50 dark:bg-gray-800/50">
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Workflow</th>
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Duration</th>
+                    <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Started</th>
+                    <th class="text-right py-3 px-4 text-sm font-medium text-secondary">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="execution in executions.slice(0, 20)"
+                    :key="execution.id"
+                    class="border-b border-[var(--color-border)] last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                  >
+                    <td class="py-3 px-4">
+                      <span class="font-medium text-primary">{{ execution.workflowName }}</span>
+                    </td>
+                    <td class="py-3 px-4">
+                      <StatusBadge
+                        :status="execution.status === 'success' ? 'success' : execution.status === 'error' ? 'failed' : execution.status"
+                        size="sm"
+                      />
+                    </td>
+                    <td class="py-3 px-4 text-sm text-secondary">
+                      {{ formatDuration(execution.executionTime) }}
+                    </td>
+                    <td class="py-3 px-4 text-sm text-secondary">
+                      {{ new Date(execution.startedAt).toLocaleString() }}
+                    </td>
+                    <td class="py-3 px-4 text-right">
+                      <button
+                        @click="openExecutionInN8n(execution)"
+                        class="btn-secondary p-1.5"
+                        title="View in n8n"
+                      >
+                        <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Transition>
       </Card>
 
       <!-- API Notice -->
@@ -524,3 +542,21 @@ onMounted(loadData)
     />
   </div>
 </template>
+
+<style scoped>
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+.collapse-enter-from,
+.collapse-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+.collapse-enter-to,
+.collapse-leave-from {
+  opacity: 1;
+  max-height: 800px;
+}
+</style>
