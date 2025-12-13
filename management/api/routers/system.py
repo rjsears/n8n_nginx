@@ -667,12 +667,16 @@ async def get_cloudflare_status(
 
                 # Get full metrics from Prometheus endpoint
                 try:
+                    # Try curl first (more common), then wget
                     exit_code, output = cf_container.exec_run(
-                        "wget -q -O- http://localhost:2000/metrics 2>/dev/null",
+                        "curl -s http://localhost:2000/metrics 2>/dev/null || wget -q -O- http://localhost:2000/metrics 2>/dev/null",
                         demux=True
                     )
+                    metrics_text = None
                     if exit_code == 0 and output[0]:
                         metrics_text = output[0].decode("utf-8")
+
+                    if metrics_text and len(metrics_text) > 100:
                         metrics = status_info["metrics"]
 
                         # Active streams
@@ -724,6 +728,8 @@ async def get_cloudflare_status(
                         match = re.search(r'cloudflared_tunnel_concurrent_requests_per_tunnel\{.*?\}\s+(\d+)', metrics_text)
                         if match:
                             metrics["concurrent_requests"] = int(match.group(1))
+                    else:
+                        status_info["metrics_error"] = "No metrics data available (port 2000 may not be exposed)"
 
                 except Exception as e:
                     status_info["metrics_error"] = str(e)
@@ -763,6 +769,9 @@ async def get_cloudflare_status(
                         from collections import Counter
                         location_counts = Counter(connection_events)
                         status_info["connections_per_location"] = dict(location_counts)
+                        # Use as fallback for edge_locations if not set from metrics
+                        if "edge_locations" not in status_info:
+                            status_info["edge_locations"] = list(location_counts.keys())
 
                     # Get last error (skip common non-error warnings)
                     skip_patterns = [

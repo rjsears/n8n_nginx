@@ -131,6 +131,7 @@ export const useContainerStore = defineStore('containers', () => {
     stopContainer,
     restartContainer,
     getLogs,
+    getContainerLogs: getLogs,  // Alias for ContainersView compatibility
     getContainerByName,
     getStatsByName,
   }

@@ -1510,6 +1510,24 @@ onUnmounted(() => {
                     {{ cloudflareInfo.tunnel_id.slice(0, 8) }}...
                   </span>
                 </div>
+                <div v-if="cloudflareInfo.connector_id" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Connector ID</span>
+                  <span class="font-mono text-xs text-primary truncate max-w-[180px]" :title="cloudflareInfo.connector_id">
+                    {{ cloudflareInfo.connector_id.slice(0, 8) }}...
+                  </span>
+                </div>
+                <div v-if="cloudflareInfo.connections_per_location && Object.keys(cloudflareInfo.connections_per_location).length" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Connections</span>
+                  <div class="flex flex-wrap gap-1 justify-end">
+                    <span
+                      v-for="(count, loc) in cloudflareInfo.connections_per_location"
+                      :key="loc"
+                      class="px-2 py-0.5 text-xs rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 uppercase"
+                    >
+                      {{ loc }}: {{ count }}
+                    </span>
+                  </div>
+                </div>
 
                 <!-- Metrics Section -->
                 <div v-if="cloudflareInfo.metrics && Object.keys(cloudflareInfo.metrics).length" class="pt-2">
@@ -1774,91 +1792,100 @@ onUnmounted(() => {
 
     <!-- Terminal Tab -->
     <template v-if="activeTab === 'terminal'">
-      <Card title="Web Terminal" subtitle="Connect to containers or host system" :neon="true">
-        <!-- Terminal Controls -->
-        <div class="flex items-center gap-4 mb-4">
-          <div class="flex-1">
-            <label class="block text-sm font-medium text-secondary mb-1">Connect To</label>
-            <select
-              v-model="selectedTarget"
-              :disabled="terminalConnected"
-              class="select-field w-full"
-            >
-              <option
-                v-for="target in terminalTargets"
-                :key="target.id"
-                :value="target.id"
+      <Card :neon="true" :padding="false">
+        <!-- Custom Header with Controls -->
+        <template #header>
+          <div class="flex items-center justify-between w-full px-4 py-3">
+            <div class="flex items-center gap-3">
+              <CommandLineIcon class="h-5 w-5 text-primary" />
+              <div>
+                <h3 class="font-semibold text-primary">Web Terminal</h3>
+                <p class="text-xs text-muted">Connect to containers or host system</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <!-- Target Selector -->
+              <select
+                v-model="selectedTarget"
+                :disabled="terminalConnected"
+                class="select-field text-sm py-1.5 min-w-[200px]"
               >
-                {{ target.name }}
-                <template v-if="target.type === 'container'"> ({{ target.image }})</template>
-                <template v-if="target.type === 'host'"> - Docker Host</template>
-              </option>
-            </select>
-          </div>
+                <option
+                  v-for="target in terminalTargets"
+                  :key="target.id"
+                  :value="target.id"
+                >
+                  {{ target.name }}
+                  <template v-if="target.type === 'container'"> ({{ target.image }})</template>
+                  <template v-if="target.type === 'host'"> - Docker Host</template>
+                </option>
+              </select>
 
-          <!-- Theme Toggle -->
-          <div class="pt-6">
-            <button
-              @click="toggleTerminalTheme"
-              :class="[
-                'p-2 rounded-lg transition-colors',
-                terminalDarkMode
-                  ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              ]"
-              :title="terminalDarkMode ? 'Switch to light theme' : 'Switch to dark theme'"
-            >
-              <SunIcon v-if="terminalDarkMode" class="h-5 w-5" />
-              <MoonIcon v-else class="h-5 w-5" />
-            </button>
-          </div>
+              <!-- Theme Toggle -->
+              <button
+                @click="toggleTerminalTheme"
+                :class="[
+                  'p-2 rounded-lg transition-colors',
+                  terminalDarkMode
+                    ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                ]"
+                :title="terminalDarkMode ? 'Switch to light theme' : 'Switch to dark theme'"
+              >
+                <SunIcon v-if="terminalDarkMode" class="h-4 w-4" />
+                <MoonIcon v-else class="h-4 w-4" />
+              </button>
 
-          <div class="pt-6">
-            <button
-              v-if="!terminalConnected"
-              @click="connectTerminal"
-              :disabled="terminalConnecting || !selectedTarget"
-              class="btn-primary flex items-center gap-2"
-            >
-              <PlayIcon class="h-4 w-4" />
-              {{ terminalConnecting ? 'Connecting...' : 'Connect' }}
-            </button>
-            <button
-              v-else
-              @click="disconnectTerminal"
-              class="btn-secondary flex items-center gap-2 text-red-500 hover:bg-red-500/10"
-            >
-              <StopIcon class="h-4 w-4" />
-              Disconnect
-            </button>
+              <!-- Connect/Disconnect Button -->
+              <button
+                v-if="!terminalConnected"
+                @click="connectTerminal"
+                :disabled="terminalConnecting || !selectedTarget"
+                class="btn-primary flex items-center gap-2 text-sm py-1.5"
+              >
+                <PlayIcon class="h-4 w-4" />
+                {{ terminalConnecting ? 'Connecting...' : 'Connect' }}
+              </button>
+              <button
+                v-else
+                @click="disconnectTerminal"
+                class="btn-secondary flex items-center gap-2 text-sm py-1.5 text-red-500 hover:bg-red-500/10"
+              >
+                <StopIcon class="h-4 w-4" />
+                Disconnect
+              </button>
+            </div>
           </div>
-        </div>
+        </template>
 
         <!-- Terminal Window -->
-        <div
-          ref="terminalElement"
-          :class="[
-            'rounded-lg overflow-hidden',
-            terminalDarkMode ? 'bg-[#0d1117]' : 'bg-white'
-          ]"
-          :style="{ height: '600px', minHeight: '600px' }"
-        >
-          <div v-if="!terminal" class="flex items-center justify-center h-full text-muted">
-            <CommandLineIcon class="h-8 w-8 mr-2" />
-            Select a target and click Connect to start a terminal session
+        <div class="p-4 pt-0">
+          <div
+            ref="terminalElement"
+            :class="[
+              'rounded-lg overflow-hidden',
+              terminalDarkMode ? 'bg-[#0d1117]' : 'bg-white'
+            ]"
+            :style="{ height: '600px', minHeight: '600px' }"
+          >
+            <div v-if="!terminal" class="flex items-center justify-center h-full text-muted">
+              <CommandLineIcon class="h-8 w-8 mr-2" />
+              Select a target and click Connect to start a terminal session
+            </div>
           </div>
-        </div>
 
-        <!-- Terminal Info -->
-        <div class="mt-4 text-xs text-muted">
-          <p v-if="terminalConnected" class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-            Connected to {{ terminalTargets.find(t => t.id === selectedTarget)?.name }}
-          </p>
-          <p v-else class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-gray-400"></span>
-            Not connected
-          </p>
+          <!-- Terminal Info -->
+          <div class="mt-3 text-xs text-muted">
+            <p v-if="terminalConnected" class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Connected to {{ terminalTargets.find(t => t.id === selectedTarget)?.name }}
+            </p>
+            <p v-else class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+              Not connected
+            </p>
+          </div>
         </div>
       </Card>
     </template>
