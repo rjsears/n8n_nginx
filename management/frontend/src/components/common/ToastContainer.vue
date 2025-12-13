@@ -17,11 +17,12 @@ const icons = {
   info: InformationCircleIcon,
 }
 
+// Use solid backgrounds with colored left border accent
 const colors = {
-  success: 'bg-emerald-500/10 border-emerald-500/50 text-emerald-600 dark:text-emerald-400',
-  error: 'bg-red-500/10 border-red-500/50 text-red-600 dark:text-red-400',
-  warning: 'bg-amber-500/10 border-amber-500/50 text-amber-600 dark:text-amber-400',
-  info: 'bg-blue-500/10 border-blue-500/50 text-blue-600 dark:text-blue-400',
+  success: 'border-l-4 border-l-emerald-500 border-y-gray-200 dark:border-y-gray-600 border-r-gray-200 dark:border-r-gray-600 text-emerald-700 dark:text-emerald-400',
+  error: 'border-l-4 border-l-red-500 border-y-gray-200 dark:border-y-gray-600 border-r-gray-200 dark:border-r-gray-600 text-red-700 dark:text-red-400',
+  warning: 'border-l-4 border-l-amber-500 border-y-gray-200 dark:border-y-gray-600 border-r-gray-200 dark:border-r-gray-600 text-amber-700 dark:text-amber-400',
+  info: 'border-l-4 border-l-blue-500 border-y-gray-200 dark:border-y-gray-600 border-r-gray-200 dark:border-r-gray-600 text-blue-700 dark:text-blue-400',
 }
 </script>
 
@@ -32,8 +33,8 @@ const colors = {
         v-for="toast in notificationStore.toasts"
         :key="toast.id"
         :class="[
-          'flex items-start gap-3 p-4 rounded-lg border shadow-lg',
-          'bg-surface',
+          'flex items-start gap-3 p-4 rounded-lg shadow-lg',
+          'bg-white dark:bg-gray-800',
           colors[toast.type]
         ]"
       >
