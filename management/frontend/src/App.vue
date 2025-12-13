@@ -138,4 +138,25 @@ onMounted(async () => {
 .dark .border {
   border-color: #64748b;
 }
+
+/* Dark mode inputs and selects */
+.dark input,
+.dark textarea,
+.dark select,
+.dark .input,
+.dark .select-field {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+  border-color: #64748b !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+.dark select option {
+  background-color: #1e293b;
+  color: #f1f5f9;
+}
 </style>
