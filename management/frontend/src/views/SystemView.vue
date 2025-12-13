@@ -1765,10 +1765,15 @@ onUnmounted(() => {
                 <div class="flex items-center gap-2">
                   <button
                     @click="openCloudflareTokenModal"
-                    class="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-hover transition-colors"
-                    title="Configure Tunnel Token"
+                    :class="[
+                      'px-3 py-1.5 rounded-full text-xs font-medium transition-all shadow-sm flex items-center gap-1.5',
+                      cloudflareInfo.running && cloudflareInfo.connected
+                        ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                        : 'bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300'
+                    ]"
                   >
-                    <Cog6ToothIcon class="h-5 w-5" />
+                    <KeyIcon class="h-3.5 w-3.5" />
+                    API Key
                   </button>
                   <button
                     v-if="cloudflareInfo.running"
@@ -1912,10 +1917,15 @@ onUnmounted(() => {
                 <div class="flex items-center gap-2">
                   <button
                     @click="openTailscaleKeyModal"
-                    class="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-hover transition-colors"
-                    title="Configure Auth Key"
+                    :class="[
+                      'px-3 py-1.5 rounded-full text-xs font-medium transition-all shadow-sm flex items-center gap-1.5',
+                      tailscaleInfo.running && tailscaleInfo.logged_in
+                        ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                        : 'bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300'
+                    ]"
                   >
-                    <Cog6ToothIcon class="h-5 w-5" />
+                    <KeyIcon class="h-3.5 w-3.5" />
+                    API Key
                   </button>
                   <button
                     v-if="tailscaleInfo.running"
