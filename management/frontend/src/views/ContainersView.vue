@@ -358,19 +358,19 @@ onMounted(loadData)
           class="fixed inset-0 z-[100] flex items-center justify-center p-4"
         >
           <div class="absolute inset-0 bg-black/50" @click="logsDialog.open = false" />
-          <div class="relative bg-surface rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col border border-[var(--color-border)]">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
-              <h3 class="text-lg font-semibold text-primary">
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col border border-gray-200 dark:border-gray-700">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
                 Logs: {{ logsDialog.container?.name }}
               </h3>
               <button
                 @click="logsDialog.open = false"
-                class="p-1 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover"
+                class="p-1 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 ×
               </button>
             </div>
-            <div class="flex-1 overflow-auto p-4">
+            <div class="flex-1 overflow-auto p-4 bg-white dark:bg-gray-800">
               <LoadingSpinner v-if="logsDialog.loading" text="Loading logs..." />
               <pre
                 v-else

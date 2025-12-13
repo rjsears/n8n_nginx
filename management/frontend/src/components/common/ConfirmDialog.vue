@@ -56,9 +56,9 @@ function confirm() {
         />
 
         <!-- Dialog -->
-        <div class="relative bg-surface rounded-lg shadow-xl max-w-md w-full border border-[var(--color-border)]">
+        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-700">
           <!-- Header -->
-          <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
             <div class="flex items-center gap-3">
               <div
                 :class="[
@@ -84,13 +84,13 @@ function confirm() {
           </div>
 
           <!-- Content -->
-          <div class="px-6 py-4">
-            <p class="text-secondary">{{ message }}</p>
+          <div class="px-6 py-4 bg-white dark:bg-gray-800">
+            <p class="text-gray-600 dark:text-gray-300">{{ message }}</p>
             <slot />
           </div>
 
           <!-- Footer -->
-          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-[var(--color-border)]">
+          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
             <button
               @click="close"
               class="btn-secondary"
