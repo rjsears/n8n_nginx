@@ -1437,7 +1437,6 @@ async def get_full_health_check(
         try:
             if nginx_container:
                 # Get the domain from nginx.conf inside the container (like health_check.sh)
-                # Uses: docker exec n8n_nginx grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf
                 domain = None
 
                 exit_code, output = nginx_container.exec_run(
@@ -1447,53 +1446,66 @@ async def get_full_health_check(
 
                 if exit_code == 0 and output[0]:
                     config_line = output[0].decode("utf-8").strip()
-                    # Extract domain from path like /etc/letsencrypt/live/example.com/fullchain.pem
-                    # Uses sed pattern: sed -n 's|.*live/\([^/]*\)/.*|\1|p'
                     match = re.search(r'/live/([^/]+)/', config_line)
                     if match:
                         domain = match.group(1)
 
                 if domain:
-                    # Check certificate by connecting to HTTPS server (like health_check.sh)
-                    # Uses: echo | timeout 10 openssl s_client -servername "$domain" -connect localhost:443
-                    exit_code, output = nginx_container.exec_run(
-                        f"sh -c 'echo | timeout 10 openssl s_client -servername {domain} -connect localhost:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null'",
-                        demux=True
-                    )
-
-                    # Parse the enddate output (format: notAfter=Mon DD HH:MM:SS YYYY TZ)
+                    ssl_details["domain"] = domain
                     expiry_str = None
-                    if exit_code == 0 and output[0]:
-                        cert_output = output[0].decode("utf-8").strip()
-                        # Output is like "notAfter=Dec 31 23:59:59 2025 GMT"
+
+                    # Run openssl in alpine container sharing nginx's network
+                    # This ensures openssl is available and can connect to nginx's localhost:443
+                    try:
+                        result = client.containers.run(
+                            "alpine:latest",
+                            command=["sh", "-c", f"apk add --no-cache openssl >/dev/null 2>&1 && echo | openssl s_client -servername {domain} -connect localhost:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null"],
+                            network_mode=f"container:{nginx_container.id}",
+                            remove=True,
+                            stdout=True,
+                            stderr=False,
+                        )
+                        cert_output = result.decode("utf-8").strip()
                         if cert_output.startswith("notAfter="):
                             expiry_str = cert_output.replace("notAfter=", "").strip()
+                    except Exception:
+                        pass
 
-                    # Fallback: try connecting to the domain directly (like health_check.sh)
+                    # Fallback: read cert file directly via nginx container with cat + python parsing
                     if not expiry_str:
-                        exit_code, output = nginx_container.exec_run(
-                            f"sh -c 'echo | timeout 10 openssl s_client -servername {domain} -connect {domain}:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null'",
-                            demux=True
-                        )
-                        if exit_code == 0 and output[0]:
-                            cert_output = output[0].decode("utf-8").strip()
-                            if cert_output.startswith("notAfter="):
-                                expiry_str = cert_output.replace("notAfter=", "").strip()
-
-                    # Fallback: try reading cert file directly
-                    if not expiry_str:
-                        exit_code, output = nginx_container.exec_run(
-                            f"openssl x509 -in /etc/letsencrypt/live/{domain}/fullchain.pem -noout -enddate",
-                            demux=True
-                        )
-                        if exit_code == 0 and output[0]:
-                            cert_output = output[0].decode("utf-8").strip()
-                            if cert_output.startswith("notAfter="):
-                                expiry_str = cert_output.replace("notAfter=", "").strip()
-
-                    if expiry_str:
                         try:
-                            # Parse date like "Dec 31 23:59:59 2025 GMT"
+                            exit_code, output = nginx_container.exec_run(
+                                f"cat /etc/letsencrypt/live/{domain}/fullchain.pem",
+                                demux=True
+                            )
+                            if exit_code == 0 and output[0]:
+                                cert_pem = output[0].decode("utf-8")
+                                # Parse cert with cryptography library
+                                from cryptography import x509
+                                from cryptography.hazmat.backends import default_backend
+                                cert = x509.load_pem_x509_certificate(cert_pem.encode(), default_backend())
+                                expiry_date = cert.not_valid_after_utc.replace(tzinfo=None)
+                                days_left = (expiry_date - datetime.now()).days
+
+                                ssl_certs.append({
+                                    "domain": domain,
+                                    "expires": expiry_date.strftime("%b %d %H:%M:%S %Y GMT"),
+                                    "days_until_expiry": days_left,
+                                })
+                                ssl_details["days_until_expiry"] = days_left
+
+                                if days_left <= 7:
+                                    ssl_status = "error"
+                                elif days_left <= 30:
+                                    ssl_status = "warning"
+
+                                expiry_str = "parsed"  # Mark as successful
+                        except Exception as cert_err:
+                            ssl_details["cert_read_error"] = str(cert_err)
+
+                    # Parse the openssl output if we got it
+                    if expiry_str and expiry_str != "parsed":
+                        try:
                             expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
                             days_left = (expiry_date - datetime.now()).days
 
@@ -1502,17 +1514,17 @@ async def get_full_health_check(
                                 "expires": expiry_str,
                                 "days_until_expiry": days_left,
                             })
-                            ssl_details["domain"] = domain
                             ssl_details["days_until_expiry"] = days_left
 
                             if days_left <= 7:
                                 ssl_status = "error"
                             elif days_left <= 30:
                                 ssl_status = "warning"
-                        except Exception as e:
+                        except Exception:
                             ssl_details["parse_error"] = f"Could not parse date: {expiry_str}"
-                    else:
-                        ssl_details["error"] = "Cannot read SSL certificate from server"
+
+                    if not ssl_certs:
+                        ssl_details["error"] = "Cannot read SSL certificate"
                         ssl_status = "warning"
                 else:
                     ssl_details["message"] = "No SSL certificate configured"
