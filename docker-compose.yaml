@@ -127,9 +127,9 @@ services:
     container_name: n8n_management
     restart: always
     environment:
-      # Database connection
-      - DATABASE_URL=postgresql://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/n8n_management
-      - N8N_DATABASE_URL=postgresql://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
+      # Database connection (using asyncpg driver for async SQLAlchemy)
+      - DATABASE_URL=postgresql+asyncpg://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/n8n_management
+      - N8N_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
       # Security
       - SECRET_KEY=${MGMT_SECRET_KEY:?MGMT_SECRET_KEY is required}
       - ENCRYPTION_KEY=${MGMT_ENCRYPTION_KEY:-${N8N_ENCRYPTION_KEY}}
