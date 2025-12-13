@@ -1777,23 +1777,21 @@ onUnmounted(() => {
     <!-- Terminal Tab -->
     <template v-if="activeTab === 'terminal'">
       <Card :neon="true" :padding="false">
-        <!-- Custom Header with Controls - Centered -->
+        <!-- Header: Title LEFT | Dropdown CENTER | Buttons RIGHT -->
         <template #header>
-          <div class="flex items-center justify-center w-full px-4 py-3">
-            <div class="flex items-center gap-4">
-              <!-- Title -->
-              <div class="flex items-center gap-2">
-                <CommandLineIcon class="h-5 w-5 text-primary" />
-                <h3 class="font-semibold text-primary text-sm">Web Terminal</h3>
-              </div>
+          <div class="flex items-center w-full px-4 py-3">
+            <!-- Left: Title -->
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <CommandLineIcon class="h-5 w-5 text-primary" />
+              <h3 class="font-semibold text-primary">Web Terminal</h3>
+            </div>
 
-              <div class="h-5 w-px bg-gray-300 dark:bg-gray-600"></div>
-
-              <!-- Target Selector -->
+            <!-- Center: Dropdown (with flex-1 spacers on each side) -->
+            <div class="flex-1 flex justify-center">
               <select
                 v-model="selectedTarget"
                 :disabled="terminalConnected"
-                class="select-field text-sm py-1.5 min-w-[200px]"
+                class="select-field text-sm py-1.5 min-w-[220px]"
               >
                 <option
                   v-for="target in terminalTargets"
@@ -1805,8 +1803,10 @@ onUnmounted(() => {
                   <template v-if="target.type === 'host'"> - Host</template>
                 </option>
               </select>
+            </div>
 
-              <!-- Theme Toggle -->
+            <!-- Right: Theme Toggle + Connect Button -->
+            <div class="flex items-center gap-2 flex-shrink-0">
               <button
                 @click="toggleTerminalTheme"
                 :class="[
@@ -1821,12 +1821,11 @@ onUnmounted(() => {
                 <MoonIcon v-else class="h-4 w-4" />
               </button>
 
-              <!-- Connect/Disconnect Button -->
               <button
                 v-if="!terminalConnected"
                 @click="connectTerminal"
                 :disabled="terminalConnecting || !selectedTarget"
-                class="btn-primary flex items-center gap-1.5 text-sm py-1 px-3"
+                class="btn-primary flex items-center gap-1.5 text-sm py-1.5 px-4"
               >
                 <PlayIcon class="h-4 w-4" />
                 {{ terminalConnecting ? 'Connecting...' : 'Connect' }}
@@ -1834,7 +1833,7 @@ onUnmounted(() => {
               <button
                 v-else
                 @click="disconnectTerminal"
-                class="btn-secondary flex items-center gap-1.5 text-sm py-1 px-3 text-red-500 hover:bg-red-500/10"
+                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-4 text-red-500 hover:bg-red-500/10"
               >
                 <StopIcon class="h-4 w-4" />
                 Disconnect
@@ -1843,14 +1842,12 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <!-- Terminal Window - fills available viewport -->
-        <div class="p-4 terminal-container">
+        <!-- Terminal Window - INLINE STYLE for guaranteed height -->
+        <div class="p-4">
           <div
             ref="terminalElement"
-            :class="[
-              'rounded-lg overflow-hidden terminal-window',
-              terminalDarkMode ? 'bg-[#0d1117]' : 'bg-white'
-            ]"
+            :class="['rounded-lg overflow-hidden', terminalDarkMode ? 'bg-[#0d1117]' : 'bg-white']"
+            style="height: 600px;"
           >
             <div v-if="!terminal" class="flex items-center justify-center h-full text-muted">
               <CommandLineIcon class="h-8 w-8 mr-2" />
@@ -1859,11 +1856,9 @@ onUnmounted(() => {
           </div>
 
           <!-- Terminal Status Bar -->
-          <div class="mt-3 text-xs text-muted flex items-center justify-between">
-            <p class="flex items-center gap-2">
-              <span :class="['w-2 h-2 rounded-full', terminalConnected ? 'bg-emerald-500' : 'bg-gray-400']"></span>
-              {{ terminalConnected ? `Connected to ${terminalTargets.find(t => t.id === selectedTarget)?.name}` : 'Not connected' }}
-            </p>
+          <div class="mt-3 text-xs text-muted flex items-center">
+            <span :class="['w-2 h-2 rounded-full mr-2', terminalConnected ? 'bg-emerald-500' : 'bg-gray-400']"></span>
+            {{ terminalConnected ? `Connected to ${terminalTargets.find(t => t.id === selectedTarget)?.name}` : 'Not connected' }}
           </div>
         </div>
       </Card>
@@ -1872,28 +1867,12 @@ onUnmounted(() => {
 </template>
 
 <style>
-/* Terminal window - FIXED HEIGHT */
-.terminal-window {
-  height: 550px !important;
-  min-height: 550px !important;
-  max-height: 550px !important;
-}
-
-/* Terminal styling - ensure xterm fills container */
-.terminal-window .xterm {
-  padding: 8px;
+/* Terminal xterm styling */
+.xterm {
+  padding: 12px;
   height: 100% !important;
-  width: 100% !important;
 }
-.terminal-window .xterm-screen {
-  height: 100% !important;
-  width: 100% !important;
-}
-.terminal-window .xterm-viewport {
-  height: 100% !important;
+.xterm-viewport {
   overflow-y: auto !important;
-}
-.terminal-window .xterm-rows {
-  height: 100% !important;
 }
 </style>
