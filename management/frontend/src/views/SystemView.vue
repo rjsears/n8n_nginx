@@ -1183,9 +1183,13 @@ onUnmounted(() => {
 </template>
 
 <style>
-/* Terminal styling */
+/* Terminal styling - ensure xterm fills container */
 .xterm {
   padding: 8px;
+  height: 100% !important;
+}
+.xterm-screen {
+  height: 100% !important;
 }
 .xterm-viewport {
   overflow-y: auto !important;
