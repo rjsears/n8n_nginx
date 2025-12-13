@@ -27,6 +27,7 @@ import {
   LinkIcon,
   SunIcon,
   MoonIcon,
+  ChevronDownIcon,
 } from '@heroicons/vue/24/outline'
 import { Line } from 'vue-chartjs'
 import {
@@ -141,6 +142,7 @@ const tailscaleInfo = ref({
   peers: [],
   error: null,
 })
+const peersExpanded = ref(false)
 
 // Terminal state
 const terminalTargets = ref([])
@@ -919,17 +921,31 @@ onUnmounted(() => {
                   <span class="text-secondary">Tailnet</span>
                   <span class="font-medium text-primary">{{ tailscaleInfo.tailnet }}</span>
                 </div>
-                <div v-if="tailscaleInfo.peer_count !== undefined" class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                  <span class="text-secondary">Peers</span>
-                  <span class="font-medium text-primary">
-                    {{ tailscaleInfo.online_peers || 0 }} online / {{ tailscaleInfo.peer_count }} total
-                  </span>
-                </div>
+                <!-- Peers with expandable list -->
+                <div v-if="tailscaleInfo.peers?.length" class="py-2">
+                  <button
+                    @click="peersExpanded = !peersExpanded"
+                    class="w-full flex items-center justify-between hover:bg-surface-hover rounded-lg p-1 -m-1 transition-colors"
+                  >
+                    <span class="text-secondary">Peers</span>
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium text-primary">
+                        {{ tailscaleInfo.online_peers || 0 }} online / {{ tailscaleInfo.peer_count }} total
+                      </span>
+                      <ChevronDownIcon
+                        :class="[
+                          'h-4 w-4 text-secondary transition-transform duration-200',
+                          peersExpanded ? 'rotate-180' : ''
+                        ]"
+                      />
+                    </div>
+                  </button>
 
-                <!-- Peer List -->
-                <div v-if="tailscaleInfo.peers?.length" class="pt-2">
-                  <p class="text-sm text-secondary mb-2">Connected Devices</p>
-                  <div class="space-y-2 max-h-[300px] overflow-y-auto">
+                  <!-- Expandable Peer List -->
+                  <div
+                    v-show="peersExpanded"
+                    class="mt-3 space-y-2 max-h-[250px] overflow-y-auto"
+                  >
                     <div
                       v-for="peer in tailscaleInfo.peers"
                       :key="peer.id || peer.hostname"
@@ -938,16 +954,16 @@ onUnmounted(() => {
                       <div class="flex items-center gap-2">
                         <span
                           :class="[
-                            'w-2 h-2 rounded-full',
+                            'w-2 h-2 rounded-full flex-shrink-0',
                             peer.online ? 'bg-emerald-500' : 'bg-gray-400'
                           ]"
                         ></span>
-                        <div>
-                          <p class="font-medium text-primary text-sm">{{ peer.hostname }}</p>
-                          <p class="text-xs text-muted font-mono">{{ peer.ip }}</p>
+                        <div class="min-w-0">
+                          <p class="font-medium text-primary text-sm truncate">{{ peer.hostname }}</p>
+                          <p class="text-xs text-muted font-mono truncate">{{ peer.ip }}</p>
                         </div>
                       </div>
-                      <div class="text-right">
+                      <div class="text-right flex-shrink-0 ml-2">
                         <span
                           :class="[
                             'text-xs px-2 py-0.5 rounded',
@@ -1141,7 +1157,7 @@ onUnmounted(() => {
           :class="[
             'rounded-lg overflow-hidden',
             terminalDarkMode ? 'bg-[#1a1b26]' : 'bg-white',
-            'min-h-[400px] h-[500px]'
+            'min-h-[500px] h-[600px]'
           ]"
         >
           <div v-if="!terminal" class="flex items-center justify-center h-full text-muted">

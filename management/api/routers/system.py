@@ -766,10 +766,25 @@ async def get_tailscale_status(
                                     peer_info.get("Active", False) or
                                     bool(peer_info.get("CurAddr"))  # Has current address = connected
                                 )
+
+                                # Get the best available name
+                                # Priority: HostName > DNSName (without tailnet suffix) > node key
+                                hostname = peer_info.get("HostName", "")
+                                dns_name = peer_info.get("DNSName", "").rstrip(".")
+
+                                # If hostname is empty or "localhost", try to extract from DNS name
+                                if not hostname or hostname.lower() == "localhost":
+                                    if dns_name:
+                                        # Extract first part of DNS name (before first dot)
+                                        hostname = dns_name.split(".")[0]
+                                    else:
+                                        # Use shortened node key as fallback
+                                        hostname = peer_id[:8] if peer_id else "unknown"
+
                                 peer_list.append({
                                     "id": peer_id[:12] if peer_id else None,
-                                    "hostname": peer_info.get("HostName"),
-                                    "dns_name": peer_info.get("DNSName", "").rstrip("."),
+                                    "hostname": hostname,
+                                    "dns_name": dns_name,
                                     "ip": peer_info.get("TailscaleIPs", [None])[0],
                                     "online": is_online,
                                     "os": peer_info.get("OS"),
