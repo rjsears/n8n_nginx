@@ -98,10 +98,19 @@ async function loadData() {
 
 async function toggleWorkflow(workflow) {
   actionLoading.value = workflow.id
+  const targetState = !workflow.active
   try {
-    await api.flows.toggleWorkflow(workflow.id, !workflow.active)
-    workflow.active = !workflow.active
-    notificationStore.success(`Workflow ${workflow.active ? 'activated' : 'deactivated'}`)
+    await api.flows.toggleWorkflow(workflow.id, targetState)
+    // Reload workflows to verify the actual state changed
+    const workflowsRes = await api.flows.getWorkflows()
+    workflows.value = workflowsRes.data
+    // Find the updated workflow and check if state actually changed
+    const updated = workflows.value.find(w => w.id === workflow.id)
+    if (updated && updated.active === targetState) {
+      notificationStore.success(`Workflow ${targetState ? 'activated' : 'deactivated'}`)
+    } else {
+      notificationStore.warning(`Workflow toggle requested, but state may not have changed. Check n8n for errors.`)
+    }
   } catch (error) {
     const detail = error.response?.data?.detail || error.message || 'Unknown error'
     notificationStore.error(`Failed to toggle workflow: ${detail}`)
@@ -399,6 +408,10 @@ onMounted(loadData)
             Activate/deactivate and execute functions require <strong>N8N_API_KEY</strong> to be configured.
             The execute feature may not work for all workflow types &mdash; workflows with webhook triggers
             should be triggered via their webhook URL instead.
+          </p>
+          <p class="text-amber-600 dark:text-amber-400 mt-2">
+            <strong>Note:</strong> The API may allow activating misconfigured workflows that the n8n UI would reject.
+            Always verify workflow configuration in n8n before activating via this console.
           </p>
         </div>
       </div>
