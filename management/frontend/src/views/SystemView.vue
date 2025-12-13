@@ -9,6 +9,7 @@ import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import HeartbeatLoader from '@/components/common/HeartbeatLoader.vue'
 import DnaHelixLoader from '@/components/common/DnaHelixLoader.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import {
   CpuChipIcon,
   CircleStackIcon,
@@ -224,7 +225,12 @@ const tailscaleKeyIsSet = ref(false)
 const showTailscaleKey = ref(false)
 
 // Container restart state
-const restartingContainer = ref('')
+const restartDialog = ref({
+  open: false,
+  containerName: '',
+  displayName: '',
+  loading: false,
+})
 
 // SSL Certificate renewal state
 const sslRenewModal = ref(false)
@@ -644,22 +650,33 @@ async function saveTailscaleKey() {
 }
 
 // Container Restart
-async function restartContainer(containerName, displayName) {
-  restartingContainer.value = containerName
+function openRestartDialog(containerName, displayName) {
+  restartDialog.value = {
+    open: true,
+    containerName,
+    displayName,
+    loading: false,
+  }
+}
+
+async function confirmRestart() {
+  const { containerName, displayName } = restartDialog.value
+  if (!containerName) return
+
+  restartDialog.value.loading = true
   try {
-    await api.settings.restartContainer(containerName, 'Configuration update')
+    await api.settings.restartContainer(containerName, 'Manual restart from System page')
     notificationStore.success(`${displayName} restarted successfully`)
 
     // Reload the relevant info after restart
-    if (containerName === 'n8n_cloudflared') {
-      setTimeout(() => loadNetworkInfo(), 3000)
-    } else if (containerName === 'n8n_tailscale') {
+    if (containerName === 'n8n_cloudflared' || containerName === 'n8n_tailscale') {
       setTimeout(() => loadNetworkInfo(), 3000)
     }
+    restartDialog.value.open = false
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || `Failed to restart ${displayName}`)
   } finally {
-    restartingContainer.value = ''
+    restartDialog.value.loading = false
   }
 }
 
@@ -1833,12 +1850,12 @@ onUnmounted(() => {
                   </button>
                   <button
                     v-if="cloudflareInfo.running"
-                    @click="restartContainer('n8n_cloudflared', 'Cloudflare Tunnel')"
-                    :disabled="restartingContainer === 'n8n_cloudflared'"
-                    class="p-1.5 rounded-lg text-muted hover:text-amber-500 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                    @click="openRestartDialog('n8n_cloudflared', 'Cloudflare Tunnel')"
+                    class="btn-secondary flex items-center gap-1.5 text-xs py-1 px-2"
                     title="Restart Container"
                   >
-                    <ArrowPathIcon :class="['h-5 w-5', restartingContainer === 'n8n_cloudflared' ? 'animate-spin' : '']" />
+                    <ArrowPathIcon class="h-3.5 w-3.5" />
+                    Restart
                   </button>
                 </div>
               </div>
@@ -1985,12 +2002,12 @@ onUnmounted(() => {
                   </button>
                   <button
                     v-if="tailscaleInfo.running"
-                    @click="restartContainer('n8n_tailscale', 'Tailscale VPN')"
-                    :disabled="restartingContainer === 'n8n_tailscale'"
-                    class="p-1.5 rounded-lg text-muted hover:text-amber-500 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                    @click="openRestartDialog('n8n_tailscale', 'Tailscale VPN')"
+                    class="btn-secondary flex items-center gap-1.5 text-xs py-1 px-2"
                     title="Restart Container"
                   >
-                    <ArrowPathIcon :class="['h-5 w-5', restartingContainer === 'n8n_tailscale' ? 'animate-spin' : '']" />
+                    <ArrowPathIcon class="h-3.5 w-3.5" />
+                    Restart
                   </button>
                 </div>
               </div>
@@ -2504,6 +2521,17 @@ onUnmounted(() => {
         </div>
       </div>
     </Teleport>
+
+    <!-- Container Restart Confirmation Dialog -->
+    <ConfirmDialog
+      :open="restartDialog.open"
+      title="Restart Container"
+      :message="`Are you sure you want to restart ${restartDialog.displayName}? This may cause a brief service interruption.`"
+      confirm-text="Restart"
+      :loading="restartDialog.loading"
+      @confirm="confirmRestart"
+      @cancel="restartDialog.open = false"
+    />
   </div>
 </template>
 
