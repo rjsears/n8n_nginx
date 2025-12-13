@@ -40,7 +40,7 @@
   --color-bg-tertiary: #1e293b;
   --color-surface: #1e293b;
   --color-surface-hover: #334155;
-  --color-border: #334155;
+  --color-border: #64748b;
   --color-text-primary: #f1f5f9;
   --color-text-secondary: #94a3b8;
   --color-text-muted: #64748b;
@@ -57,6 +57,15 @@
   --color-status-stopped: #9ca3af;
   --color-status-error: #f87171;
   --color-status-warning: #fbbf24;
+}
+
+/* Dark mode explicit border overrides */
+.dark .border,
+.dark .border-t,
+.dark .border-b,
+.dark .border-l,
+.dark .border-r {
+  border-color: #64748b !important;
 }
 
 /* Alternative dark theme (softer) */
