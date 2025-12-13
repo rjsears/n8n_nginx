@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import AboutDialog from '@/components/common/AboutDialog.vue'
 import {
   HomeIcon,
   CloudIcon,
@@ -17,12 +18,16 @@ import {
   Bars3Icon,
   XMarkIcon,
   SparklesIcon,
+  InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+
+// About dialog state
+const showAbout = ref(false)
 
 const navItems = [
   { name: 'Dashboard', route: 'dashboard', icon: HomeIcon, color: 'text-blue-500' },
@@ -111,6 +116,14 @@ async function handleLogout() {
         <!-- Theme controls -->
         <div :class="['flex items-center', themeStore.sidebarCollapsed ? 'flex-col space-y-2' : 'justify-between px-2']">
           <button
+            @click="showAbout = true"
+            class="p-2 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+            title="About"
+          >
+            <InformationCircleIcon class="h-5 w-5" />
+          </button>
+
+          <button
             @click="themeStore.toggleColorMode"
             class="p-2 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             title="Toggle dark mode"
@@ -161,5 +174,8 @@ async function handleLogout() {
         <slot />
       </div>
     </main>
+
+    <!-- About Dialog -->
+    <AboutDialog :open="showAbout" @close="showAbout = false" />
   </div>
 </template>

@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import AboutDialog from '@/components/common/AboutDialog.vue'
 import {
   HomeIcon,
   CloudIcon,
@@ -14,12 +15,16 @@ import {
   ArrowRightOnRectangleIcon,
   SunIcon,
   MoonIcon,
+  InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+
+// About dialog state
+const showAbout = ref(false)
 
 const navItems = [
   { name: 'Dashboard', route: 'dashboard', icon: HomeIcon },
@@ -73,6 +78,15 @@ async function handleLogout() {
 
           <!-- Right side -->
           <div class="flex items-center space-x-3">
+            <!-- About button -->
+            <button
+              @click="showAbout = true"
+              class="p-2 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+              title="About"
+            >
+              <InformationCircleIcon class="h-5 w-5" />
+            </button>
+
             <!-- Theme toggle -->
             <button
               @click="themeStore.toggleColorMode"
@@ -104,5 +118,8 @@ async function handleLogout() {
     <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
       <slot />
     </main>
+
+    <!-- About Dialog -->
+    <AboutDialog :open="showAbout" @close="showAbout = false" />
   </div>
 </template>
