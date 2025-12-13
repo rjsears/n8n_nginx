@@ -150,6 +150,88 @@ async def list_audit_actions(
     return [row[0] for row in result.all()]
 
 
+def _get_uptime_seconds() -> float:
+    """Get system uptime in seconds using multiple methods for reliability."""
+    import subprocess
+    import re
+
+    uptime_seconds = None
+
+    # Method 1: Parse `uptime` command output (most reliable on host)
+    try:
+        result = subprocess.run(
+            ["uptime", "-s"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # uptime -s returns boot time like "2025-01-15 10:30:45"
+            boot_str = result.stdout.strip()
+            from dateutil import parser as dateutil_parser
+            boot_time = dateutil_parser.parse(boot_str)
+            if boot_time.tzinfo is None:
+                boot_time = boot_time.replace(tzinfo=UTC)
+            uptime_seconds = (datetime.now(UTC) - boot_time).total_seconds()
+    except Exception:
+        pass
+
+    # Method 2: Parse `uptime` command for "up X days, Y:ZZ" format
+    if uptime_seconds is None:
+        try:
+            result = subprocess.run(
+                ["uptime"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                output = result.stdout
+                # Parse "up X days, H:MM" or "up H:MM" or "up X min"
+                # Examples: "up 3:21", "up 5 days, 2:30", "up 45 min"
+                days = 0
+                hours = 0
+                minutes = 0
+
+                # Check for days
+                days_match = re.search(r'up\s+(\d+)\s+days?', output)
+                if days_match:
+                    days = int(days_match.group(1))
+
+                # Check for hours:minutes
+                time_match = re.search(r'(\d+):(\d+)', output)
+                if time_match:
+                    hours = int(time_match.group(1))
+                    minutes = int(time_match.group(2))
+                else:
+                    # Check for just minutes
+                    min_match = re.search(r'up\s+(\d+)\s+min', output)
+                    if min_match:
+                        minutes = int(min_match.group(1))
+
+                uptime_seconds = days * 86400 + hours * 3600 + minutes * 60
+        except Exception:
+            pass
+
+    # Method 3: Read /proc/uptime (may be inaccurate in containers)
+    if uptime_seconds is None:
+        try:
+            with open("/proc/uptime", "r") as f:
+                uptime_seconds = float(f.read().split()[0])
+        except Exception:
+            pass
+
+    # Method 4: Fallback to psutil (often wrong in containers)
+    if uptime_seconds is None:
+        try:
+            boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=UTC)
+            uptime_seconds = (datetime.now(UTC) - boot_time).total_seconds()
+        except Exception:
+            uptime_seconds = 0
+
+    return uptime_seconds
+
+
 @router.get("/info")
 async def get_system_info(
     _=Depends(get_current_user),
@@ -157,14 +239,8 @@ async def get_system_info(
     """Get system information."""
     import platform
 
-    # Get uptime from /proc/uptime (more reliable than psutil inside containers)
-    try:
-        with open("/proc/uptime", "r") as f:
-            uptime_seconds = float(f.read().split()[0])
-    except Exception:
-        # Fallback to psutil if /proc/uptime not available
-        boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=UTC)
-        uptime_seconds = (datetime.now(UTC) - boot_time).total_seconds()
+    # Get uptime using robust multi-method approach
+    uptime_seconds = _get_uptime_seconds()
 
     # Format uptime as human-readable
     days, remainder = divmod(int(uptime_seconds), 86400)
