@@ -1,5 +1,9 @@
 """
 Settings API routes.
+
+IMPORTANT: Route order matters in FastAPI!
+Specific routes (like /debug, /env, /nfs) must come BEFORE
+catch-all routes like /{key} to be matched correctly.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -57,226 +61,8 @@ ALLOWED_ENV_KEYS = {
 }
 
 
-@router.get("/", response_model=List[SettingValue])
-async def list_settings(
-    category: str = None,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """List all settings, optionally filtered by category."""
-    query = select(SettingsModel).order_by(SettingsModel.category, SettingsModel.key)
-    if category:
-        query = query.where(SettingsModel.category == category)
-
-    result = await db.execute(query)
-    settings = result.scalars().all()
-
-    return [SettingValue.model_validate(s) for s in settings]
-
-
-@router.get("/categories", response_model=List[str])
-async def list_categories(
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """List all setting categories."""
-    result = await db.execute(
-        select(SettingsModel.category).distinct().order_by(SettingsModel.category)
-    )
-    return [row[0] for row in result.all()]
-
-
-@router.get("/{key}", response_model=SettingValue)
-async def get_setting(
-    key: str,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get a specific setting."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == key)
-    )
-    setting = result.scalar_one_or_none()
-
-    if not setting:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Setting not found",
-        )
-
-    return SettingValue.model_validate(setting)
-
-
-@router.put("/{key}", response_model=SettingValue)
-async def update_setting(
-    key: str,
-    update: SettingUpdate,
-    user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update a setting."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == key)
-    )
-    setting = result.scalar_one_or_none()
-
-    if not setting:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Setting not found",
-        )
-
-    setting.value = update.value
-    if update.description is not None:
-        setting.description = update.description
-    setting.updated_at = datetime.now(UTC)
-    setting.updated_by = user.id
-
-    await db.commit()
-    await db.refresh(setting)
-
-    return SettingValue.model_validate(setting)
-
-
-# System Configuration
-
-@router.get("/config/{config_type}", response_model=SystemConfigResponse)
-async def get_system_config(
-    config_type: str,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get system configuration by type."""
-    result = await db.execute(
-        select(SystemConfig).where(SystemConfig.config_type == config_type)
-    )
-    config = result.scalar_one_or_none()
-
-    if not config:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Configuration '{config_type}' not found",
-        )
-
-    return SystemConfigResponse.model_validate(config)
-
-
-@router.put("/config/{config_type}", response_model=SystemConfigResponse)
-async def update_system_config(
-    config_type: str,
-    update: SystemConfigUpdate,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update system configuration."""
-    result = await db.execute(
-        select(SystemConfig).where(SystemConfig.config_type == config_type)
-    )
-    config = result.scalar_one_or_none()
-
-    if config:
-        config.config = update.config
-        config.updated_at = datetime.now(UTC)
-    else:
-        config = SystemConfig(
-            config_type=config_type,
-            config=update.config,
-        )
-        db.add(config)
-
-    await db.commit()
-    await db.refresh(config)
-
-    return SystemConfigResponse.model_validate(config)
-
-
-# NFS Configuration
-
-@router.get("/nfs/status", response_model=NFSStatusResponse)
-async def get_nfs_status(
-    _=Depends(get_current_user),
-):
-    """Get NFS mount status."""
-    import os
-    from api.config import settings
-
-    nfs_server = settings.nfs_server
-    nfs_path = settings.nfs_path
-    mount_point = settings.nfs_mount_point
-
-    if not nfs_server:
-        return NFSStatusResponse(
-            status="disabled",
-            message="NFS not configured",
-        )
-
-    is_mounted = os.path.ismount(mount_point)
-
-    if is_mounted:
-        # Test write capability
-        try:
-            test_file = os.path.join(mount_point, ".health_check")
-            with open(test_file, "w") as f:
-                f.write("test")
-            os.remove(test_file)
-            status_str = "connected"
-            message = "NFS mounted and writable"
-        except Exception as e:
-            status_str = "degraded"
-            message = f"NFS mounted but not writable: {e}"
-    else:
-        status_str = "disconnected"
-        message = "NFS not mounted"
-
-    return NFSStatusResponse(
-        status=status_str,
-        message=message,
-        server=nfs_server,
-        path=nfs_path,
-        mount_point=mount_point,
-        is_mounted=is_mounted,
-        last_check=datetime.now(UTC),
-    )
-
-
-@router.put("/nfs/config", response_model=SuccessResponse)
-async def update_nfs_config(
-    config: NFSConfigUpdate,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update NFS configuration."""
-    # Store NFS config
-    result = await db.execute(
-        select(SystemConfig).where(SystemConfig.config_type == "nfs")
-    )
-    existing = result.scalar_one_or_none()
-
-    nfs_config = {
-        "enabled": config.enabled,
-        "server": config.server,
-        "path": config.path,
-        "mount_point": config.mount_point,
-        "mount_options": config.mount_options,
-    }
-
-    if existing:
-        existing.config = nfs_config
-        existing.updated_at = datetime.now(UTC)
-    else:
-        new_config = SystemConfig(
-            config_type="nfs",
-            config=nfs_config,
-        )
-        db.add(new_config)
-
-    await db.commit()
-
-    return SuccessResponse(message="NFS configuration updated. Restart container to apply changes.")
-
-
 # =============================================================================
-# Environment Variable Management
+# Helper Functions
 # =============================================================================
 
 def _read_env_file() -> Dict[str, str]:
@@ -358,6 +144,131 @@ def _mask_value(value: str) -> str:
     return f"{value[:4]}...{value[-4:]}"
 
 
+# =============================================================================
+# Root and Categories Routes (no path parameters)
+# =============================================================================
+
+@router.get("/", response_model=List[SettingValue])
+async def list_settings(
+    category: str = None,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all settings, optionally filtered by category."""
+    query = select(SettingsModel).order_by(SettingsModel.category, SettingsModel.key)
+    if category:
+        query = query.where(SettingsModel.category == category)
+
+    result = await db.execute(query)
+    settings = result.scalars().all()
+
+    return [SettingValue.model_validate(s) for s in settings]
+
+
+@router.get("/categories", response_model=List[str])
+async def list_categories(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all setting categories."""
+    result = await db.execute(
+        select(SettingsModel.category).distinct().order_by(SettingsModel.category)
+    )
+    return [row[0] for row in result.all()]
+
+
+# =============================================================================
+# Debug Mode Management (MUST come before /{key} catch-all)
+# =============================================================================
+
+@router.get("/debug", response_model=DebugModeResponse)
+async def get_debug_mode(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current debug mode status."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == "debug_mode")
+    )
+    setting = result.scalar_one_or_none()
+
+    enabled = setting.value if setting else False
+    log_level = "DEBUG" if enabled else "INFO"
+
+    return DebugModeResponse(enabled=enabled, log_level=log_level)
+
+
+@router.put("/debug", response_model=DebugModeResponse)
+async def update_debug_mode(
+    update: DebugModeUpdate,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Enable or disable debug mode."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == "debug_mode")
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        setting.value = update.enabled
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = user.id
+    else:
+        # Create the setting if it doesn't exist
+        setting = SettingsModel(
+            key="debug_mode",
+            value=update.enabled,
+            category="system",
+            description="Enable verbose logging and debug information",
+            is_secret=False,
+            updated_by=user.id,
+        )
+        db.add(setting)
+
+    await db.commit()
+
+    # Update the logging level in the current process
+    import logging
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG if update.enabled else logging.INFO)
+
+    log_level = "DEBUG" if update.enabled else "INFO"
+    logger.info(f"Debug mode {'enabled' if update.enabled else 'disabled'} by user {user.username}")
+
+    return DebugModeResponse(enabled=update.enabled, log_level=log_level)
+
+
+# =============================================================================
+# Environment Variable Management (MUST come before /{key} catch-all)
+# =============================================================================
+
+@router.get("/env", response_model=List[EnvVariableResponse])
+async def list_env_variables(
+    _=Depends(get_current_user),
+):
+    """List all manageable environment variables."""
+    env_vars = _read_env_file()
+    results = []
+
+    for key, config in ALLOWED_ENV_KEYS.items():
+        # First check runtime environment variable (from docker-compose)
+        value = os.environ.get(key, "")
+        # If not in runtime env, check the .env file
+        if not value:
+            value = env_vars.get(key, "")
+
+        results.append(EnvVariableResponse(
+            key=key,
+            is_set=bool(value),
+            masked_value=_mask_value(value) if value else None,
+            requires_restart=config["requires_restart"],
+            affected_containers=config["affected_containers"],
+        ))
+
+    return results
+
+
 @router.get("/env/{key}", response_model=EnvVariableResponse)
 async def get_env_variable(
     key: str,
@@ -427,96 +338,148 @@ async def update_env_variable(
     )
 
 
-@router.get("/env", response_model=List[EnvVariableResponse])
-async def list_env_variables(
-    _=Depends(get_current_user),
-):
-    """List all manageable environment variables."""
-    env_vars = _read_env_file()
-    results = []
-
-    for key, config in ALLOWED_ENV_KEYS.items():
-        # First check runtime environment variable (from docker-compose)
-        value = os.environ.get(key, "")
-        # If not in runtime env, check the .env file
-        if not value:
-            value = env_vars.get(key, "")
-
-        results.append(EnvVariableResponse(
-            key=key,
-            is_set=bool(value),
-            masked_value=_mask_value(value) if value else None,
-            requires_restart=config["requires_restart"],
-            affected_containers=config["affected_containers"],
-        ))
-
-    return results
-
-
 # =============================================================================
-# Debug Mode Management
+# NFS Configuration (MUST come before /{key} catch-all)
 # =============================================================================
 
-@router.get("/debug", response_model=DebugModeResponse)
-async def get_debug_mode(
+@router.get("/nfs/status", response_model=NFSStatusResponse)
+async def get_nfs_status(
     _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Get current debug mode status."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == "debug_mode")
-    )
-    setting = result.scalar_one_or_none()
+    """Get NFS mount status."""
+    from api.config import settings
 
-    enabled = setting.value if setting else False
-    log_level = "DEBUG" if enabled else "INFO"
+    nfs_server = settings.nfs_server
+    nfs_path = settings.nfs_path
+    mount_point = settings.nfs_mount_point
 
-    return DebugModeResponse(enabled=enabled, log_level=log_level)
-
-
-@router.put("/debug", response_model=DebugModeResponse)
-async def update_debug_mode(
-    update: DebugModeUpdate,
-    user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Enable or disable debug mode."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == "debug_mode")
-    )
-    setting = result.scalar_one_or_none()
-
-    if setting:
-        setting.value = update.enabled
-        setting.updated_at = datetime.now(UTC)
-        setting.updated_by = user.id
-    else:
-        # Create the setting if it doesn't exist
-        setting = SettingsModel(
-            key="debug_mode",
-            value=update.enabled,
-            category="system",
-            description="Enable verbose logging and debug information",
-            is_secret=False,
-            updated_by=user.id,
+    if not nfs_server:
+        return NFSStatusResponse(
+            status="disabled",
+            message="NFS not configured",
         )
-        db.add(setting)
+
+    is_mounted = os.path.ismount(mount_point)
+
+    if is_mounted:
+        # Test write capability
+        try:
+            test_file = os.path.join(mount_point, ".health_check")
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.remove(test_file)
+            status_str = "connected"
+            message = "NFS mounted and writable"
+        except Exception as e:
+            status_str = "degraded"
+            message = f"NFS mounted but not writable: {e}"
+    else:
+        status_str = "disconnected"
+        message = "NFS not mounted"
+
+    return NFSStatusResponse(
+        status=status_str,
+        message=message,
+        server=nfs_server,
+        path=nfs_path,
+        mount_point=mount_point,
+        is_mounted=is_mounted,
+        last_check=datetime.now(UTC),
+    )
+
+
+@router.put("/nfs/config", response_model=SuccessResponse)
+async def update_nfs_config(
+    config: NFSConfigUpdate,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update NFS configuration."""
+    # Store NFS config
+    result = await db.execute(
+        select(SystemConfig).where(SystemConfig.config_type == "nfs")
+    )
+    existing = result.scalar_one_or_none()
+
+    nfs_config = {
+        "enabled": config.enabled,
+        "server": config.server,
+        "path": config.path,
+        "mount_point": config.mount_point,
+        "mount_options": config.mount_options,
+    }
+
+    if existing:
+        existing.config = nfs_config
+        existing.updated_at = datetime.now(UTC)
+    else:
+        new_config = SystemConfig(
+            config_type="nfs",
+            config=nfs_config,
+        )
+        db.add(new_config)
 
     await db.commit()
 
-    # Update the logging level in the current process
-    import logging
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG if update.enabled else logging.INFO)
-
-    log_level = "DEBUG" if update.enabled else "INFO"
-    logger.info(f"Debug mode {'enabled' if update.enabled else 'disabled'} by user {user.username}")
-
-    return DebugModeResponse(enabled=update.enabled, log_level=log_level)
+    return SuccessResponse(message="NFS configuration updated. Restart container to apply changes.")
 
 
 # =============================================================================
-# Container Restart
+# System Configuration (MUST come before /{key} catch-all)
+# =============================================================================
+
+@router.get("/config/{config_type}", response_model=SystemConfigResponse)
+async def get_system_config(
+    config_type: str,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get system configuration by type."""
+    result = await db.execute(
+        select(SystemConfig).where(SystemConfig.config_type == config_type)
+    )
+    config = result.scalar_one_or_none()
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Configuration '{config_type}' not found",
+        )
+
+    return SystemConfigResponse.model_validate(config)
+
+
+@router.put("/config/{config_type}", response_model=SystemConfigResponse)
+async def update_system_config(
+    config_type: str,
+    update: SystemConfigUpdate,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update system configuration."""
+    result = await db.execute(
+        select(SystemConfig).where(SystemConfig.config_type == config_type)
+    )
+    config = result.scalar_one_or_none()
+
+    if config:
+        config.config = update.config
+        config.updated_at = datetime.now(UTC)
+    else:
+        config = SystemConfig(
+            config_type=config_type,
+            config=update.config,
+        )
+        db.add(config)
+
+    await db.commit()
+    await db.refresh(config)
+
+    return SystemConfigResponse.model_validate(config)
+
+
+# =============================================================================
+# Container Restart (MUST come before /{key} catch-all)
 # =============================================================================
 
 @router.post("/container/restart", response_model=ContainerRestartResponse)
@@ -565,3 +528,59 @@ async def restart_container(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to restart container: {str(e)}",
         )
+
+
+# =============================================================================
+# Generic Settings CRUD (MUST be LAST - catch-all routes)
+# =============================================================================
+
+@router.get("/{key}", response_model=SettingValue)
+async def get_setting(
+    key: str,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific setting by key."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == key)
+    )
+    setting = result.scalar_one_or_none()
+
+    if not setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Setting not found",
+        )
+
+    return SettingValue.model_validate(setting)
+
+
+@router.put("/{key}", response_model=SettingValue)
+async def update_setting(
+    key: str,
+    update: SettingUpdate,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a setting by key."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == key)
+    )
+    setting = result.scalar_one_or_none()
+
+    if not setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Setting not found",
+        )
+
+    setting.value = update.value
+    if update.description is not None:
+        setting.description = update.description
+    setting.updated_at = datetime.now(UTC)
+    setting.updated_by = user.id
+
+    await db.commit()
+    await db.refresh(setting)
+
+    return SettingValue.model_validate(setting)
