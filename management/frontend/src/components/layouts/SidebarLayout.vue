@@ -19,7 +19,6 @@ import {
   XMarkIcon,
   SparklesIcon,
   InformationCircleIcon,
-  KeyIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -37,7 +36,6 @@ const navItems = [
   { name: 'Containers', route: 'containers', icon: ServerStackIcon, color: 'text-purple-500' },
   { name: 'Flows', route: 'flows', icon: CubeTransparentIcon, color: 'text-cyan-500' },
   { name: 'System', route: 'system', icon: CpuChipIcon, color: 'text-rose-500' },
-  { name: 'n8n API / Debug', route: 'api-debug', icon: KeyIcon, color: 'text-indigo-500' },
   { name: 'Settings', route: 'settings', icon: Cog6ToothIcon, color: 'text-gray-500' },
 ]
 
