@@ -65,11 +65,6 @@ defineProps({
   border: 1px solid rgba(220, 38, 38, 0.15);
 }
 
-/* Dark mode support */
-:root.dark .ekg-monitor {
-  background: rgba(255, 255, 255, 0.95);
-}
-
 .ekg-svg {
   width: 100%;
   height: 80px;
@@ -90,5 +85,12 @@ defineProps({
   100% {
     stroke-dashoffset: 0;
   }
+}
+</style>
+
+<!-- Unscoped style for dark mode (scoped styles can't target :root) -->
+<style>
+.dark .ekg-monitor {
+  background: #ffffff;
 }
 </style>
