@@ -183,8 +183,8 @@ api.flows = {
   // Aliases for FlowsView compatibility
   getWorkflows: () => api.get('/flows/list'),
   getExecutions: () => Promise.resolve({ data: [] }),  // Placeholder until backend implemented
-  toggleWorkflow: (id, active) => Promise.reject(new Error('Not implemented')),
-  executeWorkflow: (id) => Promise.reject(new Error('Not implemented')),
+  toggleWorkflow: (id, active) => api.post(`/flows/${id}/toggle`, { active }),
+  executeWorkflow: (id) => api.post(`/flows/${id}/execute`),
 }
 api.settings = {
   ...settingsApi,

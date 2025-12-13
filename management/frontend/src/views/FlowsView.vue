@@ -102,7 +102,9 @@ async function toggleWorkflow(workflow) {
     workflow.active = !workflow.active
     notificationStore.success(`Workflow ${workflow.active ? 'activated' : 'deactivated'}`)
   } catch (error) {
-    notificationStore.error('Failed to toggle workflow')
+    const detail = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to toggle workflow: ${detail}`)
+    console.error('Toggle workflow error:', error.response?.data || error)
   } finally {
     actionLoading.value = null
   }
@@ -117,7 +119,9 @@ async function executeWorkflow(workflow) {
     const executionsRes = await api.flows.getExecutions()
     executions.value = executionsRes.data
   } catch (error) {
-    notificationStore.error('Failed to execute workflow')
+    const detail = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to execute workflow: ${detail}`)
+    console.error('Execute workflow error:', error.response?.data || error)
   } finally {
     actionLoading.value = null
   }

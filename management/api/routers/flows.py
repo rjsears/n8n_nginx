@@ -11,8 +11,22 @@ from pydantic import BaseModel
 from api.database import get_db, get_n8n_db
 from api.dependencies import get_current_user
 from api.services.backup_service import BackupService
+from api.services.n8n_api_service import n8n_api
 
 router = APIRouter()
+
+
+class ToggleWorkflowRequest(BaseModel):
+    """Request to toggle workflow active state."""
+    active: bool
+
+
+class ExecuteWorkflowResponse(BaseModel):
+    """Response from workflow execution."""
+    success: bool
+    execution_id: Optional[str] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
 
 
 class FlowInfo(BaseModel):
@@ -105,6 +119,124 @@ async def list_flows(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=detail,
+        )
+
+
+@router.post("/{workflow_id}/toggle")
+async def toggle_workflow(
+    workflow_id: str,
+    request: ToggleWorkflowRequest,
+    _=Depends(get_current_user),
+):
+    """
+    Toggle workflow active state (activate/deactivate).
+    Requires n8n API key to be configured.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not n8n_api.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="n8n API key not configured. Set N8N_API_KEY environment variable to enable workflow management.",
+        )
+
+    try:
+        result = await n8n_api.activate_workflow(workflow_id, request.active)
+
+        if result.get("success"):
+            action = "activated" if request.active else "deactivated"
+            return {"success": True, "message": f"Workflow {action} successfully"}
+        else:
+            error = result.get("error", "Unknown error")
+            logger.error(f"Failed to toggle workflow {workflow_id}: {error}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to toggle workflow: {error}",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling workflow {workflow_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error toggling workflow: {str(e)}",
+        )
+
+
+@router.post("/{workflow_id}/execute")
+async def execute_workflow(
+    workflow_id: str,
+    _=Depends(get_current_user),
+):
+    """
+    Execute a workflow manually.
+    Requires n8n API key to be configured.
+    """
+    import logging
+    import httpx
+    logger = logging.getLogger(__name__)
+
+    if not n8n_api.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="n8n API key not configured. Set N8N_API_KEY environment variable to enable workflow execution.",
+        )
+
+    try:
+        # n8n API endpoint for executing workflows
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{n8n_api.base_url}/workflows/{workflow_id}/run",
+                headers=n8n_api._get_headers(),
+                json={},
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return ExecuteWorkflowResponse(
+                    success=True,
+                    execution_id=data.get("data", {}).get("executionId"),
+                    message="Workflow execution started",
+                )
+            elif response.status_code == 404:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Workflow not found",
+                )
+            elif response.status_code == 400:
+                # Try to get detailed error from response
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("message", response.text)
+                except Exception:
+                    error_msg = response.text
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot execute workflow: {error_msg}",
+                )
+            else:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("message", response.text)
+                except Exception:
+                    error_msg = response.text
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"n8n API error ({response.status_code}): {error_msg}",
+                )
+    except HTTPException:
+        raise
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cannot connect to n8n API. Ensure n8n container is running.",
+        )
+    except Exception as e:
+        logger.error(f"Error executing workflow {workflow_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error executing workflow: {str(e)}",
         )
 
 
