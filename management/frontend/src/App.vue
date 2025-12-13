@@ -125,4 +125,17 @@ onMounted(async () => {
 .dark .border-\[var\(--color-border\)\] {
   border-color: #64748b !important;
 }
+
+/* Force dark mode borders on common elements */
+.dark [class*="border-[var(--color-border)"] {
+  border-color: #64748b !important;
+}
+
+.dark .border-b,
+.dark .border-t,
+.dark .border-r,
+.dark .border-l,
+.dark .border {
+  border-color: #64748b;
+}
 </style>
