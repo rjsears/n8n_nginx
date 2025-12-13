@@ -21,6 +21,10 @@ letsencrypt/
 letsencrypt-temp/
 ssl/
 
+# Generated nginx config (created by setup.sh with your domain)
+# Do NOT track this - it contains environment-specific values
+nginx.conf
+
 # Docker volumes (data directories)
 postgres_data/
 n8n_data/
