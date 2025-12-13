@@ -155,30 +155,30 @@ let terminal = null
 let fitAddon = null
 let websocket = null
 
-// Terminal theme definitions
+// Terminal theme definitions - using brighter Dracula-inspired colors
 const terminalThemes = {
   dark: {
-    background: '#1a1b26',
-    foreground: '#a9b1d6',
-    cursor: '#c0caf5',
-    cursorAccent: '#1a1b26',
-    selection: 'rgba(99, 117, 171, 0.3)',
-    black: '#414868',
-    red: '#f7768e',
-    green: '#9ece6a',
-    yellow: '#e0af68',
-    blue: '#7aa2f7',
-    magenta: '#bb9af7',
-    cyan: '#7dcfff',
-    white: '#c0caf5',
-    brightBlack: '#414868',
-    brightRed: '#f7768e',
-    brightGreen: '#9ece6a',
-    brightYellow: '#e0af68',
-    brightBlue: '#7aa2f7',
-    brightMagenta: '#bb9af7',
-    brightCyan: '#7dcfff',
-    brightWhite: '#c0caf5',
+    background: '#1e1e2e',
+    foreground: '#cdd6f4',
+    cursor: '#f5e0dc',
+    cursorAccent: '#1e1e2e',
+    selection: 'rgba(137, 180, 250, 0.3)',
+    black: '#45475a',
+    red: '#f38ba8',
+    green: '#a6e3a1',
+    yellow: '#f9e2af',
+    blue: '#89b4fa',
+    magenta: '#f5c2e7',
+    cyan: '#94e2d5',
+    white: '#cdd6f4',
+    brightBlack: '#585b70',
+    brightRed: '#f38ba8',
+    brightGreen: '#a6e3a1',
+    brightYellow: '#f9e2af',
+    brightBlue: '#89b4fa',
+    brightMagenta: '#f5c2e7',
+    brightCyan: '#94e2d5',
+    brightWhite: '#ffffff',
   },
   light: {
     background: '#ffffff',
@@ -383,6 +383,8 @@ async function initTerminal() {
       theme: terminalDarkMode.value ? terminalThemes.dark : terminalThemes.light,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      rows: 28,
+      cols: 120,
     })
 
     fitAddon = new FitAddon()
@@ -855,6 +857,7 @@ onUnmounted(() => {
             </div>
             <template v-else>
               <div class="space-y-3">
+                <!-- Status -->
                 <div class="flex items-center justify-between py-2 border-b border-[var(--color-border)]">
                   <span class="text-secondary">Status</span>
                   <span :class="[
@@ -865,9 +868,9 @@ onUnmounted(() => {
                     {{ cloudflareInfo.running ? 'Running' : 'Stopped' }}
                   </span>
                 </div>
-                <div v-if="cloudflareInfo.container_name" class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                  <span class="text-secondary">Container</span>
-                  <span class="font-medium text-primary">{{ cloudflareInfo.container_name }}</span>
+                <div v-if="cloudflareInfo.version" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Version</span>
+                  <span class="font-medium text-primary">{{ cloudflareInfo.version }}</span>
                 </div>
                 <div v-if="cloudflareInfo.connected !== undefined" class="flex justify-between py-2 border-b border-[var(--color-border)]">
                   <span class="text-secondary">Connected</span>
@@ -875,13 +878,73 @@ onUnmounted(() => {
                     {{ cloudflareInfo.connected ? 'Yes' : 'No' }}
                   </span>
                 </div>
-                <div v-if="cloudflareInfo.locations?.length" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                <div v-if="cloudflareInfo.edge_locations?.length" class="flex justify-between py-2 border-b border-[var(--color-border)]">
                   <span class="text-secondary">Edge Locations</span>
-                  <span class="font-medium text-primary">{{ cloudflareInfo.locations.join(', ') }}</span>
+                  <div class="flex flex-wrap gap-1 justify-end">
+                    <span
+                      v-for="loc in cloudflareInfo.edge_locations"
+                      :key="loc"
+                      class="px-2 py-0.5 text-xs rounded bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 uppercase"
+                    >
+                      {{ loc }}
+                    </span>
+                  </div>
                 </div>
-                <div v-if="cloudflareInfo.active_streams !== undefined" class="flex justify-between py-2">
-                  <span class="text-secondary">Active Streams</span>
-                  <span class="font-medium text-primary">{{ cloudflareInfo.active_streams }}</span>
+                <div v-if="cloudflareInfo.tunnel_id" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Tunnel ID</span>
+                  <span class="font-mono text-xs text-primary truncate max-w-[180px]" :title="cloudflareInfo.tunnel_id">
+                    {{ cloudflareInfo.tunnel_id.slice(0, 8) }}...
+                  </span>
+                </div>
+
+                <!-- Metrics Section -->
+                <div v-if="cloudflareInfo.metrics && Object.keys(cloudflareInfo.metrics).length" class="pt-2">
+                  <p class="text-xs text-muted uppercase tracking-wide mb-2">Traffic Metrics</p>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div v-if="cloudflareInfo.metrics.total_requests !== undefined" class="bg-surface-hover rounded-lg p-3">
+                      <p class="text-xs text-muted">Total Requests</p>
+                      <p class="text-lg font-semibold text-primary">{{ cloudflareInfo.metrics.total_requests.toLocaleString() }}</p>
+                    </div>
+                    <div v-if="cloudflareInfo.metrics.ha_connections !== undefined" class="bg-surface-hover rounded-lg p-3">
+                      <p class="text-xs text-muted">HA Connections</p>
+                      <p class="text-lg font-semibold text-primary">{{ cloudflareInfo.metrics.ha_connections }}</p>
+                    </div>
+                    <div v-if="cloudflareInfo.metrics.active_streams !== undefined" class="bg-surface-hover rounded-lg p-3">
+                      <p class="text-xs text-muted">Active Streams</p>
+                      <p class="text-lg font-semibold text-primary">{{ cloudflareInfo.metrics.active_streams }}</p>
+                    </div>
+                    <div v-if="cloudflareInfo.metrics.request_errors !== undefined" class="bg-surface-hover rounded-lg p-3">
+                      <p class="text-xs text-muted">Errors</p>
+                      <p :class="['text-lg font-semibold', cloudflareInfo.metrics.request_errors > 0 ? 'text-red-500' : 'text-primary']">
+                        {{ cloudflareInfo.metrics.request_errors }}
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- Response Codes -->
+                  <div v-if="cloudflareInfo.metrics.response_codes" class="mt-3">
+                    <p class="text-xs text-muted mb-2">Response Codes</p>
+                    <div class="flex flex-wrap gap-2">
+                      <span
+                        v-for="(count, code) in cloudflareInfo.metrics.response_codes"
+                        :key="code"
+                        :class="[
+                          'px-2 py-1 text-xs rounded font-mono',
+                          code.startsWith('2') ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' :
+                          code.startsWith('3') ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300' :
+                          code.startsWith('4') ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300' :
+                          'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300'
+                        ]"
+                      >
+                        {{ code }}: {{ count.toLocaleString() }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Error display -->
+                <div v-if="cloudflareInfo.last_error" class="mt-3 p-3 bg-red-50 dark:bg-red-500/10 rounded-lg">
+                  <p class="text-xs text-red-600 dark:text-red-400 font-mono break-all">{{ cloudflareInfo.last_error }}</p>
                 </div>
               </div>
             </template>
@@ -1162,7 +1225,7 @@ onUnmounted(() => {
           ref="terminalElement"
           :class="[
             'rounded-lg overflow-hidden',
-            terminalDarkMode ? 'bg-[#1a1b26]' : 'bg-white'
+            terminalDarkMode ? 'bg-[#1e1e2e]' : 'bg-white'
           ]"
           style="height: 600px;"
         >
