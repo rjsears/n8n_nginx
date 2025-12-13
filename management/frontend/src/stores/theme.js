@@ -16,6 +16,15 @@ export const useThemeStore = defineStore('theme', () => {
   // For compatibility - maps to the color mode
   const currentPreset = computed(() => _colorMode.value === 'dark' ? 'modern_dark' : 'modern_light')
 
+  // Theme classes for App.vue root element
+  const themeClasses = computed(() => {
+    const classes = []
+    if (isDark.value) classes.push('dark')
+    if (isSidebar.value) classes.push('layout-sidebar')
+    else classes.push('layout-horizontal')
+    return classes.join(' ')
+  })
+
   // Writable computed for v-model binding
   const colorMode = computed({
     get: () => _colorMode.value,
@@ -144,6 +153,7 @@ export const useThemeStore = defineStore('theme', () => {
     // Read-only state
     currentPreset,
     sidebarCollapsed,
+    themeClasses,
     // Computed getters
     isDark,
     isSidebar,
