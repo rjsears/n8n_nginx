@@ -2218,6 +2218,27 @@ EOF
             proxy_buffering off;
         }
 
+        # WebSocket terminal endpoint (long-lived connections)
+        location /management/api/ws/ {
+            proxy_pass http://management/api/ws/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # WebSocket required headers
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            # Long timeouts for terminal sessions (24 hours)
+            proxy_connect_timeout 86400s;
+            proxy_send_timeout 86400s;
+            proxy_read_timeout 86400s;
+
+            proxy_buffering off;
+        }
+
         location /management/api/ {
             proxy_pass http://management/api/;
             proxy_set_header Host $host;
