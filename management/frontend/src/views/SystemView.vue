@@ -396,11 +396,11 @@ async function loadExternalServices() {
   externalServicesLoading.value = true
   try {
     const response = await api.system.getExternalServices()
-    // Build URLs using current hostname
-    const hostname = window.location.hostname
+    // Build URLs using current origin + path from nginx.conf
+    const origin = window.location.origin
     externalServices.value = (response.data.services || []).map(service => ({
       ...service,
-      url: `http://${hostname}:${service.port}`,
+      url: `${origin}${service.path}`,
     }))
   } catch (error) {
     console.error('Failed to load external services:', error)

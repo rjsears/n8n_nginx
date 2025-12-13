@@ -591,64 +591,58 @@ async def get_terminal_targets(
 async def get_external_services(
     _=Depends(get_current_user),
 ):
-    """Detect and return external services (Portainer, Dozzle, Adminer, etc.)."""
-    # Known services with their detection patterns and default ports
+    """Detect external services from nginx.conf location blocks."""
+    import re
+
+    # Known services with their metadata
     known_services = {
         "portainer": {
             "name": "Portainer",
             "description": "Docker container management",
-            "patterns": ["portainer"],
-            "default_port": 9000,
             "color": "bg-blue-100 dark:bg-blue-500/20",
             "icon_color": "text-blue-500",
         },
         "dozzle": {
             "name": "Dozzle",
             "description": "Real-time Docker log viewer",
-            "patterns": ["dozzle"],
-            "default_port": 8080,
             "color": "bg-emerald-100 dark:bg-emerald-500/20",
             "icon_color": "text-emerald-500",
         },
         "adminer": {
             "name": "Adminer",
             "description": "Database management",
-            "patterns": ["adminer"],
-            "default_port": 8080,
             "color": "bg-amber-100 dark:bg-amber-500/20",
             "icon_color": "text-amber-500",
         },
         "pgadmin": {
             "name": "pgAdmin",
             "description": "PostgreSQL administration",
-            "patterns": ["pgadmin"],
-            "default_port": 80,
             "color": "bg-indigo-100 dark:bg-indigo-500/20",
             "icon_color": "text-indigo-500",
         },
         "grafana": {
             "name": "Grafana",
             "description": "Monitoring & observability",
-            "patterns": ["grafana"],
-            "default_port": 3000,
             "color": "bg-orange-100 dark:bg-orange-500/20",
             "icon_color": "text-orange-500",
         },
         "prometheus": {
             "name": "Prometheus",
             "description": "Metrics & alerting",
-            "patterns": ["prometheus"],
-            "default_port": 9090,
             "color": "bg-red-100 dark:bg-red-500/20",
             "icon_color": "text-red-500",
         },
         "traefik": {
             "name": "Traefik Dashboard",
             "description": "Reverse proxy dashboard",
-            "patterns": ["traefik"],
-            "default_port": 8080,
             "color": "bg-cyan-100 dark:bg-cyan-500/20",
             "icon_color": "text-cyan-500",
+        },
+        "n8n": {
+            "name": "n8n",
+            "description": "Workflow automation",
+            "color": "bg-rose-100 dark:bg-rose-500/20",
+            "icon_color": "text-rose-500",
         },
     }
 
@@ -658,49 +652,67 @@ async def get_external_services(
         import docker
         client = docker.from_env()
 
-        # Get all running containers
-        containers = client.containers.list(all=False)
+        # Get nginx container to read config
+        nginx_container = None
+        try:
+            nginx_container = client.containers.get("n8n_nginx")
+        except Exception:
+            pass
 
-        for container in containers:
-            name_lower = container.name.lower()
-            image_name = container.image.tags[0].lower() if container.image.tags else ""
+        if nginx_container:
+            # Read nginx.conf to find location blocks
+            exit_code, output = nginx_container.exec_run(
+                "cat /etc/nginx/nginx.conf",
+                demux=True
+            )
 
-            for service_key, service_info in known_services.items():
-                # Check if container matches any pattern
-                matched = any(
-                    pattern in name_lower or pattern in image_name
-                    for pattern in service_info["patterns"]
-                )
+            if exit_code == 0 and output[0]:
+                nginx_conf = output[0].decode("utf-8")
 
-                if matched:
-                    # Try to determine the port
-                    port = service_info["default_port"]
-                    try:
-                        ports = container.attrs.get("NetworkSettings", {}).get("Ports", {})
-                        for container_port, host_bindings in ports.items():
-                            if host_bindings:
-                                # Use the first bound host port
-                                port = int(host_bindings[0]["HostPort"])
-                                break
-                    except Exception:
-                        pass
+                # Find all location blocks like: location /dozzle/ { or location /adminer {
+                # Pattern matches location /path or location /path/
+                location_pattern = r'location\s+(/[a-zA-Z0-9_-]+)/?[\s{]'
+                locations = re.findall(location_pattern, nginx_conf)
 
-                    # Build the URL - frontend will use window.location.hostname
-                    services.append({
-                        "name": service_info["name"],
-                        "description": service_info["description"],
-                        "container": container.name,
-                        "running": container.status == "running",
-                        "port": port,
-                        "color": service_info["color"],
-                        "iconColor": service_info["icon_color"],
-                    })
-                    break  # Don't match same container twice
+                # Get running containers to check service status
+                running_containers = {c.name.lower(): c for c in client.containers.list(all=False)}
+
+                for location in locations:
+                    path = location.strip('/')
+                    path_lower = path.lower()
+
+                    # Check if this is a known service
+                    for service_key, service_info in known_services.items():
+                        if service_key in path_lower or path_lower in service_key:
+                            # Check if container is running
+                            running = False
+                            for container_name in running_containers:
+                                if service_key in container_name:
+                                    running = True
+                                    break
+
+                            services.append({
+                                "name": service_info["name"],
+                                "description": service_info["description"],
+                                "path": f"/{path}",
+                                "running": running,
+                                "color": service_info["color"],
+                                "iconColor": service_info["icon_color"],
+                            })
+                            break
 
     except Exception as e:
         return {"services": [], "error": str(e)}
 
-    return {"services": services}
+    # Remove duplicates (keep first occurrence)
+    seen = set()
+    unique_services = []
+    for s in services:
+        if s["name"] not in seen:
+            seen.add(s["name"])
+            unique_services.append(s)
+
+    return {"services": unique_services}
 
 
 @router.get("/cloudflare")
