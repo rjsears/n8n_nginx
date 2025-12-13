@@ -89,7 +89,7 @@ async function handleLogout() {
             <button
               v-if="debugStore.isEnabled"
               @click="goToDebugSettings"
-              class="p-2 rounded-lg text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+              class="p-2 text-emerald-500 hover:text-emerald-400 transition-colors"
               title="Debug Mode Active - Click to disable"
             >
               <BugAntIcon class="h-5 w-5" />
