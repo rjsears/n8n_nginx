@@ -1162,9 +1162,9 @@ onUnmounted(() => {
           ref="terminalElement"
           :class="[
             'rounded-lg overflow-hidden',
-            terminalDarkMode ? 'bg-[#1a1b26]' : 'bg-white',
-            'min-h-[500px] h-[600px]'
+            terminalDarkMode ? 'bg-[#1a1b26]' : 'bg-white'
           ]"
+          style="height: 600px;"
         >
           <div v-if="!terminal" class="flex items-center justify-center h-full text-muted">
             <CommandLineIcon class="h-8 w-8 mr-2" />
@@ -1193,11 +1193,17 @@ onUnmounted(() => {
 .xterm {
   padding: 8px;
   height: 100% !important;
+  width: 100% !important;
 }
 .xterm-screen {
   height: 100% !important;
+  width: 100% !important;
 }
 .xterm-viewport {
+  height: 100% !important;
   overflow-y: auto !important;
+}
+.xterm-rows {
+  height: 100% !important;
 }
 </style>
