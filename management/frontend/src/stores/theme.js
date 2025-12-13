@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import api from '@/services/api'
 
 // Theme presets mapping to individual settings
@@ -11,17 +11,19 @@ const THEME_PRESETS = {
 }
 
 export const useThemeStore = defineStore('theme', () => {
-  // State
-  const currentPreset = ref(localStorage.getItem('theme_preset') || 'modern_light')
-  const layoutMode = ref('horizontal') // 'horizontal' or 'sidebar'
-  const colorMode = ref('light') // 'light' or 'dark'
-  const neonEffects = ref(false)
-  const sidebarCollapsed = ref(false)
+  // Internal state
+  const _currentPreset = ref(localStorage.getItem('theme_preset') || 'modern_light')
+  const _layoutMode = ref('horizontal') // 'horizontal' or 'sidebar'
+  const _colorMode = ref('light') // 'light' or 'dark'
+  const _neonEffects = ref(false)
+  const _sidebarCollapsed = ref(false)
 
-  // Getters
-  const isDark = computed(() => colorMode.value === 'dark')
-  const isNeon = computed(() => neonEffects.value && isDark.value)
-  const isSidebar = computed(() => layoutMode.value === 'sidebar')
+  // Read-only getters
+  const isDark = computed(() => _colorMode.value === 'dark')
+  const isNeon = computed(() => _neonEffects.value && isDark.value)
+  const isSidebar = computed(() => _layoutMode.value === 'sidebar')
+  const currentPreset = computed(() => _currentPreset.value)
+  const sidebarCollapsed = computed(() => _sidebarCollapsed.value)
 
   const themeClasses = computed(() => {
     const classes = []
@@ -32,69 +34,23 @@ export const useThemeStore = defineStore('theme', () => {
     return classes.join(' ')
   })
 
-  // Actions
-  function setPreset(presetName) {
-    if (!THEME_PRESETS[presetName]) return
+  // Writable computed properties for v-model binding
+  const layout = computed({
+    get: () => _layoutMode.value,
+    set: (val) => setLayoutMode(val)
+  })
 
-    const preset = THEME_PRESETS[presetName]
-    currentPreset.value = presetName
-    layoutMode.value = preset.layout
-    colorMode.value = preset.colorMode
-    neonEffects.value = preset.neonEffects
+  const colorMode = computed({
+    get: () => _colorMode.value,
+    set: (val) => setColorMode(val)
+  })
 
-    localStorage.setItem('theme_preset', presetName)
-    applyTheme()
-    saveToServer()
-  }
+  const neonEffects = computed({
+    get: () => _neonEffects.value,
+    set: (val) => setNeonEffects(val)
+  })
 
-  function setColorMode(mode) {
-    colorMode.value = mode
-    // Update preset to match if possible
-    updatePresetFromSettings()
-    applyTheme()
-    saveToServer()
-  }
-
-  function setLayoutMode(mode) {
-    layoutMode.value = mode
-    updatePresetFromSettings()
-    applyTheme()
-    saveToServer()
-  }
-
-  function toggleNeonEffects() {
-    neonEffects.value = !neonEffects.value
-    updatePresetFromSettings()
-    applyTheme()
-    saveToServer()
-  }
-
-  function toggleSidebar() {
-    sidebarCollapsed.value = !sidebarCollapsed.value
-    localStorage.setItem('sidebar_collapsed', sidebarCollapsed.value)
-  }
-
-  function toggleColorMode() {
-    setColorMode(colorMode.value === 'light' ? 'dark' : 'light')
-  }
-
-  function updatePresetFromSettings() {
-    // Find matching preset
-    for (const [name, preset] of Object.entries(THEME_PRESETS)) {
-      if (
-        preset.layout === layoutMode.value &&
-        preset.colorMode === colorMode.value &&
-        preset.neonEffects === neonEffects.value
-      ) {
-        currentPreset.value = name
-        localStorage.setItem('theme_preset', name)
-        return
-      }
-    }
-    // No match - custom combination
-    currentPreset.value = 'custom'
-  }
-
+  // Apply theme to DOM
   function applyTheme() {
     const html = document.documentElement
     const body = document.body
@@ -121,19 +77,86 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
+  // Update preset based on current settings
+  function updatePresetFromSettings() {
+    for (const [name, preset] of Object.entries(THEME_PRESETS)) {
+      if (
+        preset.layout === _layoutMode.value &&
+        preset.colorMode === _colorMode.value &&
+        preset.neonEffects === _neonEffects.value
+      ) {
+        _currentPreset.value = name
+        localStorage.setItem('theme_preset', name)
+        return
+      }
+    }
+    // No match - custom combination
+    _currentPreset.value = 'custom'
+  }
+
+  // Save to server
   async function saveToServer() {
     try {
       await api.put('/settings/appearance', {
         value: {
-          preset: currentPreset.value,
-          layout: layoutMode.value,
-          colorMode: colorMode.value,
-          neonEffects: neonEffects.value,
+          preset: _currentPreset.value,
+          layout: _layoutMode.value,
+          colorMode: _colorMode.value,
+          neonEffects: _neonEffects.value,
         }
       })
     } catch {
       // Ignore errors - local storage is fallback
     }
+  }
+
+  // Actions
+  function setPreset(presetName) {
+    if (!THEME_PRESETS[presetName]) return
+
+    const preset = THEME_PRESETS[presetName]
+    _currentPreset.value = presetName
+    _layoutMode.value = preset.layout
+    _colorMode.value = preset.colorMode
+    _neonEffects.value = preset.neonEffects
+
+    localStorage.setItem('theme_preset', presetName)
+    applyTheme()
+    saveToServer()
+  }
+
+  function setColorMode(mode) {
+    _colorMode.value = mode
+    updatePresetFromSettings()
+    applyTheme()
+    saveToServer()
+  }
+
+  function setLayoutMode(mode) {
+    _layoutMode.value = mode
+    updatePresetFromSettings()
+    applyTheme()
+    saveToServer()
+  }
+
+  function setNeonEffects(enabled) {
+    _neonEffects.value = enabled
+    updatePresetFromSettings()
+    applyTheme()
+    saveToServer()
+  }
+
+  function toggleNeonEffects() {
+    setNeonEffects(!_neonEffects.value)
+  }
+
+  function toggleSidebar() {
+    _sidebarCollapsed.value = !_sidebarCollapsed.value
+    localStorage.setItem('sidebar_collapsed', _sidebarCollapsed.value)
+  }
+
+  function toggleColorMode() {
+    setColorMode(_colorMode.value === 'light' ? 'dark' : 'light')
   }
 
   async function loadFromServer() {
@@ -144,9 +167,10 @@ export const useThemeStore = defineStore('theme', () => {
         if (settings.preset && THEME_PRESETS[settings.preset]) {
           setPreset(settings.preset)
         } else {
-          layoutMode.value = settings.layout || 'horizontal'
-          colorMode.value = settings.colorMode || 'light'
-          neonEffects.value = settings.neonEffects || false
+          _layoutMode.value = settings.layout || 'horizontal'
+          _colorMode.value = settings.colorMode || 'light'
+          _neonEffects.value = settings.neonEffects || false
+          updatePresetFromSettings()
           applyTheme()
         }
       }
@@ -167,36 +191,38 @@ export const useThemeStore = defineStore('theme', () => {
       // System preference
       if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
         setPreset('modern_dark')
+      } else {
+        // Apply default
+        applyTheme()
       }
     }
 
     if (savedCollapsed !== null) {
-      sidebarCollapsed.value = savedCollapsed === 'true'
+      _sidebarCollapsed.value = savedCollapsed === 'true'
     }
-
-    applyTheme()
   }
 
   return {
-    // State
+    // Read-only state
     currentPreset,
-    layoutMode,
-    colorMode,
-    neonEffects,
     sidebarCollapsed,
-    // Getters
+    // Computed getters
     isDark,
     isNeon,
     isSidebar,
     themeClasses,
-    // Computed properties for v-model binding
-    get layout() { return layoutMode.value },
-    set layout(val) { setLayoutMode(val) },
+    // Writable computed for v-model binding
+    layout,
+    colorMode,
+    neonEffects,
+    // Also expose internal refs for direct reading (legacy compatibility)
+    layoutMode: _layoutMode,
     // Actions
     setPreset,
     applyPreset: setPreset, // Alias for SettingsView compatibility
     setColorMode,
     setLayoutMode,
+    setNeonEffects,
     toggleNeonEffects,
     toggleSidebar,
     toggleColorMode,
