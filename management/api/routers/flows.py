@@ -66,7 +66,7 @@ async def list_flows(
 
         query = """
             SELECT id, name, active,
-                   COALESCE(jsonb_array_length(nodes), 0) as node_count,
+                   COALESCE(json_array_length(nodes), 0) as node_count,
                    "createdAt", "updatedAt"
             FROM workflow_entity
         """
