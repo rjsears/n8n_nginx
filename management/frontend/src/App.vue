@@ -63,7 +63,7 @@ onMounted(async () => {
 
 /* Light mode - slightly lighter borders */
 .border-\[var\(--color-border\)\] {
-  border-color: #d1d5db !important;
+  border-color: #9ca3af !important;
 }
 
 /* Dark mode CSS variables - applied directly so dark mode works
