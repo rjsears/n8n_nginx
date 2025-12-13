@@ -1011,31 +1011,38 @@ onUnmounted(() => {
                 <div
                   v-for="cert in healthData.ssl_certificates"
                   :key="cert.domain"
-                  class="flex justify-between items-center text-sm p-2 rounded bg-surface-hover"
+                  class="p-3 rounded-lg bg-surface-hover"
                 >
-                  <span class="font-medium text-primary truncate max-w-[150px]" :title="cert.domain">{{ cert.domain }}</span>
-                  <span
-                    :class="[
-                      'text-xs px-2 py-0.5 rounded',
-                      cert.days_until_expiry > 30 ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' :
-                      cert.days_until_expiry > 7 ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400' :
-                      'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
-                    ]"
-                  >
-                    {{ cert.days_until_expiry }}d
-                  </span>
+                  <div class="flex justify-between items-center text-sm mb-2">
+                    <span class="text-secondary">Domain</span>
+                    <span class="font-medium text-primary">{{ cert.domain }}</span>
+                  </div>
+                  <div class="flex justify-between items-center text-sm mb-2">
+                    <span class="text-secondary">Valid For</span>
+                    <span
+                      :class="[
+                        'font-medium',
+                        cert.days_until_expiry > 30 ? 'text-emerald-500' :
+                        cert.days_until_expiry > 7 ? 'text-amber-500' : 'text-red-500'
+                      ]"
+                    >
+                      {{ cert.days_until_expiry }} days
+                    </span>
+                  </div>
+                  <div class="flex justify-between items-center text-sm">
+                    <span class="text-secondary">Expires</span>
+                    <span class="font-medium text-primary text-xs">{{ cert.expires }}</span>
+                  </div>
                 </div>
               </div>
               <!-- Fallback: show from ssl details if no certificates array but domain exists -->
               <div v-else-if="healthData.checks?.ssl?.details?.domain" class="space-y-2">
                 <div class="flex justify-between items-center text-sm">
                   <span class="text-secondary">Domain</span>
-                  <span class="font-medium text-primary truncate max-w-[120px]" :title="healthData.checks?.ssl?.details?.domain">
-                    {{ healthData.checks?.ssl?.details?.domain }}
-                  </span>
+                  <span class="font-medium text-primary">{{ healthData.checks?.ssl?.details?.domain }}</span>
                 </div>
                 <div class="flex justify-between items-center text-sm">
-                  <span class="text-secondary">Expires In</span>
+                  <span class="text-secondary">Valid For</span>
                   <span
                     :class="[
                       'font-medium',
@@ -1049,7 +1056,7 @@ onUnmounted(() => {
               </div>
               <!-- No SSL data at all -->
               <div v-else class="text-sm text-muted">
-                {{ healthData.checks?.ssl?.details?.message || 'No certificates found' }}
+                {{ healthData.checks?.ssl?.details?.message || healthData.checks?.ssl?.details?.error || 'No certificates found' }}
               </div>
             </div>
           </Card>
@@ -1408,32 +1415,34 @@ onUnmounted(() => {
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- External Services -->
           <Card title="External Services" :neon="true">
-            <div v-if="externalServices.length > 0" class="flex flex-wrap gap-3">
+            <div v-if="externalServices.length > 0" class="grid grid-cols-1 gap-3">
               <a
                 v-for="service in externalServices"
                 :key="service.name"
                 :href="service.url"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="group flex items-center gap-3 p-3 bg-surface-hover rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-all"
+                class="group block p-4 bg-surface rounded-lg border border-[var(--color-border)] hover:border-blue-500 hover:shadow-md transition-all"
               >
-                <div :class="['p-2 rounded-lg', service.color || 'bg-blue-100 dark:bg-blue-500/20']">
-                  <LinkIcon :class="['h-4 w-4', service.iconColor || 'text-blue-500']" />
-                </div>
-                <div>
-                  <h4 class="font-medium text-primary group-hover:text-blue-500 transition-colors text-sm">{{ service.name }}</h4>
-                  <p class="text-xs text-muted">{{ service.description }}</p>
-                </div>
-                <div class="flex items-center gap-2 ml-2">
-                  <span
-                    :class="[
-                      'w-2 h-2 rounded-full',
-                      service.running ? 'bg-emerald-500' : 'bg-gray-400'
-                    ]"
-                  ></span>
-                  <svg class="h-4 w-4 text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
+                <div class="flex items-center gap-3">
+                  <div :class="['p-2 rounded-lg', service.color || 'bg-blue-100 dark:bg-blue-500/20']">
+                    <LinkIcon :class="['h-5 w-5', service.iconColor || 'text-blue-500']" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <h4 class="font-semibold text-primary group-hover:text-blue-500 transition-colors">{{ service.name }}</h4>
+                    <p class="text-xs text-muted">{{ service.description }}</p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span
+                      :class="[
+                        'w-2 h-2 rounded-full',
+                        service.running ? 'bg-emerald-500' : 'bg-gray-400'
+                      ]"
+                    ></span>
+                    <svg class="h-4 w-4 text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </div>
                 </div>
               </a>
             </div>
@@ -1800,15 +1809,14 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <!-- Terminal Window with fixed height -->
-        <div class="p-4">
+        <!-- Terminal Window - fills available viewport -->
+        <div class="p-4 terminal-container">
           <div
             ref="terminalElement"
             :class="[
-              'rounded-lg overflow-hidden',
+              'rounded-lg overflow-hidden terminal-window',
               terminalDarkMode ? 'bg-[#0d1117]' : 'bg-white'
             ]"
-            style="height: 600px;"
           >
             <div v-if="!terminal" class="flex items-center justify-center h-full text-muted">
               <CommandLineIcon class="h-8 w-8 mr-2" />
@@ -1830,6 +1838,17 @@ onUnmounted(() => {
 </template>
 
 <style>
+/* Terminal container and window sizing */
+.terminal-container {
+  padding: 1rem;
+}
+
+.terminal-window {
+  height: 500px;
+  min-height: 400px;
+  max-height: calc(100vh - 320px);
+}
+
 /* Terminal styling - ensure xterm fills container */
 .xterm {
   padding: 8px;
