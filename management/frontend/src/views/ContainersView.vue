@@ -393,7 +393,7 @@ onMounted(loadData)
               <LoadingSpinner v-if="logsDialog.loading" text="Loading logs..." />
               <pre
                 v-else
-                class="text-xs font-mono text-secondary whitespace-pre-wrap bg-gray-900 dark:bg-black p-4 rounded-lg overflow-auto"
+                class="text-xs font-mono text-gray-200 whitespace-pre-wrap bg-gray-900 dark:bg-black p-4 rounded-lg overflow-auto"
               >{{ logsDialog.logs || 'No logs available' }}</pre>
             </div>
           </div>
