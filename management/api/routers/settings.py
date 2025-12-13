@@ -370,8 +370,14 @@ async def get_env_variable(
             detail=f"Access to '{key}' is not allowed",
         )
 
-    env_vars = _read_env_file()
-    value = env_vars.get(key, "")
+    # First check runtime environment variable (from docker-compose)
+    value = os.environ.get(key, "")
+
+    # If not in runtime env, check the .env file
+    if not value:
+        env_vars = _read_env_file()
+        value = env_vars.get(key, "")
+
     config = ALLOWED_ENV_KEYS[key]
 
     return EnvVariableResponse(
@@ -430,7 +436,12 @@ async def list_env_variables(
     results = []
 
     for key, config in ALLOWED_ENV_KEYS.items():
-        value = env_vars.get(key, "")
+        # First check runtime environment variable (from docker-compose)
+        value = os.environ.get(key, "")
+        # If not in runtime env, check the .env file
+        if not value:
+            value = env_vars.get(key, "")
+
         results.append(EnvVariableResponse(
             key=key,
             is_set=bool(value),

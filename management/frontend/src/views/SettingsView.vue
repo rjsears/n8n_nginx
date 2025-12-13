@@ -116,7 +116,7 @@ const themePresets = [
 const tabs = [
   { id: 'appearance', name: 'Appearance', icon: PaintBrushIcon },
   { id: 'backup', name: 'Backup', icon: CircleStackIcon },
-  { id: 'notifications', name: 'Notifications', icon: BellIcon },
+  { id: 'notifications', name: 'System Notifications', icon: BellIcon },
   { id: 'security', name: 'Security', icon: ShieldCheckIcon },
   { id: 'account', name: 'Account', icon: UserIcon },
 ]
@@ -267,6 +267,26 @@ onMounted(async () => {
     <LoadingSpinner v-if="loading" size="lg" text="Loading settings..." class="py-12" />
 
     <template v-else>
+      <!-- Tabs -->
+      <div class="flex gap-1 p-1 bg-surface-hover rounded-lg overflow-x-auto">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          @click="activeTab = tab.id"
+          :class="[
+            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap',
+            activeTab === tab.id
+              ? themeStore.isNeon
+                ? 'bg-cyan-500/20 text-cyan-400'
+                : 'bg-surface text-primary shadow-sm'
+              : 'text-secondary hover:text-primary'
+          ]"
+        >
+          <component :is="tab.icon" class="h-4 w-4" />
+          {{ tab.name }}
+        </button>
+      </div>
+
       <!-- Quick Settings: Debug Mode & n8n API Key -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Debug Mode Card -->
@@ -376,26 +396,6 @@ onMounted(async () => {
             </button>
           </div>
         </Card>
-      </div>
-
-      <!-- Tabs -->
-      <div class="flex gap-1 p-1 bg-surface-hover rounded-lg overflow-x-auto">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          @click="activeTab = tab.id"
-          :class="[
-            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap',
-            activeTab === tab.id
-              ? themeStore.isNeon
-                ? 'bg-cyan-500/20 text-cyan-400'
-                : 'bg-surface text-primary shadow-sm'
-              : 'text-secondary hover:text-primary'
-          ]"
-        >
-          <component :is="tab.icon" class="h-4 w-4" />
-          {{ tab.name }}
-        </button>
       </div>
 
       <!-- Appearance Tab -->
