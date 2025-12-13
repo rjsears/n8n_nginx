@@ -16,6 +16,7 @@ import {
   SunIcon,
   MoonIcon,
   InformationCircleIcon,
+  KeyIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -33,6 +34,7 @@ const navItems = [
   { name: 'Containers', route: 'containers', icon: ServerStackIcon },
   { name: 'Flows', route: 'flows', icon: CubeTransparentIcon },
   { name: 'System', route: 'system', icon: CpuChipIcon },
+  { name: 'n8n API / Debug', route: 'api-debug', icon: KeyIcon },
   { name: 'Settings', route: 'settings', icon: Cog6ToothIcon },
 ]
 

@@ -22,7 +22,6 @@ import {
   MoonIcon,
   ComputerDesktopIcon,
   SparklesIcon,
-  BugAntIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -45,16 +44,6 @@ const showPasswords = ref({
   confirm: false,
 })
 const changingPassword = ref(false)
-
-// System settings (debug mode, API keys)
-const debugMode = ref(false)
-const debugModeLoading = ref(false)
-const n8nApiKey = ref('')
-const n8nApiKeyMasked = ref('')
-const n8nApiKeyIsSet = ref(false)
-const n8nApiKeyLoading = ref(false)
-const showN8nApiKey = ref(false)
-const n8nApiKeyEditing = ref(false)
 
 // Settings
 const settings = ref({
@@ -178,74 +167,8 @@ function applyThemePreset(presetId) {
   notificationStore.success('Theme applied')
 }
 
-// System settings functions
-async function loadSystemSettings() {
-  try {
-    // Load debug mode
-    const debugRes = await api.settings.getDebugMode()
-    debugMode.value = debugRes.data.enabled
-
-    // Load n8n API key status
-    const apiKeyRes = await api.settings.getEnvVariable('N8N_API_KEY')
-    n8nApiKeyIsSet.value = apiKeyRes.data.is_set
-    n8nApiKeyMasked.value = apiKeyRes.data.masked_value || ''
-  } catch (error) {
-    console.error('Failed to load system settings:', error)
-  }
-}
-
-async function toggleDebugMode() {
-  debugModeLoading.value = true
-  try {
-    const newValue = !debugMode.value
-    await api.settings.setDebugMode(newValue)
-    debugMode.value = newValue
-    notificationStore.success(`Debug mode ${newValue ? 'enabled' : 'disabled'}`)
-  } catch (error) {
-    notificationStore.error('Failed to update debug mode')
-  } finally {
-    debugModeLoading.value = false
-  }
-}
-
-function startEditN8nApiKey() {
-  n8nApiKeyEditing.value = true
-  n8nApiKey.value = ''
-}
-
-function cancelEditN8nApiKey() {
-  n8nApiKeyEditing.value = false
-  n8nApiKey.value = ''
-  showN8nApiKey.value = false
-}
-
-async function saveN8nApiKey() {
-  if (!n8nApiKey.value.trim()) {
-    notificationStore.error('API key cannot be empty')
-    return
-  }
-
-  n8nApiKeyLoading.value = true
-  try {
-    await api.settings.updateEnvVariable('N8N_API_KEY', n8nApiKey.value.trim())
-    n8nApiKeyIsSet.value = true
-    n8nApiKeyMasked.value = n8nApiKey.value.length > 8
-      ? `${n8nApiKey.value.slice(0, 4)}...${n8nApiKey.value.slice(-4)}`
-      : '*'.repeat(n8nApiKey.value.length)
-    n8nApiKeyEditing.value = false
-    n8nApiKey.value = ''
-    showN8nApiKey.value = false
-    notificationStore.success('n8n API key saved successfully')
-  } catch (error) {
-    notificationStore.error(error.response?.data?.detail || 'Failed to save API key')
-  } finally {
-    n8nApiKeyLoading.value = false
-  }
-}
-
 onMounted(async () => {
   await loadSettings()
-  await loadSystemSettings()
 })
 </script>
 
@@ -285,126 +208,6 @@ onMounted(async () => {
           <component :is="tab.icon" class="h-4 w-4" />
           {{ tab.name }}
         </button>
-      </div>
-
-      <!-- Quick Settings: Debug Mode & n8n API Key -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Debug Mode Card -->
-        <Card :neon="true" :padding="false">
-          <template #header>
-            <div class="flex items-center gap-2 px-4 py-3">
-              <BugAntIcon class="h-5 w-5 text-amber-500" />
-              <h3 class="font-semibold text-primary">Debug Mode</h3>
-            </div>
-          </template>
-          <div class="p-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="text-sm text-secondary">
-                  Shows detailed error messages and enables verbose logging.
-                </p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer ml-4">
-                <input
-                  type="checkbox"
-                  :checked="debugMode"
-                  @change="toggleDebugMode"
-                  :disabled="debugModeLoading"
-                  class="sr-only peer"
-                />
-                <div
-                  :class="[
-                    `w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-amber-500`,
-                    debugModeLoading ? 'opacity-50' : ''
-                  ]"
-                ></div>
-              </label>
-            </div>
-            <div v-if="debugMode" class="mt-3 p-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-              <p class="text-xs text-amber-700 dark:text-amber-400">
-                Debug mode is active. Check the browser console for detailed logs.
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <!-- n8n API Key Card -->
-        <Card :neon="true" :padding="false">
-          <template #header>
-            <div class="flex items-center gap-2 px-4 py-3">
-              <KeyIcon class="h-5 w-5 text-blue-500" />
-              <h3 class="font-semibold text-primary">n8n API Key</h3>
-            </div>
-          </template>
-          <div class="p-4">
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-sm text-secondary">Status</span>
-              <span
-                :class="[
-                  'flex items-center gap-2 text-sm font-medium',
-                  n8nApiKeyIsSet ? 'text-emerald-500' : 'text-amber-500'
-                ]"
-              >
-                <span :class="['w-2 h-2 rounded-full', n8nApiKeyIsSet ? 'bg-emerald-500' : 'bg-amber-500']"></span>
-                {{ n8nApiKeyIsSet ? 'Configured' : 'Not Set' }}
-              </span>
-            </div>
-            <div v-if="n8nApiKeyIsSet && !n8nApiKeyEditing" class="flex items-center justify-between mb-3">
-              <span class="text-sm text-secondary">Current Key</span>
-              <span class="font-mono text-xs text-primary">{{ n8nApiKeyMasked }}</span>
-            </div>
-
-            <!-- Edit Form -->
-            <div v-if="n8nApiKeyEditing" class="space-y-3">
-              <div class="relative">
-                <KeyIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
-                <input
-                  v-model="n8nApiKey"
-                  :type="showN8nApiKey ? 'text' : 'password'"
-                  placeholder="Enter your n8n API key"
-                  class="input-field pl-9 pr-9 w-full text-sm"
-                />
-                <button
-                  type="button"
-                  @click="showN8nApiKey = !showN8nApiKey"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-secondary"
-                >
-                  <EyeSlashIcon v-if="showN8nApiKey" class="h-4 w-4" />
-                  <EyeIcon v-else class="h-4 w-4" />
-                </button>
-              </div>
-              <div class="flex gap-2">
-                <button
-                  @click="saveN8nApiKey"
-                  :disabled="n8nApiKeyLoading || !n8nApiKey.trim()"
-                  class="btn-primary text-sm py-1.5"
-                >
-                  {{ n8nApiKeyLoading ? 'Saving...' : 'Save' }}
-                </button>
-                <button
-                  @click="cancelEditN8nApiKey"
-                  :disabled="n8nApiKeyLoading"
-                  class="btn-secondary text-sm py-1.5"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-
-            <button
-              v-if="!n8nApiKeyEditing"
-              @click="startEditN8nApiKey"
-              :class="[
-                'text-sm py-1.5 w-full rounded-lg font-medium transition-all',
-                n8nApiKeyIsSet
-                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                  : 'btn-primary'
-              ]"
-            >
-              {{ n8nApiKeyIsSet ? 'Update API Key' : 'Set API Key' }}
-            </button>
-          </div>
-        </Card>
       </div>
 
       <!-- Appearance Tab -->

@@ -10,6 +10,7 @@ import ContainersView from '@/views/ContainersView.vue'
 import FlowsView from '@/views/FlowsView.vue'
 import SystemView from '@/views/SystemView.vue'
 import SettingsView from '@/views/SettingsView.vue'
+import ApiDebugView from '@/views/ApiDebugView.vue'
 
 const routes = [
   {
@@ -58,6 +59,12 @@ const routes = [
     path: '/settings',
     name: 'settings',
     component: SettingsView,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/api-debug',
+    name: 'api-debug',
+    component: ApiDebugView,
     meta: { requiresAuth: true },
   },
   {
