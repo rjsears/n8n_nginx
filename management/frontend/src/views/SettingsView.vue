@@ -495,50 +495,53 @@ onMounted(loadSettings)
         <Card title="Session Settings" :neon="true">
           <div class="space-y-4">
             <div class="flex items-center justify-between">
-              <div>
+              <div class="flex-1">
                 <p class="font-medium text-primary">Session Timeout</p>
                 <p class="text-sm text-secondary">Minutes of inactivity before logout</p>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 w-32 justify-end">
                 <input
                   type="number"
                   v-model="settings.security.session_timeout"
                   min="5"
                   max="480"
-                  class="input-field w-24"
+                  class="input-field w-20 text-right"
                 />
-                <span class="text-secondary">min</span>
+                <span class="text-secondary w-8">min</span>
               </div>
             </div>
 
             <div class="flex items-center justify-between">
-              <div>
+              <div class="flex-1">
                 <p class="font-medium text-primary">Max Login Attempts</p>
                 <p class="text-sm text-secondary">Failed attempts before lockout</p>
               </div>
-              <input
-                type="number"
-                v-model="settings.security.max_login_attempts"
-                min="3"
-                max="10"
-                class="input-field w-24"
-              />
+              <div class="flex items-center gap-2 w-32 justify-end">
+                <input
+                  type="number"
+                  v-model="settings.security.max_login_attempts"
+                  min="3"
+                  max="10"
+                  class="input-field w-20 text-right"
+                />
+                <span class="text-secondary w-8"></span>
+              </div>
             </div>
 
             <div class="flex items-center justify-between">
-              <div>
+              <div class="flex-1">
                 <p class="font-medium text-primary">Lockout Duration</p>
                 <p class="text-sm text-secondary">Minutes to wait after lockout</p>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 w-32 justify-end">
                 <input
                   type="number"
                   v-model="settings.security.lockout_duration"
                   min="5"
                   max="60"
-                  class="input-field w-24"
+                  class="input-field w-20 text-right"
                 />
-                <span class="text-secondary">min</span>
+                <span class="text-secondary w-8">min</span>
               </div>
             </div>
           </div>
