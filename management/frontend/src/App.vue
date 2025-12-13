@@ -54,3 +54,65 @@ onMounted(async () => {
     <ToastContainer />
   </div>
 </template>
+
+<style>
+/* Dark mode CSS variables - applied directly so dark mode works
+   while light mode keeps its current appearance */
+.dark {
+  --color-bg-primary: #020617;
+  --color-bg-secondary: #0f172a;
+  --color-bg-tertiary: #1e293b;
+  --color-surface: #1e293b;
+  --color-surface-hover: #334155;
+  --color-border: #334155;
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* Accent colors - brighter for dark mode */
+  --color-accent-primary: #60a5fa;
+  --color-accent-success: #34d399;
+  --color-accent-warning: #fbbf24;
+  --color-accent-danger: #f87171;
+  --color-accent-info: #22d3ee;
+
+  /* Status colors - brighter for dark mode */
+  --color-status-running: #34d399;
+  --color-status-stopped: #9ca3af;
+  --color-status-error: #f87171;
+  --color-status-warning: #fbbf24;
+}
+
+/* Dark mode specific overrides for Tailwind classes */
+.dark .bg-surface {
+  background-color: var(--color-surface);
+}
+
+.dark .bg-surface-hover {
+  background-color: var(--color-surface-hover);
+}
+
+.dark .bg-background-primary {
+  background-color: var(--color-bg-primary);
+}
+
+.dark .bg-background-secondary {
+  background-color: var(--color-bg-secondary);
+}
+
+.dark .text-primary {
+  color: var(--color-text-primary);
+}
+
+.dark .text-secondary {
+  color: var(--color-text-secondary);
+}
+
+.dark .text-muted {
+  color: var(--color-text-muted);
+}
+
+.dark .border-\[var\(--color-border\)\] {
+  border-color: var(--color-border);
+}
+</style>
