@@ -189,8 +189,12 @@ export const useThemeStore = defineStore('theme', () => {
     isNeon,
     isSidebar,
     themeClasses,
+    // Computed properties for v-model binding
+    get layout() { return layoutMode.value },
+    set layout(val) { setLayoutMode(val) },
     // Actions
     setPreset,
+    applyPreset: setPreset, // Alias for SettingsView compatibility
     setColorMode,
     setLayoutMode,
     toggleNeonEffects,

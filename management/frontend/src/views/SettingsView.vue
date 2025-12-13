@@ -158,9 +158,11 @@ async function loadSettings() {
 async function saveSettings(section) {
   saving.value = true
   try {
-    await api.settings.update(section, settings.value[section])
+    // Backend expects {value: data} format per SettingUpdate schema
+    await api.settings.update(section, { value: settings.value[section] })
     notificationStore.success('Settings saved successfully')
   } catch (error) {
+    console.error('Failed to save settings:', error)
     notificationStore.error('Failed to save settings')
   } finally {
     saving.value = false

@@ -630,23 +630,30 @@ async def update_setting(
     user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update a setting by key."""
+    """Update or create a setting by key."""
     result = await db.execute(
         select(SettingsModel).where(SettingsModel.key == key)
     )
     setting = result.scalar_one_or_none()
 
-    if not setting:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Setting not found",
+    if setting:
+        # Update existing setting
+        setting.value = update.value
+        if update.description is not None:
+            setting.description = update.description
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = user.id
+    else:
+        # Create new setting if it doesn't exist
+        setting = SettingsModel(
+            key=key,
+            value=update.value,
+            category="user",
+            description=update.description or f"User setting: {key}",
+            is_secret=False,
+            updated_by=user.id,
         )
-
-    setting.value = update.value
-    if update.description is not None:
-        setting.description = update.description
-    setting.updated_at = datetime.now(UTC)
-    setting.updated_by = user.id
+        db.add(setting)
 
     await db.commit()
     await db.refresh(setting)
