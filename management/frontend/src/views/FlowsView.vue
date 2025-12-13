@@ -165,19 +165,6 @@ onMounted(loadData)
     <LoadingSpinner v-if="loading" size="lg" text="Loading workflows..." class="py-12" />
 
     <template v-else>
-      <!-- API Notice -->
-      <div class="flex items-start gap-3 p-4 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-        <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
-        <div class="text-sm">
-          <p class="font-medium text-blue-800 dark:text-blue-300">n8n API Integration</p>
-          <p class="text-blue-700 dark:text-blue-400 mt-1">
-            Activate/deactivate and execute functions require <strong>N8N_API_KEY</strong> to be configured.
-            The execute feature may not work for all workflow types &mdash; workflows with webhook triggers
-            should be triggered via their webhook URL instead.
-          </p>
-        </div>
-      </div>
-
       <!-- Stats Grid -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card :neon="true" :padding="false">
@@ -402,6 +389,19 @@ onMounted(loadData)
           </table>
         </div>
       </Card>
+
+      <!-- API Notice -->
+      <div class="flex items-start gap-3 p-4 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+        <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+        <div class="text-sm">
+          <p class="font-medium text-blue-800 dark:text-blue-300">n8n API Integration</p>
+          <p class="text-blue-700 dark:text-blue-400 mt-1">
+            Activate/deactivate and execute functions require <strong>N8N_API_KEY</strong> to be configured.
+            The execute feature may not work for all workflow types &mdash; workflows with webhook triggers
+            should be triggered via their webhook URL instead.
+          </p>
+        </div>
+      </div>
     </template>
   </div>
 </template>
