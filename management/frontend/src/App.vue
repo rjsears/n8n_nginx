@@ -74,7 +74,7 @@ onMounted(async () => {
   --color-bg-tertiary: #1e293b;
   --color-surface: #1e293b;
   --color-surface-hover: #334155;
-  --color-border: #334155;
+  --color-border: #64748b;
   --color-text-primary: #f1f5f9;
   --color-text-secondary: #94a3b8;
   --color-text-muted: #64748b;
