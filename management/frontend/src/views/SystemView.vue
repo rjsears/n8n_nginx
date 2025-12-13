@@ -226,6 +226,11 @@ const showTailscaleKey = ref(false)
 // Container restart state
 const restartingContainer = ref('')
 
+// SSL Certificate renewal state
+const sslRenewModal = ref(false)
+const sslRenewing = ref(false)
+const sslRenewalResult = ref(null)
+
 // Terminal state
 const terminalTargets = ref([])
 const selectedTarget = ref('')
@@ -655,6 +660,43 @@ async function restartContainer(containerName, displayName) {
     notificationStore.error(error.response?.data?.detail || `Failed to restart ${displayName}`)
   } finally {
     restartingContainer.value = ''
+  }
+}
+
+// SSL Certificate Renewal
+function openSslRenewModal() {
+  sslRenewalResult.value = null
+  sslRenewModal.value = true
+}
+
+function closeSslRenewModal() {
+  sslRenewModal.value = false
+  sslRenewalResult.value = null
+}
+
+async function forceRenewSslCertificate() {
+  sslRenewing.value = true
+  sslRenewalResult.value = null
+
+  try {
+    const response = await api.system.sslRenew()
+    sslRenewalResult.value = response.data
+
+    if (response.data.success) {
+      notificationStore.success('SSL certificate renewed successfully')
+      // Reload health data to show updated certificate info
+      setTimeout(() => loadHealthData(), 2000)
+    } else {
+      notificationStore.error(response.data.message || 'Certificate renewal failed')
+    }
+  } catch (error) {
+    sslRenewalResult.value = {
+      success: false,
+      message: error.response?.data?.detail || 'Failed to renew certificate',
+    }
+    notificationStore.error(error.response?.data?.detail || 'Failed to renew certificate')
+  } finally {
+    sslRenewing.value = false
   }
 }
 
@@ -1252,18 +1294,32 @@ onUnmounted(() => {
                   <h3 class="font-semibold text-primary">SSL Certificates</h3>
                   <p class="text-xs text-muted">Certificate validity</p>
                 </div>
-                <span
-                  :class="[
-                    'px-2 py-1 rounded-full text-xs font-medium',
-                    healthData.checks?.ssl?.status === 'ok'
-                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
-                      : healthData.checks?.ssl?.status === 'warning'
-                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
-                        : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
-                  ]"
-                >
-                  {{ healthData.checks?.ssl?.status?.toUpperCase() || 'N/A' }}
-                </span>
+                <div class="flex items-center gap-2">
+                  <button
+                    @click="openSslRenewModal"
+                    :class="[
+                      'px-3 py-1.5 rounded-full text-xs font-medium transition-all shadow-sm flex items-center gap-1.5',
+                      healthData.checks?.ssl?.status === 'ok'
+                        ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                        : 'bg-amber-500 hover:bg-amber-600 text-white'
+                    ]"
+                  >
+                    <ArrowPathIcon class="h-3.5 w-3.5" />
+                    Force Renew
+                  </button>
+                  <span
+                    :class="[
+                      'px-2 py-1 rounded-full text-xs font-medium',
+                      healthData.checks?.ssl?.status === 'ok'
+                        ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                        : healthData.checks?.ssl?.status === 'warning'
+                          ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
+                          : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                    ]"
+                  >
+                    {{ healthData.checks?.ssl?.status?.toUpperCase() || 'N/A' }}
+                  </span>
+                </div>
               </div>
               <!-- Show certificates from array if available -->
               <div v-if="healthData.ssl_certificates?.length" class="space-y-2">
@@ -2292,6 +2348,157 @@ onUnmounted(() => {
               class="btn-primary"
             >
               {{ tailscaleKeyLoading ? 'Saving...' : 'Save Key' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- SSL Certificate Renewal Modal -->
+    <Teleport to="body">
+      <div
+        v-if="sslRenewModal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      >
+        <div class="fixed inset-0 bg-black/50" @click="!sslRenewing && closeSslRenewModal()"></div>
+        <div class="relative bg-surface rounded-xl shadow-2xl max-w-lg w-full p-6 border border-[var(--color-border)]">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
+              <LockClosedIcon class="h-6 w-6 text-emerald-500" />
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-primary">Force Renew SSL Certificate</h3>
+              <p class="text-sm text-muted">Request new certificate from Let's Encrypt</p>
+            </div>
+          </div>
+
+          <!-- Current Certificate Info -->
+          <div v-if="!sslRenewalResult" class="space-y-4">
+            <div class="p-4 rounded-lg bg-surface-hover">
+              <h4 class="text-sm font-medium text-primary mb-3">Current Certificate</h4>
+              <div v-if="healthData.ssl_certificates?.length" class="space-y-2">
+                <div
+                  v-for="cert in healthData.ssl_certificates"
+                  :key="cert.domain"
+                  class="text-sm"
+                >
+                  <div class="flex justify-between mb-1">
+                    <span class="text-secondary">Domain</span>
+                    <span class="font-medium text-primary">{{ cert.domain }}</span>
+                  </div>
+                  <div class="flex justify-between mb-1">
+                    <span class="text-secondary">Expires In</span>
+                    <span
+                      :class="[
+                        'font-medium',
+                        cert.days_until_expiry > 30 ? 'text-emerald-500' :
+                        cert.days_until_expiry > 7 ? 'text-amber-500' : 'text-red-500'
+                      ]"
+                    >
+                      {{ cert.days_until_expiry }} days
+                    </span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-secondary">Expiry Date</span>
+                    <span class="font-medium text-primary text-xs">{{ cert.expires }}</span>
+                  </div>
+                </div>
+              </div>
+              <div v-else-if="healthData.checks?.ssl?.details?.days_until_expiry" class="text-sm">
+                <div class="flex justify-between mb-1">
+                  <span class="text-secondary">Domain</span>
+                  <span class="font-medium text-primary">{{ healthData.checks?.ssl?.details?.domain || 'N/A' }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-secondary">Expires In</span>
+                  <span
+                    :class="[
+                      'font-medium',
+                      (healthData.checks?.ssl?.details?.days_until_expiry || 0) > 30 ? 'text-emerald-500' :
+                      (healthData.checks?.ssl?.details?.days_until_expiry || 0) > 7 ? 'text-amber-500' : 'text-red-500'
+                    ]"
+                  >
+                    {{ healthData.checks?.ssl?.details?.days_until_expiry || 0 }} days
+                  </span>
+                </div>
+              </div>
+              <div v-else class="text-sm text-muted">
+                No certificate information available
+              </div>
+            </div>
+
+            <!-- Warning -->
+            <div class="p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+              <div class="flex gap-2">
+                <ExclamationTriangleIcon class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div class="text-sm text-amber-700 dark:text-amber-400">
+                  <p class="font-medium mb-1">Important:</p>
+                  <ul class="list-disc list-inside space-y-1 text-xs">
+                    <li>This will request a new certificate from Let's Encrypt</li>
+                    <li>Let's Encrypt has rate limits (5 certificates per domain per week)</li>
+                    <li>Nginx will be automatically reloaded after renewal</li>
+                    <li>This may take 30-60 seconds to complete</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Renewal Result -->
+          <div v-else class="space-y-4">
+            <div
+              :class="[
+                'p-4 rounded-lg',
+                sslRenewalResult.success
+                  ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30'
+                  : 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30'
+              ]"
+            >
+              <div class="flex items-center gap-2 mb-2">
+                <CheckCircleIcon v-if="sslRenewalResult.success" class="h-5 w-5 text-emerald-500" />
+                <XCircleIcon v-else class="h-5 w-5 text-red-500" />
+                <span
+                  :class="[
+                    'font-medium',
+                    sslRenewalResult.success ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'
+                  ]"
+                >
+                  {{ sslRenewalResult.success ? 'Renewal Successful' : 'Renewal Failed' }}
+                </span>
+              </div>
+              <p class="text-sm text-secondary">{{ sslRenewalResult.message }}</p>
+              <div v-if="sslRenewalResult.nginx_reloaded" class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+                Nginx has been reloaded to apply the new certificate.
+              </div>
+            </div>
+
+            <!-- Detailed Output (collapsible) -->
+            <details v-if="sslRenewalResult.renewal_output" class="group">
+              <summary class="cursor-pointer text-sm text-secondary hover:text-primary flex items-center gap-1">
+                <ChevronDownIcon class="h-4 w-4 transition-transform group-open:rotate-180" />
+                View detailed output
+              </summary>
+              <pre class="mt-2 p-3 rounded-lg bg-gray-900 text-gray-100 text-xs overflow-auto max-h-48 font-mono">{{ sslRenewalResult.renewal_output }}</pre>
+            </details>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex gap-3 justify-end mt-6">
+            <button
+              @click="closeSslRenewModal"
+              :disabled="sslRenewing"
+              class="btn-secondary"
+            >
+              {{ sslRenewalResult ? 'Close' : 'Cancel' }}
+            </button>
+            <button
+              v-if="!sslRenewalResult"
+              @click="forceRenewSslCertificate"
+              :disabled="sslRenewing"
+              class="btn-primary flex items-center gap-2"
+            >
+              <ArrowPathIcon v-if="sslRenewing" class="h-4 w-4 animate-spin" />
+              {{ sslRenewing ? 'Renewing...' : 'Force Renew' }}
             </button>
           </div>
         </div>

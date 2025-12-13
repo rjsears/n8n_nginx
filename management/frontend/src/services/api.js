@@ -84,6 +84,7 @@ export const systemApi = {
   audit: (params) => api.get('/system/audit', { params }),
   network: () => api.get('/system/network'),
   ssl: () => api.get('/system/ssl'),
+  sslRenew: () => api.post('/system/ssl/renew'),
   cloudflare: () => api.get('/system/cloudflare'),
   tailscale: () => api.get('/system/tailscale'),
   terminalTargets: () => api.get('/system/terminal/targets'),

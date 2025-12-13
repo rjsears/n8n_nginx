@@ -547,6 +547,106 @@ async def get_ssl_info(
     return ssl_info
 
 
+@router.post("/ssl/renew")
+async def force_renew_ssl_certificate(
+    _=Depends(get_current_user),
+):
+    """
+    Force renewal of SSL certificates using certbot.
+    After successful renewal, nginx is reloaded to apply new certificates.
+    """
+    import docker
+    import logging
+
+    logger = logging.getLogger(__name__)
+    result = {
+        "success": False,
+        "message": "",
+        "renewal_output": "",
+        "nginx_reloaded": False,
+    }
+
+    try:
+        client = docker.from_env()
+
+        # Find certbot container
+        try:
+            certbot_container = client.containers.get("n8n_certbot")
+        except docker.errors.NotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Certbot container (n8n_certbot) not found. Is it running?",
+            )
+
+        if certbot_container.status != "running":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Certbot container is not running (status: {certbot_container.status})",
+            )
+
+        # Run certbot renew --force-renewal
+        logger.info("Starting forced SSL certificate renewal...")
+        exec_result = certbot_container.exec_run(
+            cmd="certbot renew --force-renewal",
+            demux=True,
+        )
+
+        stdout = exec_result.output[0].decode("utf-8") if exec_result.output[0] else ""
+        stderr = exec_result.output[1].decode("utf-8") if exec_result.output[1] else ""
+        renewal_output = stdout + stderr
+
+        result["renewal_output"] = renewal_output
+
+        if exec_result.exit_code != 0:
+            logger.error(f"Certbot renewal failed with exit code {exec_result.exit_code}: {renewal_output}")
+            result["message"] = f"Certificate renewal failed (exit code {exec_result.exit_code})"
+            return result
+
+        logger.info("Certificate renewal completed successfully")
+
+        # Now reload nginx to apply new certificates
+        try:
+            nginx_container = client.containers.get("n8n_nginx")
+            if nginx_container.status == "running":
+                reload_result = nginx_container.exec_run(
+                    cmd="nginx -s reload",
+                    demux=True,
+                )
+                if reload_result.exit_code == 0:
+                    result["nginx_reloaded"] = True
+                    logger.info("Nginx reloaded successfully")
+                else:
+                    reload_err = reload_result.output[1].decode("utf-8") if reload_result.output[1] else ""
+                    logger.warning(f"Nginx reload failed: {reload_err}")
+                    result["message"] = "Certificate renewed but nginx reload failed"
+                    result["success"] = True  # Renewal succeeded even if reload failed
+                    return result
+        except docker.errors.NotFound:
+            logger.warning("Nginx container not found for reload")
+            result["message"] = "Certificate renewed but nginx container not found for reload"
+            result["success"] = True
+            return result
+
+        result["success"] = True
+        result["message"] = "Certificate renewed and nginx reloaded successfully"
+        return result
+
+    except docker.errors.APIError as e:
+        logger.error(f"Docker API error during certificate renewal: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Docker error: {str(e)}",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during certificate renewal: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}",
+        )
+
+
 @router.get("/terminal/targets")
 async def get_terminal_targets(
     _=Depends(get_current_user),
