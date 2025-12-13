@@ -25,6 +25,8 @@ import {
   XMarkIcon,
   CloudIcon,
   LinkIcon,
+  SunIcon,
+  MoonIcon,
 } from '@heroicons/vue/24/outline'
 import { Line } from 'vue-chartjs'
 import {
@@ -146,9 +148,60 @@ const selectedTarget = ref('')
 const terminalConnected = ref(false)
 const terminalConnecting = ref(false)
 const terminalElement = ref(null)
+const terminalDarkMode = ref(true) // Terminal theme preference (default dark)
 let terminal = null
 let fitAddon = null
 let websocket = null
+
+// Terminal theme definitions
+const terminalThemes = {
+  dark: {
+    background: '#1a1b26',
+    foreground: '#a9b1d6',
+    cursor: '#c0caf5',
+    cursorAccent: '#1a1b26',
+    selection: 'rgba(99, 117, 171, 0.3)',
+    black: '#414868',
+    red: '#f7768e',
+    green: '#9ece6a',
+    yellow: '#e0af68',
+    blue: '#7aa2f7',
+    magenta: '#bb9af7',
+    cyan: '#7dcfff',
+    white: '#c0caf5',
+    brightBlack: '#414868',
+    brightRed: '#f7768e',
+    brightGreen: '#9ece6a',
+    brightYellow: '#e0af68',
+    brightBlue: '#7aa2f7',
+    brightMagenta: '#bb9af7',
+    brightCyan: '#7dcfff',
+    brightWhite: '#c0caf5',
+  },
+  light: {
+    background: '#ffffff',
+    foreground: '#24292e',
+    cursor: '#24292e',
+    cursorAccent: '#ffffff',
+    selection: 'rgba(0, 0, 0, 0.15)',
+    black: '#24292e',
+    red: '#d73a49',
+    green: '#22863a',
+    yellow: '#b08800',
+    blue: '#0366d6',
+    magenta: '#6f42c1',
+    cyan: '#1b7c83',
+    white: '#6a737d',
+    brightBlack: '#586069',
+    brightRed: '#cb2431',
+    brightGreen: '#28a745',
+    brightYellow: '#dbab09',
+    brightBlue: '#2188ff',
+    brightMagenta: '#8a63d2',
+    brightCyan: '#3192aa',
+    brightWhite: '#959da5',
+  },
+}
 
 // Chart colors based on theme
 const chartColors = computed(() => {
@@ -325,33 +378,7 @@ async function initTerminal() {
 
     terminal = new Terminal({
       cursorBlink: true,
-      theme: themeStore.isDark ? {
-        background: '#1a1b26',
-        foreground: '#a9b1d6',
-        cursor: '#c0caf5',
-        cursorAccent: '#1a1b26',
-        selection: 'rgba(99, 117, 171, 0.3)',
-        black: '#414868',
-        red: '#f7768e',
-        green: '#9ece6a',
-        yellow: '#e0af68',
-        blue: '#7aa2f7',
-        magenta: '#bb9af7',
-        cyan: '#7dcfff',
-        white: '#c0caf5',
-        brightBlack: '#414868',
-        brightRed: '#f7768e',
-        brightGreen: '#9ece6a',
-        brightYellow: '#e0af68',
-        brightBlue: '#7aa2f7',
-        brightMagenta: '#bb9af7',
-        brightCyan: '#7dcfff',
-        brightWhite: '#c0caf5',
-      } : {
-        background: '#ffffff',
-        foreground: '#24292e',
-        cursor: '#24292e',
-      },
+      theme: terminalDarkMode.value ? terminalThemes.dark : terminalThemes.light,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
     })
@@ -467,6 +494,13 @@ function disconnectTerminal() {
     websocket = null
   }
   terminalConnected.value = false
+}
+
+function toggleTerminalTheme() {
+  terminalDarkMode.value = !terminalDarkMode.value
+  if (terminal) {
+    terminal.options.theme = terminalDarkMode.value ? terminalThemes.dark : terminalThemes.light
+  }
 }
 
 // Watch for tab changes
@@ -1024,6 +1058,24 @@ onUnmounted(() => {
               </option>
             </select>
           </div>
+
+          <!-- Theme Toggle -->
+          <div class="pt-6">
+            <button
+              @click="toggleTerminalTheme"
+              :class="[
+                'p-2 rounded-lg transition-colors',
+                terminalDarkMode
+                  ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              ]"
+              :title="terminalDarkMode ? 'Switch to light theme' : 'Switch to dark theme'"
+            >
+              <SunIcon v-if="terminalDarkMode" class="h-5 w-5" />
+              <MoonIcon v-else class="h-5 w-5" />
+            </button>
+          </div>
+
           <div class="pt-6">
             <button
               v-if="!terminalConnected"
@@ -1050,7 +1102,7 @@ onUnmounted(() => {
           ref="terminalElement"
           :class="[
             'rounded-lg overflow-hidden',
-            themeStore.isDark ? 'bg-[#1a1b26]' : 'bg-white',
+            terminalDarkMode ? 'bg-[#1a1b26]' : 'bg-white',
             'min-h-[400px] h-[500px]'
           ]"
         >
