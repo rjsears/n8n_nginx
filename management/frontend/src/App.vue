@@ -3,6 +3,7 @@ import { onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { useDebugStore } from '@/stores/debug'
 import HorizontalLayout from '@/components/layouts/HorizontalLayout.vue'
 import SidebarLayout from '@/components/layouts/SidebarLayout.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
@@ -10,6 +11,7 @@ import ToastContainer from '@/components/common/ToastContainer.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const debugStore = useDebugStore()
 
 // Determine which layout to use
 const LayoutComponent = computed(() => {
@@ -30,6 +32,11 @@ onMounted(async () => {
 
   // Initialize auth (check if already logged in)
   await authStore.init()
+
+  // Load debug mode state if authenticated
+  if (authStore.isAuthenticated) {
+    await debugStore.loadDebugMode()
+  }
 })
 </script>
 

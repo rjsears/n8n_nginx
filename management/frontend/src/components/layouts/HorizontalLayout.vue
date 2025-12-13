@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { useDebugStore } from '@/stores/debug'
 import AboutDialog from '@/components/common/AboutDialog.vue'
 import {
   HomeIcon,
@@ -16,12 +17,14 @@ import {
   SunIcon,
   MoonIcon,
   InformationCircleIcon,
+  BugAntIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const debugStore = useDebugStore()
 
 // About dialog state
 const showAbout = ref(false)
@@ -37,6 +40,10 @@ const navItems = [
 ]
 
 const isActive = (routeName) => route.name === routeName
+
+function goToDebugSettings() {
+  router.push({ name: 'settings', query: { tab: 'api-debug' } })
+}
 
 async function handleLogout() {
   await authStore.logout()
@@ -78,6 +85,16 @@ async function handleLogout() {
 
           <!-- Right side -->
           <div class="flex items-center space-x-3">
+            <!-- Debug mode indicator (only shown when active) -->
+            <button
+              v-if="debugStore.isEnabled"
+              @click="goToDebugSettings"
+              class="p-2 rounded-lg text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+              title="Debug Mode Active - Click to disable"
+            >
+              <BugAntIcon class="h-5 w-5" />
+            </button>
+
             <!-- About button -->
             <button
               @click="showAbout = true"

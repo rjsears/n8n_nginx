@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notifications'
+import { useDebugStore } from '@/stores/debug'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -25,13 +27,20 @@ import {
   ViewColumnsIcon,
 } from '@heroicons/vue/24/outline'
 
+const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
+const debugStore = useDebugStore()
 
 const loading = ref(true)
 const saving = ref(false)
-const activeTab = ref('appearance')
+const activeTab = ref(route.query.tab || 'appearance')
+
+// Watch for tab query changes
+watch(() => route.query.tab, (newTab) => {
+  if (newTab) activeTab.value = newTab
+})
 
 // Password change
 const passwordForm = ref({
@@ -46,9 +55,9 @@ const showPasswords = ref({
 })
 const changingPassword = ref(false)
 
-// Debug mode state
-const debugMode = ref(false)
-const debugModeLoading = ref(false)
+// Debug mode - use store (local refs for backward compatibility in template)
+const debugMode = computed(() => debugStore.isEnabled)
+const debugModeLoading = computed(() => debugStore.loading)
 
 // n8n API Key state
 const n8nApiKey = ref('')
@@ -100,14 +109,6 @@ async function loadSettings() {
     const response = await api.settings.getAll()
     if (response.data) {
       settings.value = { ...settings.value, ...response.data }
-    }
-
-    // Load debug mode
-    try {
-      const debugRes = await api.settings.getDebugMode()
-      debugMode.value = debugRes.data.enabled
-    } catch (e) {
-      console.error('Failed to load debug mode:', e)
     }
 
     // Load n8n API key status
@@ -168,17 +169,11 @@ async function changePassword() {
 // Theme is now applied directly via themeStore.setColorMode()
 
 async function toggleDebugMode() {
-  debugModeLoading.value = true
-  try {
-    const newValue = !debugMode.value
-    await api.settings.setDebugMode(newValue)
-    debugMode.value = newValue
-    notificationStore.success(`Debug mode ${newValue ? 'enabled' : 'disabled'}`)
-  } catch (error) {
-    console.error('Failed to update debug mode:', error)
+  const success = await debugStore.toggleDebugMode()
+  if (success) {
+    notificationStore.success(`Debug mode ${debugStore.isEnabled ? 'enabled' : 'disabled'}`)
+  } else {
     notificationStore.error('Failed to update debug mode')
-  } finally {
-    debugModeLoading.value = false
   }
 }
 

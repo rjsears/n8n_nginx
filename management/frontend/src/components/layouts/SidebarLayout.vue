@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { useDebugStore } from '@/stores/debug'
 import AboutDialog from '@/components/common/AboutDialog.vue'
 import {
   HomeIcon,
@@ -17,14 +18,15 @@ import {
   MoonIcon,
   Bars3Icon,
   XMarkIcon,
-  SparklesIcon,
   InformationCircleIcon,
+  BugAntIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const debugStore = useDebugStore()
 
 // About dialog state
 const showAbout = ref(false)
@@ -45,6 +47,10 @@ const sidebarWidth = computed(() =>
   themeStore.sidebarCollapsed ? 'w-16' : 'w-64'
 )
 
+function goToDebugSettings() {
+  router.push({ name: 'settings', query: { tab: 'api-debug' } })
+}
+
 async function handleLogout() {
   await authStore.logout()
   router.push({ name: 'login' })
@@ -58,14 +64,13 @@ async function handleLogout() {
       :class="[
         sidebarWidth,
         'fixed inset-y-0 left-0 z-50 flex flex-col transition-all duration-300',
-        'bg-background-secondary border-r border-[var(--color-border)]',
-        themeStore.isNeon ? 'sidebar-neon' : ''
+        'bg-background-secondary border-r border-[var(--color-border)]'
       ]"
     >
       <!-- Logo -->
       <div class="flex h-16 items-center justify-between px-4 border-b border-[var(--color-border)]">
         <div v-if="!themeStore.sidebarCollapsed" class="flex items-center">
-          <span :class="['text-xl font-bold', themeStore.isNeon ? 'neon-text-cyan' : 'text-primary']">n8n</span>
+          <span class="text-xl font-bold text-primary">n8n</span>
           <span class="text-xl font-light text-secondary ml-1">Mgmt</span>
         </div>
         <button
@@ -87,9 +92,7 @@ async function handleLogout() {
             'flex items-center rounded-lg transition-all duration-200',
             themeStore.sidebarCollapsed ? 'justify-center px-2 py-3' : 'px-3 py-2.5',
             isActive(item.route)
-              ? themeStore.isNeon
-                ? 'sidebar-item-active'
-                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-l-2 border-blue-500'
+              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-l-2 border-blue-500'
               : 'text-secondary hover:text-primary hover:bg-surface-hover'
           ]"
           :title="themeStore.sidebarCollapsed ? item.name : ''"
@@ -98,8 +101,7 @@ async function handleLogout() {
             :is="item.icon"
             :class="[
               'h-5 w-5 flex-shrink-0',
-              isActive(item.route) ? item.color : '',
-              themeStore.isNeon && isActive(item.route) ? 'neon-text' : ''
+              isActive(item.route) ? item.color : ''
             ]"
           />
           <span
@@ -113,8 +115,18 @@ async function handleLogout() {
 
       <!-- Bottom section -->
       <div class="border-t border-[var(--color-border)] p-2 space-y-1">
-        <!-- Theme controls -->
+        <!-- Controls -->
         <div :class="['flex items-center', themeStore.sidebarCollapsed ? 'flex-col space-y-2' : 'justify-between px-2']">
+          <!-- Debug mode indicator (only shown when active) -->
+          <button
+            v-if="debugStore.isEnabled"
+            @click="goToDebugSettings"
+            class="p-2 rounded-lg text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+            title="Debug Mode Active - Click to disable"
+          >
+            <BugAntIcon class="h-5 w-5" />
+          </button>
+
           <button
             @click="showAbout = true"
             class="p-2 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
@@ -130,20 +142,6 @@ async function handleLogout() {
           >
             <SunIcon v-if="themeStore.isDark" class="h-5 w-5" />
             <MoonIcon v-else class="h-5 w-5" />
-          </button>
-
-          <button
-            v-if="themeStore.isDark"
-            @click="themeStore.toggleNeonEffects"
-            :class="[
-              'p-2 rounded-lg transition-colors',
-              themeStore.isNeon
-                ? 'text-cyan-400 bg-cyan-500/20'
-                : 'text-secondary hover:text-primary hover:bg-surface-hover'
-            ]"
-            title="Toggle neon effects"
-          >
-            <SparklesIcon class="h-5 w-5" />
           </button>
         </div>
 
