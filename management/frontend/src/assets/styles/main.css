@@ -1,10 +1,9 @@
-/* Theme CSS must be imported first */
-@import './themes.css';
-@import './neon.css';
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@import './themes.css';
+@import './neon.css';
 
 /* Base styles */
 body {
