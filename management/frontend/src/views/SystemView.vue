@@ -1405,27 +1405,26 @@ onUnmounted(() => {
       <LoadingSpinner v-if="networkLoading" size="lg" text="Loading network info..." class="py-12" />
 
       <template v-else>
-        <!-- External Services (centered at top) -->
-        <div v-if="externalServices.length > 0" class="mb-6">
-          <h3 class="text-lg font-semibold text-primary mb-4 text-center">External Services</h3>
-          <div class="flex flex-wrap justify-center gap-4">
-            <a
-              v-for="service in externalServices"
-              :key="service.name"
-              :href="service.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="group block p-4 bg-surface rounded-lg border border-[var(--color-border)] hover:border-blue-500 hover:shadow-lg transition-all min-w-[200px]"
-            >
-              <div class="flex items-center gap-3">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- External Services -->
+          <Card title="External Services" :neon="true">
+            <div v-if="externalServices.length > 0" class="flex flex-wrap gap-3">
+              <a
+                v-for="service in externalServices"
+                :key="service.name"
+                :href="service.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="group flex items-center gap-3 p-3 bg-surface-hover rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-all"
+              >
                 <div :class="['p-2 rounded-lg', service.color || 'bg-blue-100 dark:bg-blue-500/20']">
-                  <LinkIcon :class="['h-5 w-5', service.iconColor || 'text-blue-500']" />
+                  <LinkIcon :class="['h-4 w-4', service.iconColor || 'text-blue-500']" />
                 </div>
-                <div class="flex-1 min-w-0">
-                  <h4 class="font-semibold text-primary group-hover:text-blue-500 transition-colors">{{ service.name }}</h4>
-                  <p class="text-xs text-muted truncate">{{ service.description }}</p>
+                <div>
+                  <h4 class="font-medium text-primary group-hover:text-blue-500 transition-colors text-sm">{{ service.name }}</h4>
+                  <p class="text-xs text-muted">{{ service.description }}</p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 ml-2">
                   <span
                     :class="[
                       'w-2 h-2 rounded-full',
@@ -1436,76 +1435,71 @@ onUnmounted(() => {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                 </div>
-              </div>
-            </a>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <!-- Basic Network Info -->
-          <Card title="Network Configuration" :neon="true">
-            <div class="space-y-3">
-              <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                <span class="text-secondary">Hostname</span>
-                <span class="font-medium text-primary">{{ networkInfo.hostname || 'N/A' }}</span>
-              </div>
-              <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                <span class="text-secondary">FQDN</span>
-                <span class="font-medium text-primary">{{ networkInfo.fqdn || 'N/A' }}</span>
-              </div>
-              <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                <span class="text-secondary">Default Gateway</span>
-                <span class="font-medium text-primary font-mono">{{ networkInfo.gateway || 'N/A' }}</span>
-              </div>
-              <div class="flex justify-between py-2">
-                <span class="text-secondary">DNS Servers</span>
-                <div class="text-right">
-                  <span
-                    v-for="(dns, i) in networkInfo.dns_servers"
-                    :key="i"
-                    class="font-medium text-primary font-mono block"
-                  >
-                    {{ dns }}
-                  </span>
-                  <span v-if="!networkInfo.dns_servers?.length" class="text-muted">None configured</span>
-                </div>
-              </div>
+              </a>
+            </div>
+            <div v-else class="text-center py-4 text-muted">
+              No external services configured in nginx
             </div>
           </Card>
 
-          <!-- Network Interfaces -->
-          <Card title="Network Interfaces" :neon="true">
-            <div class="space-y-4">
-              <div
-                v-for="iface in networkInfo.interfaces"
-                :key="iface.name"
-                class="p-3 rounded-lg bg-surface-hover"
-              >
-                <div class="flex items-center gap-2 mb-2">
-                  <WifiIcon class="h-4 w-4 text-blue-500" />
-                  <span class="font-medium text-primary">{{ iface.name }}</span>
+          <!-- Network Configuration (with hostname in header) -->
+          <Card :neon="true" :padding="false">
+            <template #header>
+              <div class="flex items-center justify-between w-full px-4 py-3">
+                <h3 class="font-semibold text-primary">Network Configuration</h3>
+                <span class="px-3 py-1 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded-full text-sm font-mono">
+                  {{ networkInfo.hostname || 'unknown' }}
+                </span>
+              </div>
+            </template>
+            <div class="p-4 space-y-4">
+              <!-- Gateway & DNS -->
+              <div class="space-y-2">
+                <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Default Gateway</span>
+                  <span class="font-medium text-primary font-mono">{{ networkInfo.gateway || 'N/A' }}</span>
                 </div>
-                <div class="space-y-1 text-sm">
-                  <div
-                    v-for="addr in iface.addresses"
-                    :key="addr.address"
-                    class="flex justify-between"
-                  >
-                    <span class="text-secondary">{{ addr.type.toUpperCase() }}</span>
-                    <span class="font-mono text-primary">{{ addr.address }}</span>
-                  </div>
-                  <div
-                    v-for="addr in iface.addresses.filter(a => a.netmask)"
-                    :key="'mask-' + addr.address"
-                    class="flex justify-between"
-                  >
-                    <span class="text-secondary">Netmask</span>
-                    <span class="font-mono text-muted">{{ addr.netmask }}</span>
+                <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">DNS Servers</span>
+                  <div class="text-right">
+                    <span
+                      v-for="(dns, i) in networkInfo.dns_servers"
+                      :key="i"
+                      class="font-medium text-primary font-mono block"
+                    >
+                      {{ dns }}
+                    </span>
+                    <span v-if="!networkInfo.dns_servers?.length" class="text-muted">None</span>
                   </div>
                 </div>
               </div>
-              <div v-if="!networkInfo.interfaces?.length" class="text-center py-4 text-muted">
-                No network interfaces found
+
+              <!-- Network Interfaces -->
+              <div class="space-y-3">
+                <h4 class="text-sm font-medium text-secondary">Interfaces</h4>
+                <div
+                  v-for="iface in networkInfo.interfaces"
+                  :key="iface.name"
+                  class="p-3 rounded-lg bg-surface-hover"
+                >
+                  <div class="flex items-center gap-2 mb-2">
+                    <WifiIcon class="h-4 w-4 text-blue-500" />
+                    <span class="font-medium text-primary">{{ iface.name }}</span>
+                  </div>
+                  <div class="space-y-1 text-sm">
+                    <div
+                      v-for="addr in iface.addresses"
+                      :key="addr.address"
+                      class="flex justify-between"
+                    >
+                      <span class="text-secondary">{{ addr.type.toUpperCase() }}</span>
+                      <span class="font-mono text-primary">{{ addr.address }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="!networkInfo.interfaces?.length" class="text-center py-4 text-muted">
+                  No network interfaces found
+                </div>
               </div>
             </div>
           </Card>
