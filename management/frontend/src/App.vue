@@ -99,7 +99,7 @@ onMounted(async () => {
 }
 
 .dark .bg-surface-hover {
-  background-color: var(--color-surface-hover);
+  background-color: #334155 !important;
 }
 
 .dark .bg-background-primary {
@@ -123,6 +123,6 @@ onMounted(async () => {
 }
 
 .dark .border-\[var\(--color-border\)\] {
-  border-color: var(--color-border);
+  border-color: #334155 !important;
 }
 </style>
