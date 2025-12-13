@@ -1290,27 +1290,6 @@ onUnmounted(() => {
           </Card>
         </div>
 
-        <!-- Container Memory Usage -->
-        <Card v-if="healthData.container_memory && Object.keys(healthData.container_memory).length" title="Container Memory Usage" class="mt-6" :neon="true">
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-            <div
-              v-for="(memory, name) in healthData.container_memory"
-              :key="name"
-              class="p-3 rounded-lg bg-surface-hover border border-[var(--color-border)]"
-            >
-              <p class="font-medium text-primary text-sm truncate" :title="name">{{ name }}</p>
-              <p
-                :class="[
-                  'text-2xl font-bold mt-1',
-                  memory > 500 ? 'text-red-500' : memory > 200 ? 'text-amber-500' : 'text-emerald-500'
-                ]"
-              >
-                {{ memory?.toFixed(0) || 0 }}
-                <span class="text-xs text-muted font-normal">MB</span>
-              </p>
-            </div>
-          </div>
-        </Card>
       </template>
     </template>
 

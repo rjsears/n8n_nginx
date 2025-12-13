@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useThemeStore } from '@/stores/theme'
 import { useContainerStore } from '@/stores/containers'
 import { useNotificationStore } from '@/stores/notifications'
+import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -17,11 +18,15 @@ import {
   DocumentTextIcon,
   CommandLineIcon,
   CpuChipIcon,
-  CircleStackIcon,
   ClockIcon,
   CheckCircleIcon,
   XCircleIcon,
   ExclamationTriangleIcon,
+  SignalIcon,
+  ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
+  Square3Stack3DIcon,
+  HeartIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -30,16 +35,35 @@ const containerStore = useContainerStore()
 const notificationStore = useNotificationStore()
 
 const loading = ref(true)
-const actionLoading = ref(null)
-const logsDialog = ref({ open: false, container: null, logs: '', loading: false })
+const containerStats = ref({})
 const actionDialog = ref({ open: false, container: null, action: '', loading: false })
+const logsDialog = ref({ open: false, container: null, logs: '', loading: false })
+
+let statsInterval = null
 
 // Filter
 const filterStatus = ref('all')
 
+// Merge containers with their stats
+const containersWithStats = computed(() => {
+  return containerStore.containers.map(container => {
+    const stats = containerStats.value[container.name] || {}
+    return {
+      ...container,
+      cpu_percent: stats.cpu_percent || 0,
+      memory_usage: stats.memory_usage || 0,
+      memory_limit: stats.memory_limit || 0,
+      memory_percent: stats.memory_percent || 0,
+      memory_mb: stats.memory_usage ? Math.round(stats.memory_usage / (1024 * 1024)) : 0,
+      network_rx: stats.network_rx || 0,
+      network_tx: stats.network_tx || 0,
+    }
+  })
+})
+
 const filteredContainers = computed(() => {
-  if (filterStatus.value === 'all') return containerStore.containers
-  return containerStore.containers.filter((c) => c.status === filterStatus.value)
+  if (filterStatus.value === 'all') return containersWithStats.value
+  return containersWithStats.value.filter((c) => c.status === filterStatus.value)
 })
 
 // Stats
@@ -50,29 +74,50 @@ const stats = computed(() => ({
   unhealthy: containerStore.unhealthyCount,
 }))
 
-function getStatusIcon(status) {
-  switch (status) {
-    case 'running':
-      return CheckCircleIcon
-    case 'stopped':
-      return XCircleIcon
-    case 'unhealthy':
-      return ExclamationTriangleIcon
-    default:
-      return ServerIcon
-  }
+function getStatusIcon(container) {
+  if (container.health === 'unhealthy') return ExclamationTriangleIcon
+  if (container.status === 'running') return CheckCircleIcon
+  if (container.status === 'exited' || container.status === 'stopped') return XCircleIcon
+  return ServerIcon
 }
 
-function getStatusColor(status) {
-  switch (status) {
-    case 'running':
-      return 'emerald'
-    case 'stopped':
-      return 'gray'
+function getStatusColor(container) {
+  if (container.health === 'unhealthy') return 'red'
+  if (container.status === 'running') return 'emerald'
+  if (container.status === 'exited' || container.status === 'stopped') return 'gray'
+  return 'blue'
+}
+
+function getMemoryColor(memoryMb) {
+  if (memoryMb > 500) return 'text-red-500'
+  if (memoryMb > 200) return 'text-amber-500'
+  return 'text-emerald-500'
+}
+
+function getCpuColor(cpuPercent) {
+  if (cpuPercent > 80) return 'text-red-500'
+  if (cpuPercent > 50) return 'text-amber-500'
+  return 'text-emerald-500'
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+function getHealthBadgeClass(health) {
+  switch (health) {
+    case 'healthy':
+      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
     case 'unhealthy':
-      return 'red'
+      return 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+    case 'starting':
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
     default:
-      return 'blue'
+      return 'bg-gray-100 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400'
   }
 }
 
@@ -101,6 +146,8 @@ async function confirmAction() {
         break
     }
     actionDialog.value.open = false
+    // Refresh data
+    await loadData()
   } catch (error) {
     notificationStore.error(`Failed to ${action} container`)
   } finally {
@@ -121,17 +168,32 @@ async function viewLogs(container) {
 }
 
 function openTerminal(container) {
-  // Navigate to System page with terminal tab and container pre-selected
   router.push({
     name: 'system',
     query: { tab: 'terminal', target: container.id }
   })
 }
 
+async function fetchStats() {
+  try {
+    const response = await api.get('/containers/stats')
+    const statsMap = {}
+    for (const stat of response.data) {
+      statsMap[stat.name] = stat
+    }
+    containerStats.value = statsMap
+  } catch (error) {
+    console.error('Failed to fetch container stats:', error)
+  }
+}
+
 async function loadData() {
   loading.value = true
   try {
-    await containerStore.fetchContainers()
+    await Promise.all([
+      containerStore.fetchContainers(),
+      fetchStats(),
+    ])
   } catch (error) {
     notificationStore.error('Failed to load containers')
   } finally {
@@ -139,7 +201,17 @@ async function loadData() {
   }
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  // Refresh stats every 30 seconds
+  statsInterval = setInterval(fetchStats, 30000)
+})
+
+onUnmounted(() => {
+  if (statsInterval) {
+    clearInterval(statsInterval)
+  }
+})
 </script>
 
 <template>
@@ -170,12 +242,12 @@ onMounted(loadData)
 
     <template v-else>
       <!-- Stats Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card :neon="true" :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
-                <ServerIcon class="h-5 w-5 text-blue-500" />
+                <Square3Stack3DIcon class="h-5 w-5 text-blue-500" />
               </div>
               <div>
                 <p class="text-sm text-secondary">Total</p>
@@ -193,7 +265,7 @@ onMounted(loadData)
               </div>
               <div>
                 <p class="text-sm text-secondary">Running</p>
-                <p class="text-xl font-bold text-primary">{{ stats.running }}</p>
+                <p class="text-xl font-bold text-emerald-500">{{ stats.running }}</p>
               </div>
             </div>
           </div>
@@ -207,7 +279,7 @@ onMounted(loadData)
               </div>
               <div>
                 <p class="text-sm text-secondary">Stopped</p>
-                <p class="text-xl font-bold text-primary">{{ stats.stopped }}</p>
+                <p class="text-xl font-bold text-gray-500">{{ stats.stopped }}</p>
               </div>
             </div>
           </div>
@@ -221,7 +293,7 @@ onMounted(loadData)
               </div>
               <div>
                 <p class="text-sm text-secondary">Unhealthy</p>
-                <p class="text-xl font-bold text-primary">{{ stats.unhealthy }}</p>
+                <p class="text-xl font-bold text-red-500">{{ stats.unhealthy }}</p>
               </div>
             </div>
           </div>
@@ -229,132 +301,185 @@ onMounted(loadData)
       </div>
 
       <!-- Filters -->
-      <Card :neon="true" :padding="false">
-        <div class="p-4 flex items-center gap-4">
-          <select v-model="filterStatus" class="select-field">
-            <option value="all">All Statuses</option>
-            <option value="running">Running</option>
-            <option value="stopped">Stopped</option>
-            <option value="unhealthy">Unhealthy</option>
-          </select>
-        </div>
-      </Card>
+      <div class="flex items-center gap-4">
+        <select v-model="filterStatus" class="select-field">
+          <option value="all">All Containers</option>
+          <option value="running">Running Only</option>
+          <option value="exited">Stopped Only</option>
+        </select>
+        <p class="text-sm text-muted">
+          Showing {{ filteredContainers.length }} of {{ containerStore.containers.length }} containers
+        </p>
+      </div>
 
-      <!-- Container List -->
-      <Card title="Docker Containers" :neon="true">
-        <EmptyState
-          v-if="filteredContainers.length === 0"
-          :icon="ServerIcon"
-          title="No containers found"
-          description="No containers match your current filter."
-        />
+      <!-- Container Cards Grid -->
+      <EmptyState
+        v-if="filteredContainers.length === 0"
+        :icon="ServerIcon"
+        title="No containers found"
+        description="No containers match your current filter."
+      />
 
-        <div v-else class="space-y-4">
-          <div
-            v-for="container in filteredContainers"
-            :key="container.id"
-            class="p-4 rounded-lg bg-surface-hover border border-[var(--color-border)]"
-          >
+      <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card
+          v-for="container in filteredContainers"
+          :key="container.id"
+          :neon="true"
+          :padding="false"
+        >
+          <!-- Card Header -->
+          <div class="p-4 border-b border-[var(--color-border)]">
             <div class="flex items-start justify-between">
-              <div class="flex items-start gap-4">
+              <div class="flex items-center gap-3">
                 <div
                   :class="[
                     'p-3 rounded-lg',
-                    `bg-${getStatusColor(container.status)}-100 dark:bg-${getStatusColor(container.status)}-500/20`
+                    `bg-${getStatusColor(container)}-100 dark:bg-${getStatusColor(container)}-500/20`
                   ]"
                 >
                   <component
-                    :is="getStatusIcon(container.status)"
-                    :class="[
-                      'h-6 w-6',
-                      `text-${getStatusColor(container.status)}-500`
-                    ]"
+                    :is="getStatusIcon(container)"
+                    :class="['h-6 w-6', `text-${getStatusColor(container)}-500`]"
                   />
                 </div>
                 <div>
                   <div class="flex items-center gap-2">
-                    <p class="font-semibold text-primary">{{ container.name }}</p>
+                    <h3 class="font-semibold text-primary text-lg">{{ container.name }}</h3>
                     <StatusBadge :status="container.status" size="sm" />
                   </div>
-                  <p class="text-sm text-secondary mt-1">{{ container.image }}</p>
-
-                  <!-- Container Details -->
-                  <div class="flex items-center gap-4 mt-3 text-xs text-muted">
-                    <div class="flex items-center gap-1">
-                      <ClockIcon class="h-3.5 w-3.5" />
-                      <span>{{ container.uptime || 'N/A' }}</span>
-                    </div>
-                    <div v-if="container.cpu_percent !== undefined" class="flex items-center gap-1">
-                      <CpuChipIcon class="h-3.5 w-3.5" />
-                      <span>{{ container.cpu_percent?.toFixed(1) }}% CPU</span>
-                    </div>
-                    <div v-if="container.memory_mb !== undefined" class="flex items-center gap-1">
-                      <CircleStackIcon class="h-3.5 w-3.5" />
-                      <span>{{ container.memory_mb?.toFixed(0) }} MB</span>
-                    </div>
-                  </div>
-
-                  <!-- Ports -->
-                  <div v-if="container.ports?.length" class="mt-2">
-                    <p class="text-xs text-muted">
-                      Ports:
-                      <span
-                        v-for="(port, i) in container.ports"
-                        :key="i"
-                        class="inline-block bg-surface px-1.5 py-0.5 rounded text-secondary ml-1"
-                      >
-                        {{ port }}
-                      </span>
-                    </p>
-                  </div>
+                  <p class="text-sm text-muted mt-0.5 font-mono">{{ container.image }}</p>
                 </div>
               </div>
 
-              <!-- Actions -->
-              <div class="flex items-center gap-2">
-                <button
-                  v-if="container.status !== 'running'"
-                  @click="performAction(container, 'start')"
-                  class="btn-secondary p-2 text-emerald-500 hover:text-emerald-600"
-                  title="Start"
-                >
-                  <PlayIcon class="h-4 w-4" />
-                </button>
-                <button
-                  v-if="container.status === 'running'"
-                  @click="performAction(container, 'stop')"
-                  class="btn-secondary p-2 text-red-500 hover:text-red-600"
-                  title="Stop"
-                >
-                  <StopIcon class="h-4 w-4" />
-                </button>
-                <button
-                  @click="performAction(container, 'restart')"
-                  class="btn-secondary p-2"
-                  title="Restart"
-                >
-                  <ArrowPathIcon class="h-4 w-4" />
-                </button>
-                <button
-                  @click="viewLogs(container)"
-                  class="btn-secondary p-2"
-                  title="View Logs"
-                >
-                  <DocumentTextIcon class="h-4 w-4" />
-                </button>
-                <button
-                  v-if="container.status === 'running'"
-                  @click="openTerminal(container)"
-                  class="btn-secondary p-2 text-blue-500 hover:text-blue-600"
-                  title="Open Terminal"
-                >
-                  <CommandLineIcon class="h-4 w-4" />
-                </button>
-              </div>
+              <!-- Health Badge -->
+              <span
+                v-if="container.health && container.health !== 'none'"
+                :class="['px-2 py-1 text-xs font-medium rounded-full flex items-center gap-1', getHealthBadgeClass(container.health)]"
+              >
+                <HeartIcon class="h-3 w-3" />
+                {{ container.health }}
+              </span>
             </div>
           </div>
-        </div>
-      </Card>
+
+          <!-- Stats Grid -->
+          <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <!-- Uptime -->
+            <div class="text-center p-3 rounded-lg bg-surface-hover">
+              <ClockIcon class="h-5 w-5 mx-auto text-blue-500 mb-1" />
+              <p class="text-xs text-muted">Uptime</p>
+              <p class="font-semibold text-primary">{{ container.uptime || '-' }}</p>
+            </div>
+
+            <!-- CPU -->
+            <div class="text-center p-3 rounded-lg bg-surface-hover">
+              <CpuChipIcon class="h-5 w-5 mx-auto text-purple-500 mb-1" />
+              <p class="text-xs text-muted">CPU</p>
+              <p :class="['font-semibold', getCpuColor(container.cpu_percent)]">
+                {{ container.status === 'running' ? container.cpu_percent.toFixed(1) + '%' : '-' }}
+              </p>
+            </div>
+
+            <!-- Memory -->
+            <div class="text-center p-3 rounded-lg bg-surface-hover">
+              <ServerIcon class="h-5 w-5 mx-auto text-amber-500 mb-1" />
+              <p class="text-xs text-muted">Memory</p>
+              <p :class="['font-semibold', getMemoryColor(container.memory_mb)]">
+                {{ container.status === 'running' ? container.memory_mb + ' MB' : '-' }}
+              </p>
+            </div>
+
+            <!-- Network -->
+            <div class="text-center p-3 rounded-lg bg-surface-hover">
+              <SignalIcon class="h-5 w-5 mx-auto text-cyan-500 mb-1" />
+              <p class="text-xs text-muted">Network</p>
+              <p class="font-semibold text-primary text-xs">
+                <span v-if="container.status === 'running'" class="flex items-center justify-center gap-1">
+                  <ArrowDownTrayIcon class="h-3 w-3 text-emerald-500" />
+                  {{ formatBytes(container.network_rx) }}
+                </span>
+                <span v-else>-</span>
+              </p>
+            </div>
+          </div>
+
+          <!-- Memory Bar (only for running containers) -->
+          <div v-if="container.status === 'running' && container.memory_limit > 0" class="px-4 pb-2">
+            <div class="flex items-center justify-between text-xs text-muted mb-1">
+              <span>Memory Usage</span>
+              <span>{{ container.memory_percent.toFixed(1) }}%</span>
+            </div>
+            <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div
+                :class="[
+                  'h-full rounded-full transition-all duration-500',
+                  container.memory_percent > 80 ? 'bg-red-500' :
+                  container.memory_percent > 60 ? 'bg-amber-500' : 'bg-emerald-500'
+                ]"
+                :style="{ width: `${Math.min(container.memory_percent, 100)}%` }"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Actions Footer -->
+          <div class="p-4 border-t border-[var(--color-border)] flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <!-- Start Button (when stopped) -->
+              <button
+                v-if="container.status !== 'running'"
+                @click="performAction(container, 'start')"
+                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+                title="Start Container"
+              >
+                <PlayIcon class="h-4 w-4" />
+                Start
+              </button>
+
+              <!-- Stop Button (when running) -->
+              <button
+                v-if="container.status === 'running'"
+                @click="performAction(container, 'stop')"
+                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                title="Stop Container"
+              >
+                <StopIcon class="h-4 w-4" />
+                Stop
+              </button>
+
+              <!-- Restart Button -->
+              <button
+                @click="performAction(container, 'restart')"
+                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3"
+                title="Restart Container"
+              >
+                <ArrowPathIcon class="h-4 w-4" />
+                Restart
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <!-- Logs Button -->
+              <button
+                @click="viewLogs(container)"
+                class="btn-secondary p-2"
+                title="View Logs"
+              >
+                <DocumentTextIcon class="h-4 w-4" />
+              </button>
+
+              <!-- Terminal Button (only when running) -->
+              <button
+                v-if="container.status === 'running'"
+                @click="openTerminal(container)"
+                class="btn-secondary p-2 text-blue-500 hover:text-blue-600"
+                title="Open Terminal"
+              >
+                <CommandLineIcon class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </Card>
+      </div>
     </template>
 
     <!-- Action Confirmation Dialog -->
