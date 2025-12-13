@@ -599,7 +599,10 @@ async def get_cloudflare_status(
         "running": False,
         "tunnel_name": None,
         "tunnel_id": None,
+        "connector_id": None,
+        "version": None,
         "connections": [],
+        "metrics": {},
         "error": None,
     }
 
@@ -623,19 +626,35 @@ async def get_cloudflare_status(
             if cf_container.status == "running":
                 status_info["running"] = True
 
-                # Try to get tunnel info
+                # Get cloudflared version
                 try:
-                    # Get tunnel status - cloudflared tunnel info requires tunnel name/id
-                    # First try to get it from environment or config
+                    exit_code, output = cf_container.exec_run(
+                        "cloudflared version",
+                        demux=True
+                    )
+                    if exit_code == 0 and output[0]:
+                        version_output = output[0].decode("utf-8").strip()
+                        # Parse "cloudflared version 2024.1.0 (built 2024-01-15-1234)"
+                        match = re.search(r'version\s+([\d.]+)', version_output)
+                        if match:
+                            status_info["version"] = match.group(1)
+                except Exception:
+                    pass
+
+                # Get tunnel info from environment
+                try:
                     env_vars = cf_container.attrs.get("Config", {}).get("Env", [])
                     for env in env_vars:
                         if env.startswith("TUNNEL_TOKEN="):
                             status_info["has_token"] = True
                         elif env.startswith("TUNNEL_NAME="):
                             status_info["tunnel_name"] = env.split("=", 1)[1]
+                except Exception:
+                    pass
 
-                    # Try to get metrics/status from cloudflared
-                    # cloudflared has a metrics endpoint on :2000/metrics by default
+                # Try to get metrics/status from cloudflared
+                # cloudflared has a metrics endpoint on :2000/metrics by default
+                try:
                     exit_code, output = cf_container.exec_run(
                         "wget -q -O- http://localhost:2000/ready 2>/dev/null || echo 'not_ready'",
                         demux=True
@@ -643,39 +662,125 @@ async def get_cloudflare_status(
                     if exit_code == 0 and output[0]:
                         ready_output = output[0].decode("utf-8").strip()
                         status_info["ready"] = ready_output == "200 OK" or "ready" in ready_output.lower()
+                except Exception:
+                    pass
 
-                    # Try to get connection info from metrics
+                # Get full metrics from Prometheus endpoint
+                try:
                     exit_code, output = cf_container.exec_run(
-                        "wget -q -O- http://localhost:2000/metrics 2>/dev/null | grep -E 'cloudflared_tunnel_|tunnel_server'",
+                        "wget -q -O- http://localhost:2000/metrics 2>/dev/null",
                         demux=True
                     )
                     if exit_code == 0 and output[0]:
-                        metrics = output[0].decode("utf-8")
-                        # Parse some useful metrics
-                        if "cloudflared_tunnel_active_streams" in metrics:
-                            match = re.search(r'cloudflared_tunnel_active_streams\s+(\d+)', metrics)
-                            if match:
-                                status_info["active_streams"] = int(match.group(1))
+                        metrics_text = output[0].decode("utf-8")
+                        metrics = status_info["metrics"]
 
-                        # Look for connection info
-                        conn_matches = re.findall(r'tunnel_server_locations\{.*?location="([^"]+)".*?\}', metrics)
-                        if conn_matches:
-                            status_info["locations"] = list(set(conn_matches))
+                        # Active streams
+                        match = re.search(r'cloudflared_tunnel_active_streams\s+(\d+)', metrics_text)
+                        if match:
+                            metrics["active_streams"] = int(match.group(1))
+
+                        # Total requests
+                        match = re.search(r'cloudflared_tunnel_total_requests\s+(\d+)', metrics_text)
+                        if match:
+                            metrics["total_requests"] = int(match.group(1))
+
+                        # Request errors
+                        match = re.search(r'cloudflared_tunnel_request_errors\s+(\d+)', metrics_text)
+                        if match:
+                            metrics["request_errors"] = int(match.group(1))
+
+                        # HA connections (number of connections to Cloudflare edge)
+                        match = re.search(r'cloudflared_tunnel_ha_connections\s+(\d+)', metrics_text)
+                        if match:
+                            metrics["ha_connections"] = int(match.group(1))
+
+                        # Timer retries
+                        match = re.search(r'cloudflared_tunnel_timer_retries\s+(\d+)', metrics_text)
+                        if match:
+                            metrics["connection_retries"] = int(match.group(1))
+
+                        # Response codes - extract all status codes
+                        response_codes = {}
+                        for match in re.finditer(r'cloudflared_tunnel_response_by_code\{.*?status="(\d+)".*?\}\s+(\d+)', metrics_text):
+                            code = match.group(1)
+                            count = int(match.group(2))
+                            if count > 0:
+                                response_codes[code] = count
+                        if response_codes:
+                            metrics["response_codes"] = response_codes
+
+                        # Edge locations (where tunnel is connected)
+                        locations = []
+                        for match in re.finditer(r'cloudflared_tunnel_server_locations\{.*?location="([^"]+)".*?\}\s+(\d+)', metrics_text):
+                            loc = match.group(1)
+                            count = int(match.group(2))
+                            if count > 0 and loc not in locations:
+                                locations.append(loc)
+                        if locations:
+                            status_info["edge_locations"] = locations
+
+                        # Concurrent requests per tunnel
+                        match = re.search(r'cloudflared_tunnel_concurrent_requests_per_tunnel\{.*?\}\s+(\d+)', metrics_text)
+                        if match:
+                            metrics["concurrent_requests"] = int(match.group(1))
 
                 except Exception as e:
                     status_info["metrics_error"] = str(e)
 
-                # Get recent logs for connection status
+                # Get recent logs for connection status and IDs
                 try:
-                    logs = cf_container.logs(tail=50).decode("utf-8")
+                    logs = cf_container.logs(tail=100).decode("utf-8")
+
+                    # Check if connected
                     if "Connection" in logs and "registered" in logs.lower():
                         status_info["connected"] = True
-                    if "ERR" in logs or "error" in logs.lower():
-                        # Get last error
-                        for line in reversed(logs.split("\n")):
-                            if "ERR" in line or "error" in line.lower():
+
+                    # Extract tunnel ID from logs
+                    # Format: "tunnelID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    tunnel_id_match = re.search(r'tunnelID=([a-f0-9-]{36})', logs)
+                    if tunnel_id_match:
+                        status_info["tunnel_id"] = tunnel_id_match.group(1)
+
+                    # Extract connector ID
+                    # Format: "connectorID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    connector_match = re.search(r'connectorID=([a-f0-9-]{36})', logs)
+                    if connector_match:
+                        status_info["connector_id"] = connector_match.group(1)
+
+                    # Count connections per location from logs
+                    # Format: "Registered tunnel connection" with location info
+                    connection_events = []
+                    for line in logs.split("\n"):
+                        if "Registered tunnel connection" in line or "Connection registered" in line:
+                            # Extract location like "location=lax"
+                            loc_match = re.search(r'location=(\w+)', line)
+                            if loc_match:
+                                connection_events.append(loc_match.group(1))
+
+                    if connection_events:
+                        # Count connections per location
+                        from collections import Counter
+                        location_counts = Counter(connection_events)
+                        status_info["connections_per_location"] = dict(location_counts)
+
+                    # Get last error
+                    for line in reversed(logs.split("\n")):
+                        if "ERR" in line or "error" in line.lower():
+                            # Skip common non-error lines
+                            if "level=error" in line.lower() or "ERR " in line:
                                 status_info["last_error"] = line[:200]
                                 break
+
+                    # Get tunnel uptime from logs (first registration time)
+                    for line in logs.split("\n"):
+                        if "Registered tunnel connection" in line or "Connection registered" in line:
+                            # Try to extract timestamp
+                            time_match = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})', line)
+                            if time_match:
+                                status_info["first_connection_time"] = time_match.group(1)
+                            break
+
                 except Exception:
                     pass
 
