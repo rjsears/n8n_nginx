@@ -1785,7 +1785,7 @@ onUnmounted(() => {
 
     <!-- Terminal Tab -->
     <template v-if="activeTab === 'terminal'">
-      <div class="flex flex-col" style="height: calc(100vh - 200px); min-height: 500px;">
+      <div class="flex flex-col" style="height: 650px; max-height: calc(100vh - 280px);">
         <Card :neon="true" :padding="false" :flex="true" class="flex-1">
           <!-- Custom Header with Controls -->
           <template #header>
