@@ -919,11 +919,49 @@ onUnmounted(() => {
                   <span class="text-secondary">Tailnet</span>
                   <span class="font-medium text-primary">{{ tailscaleInfo.tailnet }}</span>
                 </div>
-                <div v-if="tailscaleInfo.peer_count !== undefined" class="flex justify-between py-2">
+                <div v-if="tailscaleInfo.peer_count !== undefined" class="flex justify-between py-2 border-b border-[var(--color-border)]">
                   <span class="text-secondary">Peers</span>
                   <span class="font-medium text-primary">
                     {{ tailscaleInfo.online_peers || 0 }} online / {{ tailscaleInfo.peer_count }} total
                   </span>
+                </div>
+
+                <!-- Peer List -->
+                <div v-if="tailscaleInfo.peers?.length" class="pt-2">
+                  <p class="text-sm text-secondary mb-2">Connected Devices</p>
+                  <div class="space-y-2 max-h-[300px] overflow-y-auto">
+                    <div
+                      v-for="peer in tailscaleInfo.peers"
+                      :key="peer.id || peer.hostname"
+                      class="flex items-center justify-between p-2 rounded-lg bg-surface-hover"
+                    >
+                      <div class="flex items-center gap-2">
+                        <span
+                          :class="[
+                            'w-2 h-2 rounded-full',
+                            peer.online ? 'bg-emerald-500' : 'bg-gray-400'
+                          ]"
+                        ></span>
+                        <div>
+                          <p class="font-medium text-primary text-sm">{{ peer.hostname }}</p>
+                          <p class="text-xs text-muted font-mono">{{ peer.ip }}</p>
+                        </div>
+                      </div>
+                      <div class="text-right">
+                        <span
+                          :class="[
+                            'text-xs px-2 py-0.5 rounded',
+                            peer.online
+                              ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                              : 'bg-gray-100 dark:bg-gray-500/20 text-gray-600 dark:text-gray-400'
+                          ]"
+                        >
+                          {{ peer.online ? 'online' : 'offline' }}
+                        </span>
+                        <p v-if="peer.os" class="text-xs text-muted mt-1">{{ peer.os }}</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </template>

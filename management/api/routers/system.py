@@ -759,14 +759,26 @@ async def get_tailscale_status(
                         if peers:
                             peer_list = []
                             for peer_id, peer_info in peers.items():
+                                # Check multiple fields for online status
+                                # Tailscale uses "Online" but also check "Active" and "CurAddr"
+                                is_online = (
+                                    peer_info.get("Online", False) or
+                                    peer_info.get("Active", False) or
+                                    bool(peer_info.get("CurAddr"))  # Has current address = connected
+                                )
                                 peer_list.append({
+                                    "id": peer_id[:12] if peer_id else None,
                                     "hostname": peer_info.get("HostName"),
                                     "dns_name": peer_info.get("DNSName", "").rstrip("."),
                                     "ip": peer_info.get("TailscaleIPs", [None])[0],
-                                    "online": peer_info.get("Online", False),
+                                    "online": is_online,
                                     "os": peer_info.get("OS"),
                                     "last_seen": peer_info.get("LastSeen"),
+                                    "rx_bytes": peer_info.get("RxBytes"),
+                                    "tx_bytes": peer_info.get("TxBytes"),
                                 })
+                            # Sort peers: online first, then by hostname
+                            peer_list.sort(key=lambda p: (not p.get("online", False), p.get("hostname", "").lower()))
                             status_info["peers"] = peer_list
                             status_info["peer_count"] = len(peer_list)
                             status_info["online_peers"] = sum(1 for p in peer_list if p.get("online"))
