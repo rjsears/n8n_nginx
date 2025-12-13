@@ -7,6 +7,8 @@ import { useNotificationStore } from '@/stores/notifications'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import HeartbeatLoader from '@/components/common/HeartbeatLoader.vue'
+import DnaHelixLoader from '@/components/common/DnaHelixLoader.vue'
 import {
   CpuChipIcon,
   CircleStackIcon,
@@ -688,7 +690,7 @@ onUnmounted(() => {
 
     <!-- Health Tab -->
     <template v-if="activeTab === 'health'">
-      <LoadingSpinner v-if="healthLoading" size="lg" :text="healthLoadingMessages[healthLoadingMessageIndex]" textClass="text-lg" class="py-12" />
+      <HeartbeatLoader v-if="healthLoading" :text="healthLoadingMessages[healthLoadingMessageIndex]" color="emerald" class="py-12" />
 
       <template v-else>
         <!-- Overall Status Banner -->
@@ -1441,7 +1443,7 @@ onUnmounted(() => {
 
     <!-- Network Tab -->
     <template v-if="activeTab === 'network'">
-      <LoadingSpinner v-if="networkLoading" size="lg" text="Loading network info..." class="py-12" />
+      <DnaHelixLoader v-if="networkLoading" text="Scanning network interfaces..." class="py-12" />
 
       <template v-else>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
