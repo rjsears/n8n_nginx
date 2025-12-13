@@ -8,12 +8,14 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { useRouter } from 'vue-router'
 import {
   ServerIcon,
   PlayIcon,
   StopIcon,
   ArrowPathIcon,
   DocumentTextIcon,
+  CommandLineIcon,
   CpuChipIcon,
   CircleStackIcon,
   ClockIcon,
@@ -22,6 +24,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 
+const router = useRouter()
 const themeStore = useThemeStore()
 const containerStore = useContainerStore()
 const notificationStore = useNotificationStore()
@@ -115,6 +118,14 @@ async function viewLogs(container) {
   } finally {
     logsDialog.value.loading = false
   }
+}
+
+function openTerminal(container) {
+  // Navigate to System page with terminal tab and container pre-selected
+  router.push({
+    name: 'system',
+    query: { tab: 'terminal', target: container.id }
+  })
 }
 
 async function loadData() {
@@ -330,6 +341,14 @@ onMounted(loadData)
                   title="View Logs"
                 >
                   <DocumentTextIcon class="h-4 w-4" />
+                </button>
+                <button
+                  v-if="container.status === 'running'"
+                  @click="openTerminal(container)"
+                  class="btn-secondary p-2 text-blue-500 hover:text-blue-600"
+                  title="Open Terminal"
+                >
+                  <CommandLineIcon class="h-4 w-4" />
                 </button>
               </div>
             </div>

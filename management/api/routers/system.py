@@ -764,13 +764,20 @@ async def get_cloudflare_status(
                         location_counts = Counter(connection_events)
                         status_info["connections_per_location"] = dict(location_counts)
 
-                    # Get last error
+                    # Get last error (skip common non-error warnings)
+                    skip_patterns = [
+                        "cert.pem",  # Token auth doesn't need cert
+                        "Cannot determine default origin certificate",
+                        "Update check",
+                        "failed to sufficiently increase receive buffer size",
+                    ]
                     for line in reversed(logs.split("\n")):
-                        if "ERR" in line or "error" in line.lower():
-                            # Skip common non-error lines
-                            if "level=error" in line.lower() or "ERR " in line:
-                                status_info["last_error"] = line[:200]
-                                break
+                        if "ERR" in line or "level=error" in line.lower():
+                            # Check if it's a real error (not a common warning)
+                            if any(skip in line for skip in skip_patterns):
+                                continue
+                            status_info["last_error"] = line[:200]
+                            break
 
                     # Get tunnel uptime from logs (first registration time)
                     for line in logs.split("\n"):
