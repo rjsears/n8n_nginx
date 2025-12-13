@@ -2046,8 +2046,6 @@ EOF
 generate_nginx_conf_v3() {
     print_info "Generating nginx.conf for v3.0..."
 
-    local MGMT_PORT_NUM="${MGMT_PORT:-3333}"
-
     cat > "${SCRIPT_DIR}/nginx.conf" << EOF
 events {
     worker_connections 1024;
@@ -2069,38 +2067,17 @@ http {
         server ${N8N_CONTAINER}:5678;
     }
 
-    # Upstream to management console
-    upstream n8n_management {
+    # Upstream to management console (connects to internal nginx on port 80)
+    upstream management {
         server ${DEFAULT_MANAGEMENT_CONTAINER}:80;
     }
 
-    # Upstream to Adminer (optional)
-    upstream n8n_adminer {
-        server n8n_adminer:8080;
-    }
-
-    # Upstream to Dozzle (optional)
-    upstream n8n_dozzle {
-        server n8n_dozzle:8080;
-    }
-
-    # Define trusted networks for n8n UI access
-    geo \$is_trusted {
-        default 0;
-        10.0.0.0/8 1;
-        172.16.0.0/12 1;
-        192.168.0.0/16 1;
-        # Add your public IP: YOUR_IP/32 1;
-    }
-
     # ═══════════════════════════════════════════════════════════════════════════
-    # n8n HTTPS Server (Port 443)
+    # Main n8n HTTPS Server (Port 443)
     # ═══════════════════════════════════════════════════════════════════════════
     server {
-        listen 443 ssl;
-        http2 on;
+        listen 443 ssl http2;
         server_name ${N8N_DOMAIN};
-        client_max_body_size 500M;
 
         ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
@@ -2114,30 +2091,35 @@ http {
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
 
-        # PUBLIC: Webhook endpoint (externally accessible)
+        # Webhook endpoint with CORS
         location /webhook/ {
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
             add_header X-Frame-Options "SAMEORIGIN" always;
-            add_header X-Content-Type-Options "nosniff" always;
-            add_header X-XSS-Protection "1; mode=block" always;
+
+            if (\$request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' '*';
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
+                add_header 'Access-Control-Max-Age' 86400;
+                add_header 'Content-Length' 0;
+                return 204;
+            }
 
             proxy_pass http://n8n;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto \$scheme;
-            proxy_set_header X-Forwarded-Host \$host;
-            proxy_set_header X-Forwarded-Port \$server_port;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
             proxy_buffering off;
         }
 
-        # RESTRICTED: n8n UI (trusted networks only)
+        # Default n8n proxy
         location / {
-            if (\$is_trusted = 0) {
-                return 403;
-            }
-
             add_header X-Frame-Options "SAMEORIGIN" always;
 
             proxy_pass http://n8n;
@@ -2145,8 +2127,6 @@ http {
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto \$scheme;
-            proxy_set_header X-Forwarded-Host \$host;
-            proxy_set_header X-Forwarded-Port \$server_port;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -2154,126 +2134,98 @@ http {
         }
 
         location /healthz {
-            if (\$is_trusted = 0) {
-                return 403;
-            }
             access_log off;
             return 200 "healthy\n";
         }
-    }
+EOF
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Management Console HTTPS Server (Port ${MGMT_PORT_NUM})
-    # ═══════════════════════════════════════════════════════════════════════════
-    server {
-        listen ${MGMT_PORT_NUM} ssl;
-        http2 on;
-        server_name _;
-        client_max_body_size 100M;
+    # Add Portainer location if configured
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
-
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-        ssl_prefer_server_ciphers off;
-        ssl_session_cache shared:MGMT_SSL:10m;
-        ssl_session_timeout 10m;
-
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-XSS-Protection "1; mode=block" always;
-        add_header X-Frame-Options "SAMEORIGIN" always;
-        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-
-        # WebSocket terminal endpoint (long-lived connections)
-        location /api/ws/ {
-            proxy_pass http://n8n_management;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
-            proxy_set_header X-Forwarded-Port \$server_port;
-
+        # Portainer Container Management (configured with --base-url /portainer)
+        # The trailing slash in proxy_pass strips /portainer/ prefix
+        location /portainer/ {
+            proxy_pass http://n8n_portainer:9000/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection "upgrade";
-
-            # Long timeouts for terminal sessions (86400s = 24 hours)
-            proxy_connect_timeout 86400s;
-            proxy_send_timeout 86400s;
-            proxy_read_timeout 86400s;
-
-            proxy_buffering off;
+            proxy_set_header Connection "";
         }
 
-        # API endpoints
-        location /api/ {
-            proxy_pass http://n8n_management;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
-            proxy_set_header X-Forwarded-Port \$server_port;
+        location /portainer/api/websocket/ {
+            proxy_pass http://n8n_portainer:9000/api/websocket/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
-            proxy_buffering off;
-
-            proxy_connect_timeout 60s;
-            proxy_send_timeout 300s;
-            proxy_read_timeout 300s;
         }
+EOF
+    fi
 
-        # Backup downloads
-        location /api/backups/download/ {
-            proxy_pass http://n8n_management;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_buffering off;
-            proxy_request_buffering off;
-            proxy_read_timeout 600s;
-        }
+    # Add Adminer location if configured
+    if [ "$INSTALL_ADMINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        # Adminer proxy (with SSO)
+        # Adminer Database Management
         location /adminer/ {
-            auth_request /api/auth/verify;
-            auth_request_set \$auth_status \$upstream_status;
-
-            proxy_pass http://n8n_adminer/;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        }
-
-        # Dozzle log viewer (with SSO)
-        location /logs/ {
-            auth_request /api/auth/verify;
-
-            proxy_pass http://n8n_dozzle/logs/;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_pass http://n8n_adminer:8080/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
+        }
+EOF
+    fi
+
+    # Add Dozzle location if configured
+    if [ "$INSTALL_DOZZLE" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # Dozzle Log Viewer (configured with DOZZLE_BASE=/dozzle)
+        location /dozzle/ {
+            proxy_pass http://n8n_dozzle:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
         }
+EOF
+    fi
 
-        # Auth verification endpoint
-        location = /api/auth/verify {
-            internal;
-            proxy_pass http://n8n_management/api/auth/verify;
-            proxy_pass_request_body off;
-            proxy_set_header Content-Length "";
-            proxy_set_header X-Original-URI \$request_uri;
-            proxy_set_header X-Real-IP \$remote_addr;
+    # Add Management Console location block
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # Management Console
+        location /management/ {
+            proxy_pass http://management/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
         }
 
-        # Static Vue.js frontend
-        location / {
-            proxy_pass http://n8n_management;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
+        location /management/api/ {
+            proxy_pass http://management/api/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_buffering off;
         }
     }
 }
