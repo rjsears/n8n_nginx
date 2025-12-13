@@ -126,7 +126,7 @@ const healthData = ref({
 })
 const healthLoading = ref(false)
 const healthLastUpdated = ref(null)
-const healthLoadingMessages = [
+const allHealthMessages = [
   'Running health checks...',
   'Still here, just a moment...',
   'Poking the containers to see if they respond...',
@@ -138,9 +138,29 @@ const healthLoadingMessages = [
   'Checking if SSL certificates are happy...',
   'Verifying databases are awake...',
   'Double-checking everything twice...',
+  'Waking up the hamsters that power the servers...',
+  'Bribing the load balancer with cookies...',
+  'Teaching containers to play nice together...',
+  'Performing ancient DevOps rituals...',
+  'Asking nginx how it\'s feeling today...',
+  'Making sure PostgreSQL had its coffee...',
+  'Untangling the network spaghetti...',
+  'Checking if anyone left the debug mode on...',
+  'Politely requesting metrics from prometheus...',
+  'Verifying no gremlins in the system...',
+  'Inspecting the series of tubes...',
+  'Ensuring electrons are flowing correctly...',
+  'Checking under the hood for loose wires...',
 ]
+// Shuffle and pick random messages for this session
+const healthLoadingMessages = ref([])
 const healthLoadingMessageIndex = ref(0)
 let healthLoadingInterval = null
+
+function shuffleMessages() {
+  const shuffled = [...allHealthMessages].sort(() => Math.random() - 0.5)
+  healthLoadingMessages.value = shuffled.slice(0, 12) // Pick 12 random ones
+}
 
 // Network info state
 const networkInfo = ref({
@@ -355,10 +375,11 @@ async function loadData() {
 async function loadHealthData() {
   healthLoading.value = true
   healthLoadingMessageIndex.value = 0
+  shuffleMessages() // Randomize messages each time
 
   // Start rotating messages every 3.5 seconds
   healthLoadingInterval = setInterval(() => {
-    healthLoadingMessageIndex.value = (healthLoadingMessageIndex.value + 1) % healthLoadingMessages.length
+    healthLoadingMessageIndex.value = (healthLoadingMessageIndex.value + 1) % healthLoadingMessages.value.length
   }, 3500)
 
   try {
@@ -690,7 +711,7 @@ onUnmounted(() => {
 
     <!-- Health Tab -->
     <template v-if="activeTab === 'health'">
-      <HeartbeatLoader v-if="healthLoading" :text="healthLoadingMessages[healthLoadingMessageIndex]" color="emerald" class="py-12" />
+      <HeartbeatLoader v-if="healthLoading" :text="healthLoadingMessages[healthLoadingMessageIndex]" color="emerald" class="py-16 mt-8" />
 
       <template v-else>
         <!-- Overall Status Banner -->
@@ -1443,7 +1464,7 @@ onUnmounted(() => {
 
     <!-- Network Tab -->
     <template v-if="activeTab === 'network'">
-      <DnaHelixLoader v-if="networkLoading" text="Scanning network interfaces..." class="py-12" />
+      <DnaHelixLoader v-if="networkLoading" text="Scanning network interfaces..." class="py-16 mt-8" />
 
       <template v-else>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
