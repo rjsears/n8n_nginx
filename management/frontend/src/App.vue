@@ -123,6 +123,6 @@ onMounted(async () => {
 }
 
 .dark .border-\[var\(--color-border\)\] {
-  border-color: #334155 !important;
+  border-color: #475569 !important;
 }
 </style>
