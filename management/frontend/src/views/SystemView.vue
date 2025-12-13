@@ -1823,7 +1823,7 @@ onUnmounted(() => {
                     @click="openCloudflareTokenModal"
                     :class="[
                       'px-3 py-1.5 rounded-full text-xs font-medium transition-all shadow-sm flex items-center gap-1.5',
-                      cloudflareInfo.running && cloudflareInfo.connected
+                      cloudflareInfo.running
                         ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
                         : 'bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300'
                     ]"
@@ -2196,8 +2196,8 @@ onUnmounted(() => {
         v-if="cloudflareTokenModal"
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
       >
-        <div class="fixed inset-0 bg-black/50" @click="closeCloudflareTokenModal"></div>
-        <div class="relative bg-surface rounded-xl shadow-2xl max-w-md w-full p-6 border border-[var(--color-border)]">
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="closeCloudflareTokenModal"></div>
+        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700">
           <div class="flex items-center gap-3 mb-4">
             <div class="p-2 rounded-lg bg-orange-100 dark:bg-orange-500/20">
               <CloudIcon class="h-6 w-6 text-orange-500" />
@@ -2278,8 +2278,8 @@ onUnmounted(() => {
         v-if="tailscaleKeyModal"
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
       >
-        <div class="fixed inset-0 bg-black/50" @click="closeTailscaleKeyModal"></div>
-        <div class="relative bg-surface rounded-xl shadow-2xl max-w-md w-full p-6 border border-[var(--color-border)]">
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="closeTailscaleKeyModal"></div>
+        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700">
           <div class="flex items-center gap-3 mb-4">
             <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
               <LinkIcon class="h-6 w-6 text-blue-500" />
@@ -2360,8 +2360,8 @@ onUnmounted(() => {
         v-if="sslRenewModal"
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
       >
-        <div class="fixed inset-0 bg-black/50" @click="!sslRenewing && closeSslRenewModal()"></div>
-        <div class="relative bg-surface rounded-xl shadow-2xl max-w-lg w-full p-6 border border-[var(--color-border)]">
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="!sslRenewing && closeSslRenewModal()"></div>
+        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full p-6 border border-gray-200 dark:border-gray-700">
           <div class="flex items-center gap-3 mb-4">
             <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
               <LockClosedIcon class="h-6 w-6 text-emerald-500" />

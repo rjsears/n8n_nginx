@@ -133,6 +133,9 @@ services:
       # Security
       - SECRET_KEY=${MGMT_SECRET_KEY:?MGMT_SECRET_KEY is required}
       - ENCRYPTION_KEY=${MGMT_ENCRYPTION_KEY:-${N8N_ENCRYPTION_KEY}}
+      # n8n API integration
+      - N8N_API_KEY=${N8N_API_KEY:-}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-}
       # NFS Configuration (optional)
       - NFS_SERVER=${NFS_SERVER:-}
       - NFS_PATH=${NFS_PATH:-}

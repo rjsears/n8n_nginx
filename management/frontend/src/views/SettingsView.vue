@@ -22,7 +22,6 @@ import {
   MoonIcon,
   ComputerDesktopIcon,
   SparklesIcon,
-  WrenchScrewdriverIcon,
   BugAntIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -116,7 +115,6 @@ const themePresets = [
 
 const tabs = [
   { id: 'appearance', name: 'Appearance', icon: PaintBrushIcon },
-  { id: 'system', name: 'System', icon: WrenchScrewdriverIcon },
   { id: 'backup', name: 'Backup', icon: CircleStackIcon },
   { id: 'notifications', name: 'Notifications', icon: BellIcon },
   { id: 'security', name: 'Security', icon: ShieldCheckIcon },
@@ -269,6 +267,117 @@ onMounted(async () => {
     <LoadingSpinner v-if="loading" size="lg" text="Loading settings..." class="py-12" />
 
     <template v-else>
+      <!-- Quick Settings: Debug Mode & n8n API Key -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Debug Mode Card -->
+        <Card :neon="true" :padding="false">
+          <template #header>
+            <div class="flex items-center gap-2 px-4 py-3">
+              <BugAntIcon class="h-5 w-5 text-amber-500" />
+              <h3 class="font-semibold text-primary">Debug Mode</h3>
+            </div>
+          </template>
+          <div class="p-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-secondary">
+                  Shows detailed error messages and enables verbose logging.
+                </p>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer ml-4">
+                <input
+                  type="checkbox"
+                  :checked="debugMode"
+                  @change="toggleDebugMode"
+                  :disabled="debugModeLoading"
+                  class="sr-only peer"
+                />
+                <div
+                  :class="[
+                    'w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[\\'\\'] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-amber-500',
+                    debugModeLoading ? 'opacity-50' : ''
+                  ]"
+                ></div>
+              </label>
+            </div>
+            <div v-if="debugMode" class="mt-3 p-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+              <p class="text-xs text-amber-700 dark:text-amber-400">
+                Debug mode is active. Check the browser console for detailed logs.
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <!-- n8n API Key Card -->
+        <Card :neon="true" :padding="false">
+          <template #header>
+            <div class="flex items-center gap-2 px-4 py-3">
+              <KeyIcon class="h-5 w-5 text-blue-500" />
+              <h3 class="font-semibold text-primary">n8n API Key</h3>
+            </div>
+          </template>
+          <div class="p-4">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm text-secondary">Status</span>
+              <span
+                :class="[
+                  'flex items-center gap-2 text-sm font-medium',
+                  n8nApiKeyIsSet ? 'text-emerald-500' : 'text-amber-500'
+                ]"
+              >
+                <span :class="['w-2 h-2 rounded-full', n8nApiKeyIsSet ? 'bg-emerald-500' : 'bg-amber-500']"></span>
+                {{ n8nApiKeyIsSet ? 'Configured' : 'Not Set' }}
+              </span>
+            </div>
+            <div v-if="n8nApiKeyIsSet && !n8nApiKeyEditing" class="flex items-center justify-between mb-3">
+              <span class="text-sm text-secondary">Current Key</span>
+              <span class="font-mono text-xs text-primary">{{ n8nApiKeyMasked }}</span>
+            </div>
+
+            <!-- Edit Form -->
+            <div v-if="n8nApiKeyEditing" class="space-y-3">
+              <div class="relative">
+                <KeyIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                <input
+                  v-model="n8nApiKey"
+                  :type="showN8nApiKey ? 'text' : 'password'"
+                  placeholder="Enter your n8n API key"
+                  class="input-field pl-9 pr-9 w-full text-sm"
+                />
+                <button
+                  type="button"
+                  @click="showN8nApiKey = !showN8nApiKey"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-secondary"
+                >
+                  <EyeSlashIcon v-if="showN8nApiKey" class="h-4 w-4" />
+                  <EyeIcon v-else class="h-4 w-4" />
+                </button>
+              </div>
+              <div class="flex gap-2">
+                <button
+                  @click="saveN8nApiKey"
+                  :disabled="n8nApiKeyLoading || !n8nApiKey.trim()"
+                  class="btn-primary text-sm py-1.5"
+                >
+                  {{ n8nApiKeyLoading ? 'Saving...' : 'Save' }}
+                </button>
+                <button
+                  @click="cancelEditN8nApiKey"
+                  :disabled="n8nApiKeyLoading"
+                  class="btn-secondary text-sm py-1.5"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+
+            <button v-if="!n8nApiKeyEditing" @click="startEditN8nApiKey" class="btn-primary text-sm py-1.5 w-full">
+              {{ n8nApiKeyIsSet ? 'Update API Key' : 'Set API Key' }}
+            </button>
+          </div>
+        </Card>
+      </div>
+
       <!-- Tabs -->
       <div class="flex gap-1 p-1 bg-surface-hover rounded-lg overflow-x-auto">
         <button
@@ -367,134 +476,6 @@ onMounted(async () => {
                   class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-cyan-500 peer-disabled:opacity-50"
                 ></div>
               </label>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <!-- System Tab -->
-      <div v-if="activeTab === 'system'" class="space-y-6">
-        <!-- Debug Mode -->
-        <Card title="Debug Mode" :neon="true">
-          <template #header>
-            <div class="flex items-center gap-2 px-4 py-3">
-              <BugAntIcon class="h-5 w-5 text-amber-500" />
-              <h3 class="font-semibold text-primary">Debug Mode</h3>
-            </div>
-          </template>
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Enable Debug Mode</p>
-                <p class="text-sm text-secondary">
-                  Shows detailed error messages and enables verbose logging.
-                  Useful for troubleshooting issues.
-                </p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  :checked="debugMode"
-                  @change="toggleDebugMode"
-                  :disabled="debugModeLoading"
-                  class="sr-only peer"
-                />
-                <div
-                  :class="[
-                    'w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[&quot;&quot;] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-amber-500',
-                    debugModeLoading ? 'opacity-50' : ''
-                  ]"
-                ></div>
-              </label>
-            </div>
-            <div v-if="debugMode" class="p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-              <p class="text-sm text-amber-700 dark:text-amber-400">
-                Debug mode is active. Check the browser console for detailed logs.
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <!-- n8n API Key -->
-        <Card title="n8n API Key" :neon="true">
-          <template #header>
-            <div class="flex items-center gap-2 px-4 py-3">
-              <KeyIcon class="h-5 w-5 text-blue-500" />
-              <h3 class="font-semibold text-primary">n8n API Key</h3>
-            </div>
-          </template>
-          <div class="space-y-4">
-            <p class="text-sm text-secondary">
-              The n8n API key is used to communicate with your n8n instance for workflow management
-              and notifications. You can generate this key in n8n under
-              <span class="font-medium">Settings → API</span>.
-            </p>
-
-            <!-- Current Status -->
-            <div class="flex items-center justify-between py-2 border-b border-[var(--color-border)]">
-              <span class="text-secondary">Status</span>
-              <span
-                :class="[
-                  'flex items-center gap-2 font-medium',
-                  n8nApiKeyIsSet ? 'text-emerald-500' : 'text-amber-500'
-                ]"
-              >
-                <span :class="['w-2 h-2 rounded-full', n8nApiKeyIsSet ? 'bg-emerald-500' : 'bg-amber-500']"></span>
-                {{ n8nApiKeyIsSet ? 'Configured' : 'Not Set' }}
-              </span>
-            </div>
-
-            <!-- Masked Value (when set and not editing) -->
-            <div v-if="n8nApiKeyIsSet && !n8nApiKeyEditing" class="flex items-center justify-between py-2 border-b border-[var(--color-border)]">
-              <span class="text-secondary">Current Key</span>
-              <span class="font-mono text-sm text-primary">{{ n8nApiKeyMasked }}</span>
-            </div>
-
-            <!-- Edit Form -->
-            <div v-if="n8nApiKeyEditing" class="space-y-3">
-              <div>
-                <label class="block text-sm font-medium text-primary mb-1.5">New API Key</label>
-                <div class="relative">
-                  <KeyIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted" />
-                  <input
-                    v-model="n8nApiKey"
-                    :type="showN8nApiKey ? 'text' : 'password'"
-                    placeholder="Enter your n8n API key"
-                    class="input-field pl-10 pr-10 w-full"
-                  />
-                  <button
-                    type="button"
-                    @click="showN8nApiKey = !showN8nApiKey"
-                    class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-secondary"
-                  >
-                    <EyeSlashIcon v-if="showN8nApiKey" class="h-5 w-5" />
-                    <EyeIcon v-else class="h-5 w-5" />
-                  </button>
-                </div>
-              </div>
-              <div class="flex gap-2">
-                <button
-                  @click="saveN8nApiKey"
-                  :disabled="n8nApiKeyLoading || !n8nApiKey.trim()"
-                  class="btn-primary"
-                >
-                  {{ n8nApiKeyLoading ? 'Saving...' : 'Save Key' }}
-                </button>
-                <button
-                  @click="cancelEditN8nApiKey"
-                  :disabled="n8nApiKeyLoading"
-                  class="btn-secondary"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-
-            <!-- Edit Button (when not editing) -->
-            <div v-if="!n8nApiKeyEditing" class="pt-2">
-              <button @click="startEditN8nApiKey" class="btn-primary">
-                {{ n8nApiKeyIsSet ? 'Update API Key' : 'Set API Key' }}
-              </button>
             </div>
           </div>
         </Card>

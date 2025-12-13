@@ -26,11 +26,17 @@ async function handleLogin() {
   error.value = ''
 
   try {
-    await authStore.login({ username: username.value, password: password.value })
-    notificationStore.success('Welcome back!')
-    router.push('/dashboard')
+    const success = await authStore.login({ username: username.value, password: password.value })
+    if (success) {
+      notificationStore.success('Welcome back!')
+      router.push('/dashboard')
+    } else {
+      // Login failed - authStore sets error internally
+      error.value = authStore.error || 'Invalid credentials'
+      notificationStore.error(error.value)
+    }
   } catch (err) {
-    error.value = err.response?.data?.detail || 'Invalid credentials'
+    error.value = err.response?.data?.detail || 'Login failed'
     notificationStore.error(error.value)
   } finally {
     loading.value = false
