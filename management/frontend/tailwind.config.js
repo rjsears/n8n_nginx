@@ -1,3 +1,5 @@
+import plugin from 'tailwindcss/plugin'
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -26,6 +28,7 @@ export default {
       },
       borderColor: {
         DEFAULT: 'var(--color-border)',
+        'dark-theme': '#64748b',
       },
       boxShadow: {
         'glow-cyan': 'var(--glow-cyan)',
@@ -46,5 +49,16 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    plugin(function({ addBase }) {
+      addBase({
+        '.dark *': {
+          '--color-border': '#64748b',
+        },
+        '.dark [class*="border"]': {
+          'border-color': '#64748b !important',
+        },
+      })
+    }),
+  ],
 }
