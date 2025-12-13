@@ -272,7 +272,7 @@ onMounted(loadData)
           <div
             v-for="backup in filteredBackups"
             :key="backup.id"
-            class="flex items-center justify-between p-4 rounded-lg bg-surface-hover border border-[var(--color-border)]"
+            class="flex items-center justify-between p-4 rounded-lg bg-surface-hover border border-gray-300 dark:border-slate-500"
           >
             <div class="flex items-center gap-4">
               <div

@@ -316,7 +316,7 @@ onUnmounted(() => {
         <div class="overflow-x-auto">
           <table class="w-full">
             <thead>
-              <tr class="border-b border-[var(--color-border)]">
+              <tr class="border-b border-gray-300 dark:border-slate-500">
                 <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Name</th>
                 <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
                 <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Image</th>
@@ -327,7 +327,7 @@ onUnmounted(() => {
               <tr
                 v-for="container in containerStore.containers"
                 :key="container.id"
-                class="border-b border-[var(--color-border)] last:border-0"
+                class="border-b border-gray-300 dark:border-slate-500 last:border-0"
               >
                 <td class="py-3 px-4">
                   <span class="font-medium text-primary">{{ container.name }}</span>

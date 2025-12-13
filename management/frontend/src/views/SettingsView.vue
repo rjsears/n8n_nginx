@@ -782,7 +782,7 @@ onMounted(async () => {
                 <span class="font-medium">Settings &rarr; API</span>.
               </p>
 
-              <div class="flex items-center justify-between mb-3 py-2 border-b border-[var(--color-border)]">
+              <div class="flex items-center justify-between mb-3 py-2 border-b border-gray-300 dark:border-slate-500">
                 <span class="text-sm text-secondary">Status</span>
                 <span
                   :class="[
@@ -795,7 +795,7 @@ onMounted(async () => {
                 </span>
               </div>
 
-              <div v-if="n8nApiKeyIsSet && !n8nApiKeyEditing" class="flex items-center justify-between mb-4 py-2 border-b border-[var(--color-border)]">
+              <div v-if="n8nApiKeyIsSet && !n8nApiKeyEditing" class="flex items-center justify-between mb-4 py-2 border-b border-gray-300 dark:border-slate-500">
                 <span class="text-sm text-secondary">Current Key</span>
                 <span class="font-mono text-sm text-primary">{{ n8nApiKeyMasked }}</span>
               </div>
@@ -870,7 +870,7 @@ onMounted(async () => {
                 Useful for troubleshooting issues with the management console.
               </p>
 
-              <div class="flex items-center justify-between py-3 border-y border-[var(--color-border)]">
+              <div class="flex items-center justify-between py-3 border-y border-gray-300 dark:border-slate-500">
                 <div>
                   <p class="font-medium text-primary">Enable Debug Mode</p>
                   <p class="text-sm text-secondary">

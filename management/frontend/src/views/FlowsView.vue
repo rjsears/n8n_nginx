@@ -340,7 +340,7 @@ onMounted(loadData)
           <div
             v-for="workflow in filteredWorkflows"
             :key="workflow.id"
-            class="flex items-center justify-between p-4 rounded-lg bg-surface-hover border border-[var(--color-border)]"
+            class="flex items-center justify-between p-4 rounded-lg bg-surface-hover border border-gray-300 dark:border-slate-500"
           >
             <div class="flex items-center gap-4">
               <div
@@ -455,7 +455,7 @@ onMounted(loadData)
 
         <!-- Collapsible Content -->
         <Transition name="collapse">
-          <div v-if="executionsExpanded" class="border-t border-[var(--color-border)]">
+          <div v-if="executionsExpanded" class="border-t border-gray-300 dark:border-slate-500">
             <EmptyState
               v-if="executions.length === 0"
               :icon="ClockIcon"
@@ -467,7 +467,7 @@ onMounted(loadData)
             <div v-else class="overflow-x-auto">
               <table class="w-full">
                 <thead>
-                  <tr class="border-b border-[var(--color-border)] bg-gray-50 dark:bg-gray-800/50">
+                  <tr class="border-b border-gray-300 dark:border-slate-500 bg-gray-50 dark:bg-gray-800/50">
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Workflow</th>
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Duration</th>
@@ -479,7 +479,7 @@ onMounted(loadData)
                   <tr
                     v-for="execution in executions.slice(0, 20)"
                     :key="execution.id"
-                    class="border-b border-[var(--color-border)] last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                    class="border-b border-gray-300 dark:border-slate-500 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                   >
                     <td class="py-3 px-4">
                       <span class="font-medium text-primary">{{ execution.workflowName }}</span>

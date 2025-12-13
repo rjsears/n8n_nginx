@@ -64,11 +64,11 @@ async function handleLogout() {
       :class="[
         sidebarWidth,
         'fixed inset-y-0 left-0 z-50 flex flex-col transition-all duration-300',
-        'bg-background-secondary border-r border-[var(--color-border)]'
+        'bg-background-secondary border-r border-gray-300 dark:border-slate-500'
       ]"
     >
       <!-- Logo -->
-      <div class="flex h-16 items-center justify-between px-4 border-b border-[var(--color-border)]">
+      <div class="flex h-16 items-center justify-between px-4 border-b border-gray-300 dark:border-slate-500">
         <div v-if="!themeStore.sidebarCollapsed" class="flex items-center">
           <span class="text-xl font-bold text-primary">n8n</span>
           <span class="text-xl font-light text-secondary ml-1">Mgmt</span>
@@ -114,7 +114,7 @@ async function handleLogout() {
       </nav>
 
       <!-- Bottom section -->
-      <div class="border-t border-[var(--color-border)] p-2 space-y-1">
+      <div class="border-t border-gray-300 dark:border-slate-500 p-2 space-y-1">
         <!-- Controls -->
         <div :class="['flex items-center', themeStore.sidebarCollapsed ? 'flex-col space-y-2' : 'justify-between px-2']">
           <!-- Debug mode indicator (only shown when active) -->
