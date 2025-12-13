@@ -6,7 +6,7 @@ import { useNotificationStore } from '@/stores/notifications'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import ContainerStackLoader from '@/components/common/ContainerStackLoader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { useRouter } from 'vue-router'
@@ -40,6 +40,42 @@ const actionDialog = ref({ open: false, container: null, action: '', loading: fa
 const logsDialog = ref({ open: false, container: null, logs: '', loading: false })
 
 let statsInterval = null
+
+// Funny loading messages for containers
+const allContainerMessages = [
+  'Waking up the containers...',
+  'Asking Docker who\'s home...',
+  'Counting all the little boxes...',
+  'Unpacking the shipping containers...',
+  'Checking if anyone escaped...',
+  'Herding the container cats...',
+  'Making sure no one\'s sleeping on the job...',
+  'Peeking inside each container...',
+  'Taking attendance...',
+  'Shaking the containers to see what rattles...',
+  'Knocking on container doors...',
+  'Interrogating the Docker daemon...',
+  'Playing hide and seek with containers...',
+  'Convincing containers to share their secrets...',
+  'Measuring how much RAM each container stole...',
+  'Checking who ate all the CPU...',
+  'Translating from container-speak...',
+  'Sorting containers by how well they behave...',
+  'Asking nicely for container stats...',
+  'Bribbing containers with more memory...',
+  'Checking if nginx is still angry...',
+  'Verifying PostgreSQL had its morning coffee...',
+  'Making sure n8n workflows aren\'t plotting...',
+  'Inspecting the container cargo...',
+]
+const containerLoadingMessages = ref([])
+const containerLoadingMessageIndex = ref(0)
+let containerLoadingInterval = null
+
+function shuffleContainerMessages() {
+  const shuffled = [...allContainerMessages].sort(() => Math.random() - 0.5)
+  containerLoadingMessages.value = shuffled.slice(0, 12)
+}
 
 // Filter
 const filterStatus = ref('all')
@@ -170,7 +206,7 @@ async function viewLogs(container) {
 function openTerminal(container) {
   router.push({
     name: 'system',
-    query: { tab: 'terminal', target: container.id }
+    query: { tab: 'terminal', target: container.id, autoconnect: 'true' }
   })
 }
 
@@ -189,6 +225,14 @@ async function fetchStats() {
 
 async function loadData() {
   loading.value = true
+  containerLoadingMessageIndex.value = 0
+  shuffleContainerMessages()
+
+  // Start rotating messages every 3.5 seconds
+  containerLoadingInterval = setInterval(() => {
+    containerLoadingMessageIndex.value = (containerLoadingMessageIndex.value + 1) % containerLoadingMessages.value.length
+  }, 3500)
+
   try {
     await Promise.all([
       containerStore.fetchContainers(),
@@ -197,6 +241,11 @@ async function loadData() {
   } catch (error) {
     notificationStore.error('Failed to load containers')
   } finally {
+    // Stop rotating messages
+    if (containerLoadingInterval) {
+      clearInterval(containerLoadingInterval)
+      containerLoadingInterval = null
+    }
     loading.value = false
   }
 }
@@ -210,6 +259,10 @@ onMounted(() => {
 onUnmounted(() => {
   if (statsInterval) {
     clearInterval(statsInterval)
+  }
+  if (containerLoadingInterval) {
+    clearInterval(containerLoadingInterval)
+    containerLoadingInterval = null
   }
 })
 </script>
@@ -238,7 +291,7 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <LoadingSpinner v-if="loading" size="lg" text="Loading containers..." class="py-12" />
+    <ContainerStackLoader v-if="loading" :text="containerLoadingMessages[containerLoadingMessageIndex]" class="py-16 mt-8" />
 
     <template v-else>
       <!-- Stats Grid -->

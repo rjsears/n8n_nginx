@@ -643,7 +643,7 @@ onMounted(async () => {
       await loadHealthData()
     }
 
-    // If going to terminal tab with a target, pre-select it
+    // If going to terminal tab with a target, pre-select it and optionally auto-connect
     if (route.query.tab === 'terminal' && route.query.target) {
       await loadTerminalTargets()
       // Find matching target by container ID (first 12 chars)
@@ -651,6 +651,16 @@ onMounted(async () => {
       const matchingTarget = terminalTargets.value.find(t => t.id === targetId || t.id.startsWith(targetId))
       if (matchingTarget) {
         selectedTarget.value = matchingTarget.id
+        // Auto-connect if requested
+        if (route.query.autoconnect === 'true') {
+          // Small delay to ensure terminal is initialized
+          await nextTick()
+          setTimeout(() => {
+            if (!terminalConnected.value && selectedTarget.value) {
+              connectTerminal()
+            }
+          }, 100)
+        }
       }
     }
   }
