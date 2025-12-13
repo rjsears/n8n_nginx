@@ -89,17 +89,19 @@ async def list_flows(
             for row in rows
         ]
     except Exception as e:
-        logger.error(f"Failed to list flows from n8n database: {e}")
-        # Provide more specific error message
+        import traceback
+        full_error = traceback.format_exc()
+        logger.error(f"Failed to list flows from n8n database: {e}\n{full_error}")
+        # Provide more specific error message with the actual error for debugging
         error_msg = str(e)
         if "password authentication failed" in error_msg.lower():
-            detail = "n8n database authentication failed. Check N8N_DATABASE_URL password."
+            detail = f"n8n database authentication failed. Check N8N_DATABASE_URL password. Error: {error_msg}"
         elif "could not connect" in error_msg.lower() or "connection refused" in error_msg.lower():
-            detail = "Cannot connect to n8n database. Ensure postgres container is running."
+            detail = f"Cannot connect to n8n database. Ensure postgres container is running. Error: {error_msg}"
         elif "does not exist" in error_msg.lower():
-            detail = "n8n database or table not found. Ensure n8n has been started at least once."
+            detail = f"n8n database or table not found. Error: {error_msg}"
         else:
-            detail = f"Failed to list flows: {e}"
+            detail = f"Failed to list flows: {error_msg}"
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=detail,
@@ -252,6 +254,48 @@ async def restore_flow(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="Backup flow restoration not yet implemented.",
     )
+
+
+@router.get("/debug-connection")
+async def debug_connection(
+    _=Depends(get_current_user),
+):
+    """Debug n8n database connection settings."""
+    from api.config import settings
+    from api.database import encode_database_url
+    from urllib.parse import urlparse
+
+    # Parse the URL to show config without password
+    original_url = settings.n8n_database_url
+    encoded_url = encode_database_url(original_url)
+
+    try:
+        parsed_orig = urlparse(original_url)
+        parsed_enc = urlparse(encoded_url)
+
+        return {
+            "original": {
+                "scheme": parsed_orig.scheme,
+                "username": parsed_orig.username,
+                "password_length": len(parsed_orig.password) if parsed_orig.password else 0,
+                "password_starts_with": parsed_orig.password[:2] if parsed_orig.password and len(parsed_orig.password) > 2 else None,
+                "hostname": parsed_orig.hostname,
+                "port": parsed_orig.port,
+                "database": parsed_orig.path.lstrip('/'),
+            },
+            "encoded": {
+                "scheme": parsed_enc.scheme,
+                "username": parsed_enc.username,
+                "password_length": len(parsed_enc.password) if parsed_enc.password else 0,
+                "hostname": parsed_enc.hostname,
+                "port": parsed_enc.port,
+                "database": parsed_enc.path.lstrip('/'),
+            },
+            "raw_url_length": len(original_url),
+            "encoded_url_length": len(encoded_url),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @router.get("/stats")
