@@ -7,6 +7,7 @@ import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import {
   BoltIcon,
   PlayIcon,
@@ -19,6 +20,7 @@ import {
   MagnifyingGlassIcon,
   FunnelIcon,
   InformationCircleIcon,
+  RocketLaunchIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -30,6 +32,10 @@ const executions = ref([])
 const searchQuery = ref('')
 const filterActive = ref('all')
 const actionLoading = ref(null)
+
+// Confirm dialog state
+const showActivateConfirm = ref(false)
+const pendingToggleWorkflow = ref(null)
 
 // Stats
 const stats = computed(() => ({
@@ -96,9 +102,20 @@ async function loadData() {
   }
 }
 
-async function toggleWorkflow(workflow) {
-  actionLoading.value = workflow.id
+function toggleWorkflow(workflow) {
   const targetState = !workflow.active
+  // If activating, show confirmation dialog first
+  if (targetState) {
+    pendingToggleWorkflow.value = workflow
+    showActivateConfirm.value = true
+  } else {
+    // Deactivating doesn't need confirmation
+    doToggleWorkflow(workflow, targetState)
+  }
+}
+
+async function doToggleWorkflow(workflow, targetState) {
+  actionLoading.value = workflow.id
   try {
     await api.flows.toggleWorkflow(workflow.id, targetState)
     // Reload workflows to verify the actual state changed
@@ -118,6 +135,14 @@ async function toggleWorkflow(workflow) {
   } finally {
     actionLoading.value = null
   }
+}
+
+function confirmActivate() {
+  if (pendingToggleWorkflow.value) {
+    doToggleWorkflow(pendingToggleWorkflow.value, true)
+  }
+  showActivateConfirm.value = false
+  pendingToggleWorkflow.value = null
 }
 
 async function executeWorkflow(workflow) {
@@ -334,7 +359,7 @@ onMounted(loadData)
                 class="btn-secondary p-2"
                 title="Execute Now"
               >
-                <PlayIcon class="h-4 w-4" />
+                <RocketLaunchIcon class="h-4 w-4" />
               </button>
               <button
                 @click="toggleWorkflow(workflow)"
@@ -416,5 +441,16 @@ onMounted(loadData)
         </div>
       </div>
     </template>
+
+    <!-- Activation Confirmation Dialog -->
+    <ConfirmDialog
+      :show="showActivateConfirm"
+      title="Activate Workflow?"
+      :message="`Are you sure you want to activate '${pendingToggleWorkflow?.name}'?\n\nWarning: The n8n API may allow activating workflows that have configuration issues. The n8n UI validates workflows before activation, but this API call bypasses that validation.\n\nAlways verify your workflow configuration in n8n before activating via this console.`"
+      confirm-text="Activate"
+      confirm-variant="warning"
+      @confirm="confirmActivate"
+      @cancel="showActivateConfirm = false; pendingToggleWorkflow = null"
+    />
   </div>
 </template>
