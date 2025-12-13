@@ -1405,6 +1405,42 @@ onUnmounted(() => {
       <LoadingSpinner v-if="networkLoading" size="lg" text="Loading network info..." class="py-12" />
 
       <template v-else>
+        <!-- External Services (centered at top) -->
+        <div v-if="externalServices.length > 0" class="mb-6">
+          <h3 class="text-lg font-semibold text-primary mb-4 text-center">External Services</h3>
+          <div class="flex flex-wrap justify-center gap-4">
+            <a
+              v-for="service in externalServices"
+              :key="service.name"
+              :href="service.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="group block p-4 bg-surface rounded-lg border border-[var(--color-border)] hover:border-blue-500 hover:shadow-lg transition-all min-w-[200px]"
+            >
+              <div class="flex items-center gap-3">
+                <div :class="['p-2 rounded-lg', service.color || 'bg-blue-100 dark:bg-blue-500/20']">
+                  <LinkIcon :class="['h-5 w-5', service.iconColor || 'text-blue-500']" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h4 class="font-semibold text-primary group-hover:text-blue-500 transition-colors">{{ service.name }}</h4>
+                  <p class="text-xs text-muted truncate">{{ service.description }}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span
+                    :class="[
+                      'w-2 h-2 rounded-full',
+                      service.running ? 'bg-emerald-500' : 'bg-gray-400'
+                    ]"
+                  ></span>
+                  <svg class="h-4 w-4 text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </div>
+              </div>
+            </a>
+          </div>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Basic Network Info -->
           <Card title="Network Configuration" :neon="true">
@@ -1697,42 +1733,6 @@ onUnmounted(() => {
               </div>
             </template>
           </Card>
-        </div>
-
-        <!-- External Services -->
-        <div class="mt-6" v-if="externalServices.length > 0">
-          <h3 class="text-lg font-semibold text-primary mb-4">External Services</h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            <a
-              v-for="service in externalServices"
-              :key="service.name"
-              :href="service.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="group block p-4 bg-surface rounded-lg border border-[var(--color-border)] hover:border-blue-500 hover:shadow-lg transition-all"
-            >
-              <div class="flex items-center gap-3">
-                <div :class="['p-2 rounded-lg', service.color || 'bg-blue-100 dark:bg-blue-500/20']">
-                  <component :is="service.icon || LinkIcon" :class="['h-5 w-5', service.iconColor || 'text-blue-500']" />
-                </div>
-                <div class="flex-1 min-w-0">
-                  <h4 class="font-semibold text-primary group-hover:text-blue-500 transition-colors">{{ service.name }}</h4>
-                  <p class="text-xs text-muted truncate">{{ service.description }}</p>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span
-                    :class="[
-                      'w-2 h-2 rounded-full',
-                      service.running ? 'bg-emerald-500' : 'bg-gray-400'
-                    ]"
-                  ></span>
-                  <svg class="h-4 w-4 text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </div>
-              </div>
-            </a>
-          </div>
         </div>
       </template>
     </template>
