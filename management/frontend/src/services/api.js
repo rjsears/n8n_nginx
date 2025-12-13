@@ -87,6 +87,7 @@ export const systemApi = {
   cloudflare: () => api.get('/system/cloudflare'),
   tailscale: () => api.get('/system/tailscale'),
   terminalTargets: () => api.get('/system/terminal/targets'),
+  externalServices: () => api.get('/system/external-services'),
 }
 
 export const backupsApi = {
@@ -177,6 +178,7 @@ api.system = {
   getCloudflare: systemApi.cloudflare,
   getTailscale: systemApi.tailscale,
   getTerminalTargets: systemApi.terminalTargets,
+  getExternalServices: systemApi.externalServices,
 }
 api.backups = backupsApi
 api.containers = containersApi
