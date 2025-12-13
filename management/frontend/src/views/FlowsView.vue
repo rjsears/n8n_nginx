@@ -444,11 +444,10 @@ onMounted(loadData)
 
     <!-- Activation Confirmation Dialog -->
     <ConfirmDialog
-      :show="showActivateConfirm"
+      :open="showActivateConfirm"
       title="Activate Workflow?"
       :message="`Are you sure you want to activate '${pendingToggleWorkflow?.name}'?\n\nWarning: The n8n API may allow activating workflows that have configuration issues. The n8n UI validates workflows before activation, but this API call bypasses that validation.\n\nAlways verify your workflow configuration in n8n before activating via this console.`"
       confirm-text="Activate"
-      confirm-variant="warning"
       @confirm="confirmActivate"
       @cancel="showActivateConfirm = false; pendingToggleWorkflow = null"
     />
