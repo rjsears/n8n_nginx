@@ -75,7 +75,31 @@ class ContainerService:
 
     def _is_project_container(self, name: str) -> bool:
         """Check if container belongs to this project."""
-        return name.startswith(settings.container_prefix)
+        # Include containers that start with prefix OR are exactly the base name (e.g., "n8n")
+        prefix = settings.container_prefix.rstrip("_")  # "n8n_" -> "n8n"
+        return name.startswith(settings.container_prefix) or name == prefix
+
+    def _format_uptime(self, started_at: Optional[str]) -> Optional[str]:
+        """Convert started_at datetime to human-readable uptime."""
+        if not started_at:
+            return None
+        try:
+            start_time = dateutil_parser.isoparse(started_at)
+            now = datetime.now(UTC)
+            delta = now - start_time
+
+            days = delta.days
+            hours, remainder = divmod(delta.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+
+            if days > 0:
+                return f"{days}d {hours}h"
+            elif hours > 0:
+                return f"{hours}h {minutes}m"
+            else:
+                return f"{minutes}m"
+        except Exception:
+            return None
 
     async def list_containers(self, all: bool = True) -> List[Dict[str, Any]]:
         """List all project containers."""
@@ -90,6 +114,9 @@ class ContainerService:
             if c.attrs.get("State", {}).get("Health"):
                 health = c.attrs["State"]["Health"].get("Status", "none")
 
+            started_at = c.attrs.get("State", {}).get("StartedAt")
+            uptime = self._format_uptime(started_at) if c.status == "running" else None
+
             result.append({
                 "name": c.name,
                 "id": c.short_id,
@@ -97,7 +124,8 @@ class ContainerService:
                 "health": health,
                 "image": c.image.tags[0] if c.image.tags else c.image.short_id,
                 "created": c.attrs.get("Created"),
-                "started_at": c.attrs.get("State", {}).get("StartedAt"),
+                "started_at": started_at,
+                "uptime": uptime,
             })
 
         # Update cache if db available

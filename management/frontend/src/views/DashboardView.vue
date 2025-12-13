@@ -1,21 +1,21 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useThemeStore } from '@/stores/theme'
 import { useContainerStore } from '@/stores/containers'
 import { useBackupStore } from '@/stores/backups'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import { systemApi } from '@/services/api'
 import {
   ServerIcon,
   CircleStackIcon,
   ClockIcon,
   ExclamationTriangleIcon,
   CheckCircleIcon,
-  ArrowTrendingUpIcon,
   CpuChipIcon,
 } from '@heroicons/vue/24/outline'
-import { Line, Doughnut } from 'vue-chartjs'
+import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -25,7 +25,6 @@ import {
   Title,
   Tooltip,
   Legend,
-  ArcElement,
   Filler,
 } from 'chart.js'
 
@@ -37,7 +36,6 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  ArcElement,
   Filler
 )
 
@@ -50,8 +48,17 @@ const systemStats = ref({
   cpu_percent: 0,
   memory_percent: 0,
   disk_percent: 0,
-  uptime: '0 days',
+  uptime: 'Loading...',
 })
+
+// Store metrics history for chart (last 2 hours = 24 points at 5-min intervals)
+const metricsHistory = ref({
+  labels: [],
+  cpu: [],
+  memory: [],
+})
+const MAX_HISTORY_POINTS = 24
+let metricsInterval = null
 
 // Stats cards configuration
 const statsCards = computed(() => [
@@ -109,23 +116,30 @@ const chartColors = computed(() => {
   }
 })
 
-// Resource usage chart data
+// Resource usage chart data - using real metrics history
 const resourceChartData = computed(() => ({
-  labels: ['12:00', '12:15', '12:30', '12:45', '13:00', '13:15', '13:30'],
+  labels: metricsHistory.value.labels.length > 0
+    ? metricsHistory.value.labels
+    : ['--:--'],
   datasets: [
     {
       label: 'CPU %',
-      data: [45, 52, 48, 61, 55, 49, systemStats.value.cpu_percent],
-      borderColor: chartColors.value.primary,
+      data: metricsHistory.value.cpu.length > 0
+        ? metricsHistory.value.cpu
+        : [systemStats.value.cpu_percent],
+      borderColor: chartColors.value.primary, // Blue
       backgroundColor: `${chartColors.value.primary.replace('rgb', 'rgba').replace(')', ', 0.1)')}`,
       fill: true,
       tension: 0.4,
     },
     {
       label: 'Memory %',
-      data: [62, 64, 63, 67, 65, 66, systemStats.value.memory_percent],
-      borderColor: chartColors.value.secondary,
-      backgroundColor: 'transparent',
+      data: metricsHistory.value.memory.length > 0
+        ? metricsHistory.value.memory
+        : [systemStats.value.memory_percent],
+      borderColor: chartColors.value.success, // Green
+      backgroundColor: `${chartColors.value.success.replace('rgb', 'rgba').replace(')', ', 0.1)')}`,
+      fill: true,
       tension: 0.4,
     },
   ],
@@ -156,39 +170,46 @@ const resourceChartOptions = computed(() => ({
   },
 }))
 
-// Container status chart
-const containerChartData = computed(() => ({
-  labels: ['Running', 'Stopped', 'Unhealthy'],
-  datasets: [
-    {
-      data: [
-        containerStore.runningCount,
-        containerStore.stoppedCount,
-        containerStore.unhealthyCount,
-      ],
-      backgroundColor: [
-        chartColors.value.success,
-        chartColors.value.warning,
-        chartColors.value.danger,
-      ],
-      borderWidth: 0,
-    },
-  ],
-}))
+// Fetch system metrics and info from real API
+async function fetchSystemStats() {
+  try {
+    const [metricsRes, infoRes] = await Promise.all([
+      systemApi.metrics(),
+      systemApi.info(),
+    ])
 
-const containerChartOptions = computed(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: {
-      position: 'right',
-      labels: {
-        color: themeStore.colorMode === 'dark' ? '#9ca3af' : '#6b7280',
-        padding: 20,
-      },
-    },
-  },
-}))
+    const metrics = metricsRes.data
+    const info = infoRes.data
+
+    systemStats.value = {
+      cpu_percent: Math.round(metrics.cpu.percent),
+      memory_percent: Math.round(metrics.memory.percent),
+      disk_percent: Math.round(metrics.disk.percent),
+      uptime: info.uptime_human || 'Unknown',
+    }
+
+    // Add to metrics history
+    const now = new Date()
+    const timeLabel = now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+
+    metricsHistory.value.labels.push(timeLabel)
+    metricsHistory.value.cpu.push(Math.round(metrics.cpu.percent))
+    metricsHistory.value.memory.push(Math.round(metrics.memory.percent))
+
+    // Keep only last MAX_HISTORY_POINTS points
+    if (metricsHistory.value.labels.length > MAX_HISTORY_POINTS) {
+      metricsHistory.value.labels.shift()
+      metricsHistory.value.cpu.shift()
+      metricsHistory.value.memory.shift()
+    }
+  } catch (error) {
+    console.error('Failed to fetch system stats:', error)
+  }
+}
 
 async function loadData() {
   loading.value = true
@@ -196,14 +217,8 @@ async function loadData() {
     await Promise.all([
       containerStore.fetchContainers(),
       backupStore.fetchBackups(),
+      fetchSystemStats(),
     ])
-    // Simulated system stats (would come from API)
-    systemStats.value = {
-      cpu_percent: 45,
-      memory_percent: 68,
-      disk_percent: 52,
-      uptime: '14 days',
-    }
   } catch (error) {
     console.error('Failed to load dashboard data:', error)
   } finally {
@@ -211,7 +226,17 @@ async function loadData() {
   }
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  // Update metrics every 5 minutes
+  metricsInterval = setInterval(fetchSystemStats, 5 * 60 * 1000)
+})
+
+onUnmounted(() => {
+  if (metricsInterval) {
+    clearInterval(metricsInterval)
+  }
+})
 </script>
 
 <template>
@@ -273,22 +298,12 @@ onMounted(loadData)
         </Card>
       </div>
 
-      <!-- Charts Row -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Resource Usage Chart -->
-        <Card title="Resource Usage" subtitle="Last 2 hours" :neon="true" class="lg:col-span-2">
-          <div class="h-64">
-            <Line :data="resourceChartData" :options="resourceChartOptions" />
-          </div>
-        </Card>
-
-        <!-- Container Status Chart -->
-        <Card title="Container Status" :neon="true">
-          <div class="h-64">
-            <Doughnut :data="containerChartData" :options="containerChartOptions" />
-          </div>
-        </Card>
-      </div>
+      <!-- Resource Usage Chart -->
+      <Card title="Resource Usage" subtitle="Last 2 hours (updates every 5 min)" :neon="true">
+        <div class="h-64">
+          <Line :data="resourceChartData" :options="resourceChartOptions" />
+        </div>
+      </Card>
 
       <!-- Container List -->
       <Card title="Containers" subtitle="Docker container status" :neon="true">
