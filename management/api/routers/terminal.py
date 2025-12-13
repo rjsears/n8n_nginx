@@ -201,14 +201,30 @@ class TerminalSession:
 
 async def verify_token(token: str) -> bool:
     """Verify the authentication token for WebSocket connection."""
-    from api.services.auth_service import auth_service
+    from api.database import async_session_maker
+    from api.services.auth_service import AuthService
+    from sqlalchemy import select
+    from api.models.auth import Session
+    from datetime import datetime, UTC
 
     if not token:
         return False
 
-    # Validate the session token
-    session = await auth_service.validate_session(token)
-    return session is not None
+    try:
+        async with async_session_maker() as db:
+            # Directly query the session table for simplicity
+            result = await db.execute(
+                select(Session).where(
+                    Session.token == token,
+                    Session.is_active == True,
+                    Session.expires_at > datetime.now(UTC)
+                )
+            )
+            session = result.scalar_one_or_none()
+            return session is not None
+    except Exception as e:
+        logger.error(f"Token verification failed: {e}")
+        return False
 
 
 @router.websocket("/ws/terminal")

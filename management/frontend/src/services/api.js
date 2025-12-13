@@ -83,6 +83,8 @@ export const systemApi = {
   audit: (params) => api.get('/system/audit', { params }),
   network: () => api.get('/system/network'),
   ssl: () => api.get('/system/ssl'),
+  cloudflare: () => api.get('/system/cloudflare'),
+  tailscale: () => api.get('/system/tailscale'),
   terminalTargets: () => api.get('/system/terminal/targets'),
 }
 
@@ -170,6 +172,8 @@ api.system = {
   getHealth: systemApi.health,
   getNetwork: systemApi.network,
   getSsl: systemApi.ssl,
+  getCloudflare: systemApi.cloudflare,
+  getTailscale: systemApi.tailscale,
   getTerminalTargets: systemApi.terminalTargets,
 }
 api.backups = backupsApi

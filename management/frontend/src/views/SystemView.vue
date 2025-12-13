@@ -23,6 +23,8 @@ import {
   PlayIcon,
   StopIcon,
   XMarkIcon,
+  CloudIcon,
+  LinkIcon,
 } from '@heroicons/vue/24/outline'
 import { Line } from 'vue-chartjs'
 import {
@@ -118,6 +120,25 @@ const sslInfo = ref({
   error: null,
 })
 const sslLoading = ref(false)
+
+// Cloudflare Tunnel state
+const cloudflareInfo = ref({
+  installed: false,
+  running: false,
+  connected: false,
+  error: null,
+})
+
+// Tailscale state
+const tailscaleInfo = ref({
+  installed: false,
+  running: false,
+  logged_in: false,
+  tailscale_ip: null,
+  hostname: null,
+  peers: [],
+  error: null,
+})
 
 // Terminal state
 const terminalTargets = ref([])
@@ -240,8 +261,15 @@ async function loadData() {
 async function loadNetworkInfo() {
   networkLoading.value = true
   try {
-    const response = await api.system.getNetwork()
-    networkInfo.value = response.data
+    // Load network, cloudflare, and tailscale info in parallel
+    const [networkRes, cloudflareRes, tailscaleRes] = await Promise.all([
+      api.system.getNetwork(),
+      api.system.getCloudflare().catch(() => ({ data: { error: 'Not available' } })),
+      api.system.getTailscale().catch(() => ({ data: { error: 'Not available' } })),
+    ])
+    networkInfo.value = networkRes.data
+    cloudflareInfo.value = cloudflareRes.data
+    tailscaleInfo.value = tailscaleRes.data
   } catch (error) {
     notificationStore.error('Failed to load network information')
   } finally {
@@ -778,6 +806,93 @@ onUnmounted(() => {
                 No network interfaces found
               </div>
             </div>
+          </Card>
+        </div>
+
+        <!-- VPN & Tunnel Services -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <!-- Cloudflare Tunnel -->
+          <Card title="Cloudflare Tunnel" :neon="true">
+            <div v-if="cloudflareInfo.error && !cloudflareInfo.installed" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-500/10 rounded-lg">
+              <CloudIcon class="h-6 w-6 text-gray-400" />
+              <p class="text-muted">{{ cloudflareInfo.error }}</p>
+            </div>
+            <template v-else>
+              <div class="space-y-3">
+                <div class="flex items-center justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Status</span>
+                  <span :class="[
+                    'flex items-center gap-2 font-medium',
+                    cloudflareInfo.running ? 'text-emerald-500' : 'text-red-500'
+                  ]">
+                    <span :class="['w-2 h-2 rounded-full', cloudflareInfo.running ? 'bg-emerald-500' : 'bg-red-500']"></span>
+                    {{ cloudflareInfo.running ? 'Running' : 'Stopped' }}
+                  </span>
+                </div>
+                <div v-if="cloudflareInfo.container_name" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Container</span>
+                  <span class="font-medium text-primary">{{ cloudflareInfo.container_name }}</span>
+                </div>
+                <div v-if="cloudflareInfo.connected !== undefined" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Connected</span>
+                  <span :class="cloudflareInfo.connected ? 'text-emerald-500' : 'text-amber-500'">
+                    {{ cloudflareInfo.connected ? 'Yes' : 'No' }}
+                  </span>
+                </div>
+                <div v-if="cloudflareInfo.locations?.length" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Edge Locations</span>
+                  <span class="font-medium text-primary">{{ cloudflareInfo.locations.join(', ') }}</span>
+                </div>
+                <div v-if="cloudflareInfo.active_streams !== undefined" class="flex justify-between py-2">
+                  <span class="text-secondary">Active Streams</span>
+                  <span class="font-medium text-primary">{{ cloudflareInfo.active_streams }}</span>
+                </div>
+              </div>
+            </template>
+          </Card>
+
+          <!-- Tailscale -->
+          <Card title="Tailscale VPN" :neon="true">
+            <div v-if="tailscaleInfo.error && !tailscaleInfo.installed" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-500/10 rounded-lg">
+              <LinkIcon class="h-6 w-6 text-gray-400" />
+              <p class="text-muted">{{ tailscaleInfo.error }}</p>
+            </div>
+            <template v-else>
+              <div class="space-y-3">
+                <div class="flex items-center justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Status</span>
+                  <span :class="[
+                    'flex items-center gap-2 font-medium',
+                    tailscaleInfo.running && tailscaleInfo.logged_in ? 'text-emerald-500' : 'text-red-500'
+                  ]">
+                    <span :class="['w-2 h-2 rounded-full', tailscaleInfo.running && tailscaleInfo.logged_in ? 'bg-emerald-500' : 'bg-red-500']"></span>
+                    {{ tailscaleInfo.running && tailscaleInfo.logged_in ? 'Connected' : tailscaleInfo.running ? 'Not Logged In' : 'Stopped' }}
+                  </span>
+                </div>
+                <div v-if="tailscaleInfo.tailscale_ip" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Tailscale IP</span>
+                  <span class="font-medium text-primary font-mono">{{ tailscaleInfo.tailscale_ip }}</span>
+                </div>
+                <div v-if="tailscaleInfo.hostname" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Hostname</span>
+                  <span class="font-medium text-primary">{{ tailscaleInfo.hostname }}</span>
+                </div>
+                <div v-if="tailscaleInfo.dns_name" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">DNS Name</span>
+                  <span class="font-medium text-primary font-mono text-sm">{{ tailscaleInfo.dns_name }}</span>
+                </div>
+                <div v-if="tailscaleInfo.tailnet" class="flex justify-between py-2 border-b border-[var(--color-border)]">
+                  <span class="text-secondary">Tailnet</span>
+                  <span class="font-medium text-primary">{{ tailscaleInfo.tailnet }}</span>
+                </div>
+                <div v-if="tailscaleInfo.peer_count !== undefined" class="flex justify-between py-2">
+                  <span class="text-secondary">Peers</span>
+                  <span class="font-medium text-primary">
+                    {{ tailscaleInfo.online_peers || 0 }} online / {{ tailscaleInfo.peer_count }} total
+                  </span>
+                </div>
+              </div>
+            </template>
           </Card>
         </div>
       </template>

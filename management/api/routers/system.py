@@ -585,3 +585,246 @@ async def get_terminal_targets(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list terminal targets: {e}",
         )
+
+
+@router.get("/cloudflare")
+async def get_cloudflare_status(
+    _=Depends(get_current_user),
+):
+    """Get Cloudflare Tunnel status from cloudflared container."""
+    import re
+
+    status_info = {
+        "installed": False,
+        "running": False,
+        "tunnel_name": None,
+        "tunnel_id": None,
+        "connections": [],
+        "error": None,
+    }
+
+    try:
+        import docker
+        client = docker.from_env()
+
+        # Find cloudflared container (common names: cloudflared, cloudflare-tunnel, cf-tunnel)
+        cf_container = None
+        for container in client.containers.list(all=True):
+            name = container.name.lower()
+            if "cloudflare" in name or "cloudflared" in name or "cf-tunnel" in name:
+                cf_container = container
+                break
+
+        if cf_container:
+            status_info["installed"] = True
+            status_info["container_name"] = cf_container.name
+            status_info["container_status"] = cf_container.status
+
+            if cf_container.status == "running":
+                status_info["running"] = True
+
+                # Try to get tunnel info
+                try:
+                    # Get tunnel status - cloudflared tunnel info requires tunnel name/id
+                    # First try to get it from environment or config
+                    env_vars = cf_container.attrs.get("Config", {}).get("Env", [])
+                    for env in env_vars:
+                        if env.startswith("TUNNEL_TOKEN="):
+                            status_info["has_token"] = True
+                        elif env.startswith("TUNNEL_NAME="):
+                            status_info["tunnel_name"] = env.split("=", 1)[1]
+
+                    # Try to get metrics/status from cloudflared
+                    # cloudflared has a metrics endpoint on :2000/metrics by default
+                    exit_code, output = cf_container.exec_run(
+                        "wget -q -O- http://localhost:2000/ready 2>/dev/null || echo 'not_ready'",
+                        demux=True
+                    )
+                    if exit_code == 0 and output[0]:
+                        ready_output = output[0].decode("utf-8").strip()
+                        status_info["ready"] = ready_output == "200 OK" or "ready" in ready_output.lower()
+
+                    # Try to get connection info from metrics
+                    exit_code, output = cf_container.exec_run(
+                        "wget -q -O- http://localhost:2000/metrics 2>/dev/null | grep -E 'cloudflared_tunnel_|tunnel_server'",
+                        demux=True
+                    )
+                    if exit_code == 0 and output[0]:
+                        metrics = output[0].decode("utf-8")
+                        # Parse some useful metrics
+                        if "cloudflared_tunnel_active_streams" in metrics:
+                            match = re.search(r'cloudflared_tunnel_active_streams\s+(\d+)', metrics)
+                            if match:
+                                status_info["active_streams"] = int(match.group(1))
+
+                        # Look for connection info
+                        conn_matches = re.findall(r'tunnel_server_locations\{.*?location="([^"]+)".*?\}', metrics)
+                        if conn_matches:
+                            status_info["locations"] = list(set(conn_matches))
+
+                except Exception as e:
+                    status_info["metrics_error"] = str(e)
+
+                # Get recent logs for connection status
+                try:
+                    logs = cf_container.logs(tail=50).decode("utf-8")
+                    if "Connection" in logs and "registered" in logs.lower():
+                        status_info["connected"] = True
+                    if "ERR" in logs or "error" in logs.lower():
+                        # Get last error
+                        for line in reversed(logs.split("\n")):
+                            if "ERR" in line or "error" in line.lower():
+                                status_info["last_error"] = line[:200]
+                                break
+                except Exception:
+                    pass
+
+        else:
+            status_info["error"] = "Cloudflare tunnel container not found"
+
+    except Exception as e:
+        status_info["error"] = f"Docker error: {str(e)}"
+
+    return status_info
+
+
+@router.get("/tailscale")
+async def get_tailscale_status(
+    _=Depends(get_current_user),
+):
+    """Get Tailscale status from tailscale container or host."""
+    import json as json_module
+
+    status_info = {
+        "installed": False,
+        "running": False,
+        "logged_in": False,
+        "tailscale_ip": None,
+        "hostname": None,
+        "dns_name": None,
+        "peers": [],
+        "error": None,
+    }
+
+    try:
+        import docker
+        client = docker.from_env()
+
+        # Find tailscale container
+        ts_container = None
+        for container in client.containers.list(all=True):
+            name = container.name.lower()
+            if "tailscale" in name:
+                ts_container = container
+                break
+
+        if ts_container:
+            status_info["installed"] = True
+            status_info["container_name"] = ts_container.name
+            status_info["container_status"] = ts_container.status
+
+            if ts_container.status == "running":
+                status_info["running"] = True
+
+                # Get tailscale status
+                try:
+                    exit_code, output = ts_container.exec_run(
+                        "tailscale status --json",
+                        demux=True
+                    )
+
+                    if exit_code == 0 and output[0]:
+                        ts_status = json_module.loads(output[0].decode("utf-8"))
+
+                        # Parse the status
+                        status_info["logged_in"] = ts_status.get("BackendState") == "Running"
+                        status_info["backend_state"] = ts_status.get("BackendState")
+
+                        # Self info
+                        self_info = ts_status.get("Self", {})
+                        if self_info:
+                            status_info["hostname"] = self_info.get("HostName")
+                            status_info["dns_name"] = self_info.get("DNSName", "").rstrip(".")
+                            status_info["user"] = self_info.get("UserID")
+                            status_info["online"] = self_info.get("Online", False)
+
+                            # Get Tailscale IPs
+                            ts_ips = self_info.get("TailscaleIPs", [])
+                            if ts_ips:
+                                status_info["tailscale_ip"] = ts_ips[0]  # Primary IP
+                                status_info["tailscale_ips"] = ts_ips
+
+                        # Peer info
+                        peers = ts_status.get("Peer", {})
+                        if peers:
+                            peer_list = []
+                            for peer_id, peer_info in peers.items():
+                                peer_list.append({
+                                    "hostname": peer_info.get("HostName"),
+                                    "dns_name": peer_info.get("DNSName", "").rstrip("."),
+                                    "ip": peer_info.get("TailscaleIPs", [None])[0],
+                                    "online": peer_info.get("Online", False),
+                                    "os": peer_info.get("OS"),
+                                    "last_seen": peer_info.get("LastSeen"),
+                                })
+                            status_info["peers"] = peer_list
+                            status_info["peer_count"] = len(peer_list)
+                            status_info["online_peers"] = sum(1 for p in peer_list if p.get("online"))
+
+                        # Current tailnet
+                        status_info["tailnet"] = ts_status.get("CurrentTailnet", {}).get("Name")
+
+                except json_module.JSONDecodeError:
+                    # Try plain text status
+                    exit_code, output = ts_container.exec_run(
+                        "tailscale status",
+                        demux=True
+                    )
+                    if exit_code == 0 and output[0]:
+                        status_info["status_text"] = output[0].decode("utf-8")
+                        status_info["logged_in"] = True
+
+                except Exception as e:
+                    status_info["status_error"] = str(e)
+
+        else:
+            # Try host tailscale via alpine container with host networking
+            try:
+                result = client.containers.run(
+                    "alpine:latest",
+                    command=["sh", "-c", "which tailscale && tailscale status --json 2>/dev/null || echo 'not_found'"],
+                    network_mode="host",
+                    remove=True,
+                    stdout=True,
+                    stderr=False,
+                )
+                output = result.decode("utf-8").strip()
+                if output != "not_found" and output:
+                    try:
+                        # Skip first line if it's the path
+                        lines = output.split("\n")
+                        json_start = 0
+                        for i, line in enumerate(lines):
+                            if line.strip().startswith("{"):
+                                json_start = i
+                                break
+                        json_output = "\n".join(lines[json_start:])
+                        ts_status = json_module.loads(json_output)
+                        status_info["installed"] = True
+                        status_info["running"] = True
+                        status_info["source"] = "host"
+                        # Parse same as above
+                        status_info["logged_in"] = ts_status.get("BackendState") == "Running"
+                        self_info = ts_status.get("Self", {})
+                        if self_info:
+                            status_info["hostname"] = self_info.get("HostName")
+                            status_info["tailscale_ip"] = self_info.get("TailscaleIPs", [None])[0]
+                    except Exception:
+                        pass
+            except Exception:
+                status_info["error"] = "Tailscale not found (no container or host installation)"
+
+    except Exception as e:
+        status_info["error"] = f"Docker error: {str(e)}"
+
+    return status_info
