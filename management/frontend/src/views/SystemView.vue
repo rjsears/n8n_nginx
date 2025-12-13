@@ -124,6 +124,15 @@ const healthData = ref({
 })
 const healthLoading = ref(false)
 const healthLastUpdated = ref(null)
+const healthLoadingMessages = [
+  'Running health checks...',
+  'Still working, just a moment...',
+  'Almost done, gathering all the data...',
+  'Checking containers and services...',
+  'Analyzing system resources...',
+]
+const healthLoadingMessageIndex = ref(0)
+let healthLoadingInterval = null
 
 // Network info state
 const networkInfo = ref({
@@ -337,6 +346,13 @@ async function loadData() {
 
 async function loadHealthData() {
   healthLoading.value = true
+  healthLoadingMessageIndex.value = 0
+
+  // Start rotating messages every 3.5 seconds
+  healthLoadingInterval = setInterval(() => {
+    healthLoadingMessageIndex.value = (healthLoadingMessageIndex.value + 1) % healthLoadingMessages.length
+  }, 3500)
+
   try {
     const response = await api.system.getHealthFull()
     healthData.value = response.data
@@ -345,6 +361,11 @@ async function loadHealthData() {
     notificationStore.error('Failed to load health data')
     healthData.value.overall_status = 'error'
   } finally {
+    // Stop rotating messages
+    if (healthLoadingInterval) {
+      clearInterval(healthLoadingInterval)
+      healthLoadingInterval = null
+    }
     healthLoading.value = false
   }
 }
@@ -612,6 +633,11 @@ onUnmounted(() => {
     terminal.dispose()
     terminal = null
   }
+  // Clean up health loading message interval
+  if (healthLoadingInterval) {
+    clearInterval(healthLoadingInterval)
+    healthLoadingInterval = null
+  }
 })
 </script>
 
@@ -656,7 +682,7 @@ onUnmounted(() => {
 
     <!-- Health Tab -->
     <template v-if="activeTab === 'health'">
-      <LoadingSpinner v-if="healthLoading" size="lg" text="Running health checks..." class="py-12" />
+      <LoadingSpinner v-if="healthLoading" size="lg" :text="healthLoadingMessages[healthLoadingMessageIndex]" class="py-12" />
 
       <template v-else>
         <!-- Overall Status Banner -->
