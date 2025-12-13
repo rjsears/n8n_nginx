@@ -126,8 +126,10 @@ class TerminalSession:
         """Detect available shell in container and return command for login shell."""
         # Try common shells
         if self.target_type == "host":
-            # For host, use sh with login flag
-            return ["/bin/sh", "-l"]
+            # For host access, chroot into the mounted host filesystem
+            # This ensures we're actually working in the host's filesystem,
+            # not the alpine container's overlay
+            return ["chroot", "/host", "/bin/bash", "-l"]
 
         # For containers, try to detect the shell
         try:

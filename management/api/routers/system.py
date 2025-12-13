@@ -564,7 +564,7 @@ async def get_terminal_targets(
             "name": "Host System",
             "type": "host",
             "status": "available",
-            "description": "Connect to Docker host via alpine container",
+            "description": "Connect directly to the Docker host filesystem",
         })
 
         # List running containers
@@ -768,18 +768,20 @@ async def get_tailscale_status(
                                 )
 
                                 # Get the best available name
-                                # Priority: HostName > DNSName (without tailnet suffix) > node key
-                                hostname = peer_info.get("HostName", "")
-                                dns_name = peer_info.get("DNSName", "").rstrip(".")
+                                # Priority: DNSName (first part) > HostName > node key
+                                # DNSName is more reliable as it's assigned by Tailscale
+                                dns_name = (peer_info.get("DNSName") or "").strip().rstrip(".")
+                                raw_hostname = (peer_info.get("HostName") or "").strip()
 
-                                # If hostname is empty or "localhost", try to extract from DNS name
-                                if not hostname or hostname.lower() == "localhost":
-                                    if dns_name:
-                                        # Extract first part of DNS name (before first dot)
-                                        hostname = dns_name.split(".")[0]
-                                    else:
-                                        # Use shortened node key as fallback
-                                        hostname = peer_id[:8] if peer_id else "unknown"
+                                # Prefer DNS name's first component as it's the Tailscale machine name
+                                if dns_name:
+                                    # Extract first part of DNS name (before first dot)
+                                    hostname = dns_name.split(".")[0]
+                                elif raw_hostname and raw_hostname.lower() not in ("localhost", ""):
+                                    hostname = raw_hostname
+                                else:
+                                    # Use shortened node key as fallback
+                                    hostname = peer_id[:8] if peer_id else "unknown"
 
                                 peer_list.append({
                                     "id": peer_id[:12] if peer_id else None,
