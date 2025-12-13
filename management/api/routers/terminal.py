@@ -107,18 +107,28 @@ class TerminalSession:
             )
             return False
 
-    def _detect_shell(self) -> str:
-        """Detect available shell in container."""
+    def _detect_shell(self):
+        """Detect available shell in container and return command for login shell."""
         # Try common shells
         if self.target_type == "host":
-            return "/bin/sh"
+            # For host, use sh with login flag
+            return ["/bin/sh", "-l"]
 
         # For containers, try to detect the shell
         try:
             # Try bash first
             result = self.container.exec_run("which bash", demux=True)
             if result.exit_code == 0:
-                return "/bin/bash"
+                # Use login (-l) and interactive (-i) flags to source bashrc/profile
+                return ["/bin/bash", "-li"]
+        except Exception:
+            pass
+
+        try:
+            # Try zsh
+            result = self.container.exec_run("which zsh", demux=True)
+            if result.exit_code == 0:
+                return ["/bin/zsh", "-l"]
         except Exception:
             pass
 
@@ -126,12 +136,12 @@ class TerminalSession:
             # Try sh
             result = self.container.exec_run("which sh", demux=True)
             if result.exit_code == 0:
-                return "/bin/sh"
+                return ["/bin/sh", "-l"]
         except Exception:
             pass
 
         # Default to sh
-        return "/bin/sh"
+        return ["/bin/sh"]
 
     async def read_output(self):
         """Read output from the terminal and send to websocket."""
