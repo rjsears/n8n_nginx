@@ -164,32 +164,3 @@ async def get_container_logs(
         )
 
 
-@router.post("/{name}/recreate", response_model=SuccessResponse)
-async def recreate_container(
-    name: str,
-    pull: bool = False,
-    _=Depends(get_current_user),
-):
-    """Recreate a container using docker-compose.
-
-    This stops, removes, and recreates the container with the same configuration.
-    Optionally pulls the latest image first if pull=True.
-    """
-    service = ContainerService()
-
-    try:
-        await service.recreate_container(name, pull=pull)
-        msg = f"Container {name} recreated"
-        if pull:
-            msg += " (with image pull)"
-        return SuccessResponse(message=msg)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
