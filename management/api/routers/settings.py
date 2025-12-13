@@ -479,6 +479,74 @@ async def update_system_config(
 
 
 # =============================================================================
+# Appearance Settings (MUST come before /{key} catch-all)
+# =============================================================================
+
+@router.get("/appearance", response_model=SettingValue)
+async def get_appearance_settings(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get appearance settings (theme, layout, etc.)."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == "appearance")
+    )
+    setting = result.scalar_one_or_none()
+
+    if not setting:
+        # Return default settings if none exist
+        return SettingValue(
+            key="appearance",
+            value={
+                "preset": "modern_light",
+                "layout": "horizontal",
+                "colorMode": "light",
+                "neonEffects": False,
+            },
+            category="user",
+            description="User appearance preferences",
+            is_secret=False,
+            updated_at=datetime.now(UTC),
+        )
+
+    return SettingValue.model_validate(setting)
+
+
+@router.put("/appearance", response_model=SettingValue)
+async def update_appearance_settings(
+    update: SettingUpdate,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update appearance settings."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == "appearance")
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        setting.value = update.value
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = user.id
+    else:
+        # Create the setting if it doesn't exist
+        setting = SettingsModel(
+            key="appearance",
+            value=update.value,
+            category="user",
+            description="User appearance preferences",
+            is_secret=False,
+            updated_by=user.id,
+        )
+        db.add(setting)
+
+    await db.commit()
+    await db.refresh(setting)
+
+    return SettingValue.model_validate(setting)
+
+
+# =============================================================================
 # Container Restart (MUST come before /{key} catch-all)
 # =============================================================================
 
