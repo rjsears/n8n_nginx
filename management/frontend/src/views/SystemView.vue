@@ -1868,7 +1868,7 @@ onUnmounted(() => {
           <div
             ref="terminalElement"
             :class="['rounded-lg overflow-hidden', terminalDarkMode ? 'bg-[#0d1117]' : 'bg-white']"
-            style="height: 600px;"
+            style="height: 70vh; min-height: 500px;"
           >
             <div v-if="!terminal" class="flex items-center justify-center h-full text-muted">
               <CommandLineIcon class="h-8 w-8 mr-2" />
