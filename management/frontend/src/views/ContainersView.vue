@@ -9,6 +9,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import ContainerStackLoader from '@/components/common/ContainerStackLoader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { useRouter } from 'vue-router'
 import {
   ServerIcon,
@@ -27,6 +28,7 @@ import {
   ArrowUpTrayIcon,
   Square3Stack3DIcon,
   HeartIcon,
+  ArrowsRightLeftIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -36,7 +38,7 @@ const notificationStore = useNotificationStore()
 
 const loading = ref(true)
 const containerStats = ref({})
-const actionDialog = ref({ open: false, container: null, action: '', loading: false })
+const actionDialog = ref({ open: false, container: null, action: '', loading: false, pullImage: false })
 const logsDialog = ref({ open: false, container: null, logs: '', loading: false })
 
 let statsInterval = null
@@ -158,11 +160,11 @@ function getHealthBadgeClass(health) {
 }
 
 async function performAction(container, action) {
-  actionDialog.value = { open: true, container, action, loading: false }
+  actionDialog.value = { open: true, container, action, loading: false, pullImage: false }
 }
 
 async function confirmAction() {
-  const { container, action } = actionDialog.value
+  const { container, action, pullImage } = actionDialog.value
   if (!container || !action) return
 
   actionDialog.value.loading = true
@@ -179,6 +181,10 @@ async function confirmAction() {
       case 'restart':
         await containerStore.restartContainer(container.name)
         notificationStore.success(`Container ${container.name} restarted`)
+        break
+      case 'recreate':
+        await containerStore.recreateContainer(container.name, pullImage)
+        notificationStore.success(`Container ${container.name} recreated${pullImage ? ' (with image pull)' : ''}`)
         break
     }
     actionDialog.value.open = false
@@ -508,6 +514,16 @@ onUnmounted(() => {
                 <ArrowPathIcon class="h-4 w-4" />
                 Restart
               </button>
+
+              <!-- Recreate Button -->
+              <button
+                @click="performAction(container, 'recreate')"
+                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-500/10"
+                title="Recreate Container (with optional image pull)"
+              >
+                <ArrowsRightLeftIcon class="h-4 w-4" />
+                Recreate
+              </button>
             </div>
 
             <div class="flex items-center gap-2">
@@ -539,13 +555,25 @@ onUnmounted(() => {
     <ConfirmDialog
       :open="actionDialog.open"
       :title="`${actionDialog.action?.charAt(0).toUpperCase()}${actionDialog.action?.slice(1)} Container`"
-      :message="`Are you sure you want to ${actionDialog.action} ${actionDialog.container?.name}?`"
+      :message="actionDialog.action === 'recreate'
+        ? `Are you sure you want to recreate ${actionDialog.container?.name}?\n\nThis will stop, remove, and recreate the container with the same configuration.`
+        : `Are you sure you want to ${actionDialog.action} ${actionDialog.container?.name}?`"
       :confirm-text="actionDialog.action?.charAt(0).toUpperCase() + actionDialog.action?.slice(1)"
       :danger="actionDialog.action === 'stop'"
       :loading="actionDialog.loading"
       @confirm="confirmAction"
       @cancel="actionDialog.open = false"
-    />
+    >
+      <!-- Extra content for recreate action (uses default slot) -->
+      <label v-if="actionDialog.action === 'recreate'" class="flex items-center gap-2 mt-4 cursor-pointer">
+        <input
+          type="checkbox"
+          v-model="actionDialog.pullImage"
+          class="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+        />
+        <span class="text-sm text-secondary">Pull latest image before recreating</span>
+      </label>
+    </ConfirmDialog>
 
     <!-- Logs Dialog -->
     <Teleport to="body">

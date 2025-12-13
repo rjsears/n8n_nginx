@@ -319,6 +319,84 @@ class ContainerService:
 
         await self.db.commit()
 
+    async def recreate_container(self, name: str, pull: bool = False) -> bool:
+        """Recreate a container using docker-compose.
+
+        This stops, removes, and recreates the container with the same config.
+        Optionally pulls the latest image first.
+        """
+        import subprocess
+
+        if not self._is_project_container(name):
+            raise ValueError("Can only manage project containers")
+
+        # Get the service name from container name
+        # Container names are typically "n8n_service" or just "n8n"
+        prefix = settings.container_prefix.rstrip("_")
+        if name.startswith(settings.container_prefix):
+            service_name = name[len(settings.container_prefix):]
+        elif name == prefix:
+            service_name = name
+        else:
+            service_name = name
+
+        # Find docker-compose.yaml in the project root
+        compose_file = settings.project_root / "docker-compose.yaml"
+        if not compose_file.exists():
+            compose_file = settings.project_root / "docker-compose.yml"
+
+        if not compose_file.exists():
+            raise ValueError("docker-compose.yaml not found")
+
+        try:
+            # Build the docker-compose command
+            cmd = [
+                "docker-compose",
+                "-f", str(compose_file),
+                "up", "-d",
+                "--force-recreate",
+                "--no-deps",
+            ]
+
+            if pull:
+                # Pull latest image first
+                pull_cmd = [
+                    "docker-compose",
+                    "-f", str(compose_file),
+                    "pull",
+                    service_name,
+                ]
+                pull_result = await asyncio.to_thread(
+                    subprocess.run,
+                    pull_cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(settings.project_root),
+                )
+                if pull_result.returncode != 0:
+                    logger.warning(f"Failed to pull image for {service_name}: {pull_result.stderr}")
+
+            # Add service name to recreate command
+            cmd.append(service_name)
+
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=str(settings.project_root),
+            )
+
+            if result.returncode != 0:
+                raise Exception(f"docker-compose failed: {result.stderr}")
+
+            await dispatch_notification("container.recreated", {"container": name, "pulled": pull})
+            logger.info(f"Recreated container: {name} (pull={pull})")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to recreate container {name}: {e}")
+            raise
+
     async def check_health(self) -> Dict[str, Any]:
         """Check health of all project containers."""
         containers = await self.list_containers()

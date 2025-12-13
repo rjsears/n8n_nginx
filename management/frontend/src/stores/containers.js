@@ -92,6 +92,19 @@ export const useContainerStore = defineStore('containers', () => {
     }
   }
 
+  async function recreateContainer(name, pull = false) {
+    try {
+      await api.post(`/containers/${name}/recreate`, null, {
+        params: { pull }
+      })
+      await fetchContainers()
+      return true
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to recreate container'
+      return false
+    }
+  }
+
   async function getLogs(name, tail = 100) {
     try {
       const response = await api.get(`/containers/${name}/logs`, {
@@ -130,6 +143,7 @@ export const useContainerStore = defineStore('containers', () => {
     startContainer,
     stopContainer,
     restartContainer,
+    recreateContainer,
     getLogs,
     getContainerLogs: getLogs,  // Alias for ContainersView compatibility
     getContainerByName,
