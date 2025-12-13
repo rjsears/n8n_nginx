@@ -534,8 +534,8 @@ async def get_n8n_url(
     """
     from api.config import settings
 
-    # Use configured URL or default to relative path
-    n8n_url = settings.n8n_editor_base_url or "/n8n"
+    # Use configured URL or default to empty (root path)
+    n8n_url = settings.n8n_editor_base_url or ""
 
     return {
         "url": n8n_url.rstrip("/"),
