@@ -458,7 +458,7 @@ async function initTerminal() {
       theme: terminalDarkMode.value ? terminalThemes.dark : terminalThemes.light,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      rows: 28,
+      rows: 35,
       cols: 120,
     })
 
@@ -1769,23 +1769,23 @@ onUnmounted(() => {
     <!-- Terminal Tab -->
     <template v-if="activeTab === 'terminal'">
       <Card :neon="true" :padding="false">
-        <!-- Custom Header with Controls -->
+        <!-- Custom Header with Controls - Centered -->
         <template #header>
-          <div class="flex items-center justify-between w-full px-4 py-2">
-            <div class="flex items-center gap-3">
-              <CommandLineIcon class="h-5 w-5 text-primary" />
-              <div>
+          <div class="flex items-center justify-center w-full px-4 py-3">
+            <div class="flex items-center gap-4">
+              <!-- Title -->
+              <div class="flex items-center gap-2">
+                <CommandLineIcon class="h-5 w-5 text-primary" />
                 <h3 class="font-semibold text-primary text-sm">Web Terminal</h3>
-                <p class="text-xs text-muted">Connect to containers or host</p>
               </div>
-            </div>
 
-            <div class="flex items-center gap-2">
+              <div class="h-5 w-px bg-gray-300 dark:bg-gray-600"></div>
+
               <!-- Target Selector -->
               <select
                 v-model="selectedTarget"
                 :disabled="terminalConnected"
-                class="select-field text-sm py-1 min-w-[180px]"
+                class="select-field text-sm py-1.5 min-w-[200px]"
               >
                 <option
                   v-for="target in terminalTargets"
@@ -1864,32 +1864,28 @@ onUnmounted(() => {
 </template>
 
 <style>
-/* Terminal container and window sizing */
-.terminal-container {
-  padding: 1rem;
-}
-
+/* Terminal window - FIXED HEIGHT */
 .terminal-window {
-  height: 500px;
-  min-height: 400px;
-  max-height: calc(100vh - 320px);
+  height: 550px !important;
+  min-height: 550px !important;
+  max-height: 550px !important;
 }
 
 /* Terminal styling - ensure xterm fills container */
-.xterm {
+.terminal-window .xterm {
   padding: 8px;
   height: 100% !important;
   width: 100% !important;
 }
-.xterm-screen {
+.terminal-window .xterm-screen {
   height: 100% !important;
   width: 100% !important;
 }
-.xterm-viewport {
+.terminal-window .xterm-viewport {
   height: 100% !important;
   overflow-y: auto !important;
 }
-.xterm-rows {
+.terminal-window .xterm-rows {
   height: 100% !important;
 }
 </style>
