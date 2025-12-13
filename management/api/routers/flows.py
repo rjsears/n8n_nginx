@@ -56,8 +56,14 @@ async def list_flows(
     Requires read access to n8n database.
     """
     from sqlalchemy import text
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     try:
+        # First test the connection
+        await db.execute(text("SELECT 1"))
+
         query = """
             SELECT id, name, active,
                    COALESCE(jsonb_array_length(nodes), 0) as node_count,
@@ -83,9 +89,20 @@ async def list_flows(
             for row in rows
         ]
     except Exception as e:
+        logger.error(f"Failed to list flows from n8n database: {e}")
+        # Provide more specific error message
+        error_msg = str(e)
+        if "password authentication failed" in error_msg.lower():
+            detail = "n8n database authentication failed. Check N8N_DATABASE_URL password."
+        elif "could not connect" in error_msg.lower() or "connection refused" in error_msg.lower():
+            detail = "Cannot connect to n8n database. Ensure postgres container is running."
+        elif "does not exist" in error_msg.lower():
+            detail = "n8n database or table not found. Ensure n8n has been started at least once."
+        else:
+            detail = f"Failed to list flows: {e}"
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list flows: {e}",
+            detail=detail,
         )
 
 
