@@ -754,51 +754,72 @@ async def get_tailscale_status(
                                 status_info["tailscale_ip"] = ts_ips[0]  # Primary IP
                                 status_info["tailscale_ips"] = ts_ips
 
-                        # Peer info
+                        # Build device list including self and peers
+                        device_list = []
+
+                        # Add self as first device (this node)
+                        if self_info:
+                            self_dns = (self_info.get("DNSName") or "").strip().rstrip(".")
+                            self_hostname = self_dns.split(".")[0] if self_dns else self_info.get("HostName", "this-node")
+                            device_list.append({
+                                "id": "self",
+                                "hostname": self_hostname,
+                                "dns_name": self_dns,
+                                "ip": self_info.get("TailscaleIPs", [None])[0],
+                                "online": self_info.get("Online", True),  # Self is always online if we can query it
+                                "os": self_info.get("OS"),
+                                "is_self": True,
+                            })
+
+                        # Add peers
                         peers = ts_status.get("Peer", {})
-                        if peers:
-                            peer_list = []
-                            for peer_id, peer_info in peers.items():
-                                # Check multiple fields for online status
-                                # Tailscale uses "Online" but also check "Active" and "CurAddr"
-                                is_online = (
-                                    peer_info.get("Online", False) or
-                                    peer_info.get("Active", False) or
-                                    bool(peer_info.get("CurAddr"))  # Has current address = connected
-                                )
+                        for peer_id, peer_info in peers.items():
+                            # Check multiple fields for online status
+                            # Tailscale uses "Online" but also check "Active" and "CurAddr"
+                            is_online = (
+                                peer_info.get("Online", False) or
+                                peer_info.get("Active", False) or
+                                bool(peer_info.get("CurAddr"))  # Has current address = connected
+                            )
 
-                                # Get the best available name
-                                # Priority: DNSName (first part) > HostName > node key
-                                # DNSName is more reliable as it's assigned by Tailscale
-                                dns_name = (peer_info.get("DNSName") or "").strip().rstrip(".")
-                                raw_hostname = (peer_info.get("HostName") or "").strip()
+                            # Get the best available name
+                            # Priority: DNSName (first part) > HostName > node key
+                            # DNSName is more reliable as it's assigned by Tailscale
+                            dns_name = (peer_info.get("DNSName") or "").strip().rstrip(".")
+                            raw_hostname = (peer_info.get("HostName") or "").strip()
 
-                                # Prefer DNS name's first component as it's the Tailscale machine name
-                                if dns_name:
-                                    # Extract first part of DNS name (before first dot)
-                                    hostname = dns_name.split(".")[0]
-                                elif raw_hostname and raw_hostname.lower() not in ("localhost", ""):
-                                    hostname = raw_hostname
-                                else:
-                                    # Use shortened node key as fallback
-                                    hostname = peer_id[:8] if peer_id else "unknown"
+                            # Prefer DNS name's first component as it's the Tailscale machine name
+                            if dns_name:
+                                # Extract first part of DNS name (before first dot)
+                                hostname = dns_name.split(".")[0]
+                            elif raw_hostname and raw_hostname.lower() not in ("localhost", ""):
+                                hostname = raw_hostname
+                            else:
+                                # Use shortened node key as fallback
+                                hostname = peer_id[:8] if peer_id else "unknown"
 
-                                peer_list.append({
-                                    "id": peer_id[:12] if peer_id else None,
-                                    "hostname": hostname,
-                                    "dns_name": dns_name,
-                                    "ip": peer_info.get("TailscaleIPs", [None])[0],
-                                    "online": is_online,
-                                    "os": peer_info.get("OS"),
-                                    "last_seen": peer_info.get("LastSeen"),
-                                    "rx_bytes": peer_info.get("RxBytes"),
-                                    "tx_bytes": peer_info.get("TxBytes"),
-                                })
-                            # Sort peers: online first, then by hostname
-                            peer_list.sort(key=lambda p: (not p.get("online", False), p.get("hostname", "").lower()))
-                            status_info["peers"] = peer_list
-                            status_info["peer_count"] = len(peer_list)
-                            status_info["online_peers"] = sum(1 for p in peer_list if p.get("online"))
+                            device_list.append({
+                                "id": peer_id[:12] if peer_id else None,
+                                "hostname": hostname,
+                                "dns_name": dns_name,
+                                "ip": peer_info.get("TailscaleIPs", [None])[0],
+                                "online": is_online,
+                                "os": peer_info.get("OS"),
+                                "last_seen": peer_info.get("LastSeen"),
+                                "rx_bytes": peer_info.get("RxBytes"),
+                                "tx_bytes": peer_info.get("TxBytes"),
+                                "is_self": False,
+                            })
+
+                        # Sort: self first, then online devices, then by hostname
+                        device_list.sort(key=lambda p: (
+                            not p.get("is_self", False),  # Self always first
+                            not p.get("online", False),   # Online before offline
+                            p.get("hostname", "").lower()
+                        ))
+                        status_info["peers"] = device_list
+                        status_info["peer_count"] = len(device_list)
+                        status_info["online_peers"] = sum(1 for p in device_list if p.get("online"))
 
                         # Current tailnet
                         status_info["tailnet"] = ts_status.get("CurrentTailnet", {}).get("Name")

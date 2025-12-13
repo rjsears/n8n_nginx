@@ -921,13 +921,13 @@ onUnmounted(() => {
                   <span class="text-secondary">Tailnet</span>
                   <span class="font-medium text-primary">{{ tailscaleInfo.tailnet }}</span>
                 </div>
-                <!-- Peers with expandable list -->
+                <!-- Devices with expandable list -->
                 <div v-if="tailscaleInfo.peers?.length" class="py-2">
                   <button
                     @click="peersExpanded = !peersExpanded"
                     class="w-full flex items-center justify-between hover:bg-surface-hover rounded-lg p-1 -m-1 transition-colors"
                   >
-                    <span class="text-secondary">Peers</span>
+                    <span class="text-secondary">Devices</span>
                     <div class="flex items-center gap-2">
                       <span class="font-medium text-primary">
                         {{ tailscaleInfo.online_peers || 0 }} online / {{ tailscaleInfo.peer_count }} total
@@ -949,7 +949,10 @@ onUnmounted(() => {
                     <div
                       v-for="peer in tailscaleInfo.peers"
                       :key="peer.id || peer.hostname"
-                      class="flex items-center justify-between p-2 rounded-lg bg-surface-hover"
+                      :class="[
+                        'flex items-center justify-between p-2 rounded-lg',
+                        peer.is_self ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30' : 'bg-surface-hover'
+                      ]"
                     >
                       <div class="flex items-center gap-2">
                         <span
@@ -959,7 +962,10 @@ onUnmounted(() => {
                           ]"
                         ></span>
                         <div class="min-w-0">
-                          <p class="font-medium text-primary text-sm truncate">{{ peer.hostname }}</p>
+                          <p class="font-medium text-primary text-sm truncate">
+                            {{ peer.hostname }}
+                            <span v-if="peer.is_self" class="text-xs text-blue-600 dark:text-blue-400 ml-1">(this device)</span>
+                          </p>
                           <p class="text-xs text-muted font-mono truncate">{{ peer.ip }}</p>
                         </div>
                       </div>
