@@ -87,7 +87,9 @@ async function loadData() {
     workflows.value = workflowsRes.data
     executions.value = executionsRes.data
   } catch (error) {
-    notificationStore.error('Failed to load workflow data')
+    const detail = error.response?.data?.detail || 'Unknown error'
+    notificationStore.error(`Failed to load workflow data: ${detail}`)
+    console.error('Flows load error:', error.response?.data || error)
   } finally {
     loading.value = false
   }
