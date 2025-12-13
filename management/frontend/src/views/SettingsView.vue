@@ -166,7 +166,11 @@ async function changePassword() {
   }
 }
 
-// Theme is now applied directly via themeStore.setColorMode()
+// Theme selection with notification feedback
+function selectTheme(mode) {
+  themeStore.setColorMode(mode)
+  notificationStore.success(`Theme changed to ${mode === 'dark' ? 'Dark' : 'Light'} mode`)
+}
 
 async function toggleDebugMode() {
   const success = await debugStore.toggleDebugMode()
@@ -266,7 +270,7 @@ onMounted(async () => {
                   ? 'border-blue-500 ring-2 ring-blue-500/20'
                   : 'border-gray-200 hover:border-gray-300'
               ]"
-              @click="themeStore.setColorMode('light')"
+              @click="selectTheme('light')"
             >
               <!-- Preview Area -->
               <div class="bg-white p-4 border-b border-gray-200">
@@ -332,7 +336,7 @@ onMounted(async () => {
                   ? 'border-blue-500 ring-2 ring-blue-500/20'
                   : 'border-gray-200 hover:border-gray-300'
               ]"
-              @click="themeStore.setColorMode('dark')"
+              @click="selectTheme('dark')"
             >
               <!-- Preview Area -->
               <div class="bg-slate-900 p-4 border-b border-slate-700">
