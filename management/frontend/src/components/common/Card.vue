@@ -12,6 +12,10 @@ defineProps({
     type: Boolean,
     default: true,
   },
+  flex: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const themeStore = useThemeStore()
@@ -22,14 +26,15 @@ const themeStore = useThemeStore()
     :class="[
       'rounded-lg border border-[var(--color-border)] bg-surface',
       neon && themeStore.isNeon ? 'neon-card' : '',
-      padding ? '' : 'p-0'
+      padding ? '' : 'p-0',
+      flex ? 'flex flex-col' : ''
     ]"
   >
     <!-- Header -->
     <div
       v-if="title || $slots.header"
       :class="[
-        'border-b border-[var(--color-border)]',
+        'border-b border-[var(--color-border)] flex-shrink-0',
         padding ? 'px-6 py-4' : 'px-4 py-3'
       ]"
     >
@@ -54,7 +59,7 @@ const themeStore = useThemeStore()
     </div>
 
     <!-- Content -->
-    <div :class="padding ? 'p-6' : ''">
+    <div :class="[padding ? 'p-6' : '', flex ? 'flex-1 flex flex-col min-h-0' : '']">
       <slot />
     </div>
 
@@ -62,7 +67,7 @@ const themeStore = useThemeStore()
     <div
       v-if="$slots.footer"
       :class="[
-        'border-t border-[var(--color-border)]',
+        'border-t border-[var(--color-border)] flex-shrink-0',
         padding ? 'px-6 py-4' : 'px-4 py-3'
       ]"
     >

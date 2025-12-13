@@ -1008,6 +1008,7 @@ async def get_full_health_check(
     """
     Comprehensive system health check - checks all components.
     Returns detailed health status for containers, databases, services, resources, and more.
+    Mirrors the functionality of health_check.sh script.
     """
     import socket
     import re
@@ -1018,28 +1019,29 @@ async def get_full_health_check(
         "overall_status": "healthy",
         "warnings": 0,
         "errors": 0,
+        "passed": 0,
         "checks": {},
+        "container_memory": {},
+        "ssl_certificates": [],
+        "docker_disk_usage_gb": 0,
     }
 
-    def add_check(category: str, name: str, status: str, message: str, details: dict = None):
-        """Add a health check result."""
-        if category not in health_data["checks"]:
-            health_data["checks"][category] = []
+    def set_check(category: str, status: str, details: dict = None):
+        """Set a category's health check result."""
+        # Normalize status: healthy -> ok
+        normalized_status = "ok" if status == "healthy" else status
 
-        check = {
-            "name": name,
-            "status": status,  # healthy, warning, error
-            "message": message,
+        health_data["checks"][category] = {
+            "status": normalized_status,
+            "details": details or {},
         }
-        if details:
-            check["details"] = details
-
-        health_data["checks"][category].append(check)
 
         if status == "warning":
             health_data["warnings"] += 1
         elif status == "error":
             health_data["errors"] += 1
+        else:
+            health_data["passed"] += 1
 
     try:
         import docker
@@ -1048,66 +1050,74 @@ async def get_full_health_check(
         # ========================================
         # Docker Container Health
         # ========================================
+        docker_details = {
+            "running": 0,
+            "stopped": 0,
+            "unhealthy": 0,
+            "unhealthy_containers": [],
+        }
+        docker_status = "healthy"
+        container_memory = {}
+
         try:
             # Check Docker daemon
             client.ping()
-            add_check("docker", "docker_daemon", "healthy", "Docker daemon is running")
 
             # Get all containers
             containers = client.containers.list(all=True)
             core_containers = ["n8n", "n8n_postgres", "n8n_nginx", "n8n_management"]
 
-            container_memory = {}
             for container in containers:
                 name = container.name
 
-                # Check if running
                 if container.status == "running":
-                    add_check("docker", f"container_{name}", "healthy", f"Container {name} is running")
+                    docker_details["running"] += 1
 
                     # Check health status if available
                     health = container.attrs.get("State", {}).get("Health", {})
                     health_status = health.get("Status", "none")
-                    if health_status == "healthy":
-                        add_check("docker", f"health_{name}", "healthy", f"Container {name} health check: healthy")
-                    elif health_status == "unhealthy":
-                        add_check("docker", f"health_{name}", "error", f"Container {name} health check: unhealthy")
-                    elif health_status == "starting":
-                        add_check("docker", f"health_{name}", "warning", f"Container {name} health check: starting")
+                    if health_status == "unhealthy":
+                        docker_details["unhealthy"] += 1
+                        docker_details["unhealthy_containers"].append(name)
+                        docker_status = "error"
 
-                    # Get memory usage
+                    # Get memory usage (simplified - just MB used)
                     try:
                         stats = container.stats(stream=False)
                         memory_stats = stats.get("memory_stats", {})
                         memory_usage = memory_stats.get("usage", 0)
-                        memory_limit = memory_stats.get("limit", 0)
-                        if memory_usage and memory_limit:
-                            container_memory[name] = {
-                                "usage_mb": round(memory_usage / (1024 * 1024), 1),
-                                "limit_mb": round(memory_limit / (1024 * 1024), 1),
-                                "percent": round((memory_usage / memory_limit) * 100, 1) if memory_limit else 0,
-                            }
+                        if memory_usage:
+                            container_memory[name] = round(memory_usage / (1024 * 1024), 1)
                     except Exception:
                         pass
-
-                elif name in core_containers:
-                    add_check("docker", f"container_{name}", "error", f"Container {name} is not running")
+                else:
+                    docker_details["stopped"] += 1
+                    if name in core_containers:
+                        docker_status = "error"
 
             health_data["container_memory"] = container_memory
 
         except Exception as e:
-            add_check("docker", "docker_daemon", "error", f"Docker error: {str(e)}")
+            docker_status = "error"
+            docker_details["error"] = str(e)
+
+        set_check("docker", docker_status, docker_details)
 
         # ========================================
-        # n8n API Health
+        # Core Services Health (n8n, Nginx, Management)
         # ========================================
+        services_details = {}
+        services_status = "healthy"
+
+        # Find nginx container for checks
+        nginx_container = None
+        for c in client.containers.list():
+            if "nginx" in c.name.lower():
+                nginx_container = c
+                break
+
+        # Check n8n API
         try:
-            nginx_container = None
-            for c in client.containers.list():
-                if "nginx" in c.name.lower():
-                    nginx_container = c
-                    break
-
             if nginx_container:
                 exit_code, output = nginx_container.exec_run(
                     "curl -s -o /dev/null -w '%{http_code}' http://n8n:5678/healthz",
@@ -1116,20 +1126,46 @@ async def get_full_health_check(
                 if exit_code == 0 and output[0]:
                     status_code = output[0].decode("utf-8").strip()
                     if status_code == "200":
-                        add_check("services", "n8n_api", "healthy", "n8n API is responding")
+                        services_details["n8n_api"] = "ok"
                     else:
-                        add_check("services", "n8n_api", "warning", f"n8n API returned status {status_code}")
+                        services_details["n8n_api"] = "error"
+                        services_status = "error"
                 else:
-                    add_check("services", "n8n_api", "error", "n8n API is not responding")
+                    services_details["n8n_api"] = "error"
+                    services_status = "error"
             else:
-                add_check("services", "n8n_api", "warning", "Cannot check n8n API (nginx not found)")
+                services_details["n8n_api"] = "unknown"
+        except Exception:
+            services_details["n8n_api"] = "error"
+            services_status = "error"
 
-        except Exception as e:
-            add_check("services", "n8n_api", "error", f"n8n API check failed: {str(e)}")
+        # Check Nginx
+        try:
+            if nginx_container:
+                exit_code, _ = nginx_container.exec_run("nginx -t", demux=True)
+                if exit_code == 0:
+                    services_details["nginx"] = "ok"
+                else:
+                    services_details["nginx"] = "error"
+                    services_status = "error"
+            else:
+                services_details["nginx"] = "error"
+                services_status = "error"
+        except Exception:
+            services_details["nginx"] = "error"
+            services_status = "error"
+
+        # Management API (we're running, so it's ok)
+        services_details["management"] = "ok"
+
+        set_check("services", services_status, services_details)
 
         # ========================================
-        # PostgreSQL Health
+        # PostgreSQL Health (dynamically get user from container environment)
         # ========================================
+        database_details = {}
+        database_status = "healthy"
+
         try:
             postgres_container = None
             for c in client.containers.list():
@@ -1138,171 +1174,207 @@ async def get_full_health_check(
                     break
 
             if postgres_container:
-                exit_code, output = postgres_container.exec_run(
-                    "pg_isready -U postgres",
+                # Get the database user from container environment
+                # Default to 'n8n' but check POSTGRES_USER env var
+                db_user = "n8n"  # default
+                try:
+                    env_vars = postgres_container.attrs.get("Config", {}).get("Env", [])
+                    for env in env_vars:
+                        if env.startswith("POSTGRES_USER="):
+                            db_user = env.split("=", 1)[1]
+                            break
+                except Exception:
+                    pass
+
+                database_details["user"] = db_user
+
+                # Check if PostgreSQL is accepting connections
+                exit_code, _ = postgres_container.exec_run(
+                    f"pg_isready -U {db_user}",
                     demux=True
                 )
                 if exit_code == 0:
-                    add_check("database", "postgres", "healthy", "PostgreSQL is accepting connections")
+                    database_details["connection"] = "ok"
 
-                    exit_code, output = postgres_container.exec_run(
-                        "psql -U postgres -d n8n -c 'SELECT 1' -t",
+                    # Check n8n database
+                    exit_code, _ = postgres_container.exec_run(
+                        f"psql -U {db_user} -d n8n -c 'SELECT 1' -t",
                         demux=True
                     )
                     if exit_code == 0:
-                        add_check("database", "postgres_n8n_db", "healthy", "n8n database is accessible")
+                        database_details["n8n_db"] = "ok"
                     else:
-                        add_check("database", "postgres_n8n_db", "error", "n8n database is not accessible")
+                        database_details["n8n_db"] = "error"
+                        database_status = "error"
 
-                    exit_code, output = postgres_container.exec_run(
-                        "psql -U postgres -d n8n_management -c 'SELECT 1' -t",
+                    # Check management database
+                    exit_code, _ = postgres_container.exec_run(
+                        f"psql -U {db_user} -d n8n_management -c 'SELECT 1' -t",
                         demux=True
                     )
                     if exit_code == 0:
-                        add_check("database", "postgres_mgmt_db", "healthy", "Management database is accessible")
+                        database_details["management_db"] = "ok"
                     else:
-                        add_check("database", "postgres_mgmt_db", "error", "Management database is not accessible")
+                        database_details["management_db"] = "warning"
+                        if database_status == "healthy":
+                            database_status = "warning"
+
+                    # Get version
+                    exit_code, output = postgres_container.exec_run(
+                        f"psql -U {db_user} -d n8n -c 'SELECT version()' -t",
+                        demux=True
+                    )
+                    if exit_code == 0 and output[0]:
+                        version_str = output[0].decode("utf-8").strip()
+                        # Extract just the version number
+                        match = re.search(r'PostgreSQL (\d+\.\d+)', version_str)
+                        if match:
+                            database_details["version"] = match.group(1)
+
+                    # Also expose as 'query' for frontend compatibility
+                    database_details["query"] = database_details.get("n8n_db", "error")
                 else:
-                    add_check("database", "postgres", "error", "PostgreSQL is not accepting connections")
+                    database_details["connection"] = "error"
+                    database_status = "error"
             else:
-                add_check("database", "postgres", "error", "PostgreSQL container not found")
+                database_details["connection"] = "error"
+                database_status = "error"
 
         except Exception as e:
-            add_check("database", "postgres", "error", f"PostgreSQL check failed: {str(e)}")
+            database_details["connection"] = "error"
+            database_details["error"] = str(e)
+            database_status = "error"
 
-        # ========================================
-        # Nginx Health
-        # ========================================
-        try:
-            nginx_container = None
-            for c in client.containers.list():
-                if "nginx" in c.name.lower() and "n8n" in c.name.lower():
-                    nginx_container = c
-                    break
-
-            if nginx_container:
-                exit_code, output = nginx_container.exec_run("nginx -t", demux=True)
-                if exit_code == 0:
-                    add_check("services", "nginx_config", "healthy", "Nginx configuration is valid")
-                else:
-                    error_msg = output[1].decode("utf-8") if output[1] else "Unknown error"
-                    add_check("services", "nginx_config", "error", f"Nginx config error: {error_msg[:100]}")
-
-                exit_code, output = nginx_container.exec_run(
-                    "curl -s -o /dev/null -w '%{http_code}' -k https://localhost/management/api/health",
-                    demux=True
-                )
-                if exit_code == 0 and output[0]:
-                    status_code = output[0].decode("utf-8").strip()
-                    if status_code in ["200", "301", "302"]:
-                        add_check("services", "nginx_https", "healthy", "Nginx HTTPS is responding")
-                    else:
-                        add_check("services", "nginx_https", "warning", f"Nginx HTTPS returned {status_code}")
-                else:
-                    add_check("services", "nginx_https", "warning", "Nginx HTTPS check inconclusive")
-
-        except Exception as e:
-            add_check("services", "nginx", "error", f"Nginx check failed: {str(e)}")
-
-        # Management API
-        add_check("services", "management_api", "healthy", "Management API is responding")
+        set_check("database", database_status, database_details)
 
         # ========================================
         # System Resources
         # ========================================
+        resources_details = {}
+        resources_status = "healthy"
+
         try:
+            # Disk
             disk = psutil.disk_usage("/")
-            disk_percent = disk.percent
-            disk_details = {
-                "total_gb": round(disk.total / (1024**3), 1),
-                "used_gb": round(disk.used / (1024**3), 1),
-                "free_gb": round(disk.free / (1024**3), 1),
-                "percent": disk_percent,
-            }
+            resources_details["disk_percent"] = round(disk.percent, 1)
+            resources_details["disk_free_gb"] = round(disk.free / (1024**3), 1)
+            resources_details["disk_total_gb"] = round(disk.total / (1024**3), 1)
 
-            if disk_percent >= 90:
-                add_check("resources", "disk_root", "error", f"Disk usage critical: {disk_percent}%", disk_details)
-            elif disk_percent >= 80:
-                add_check("resources", "disk_root", "warning", f"Disk usage high: {disk_percent}%", disk_details)
-            else:
-                add_check("resources", "disk_root", "healthy", f"Disk usage: {disk_percent}%", disk_details)
+            if disk.percent >= 90:
+                resources_status = "error"
+            elif disk.percent >= 80:
+                if resources_status == "healthy":
+                    resources_status = "warning"
 
+            # Memory
+            memory = psutil.virtual_memory()
+            resources_details["memory_percent"] = round(memory.percent, 1)
+            resources_details["memory_total_mb"] = round(memory.total / (1024**2))
+            resources_details["memory_available_mb"] = round(memory.available / (1024**2))
+
+            if memory.percent >= 90:
+                resources_status = "error"
+            elif memory.percent >= 80:
+                if resources_status == "healthy":
+                    resources_status = "warning"
+
+            # CPU
+            cpu_percent = psutil.cpu_percent(interval=0.5)
+            cpu_count = psutil.cpu_count()
+            load_avg = psutil.getloadavg()
+            load_percent = round((load_avg[0] / cpu_count) * 100, 1) if cpu_count else 0
+
+            resources_details["cpu_percent"] = round(cpu_percent, 1)
+            resources_details["cpu_count"] = cpu_count
+            resources_details["load_1m"] = round(load_avg[0], 2)
+            resources_details["load_percent"] = load_percent
+
+            if load_percent >= 90:
+                resources_status = "error"
+            elif load_percent >= 80:
+                if resources_status == "healthy":
+                    resources_status = "warning"
+
+            # Docker disk usage
             try:
                 df_result = client.df()
                 docker_usage = 0
                 for image in df_result.get("Images", []):
                     docker_usage += image.get("Size", 0)
-                docker_gb = round(docker_usage / (1024**3), 2)
-                health_data["docker_disk_usage_gb"] = docker_gb
+                health_data["docker_disk_usage_gb"] = round(docker_usage / (1024**3), 2)
             except Exception:
                 pass
 
         except Exception as e:
-            add_check("resources", "disk_root", "error", f"Disk check failed: {str(e)}")
+            resources_details["error"] = str(e)
+            resources_status = "error"
 
-        try:
-            memory = psutil.virtual_memory()
-            memory_details = {
-                "total_mb": round(memory.total / (1024**2)),
-                "used_mb": round(memory.used / (1024**2)),
-                "available_mb": round(memory.available / (1024**2)),
-                "percent": memory.percent,
-            }
-
-            if memory.percent >= 90:
-                add_check("resources", "memory", "error", f"Memory usage critical: {memory.percent}%", memory_details)
-            elif memory.percent >= 80:
-                add_check("resources", "memory", "warning", f"Memory usage high: {memory.percent}%", memory_details)
-            else:
-                add_check("resources", "memory", "healthy", f"Memory usage: {memory.percent}%", memory_details)
-
-        except Exception as e:
-            add_check("resources", "memory", "error", f"Memory check failed: {str(e)}")
-
-        try:
-            cpu_percent = psutil.cpu_percent(interval=1)
-            cpu_count = psutil.cpu_count()
-            load_avg = psutil.getloadavg()
-            cpu_details = {
-                "percent": cpu_percent,
-                "count": cpu_count,
-                "load_1m": round(load_avg[0], 2),
-                "load_5m": round(load_avg[1], 2),
-                "load_15m": round(load_avg[2], 2),
-                "load_percent": round((load_avg[0] / cpu_count) * 100, 1) if cpu_count else 0,
-            }
-
-            if cpu_details["load_percent"] >= 90:
-                add_check("resources", "cpu", "error", f"CPU load critical: {cpu_details['load_percent']}%", cpu_details)
-            elif cpu_details["load_percent"] >= 80:
-                add_check("resources", "cpu", "warning", f"CPU load high: {cpu_details['load_percent']}%", cpu_details)
-            else:
-                add_check("resources", "cpu", "healthy", f"CPU load: {cpu_details['load_percent']}%", cpu_details)
-
-        except Exception as e:
-            add_check("resources", "cpu", "error", f"CPU check failed: {str(e)}")
+        set_check("resources", resources_status, resources_details)
 
         # ========================================
-        # SSL Certificates
+        # SSL Certificates (using openssl s_client like health_check.sh)
         # ========================================
-        try:
-            nginx_container = None
-            for c in client.containers.list():
-                if "nginx" in c.name.lower():
-                    nginx_container = c
-                    break
+        ssl_details = {}
+        ssl_status = "healthy"
+        ssl_certs = []
 
+        try:
             if nginx_container:
-                exit_code, output = nginx_container.exec_run("ls /etc/letsencrypt/live/", demux=True)
-                if exit_code == 0 and output[0]:
-                    domains = [d for d in output[0].decode("utf-8").strip().split("\n")
-                               if d and not d.startswith("README")]
+                # Get the domain from nginx config (like health_check.sh does)
+                exit_code, output = nginx_container.exec_run(
+                    "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
+                    demux=True
+                )
 
-                    ssl_certs = []
-                    for domain in domains:
-                        cert_path = f"/etc/letsencrypt/live/{domain}/cert.pem"
+                domain = None
+                if exit_code == 0 and output[0]:
+                    config_line = output[0].decode("utf-8").strip()
+                    # Extract domain from path like /etc/letsencrypt/live/example.com/fullchain.pem
+                    match = re.search(r'/live/([^/]+)/', config_line)
+                    if match:
+                        domain = match.group(1)
+
+                if domain:
+                    # Use openssl s_client to check cert like health_check.sh does
+                    # This tests the actual running HTTPS server
+                    exit_code, output = nginx_container.exec_run(
+                        f"sh -c 'echo | timeout 10 openssl s_client -servername {domain} -connect localhost:443 2>/dev/null | openssl x509 -noout -enddate -subject 2>/dev/null'",
+                        demux=True
+                    )
+
+                    if exit_code == 0 and output[0]:
+                        cert_output = output[0].decode("utf-8")
+                        expiry_match = re.search(r'notAfter=(.+)', cert_output)
+                        subject_match = re.search(r'subject=(.+)', cert_output)
+
+                        if expiry_match:
+                            expiry_str = expiry_match.group(1).strip()
+                            try:
+                                expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
+                                days_left = (expiry_date - datetime.now()).days
+
+                                cert_info = {
+                                    "domain": domain,
+                                    "expires": expiry_str,
+                                    "days_until_expiry": days_left,
+                                }
+                                if subject_match:
+                                    cert_info["subject"] = subject_match.group(1).strip()
+
+                                ssl_certs.append(cert_info)
+                                ssl_details["domain"] = domain
+                                ssl_details["days_until_expiry"] = days_left
+
+                                if days_left <= 7:
+                                    ssl_status = "error"
+                                elif days_left <= 30:
+                                    ssl_status = "warning"
+                            except Exception:
+                                ssl_details["parse_error"] = "Could not parse certificate date"
+                    else:
+                        # Fallback: try reading cert files directly
                         exit_code, output = nginx_container.exec_run(
-                            f"openssl x509 -in {cert_path} -noout -dates -subject",
+                            f"openssl x509 -in /etc/letsencrypt/live/{domain}/cert.pem -noout -dates -subject",
                             demux=True
                         )
                         if exit_code == 0 and output[0]:
@@ -1314,36 +1386,48 @@ async def get_full_health_check(
                                     expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
                                     days_left = (expiry_date - datetime.now()).days
 
-                                    cert_info = {"domain": domain, "expires": expiry_str, "days_left": days_left}
-                                    ssl_certs.append(cert_info)
+                                    ssl_certs.append({
+                                        "domain": domain,
+                                        "expires": expiry_str,
+                                        "days_until_expiry": days_left,
+                                    })
+                                    ssl_details["domain"] = domain
+                                    ssl_details["days_until_expiry"] = days_left
 
                                     if days_left <= 7:
-                                        add_check("ssl", f"cert_{domain}", "error",
-                                                  f"SSL certificate expires in {days_left} days!", cert_info)
+                                        ssl_status = "error"
                                     elif days_left <= 30:
-                                        add_check("ssl", f"cert_{domain}", "warning",
-                                                  f"SSL certificate expires in {days_left} days", cert_info)
-                                    else:
-                                        add_check("ssl", f"cert_{domain}", "healthy",
-                                                  f"SSL certificate valid for {days_left} days", cert_info)
+                                        ssl_status = "warning"
                                 except Exception:
                                     pass
+                else:
+                    ssl_details["message"] = "No SSL certificate configured"
+                    ssl_status = "warning"
 
-                    health_data["ssl_certificates"] = ssl_certs
+                health_data["ssl_certificates"] = ssl_certs
 
         except Exception as e:
-            add_check("ssl", "ssl_check", "warning", f"SSL check failed: {str(e)}")
+            ssl_details["error"] = str(e)
+            ssl_status = "warning"
+
+        set_check("ssl", ssl_status, ssl_details)
 
         # ========================================
         # Network Connectivity
         # ========================================
+        network_details = {}
+        network_status = "healthy"
+
         try:
+            # DNS check
             try:
                 socket.gethostbyname("google.com")
-                add_check("network", "dns", "healthy", "DNS resolution working")
+                network_details["dns"] = "ok"
             except Exception:
-                add_check("network", "dns", "error", "DNS resolution failed")
+                network_details["dns"] = "error"
+                network_status = "error"
 
+            # Internet connectivity (check npm registry like health_check.sh)
             if nginx_container:
                 exit_code, output = nginx_container.exec_run(
                     "curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 https://registry.npmjs.org/",
@@ -1352,59 +1436,121 @@ async def get_full_health_check(
                 if exit_code == 0 and output[0]:
                     status_code = output[0].decode("utf-8").strip()
                     if status_code == "200":
-                        add_check("network", "internet", "healthy", "Internet connectivity OK")
+                        network_details["internet"] = "ok"
                     else:
-                        add_check("network", "internet", "warning", f"Internet check returned {status_code}")
+                        network_details["internet"] = "warning"
+                        if network_status == "healthy":
+                            network_status = "warning"
                 else:
-                    add_check("network", "internet", "warning", "Internet connectivity check inconclusive")
+                    network_details["internet"] = "warning"
+                    if network_status == "healthy":
+                        network_status = "warning"
 
         except Exception as e:
-            add_check("network", "network_check", "warning", f"Network check failed: {str(e)}")
+            network_details["error"] = str(e)
+            network_status = "warning"
+
+        set_check("network", network_status, network_details)
 
         # ========================================
         # Backup Status
         # ========================================
+        backups_details = {
+            "recent_count": 0,
+            "failed_count": 0,
+        }
+        backups_status = "healthy"
+
         try:
-            backup_paths = ["/backups", "/var/backups", "./backups"]
+            # Check common backup paths
+            backup_paths = ["/backups", "/var/backups", "./backups", "/app/backups"]
             backup_found = False
 
             for path in backup_paths:
                 if os.path.exists(path) and os.path.isdir(path):
                     backup_found = True
                     files = os.listdir(path)
-                    if files:
-                        add_check("backups", "backup_status", "healthy", f"Backup directory exists with {len(files)} files")
-                    else:
-                        add_check("backups", "backup_status", "warning", "Backup directory is empty")
+                    # Count backup files (look for common backup patterns)
+                    backup_files = [f for f in files if any(x in f.lower() for x in ['backup', '.sql', '.tar', '.gz'])]
+                    backups_details["recent_count"] = len(backup_files)
+                    backups_details["directory"] = path
+
+                    if len(backup_files) == 0:
+                        backups_status = "warning"
+                        backups_details["message"] = "No backup files found"
+
+                    # Try to find last backup time
+                    if backup_files:
+                        try:
+                            latest_file = max([os.path.join(path, f) for f in backup_files], key=os.path.getmtime)
+                            last_modified = datetime.fromtimestamp(os.path.getmtime(latest_file))
+                            backups_details["last_backup"] = last_modified.isoformat()
+
+                            # Warn if backup is older than 7 days
+                            days_old = (datetime.now() - last_modified).days
+                            if days_old > 7:
+                                backups_status = "warning"
+                                backups_details["message"] = f"Last backup is {days_old} days old"
+                        except Exception:
+                            pass
                     break
 
             if not backup_found:
-                add_check("backups", "backup_status", "warning", "Backup directory does not exist")
+                backups_status = "warning"
+                backups_details["message"] = "No backup directory found"
 
         except Exception as e:
-            add_check("backups", "backup_status", "warning", f"Backup check failed: {str(e)}")
+            backups_details["error"] = str(e)
+            backups_status = "warning"
+
+        set_check("backups", backups_status, backups_details)
 
         # ========================================
         # Recent Error Analysis
         # ========================================
+        logs_details = {
+            "error_count": 0,
+            "warning_count": 0,
+            "recent_errors": [],
+        }
+        logs_status = "healthy"
+
         try:
+            total_errors = 0
+            total_warnings = 0
+
             for container in client.containers.list():
                 if container.name in ["n8n", "n8n_nginx"]:
-                    logs = container.logs(since=datetime.now(UTC) - timedelta(hours=1)).decode("utf-8")
-                    error_count = len([line for line in logs.split("\n") if "error" in line.lower() or "ERR" in line])
+                    try:
+                        logs = container.logs(since=datetime.now(UTC) - timedelta(hours=1)).decode("utf-8", errors="ignore")
+                        lines = logs.split("\n")
 
-                    log_name = container.name.replace("n8n_", "")
-                    if error_count == 0:
-                        add_check("logs", f"logs_{log_name}", "healthy", f"{log_name}: 0 errors in last hour")
-                    elif error_count < 10:
-                        add_check("logs", f"logs_{log_name}", "warning",
-                                  f"{log_name}: {error_count} errors in last hour", {"error_count": error_count})
-                    else:
-                        add_check("logs", f"logs_{log_name}", "error",
-                                  f"{log_name}: {error_count} errors in last hour", {"error_count": error_count})
+                        for line in lines:
+                            line_lower = line.lower()
+                            if "error" in line_lower or "ERR" in line:
+                                total_errors += 1
+                                # Capture some recent errors (skip common noise)
+                                if len(logs_details["recent_errors"]) < 5:
+                                    if not any(skip in line for skip in ["cert.pem", "buffer size"]):
+                                        logs_details["recent_errors"].append(line[:150])
+                            elif "warn" in line_lower:
+                                total_warnings += 1
+                    except Exception:
+                        pass
+
+            logs_details["error_count"] = total_errors
+            logs_details["warning_count"] = total_warnings
+
+            if total_errors > 50:
+                logs_status = "error"
+            elif total_errors > 10:
+                logs_status = "warning"
 
         except Exception as e:
-            add_check("logs", "log_check", "warning", f"Log analysis failed: {str(e)}")
+            logs_details["error"] = str(e)
+            logs_status = "warning"
+
+        set_check("logs", logs_status, logs_details)
 
     except Exception as e:
         health_data["overall_status"] = "error"
