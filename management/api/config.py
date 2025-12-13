@@ -79,9 +79,9 @@ class Settings(BaseSettings):
         default=None,
         description="n8n API key for workflow management (generate in n8n Settings > API)"
     )
-    n8n_web_url: Optional[str] = Field(
+    n8n_editor_base_url: Optional[str] = Field(
         default=None,
-        description="n8n web UI URL (browser-accessible). If not set, uses '/n8n' as relative path."
+        description="n8n web UI URL (browser-accessible). Uses existing N8N_EDITOR_BASE_URL env var."
     )
 
     # API settings
