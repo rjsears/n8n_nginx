@@ -391,7 +391,16 @@ onMounted(async () => {
               </div>
             </div>
 
-            <button v-if="!n8nApiKeyEditing" @click="startEditN8nApiKey" class="btn-primary text-sm py-1.5 w-full">
+            <button
+              v-if="!n8nApiKeyEditing"
+              @click="startEditN8nApiKey"
+              :class="[
+                'text-sm py-1.5 w-full rounded-lg font-medium transition-all',
+                n8nApiKeyIsSet
+                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                  : 'btn-primary'
+              ]"
+            >
               {{ n8nApiKeyIsSet ? 'Update API Key' : 'Set API Key' }}
             </button>
           </div>
