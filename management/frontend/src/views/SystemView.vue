@@ -653,13 +653,14 @@ onMounted(async () => {
         selectedTarget.value = matchingTarget.id
         // Auto-connect if requested
         if (route.query.autoconnect === 'true') {
-          // Small delay to ensure terminal is initialized
+          // Wait for DOM to render, then initialize terminal properly before connecting
           await nextTick()
-          setTimeout(() => {
-            if (!terminalConnected.value && selectedTarget.value) {
-              connectTerminal()
-            }
-          }, 100)
+          await initTerminal()
+          // Give terminal time to fully initialize and render
+          await new Promise(resolve => setTimeout(resolve, 200))
+          if (!terminalConnected.value && selectedTarget.value && terminal) {
+            connectTerminal()
+          }
         }
       }
     }
