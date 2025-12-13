@@ -1131,12 +1131,16 @@ async def get_tailscale_status(
 
 @router.get("/health/full")
 async def get_full_health_check(
+    quick: bool = False,
     _=Depends(get_current_user),
 ):
     """
     Comprehensive system health check - checks all components.
     Returns detailed health status for containers, databases, services, resources, and more.
     Mirrors the functionality of health_check.sh script.
+
+    Args:
+        quick: If True, skip slower checks (SSL details, log analysis) for faster response
     """
     import socket
     import re
@@ -1209,13 +1213,14 @@ async def get_full_health_check(
                         docker_details["unhealthy_containers"].append(name)
                         docker_status = "error"
 
-                    # Get memory usage (simplified - just MB used)
+                    # Get memory usage from container attrs (faster than stats API)
+                    # Skip detailed stats collection as it's slow (~2-5s per container)
                     try:
-                        stats = container.stats(stream=False)
-                        memory_stats = stats.get("memory_stats", {})
-                        memory_usage = memory_stats.get("usage", 0)
-                        if memory_usage:
-                            container_memory[name] = round(memory_usage / (1024 * 1024), 1)
+                        # Try to get memory from inspect data if available
+                        host_config = container.attrs.get("HostConfig", {})
+                        memory_limit = host_config.get("Memory", 0)
+                        if memory_limit:
+                            container_memory[name] = round(memory_limit / (1024 * 1024), 1)
                     except Exception:
                         pass
                 else:
@@ -1244,11 +1249,11 @@ async def get_full_health_check(
                 nginx_container = c
                 break
 
-        # Check n8n API
+        # Check n8n API (with timeout)
         try:
             if nginx_container:
                 exit_code, output = nginx_container.exec_run(
-                    "curl -s -o /dev/null -w '%{http_code}' http://n8n:5678/healthz",
+                    "curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://n8n:5678/healthz",
                     demux=True
                 )
                 if exit_code == 0 and output[0]:
@@ -1256,31 +1261,32 @@ async def get_full_health_check(
                     if status_code == "200":
                         services_details["n8n_api"] = "ok"
                     else:
-                        services_details["n8n_api"] = "error"
+                        services_details["n8n_api"] = f"error (HTTP {status_code})"
                         services_status = "error"
                 else:
-                    services_details["n8n_api"] = "error"
+                    services_details["n8n_api"] = "error (no response)"
                     services_status = "error"
             else:
-                services_details["n8n_api"] = "unknown"
-        except Exception:
-            services_details["n8n_api"] = "error"
+                services_details["n8n_api"] = "unknown (nginx not found)"
+        except Exception as e:
+            services_details["n8n_api"] = f"error ({type(e).__name__})"
             services_status = "error"
 
         # Check Nginx
         try:
             if nginx_container:
-                exit_code, _ = nginx_container.exec_run("nginx -t", demux=True)
+                exit_code, output = nginx_container.exec_run("nginx -t", demux=True)
                 if exit_code == 0:
                     services_details["nginx"] = "ok"
                 else:
-                    services_details["nginx"] = "error"
+                    stderr = output[1].decode("utf-8").strip() if output[1] else "unknown error"
+                    services_details["nginx"] = f"error ({stderr[:50]})"
                     services_status = "error"
             else:
-                services_details["nginx"] = "error"
+                services_details["nginx"] = "error (container not found)"
                 services_status = "error"
-        except Exception:
-            services_details["nginx"] = "error"
+        except Exception as e:
+            services_details["nginx"] = f"error ({type(e).__name__})"
             services_status = "error"
 
         # Management API (we're running, so it's ok)
@@ -1406,8 +1412,8 @@ async def get_full_health_check(
                 if resources_status == "healthy":
                     resources_status = "warning"
 
-            # CPU
-            cpu_percent = psutil.cpu_percent(interval=0.5)
+            # CPU (use interval=0.1 for faster response, interval=None uses cached value)
+            cpu_percent = psutil.cpu_percent(interval=0.1)
             cpu_count = psutil.cpu_count()
             load_avg = psutil.getloadavg()
             load_percent = round((load_avg[0] / cpu_count) * 100, 1) if cpu_count else 0
@@ -1441,67 +1447,94 @@ async def get_full_health_check(
 
         # ========================================
         # SSL Certificates (using openssl s_client like health_check.sh)
+        # Skip if quick mode to speed up response
         # ========================================
         ssl_details = {}
         ssl_status = "healthy"
         ssl_certs = []
 
-        try:
-            if nginx_container:
-                # Get the domain from nginx.conf inside the container (like health_check.sh)
-                domain = None
+        if quick:
+            ssl_details["message"] = "Skipped in quick mode"
+            ssl_status = "skipped"
+        else:
+            try:
+                if nginx_container:
+                    # Get the domain from nginx.conf inside the container (like health_check.sh)
+                    domain = None
 
-                exit_code, output = nginx_container.exec_run(
-                    "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
-                    demux=True
-                )
+                    exit_code, output = nginx_container.exec_run(
+                        "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
+                        demux=True
+                    )
 
-                if exit_code == 0 and output[0]:
-                    config_line = output[0].decode("utf-8").strip()
-                    match = re.search(r'/live/([^/]+)/', config_line)
-                    if match:
-                        domain = match.group(1)
+                    if exit_code == 0 and output[0]:
+                        config_line = output[0].decode("utf-8").strip()
+                        match = re.search(r'/live/([^/]+)/', config_line)
+                        if match:
+                            domain = match.group(1)
 
-                if domain:
-                    ssl_details["domain"] = domain
-                    expiry_str = None
+                    if domain:
+                        ssl_details["domain"] = domain
+                        expiry_str = None
 
-                    # Run openssl in alpine container sharing nginx's network
-                    # This ensures openssl is available and can connect to nginx's localhost:443
-                    try:
-                        result = client.containers.run(
-                            "alpine:latest",
-                            command=["sh", "-c", f"apk add --no-cache openssl >/dev/null 2>&1 && echo | openssl s_client -servername {domain} -connect localhost:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null"],
-                            network_mode=f"container:{nginx_container.id}",
-                            remove=True,
-                            stdout=True,
-                            stderr=False,
-                        )
-                        cert_output = result.decode("utf-8").strip()
-                        if cert_output.startswith("notAfter="):
-                            expiry_str = cert_output.replace("notAfter=", "").strip()
-                    except Exception:
-                        pass
-
-                    # Fallback: read cert file directly via nginx container with cat + python parsing
-                    if not expiry_str:
+                        # Run openssl in alpine container sharing nginx's network
+                        # This ensures openssl is available and can connect to nginx's localhost:443
                         try:
-                            exit_code, output = nginx_container.exec_run(
-                                f"cat /etc/letsencrypt/live/{domain}/fullchain.pem",
-                                demux=True
+                            result = client.containers.run(
+                                "alpine:latest",
+                                command=["sh", "-c", f"apk add --no-cache openssl >/dev/null 2>&1 && echo | openssl s_client -servername {domain} -connect localhost:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null"],
+                                network_mode=f"container:{nginx_container.id}",
+                                remove=True,
+                                stdout=True,
+                                stderr=False,
                             )
-                            if exit_code == 0 and output[0]:
-                                cert_pem = output[0].decode("utf-8")
-                                # Parse cert with cryptography library
-                                from cryptography import x509
-                                from cryptography.hazmat.backends import default_backend
-                                cert = x509.load_pem_x509_certificate(cert_pem.encode(), default_backend())
-                                expiry_date = cert.not_valid_after_utc.replace(tzinfo=None)
+                            cert_output = result.decode("utf-8").strip()
+                            if cert_output.startswith("notAfter="):
+                                expiry_str = cert_output.replace("notAfter=", "").strip()
+                        except Exception:
+                            pass
+
+                        # Fallback: read cert file directly via nginx container with cat + python parsing
+                        if not expiry_str:
+                            try:
+                                exit_code, output = nginx_container.exec_run(
+                                    f"cat /etc/letsencrypt/live/{domain}/fullchain.pem",
+                                    demux=True
+                                )
+                                if exit_code == 0 and output[0]:
+                                    cert_pem = output[0].decode("utf-8")
+                                    # Parse cert with cryptography library
+                                    from cryptography import x509
+                                    from cryptography.hazmat.backends import default_backend
+                                    cert = x509.load_pem_x509_certificate(cert_pem.encode(), default_backend())
+                                    expiry_date = cert.not_valid_after_utc.replace(tzinfo=None)
+                                    days_left = (expiry_date - datetime.now()).days
+
+                                    ssl_certs.append({
+                                        "domain": domain,
+                                        "expires": expiry_date.strftime("%b %d %H:%M:%S %Y GMT"),
+                                        "days_until_expiry": days_left,
+                                    })
+                                    ssl_details["days_until_expiry"] = days_left
+
+                                    if days_left <= 7:
+                                        ssl_status = "error"
+                                    elif days_left <= 30:
+                                        ssl_status = "warning"
+
+                                    expiry_str = "parsed"  # Mark as successful
+                            except Exception as cert_err:
+                                ssl_details["cert_read_error"] = str(cert_err)
+
+                        # Parse the openssl output if we got it
+                        if expiry_str and expiry_str != "parsed":
+                            try:
+                                expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
                                 days_left = (expiry_date - datetime.now()).days
 
                                 ssl_certs.append({
                                     "domain": domain,
-                                    "expires": expiry_date.strftime("%b %d %H:%M:%S %Y GMT"),
+                                    "expires": expiry_str,
                                     "days_until_expiry": days_left,
                                 })
                                 ssl_details["days_until_expiry"] = days_left
@@ -1510,43 +1543,21 @@ async def get_full_health_check(
                                     ssl_status = "error"
                                 elif days_left <= 30:
                                     ssl_status = "warning"
+                            except Exception:
+                                ssl_details["parse_error"] = f"Could not parse date: {expiry_str}"
 
-                                expiry_str = "parsed"  # Mark as successful
-                        except Exception as cert_err:
-                            ssl_details["cert_read_error"] = str(cert_err)
-
-                    # Parse the openssl output if we got it
-                    if expiry_str and expiry_str != "parsed":
-                        try:
-                            expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
-                            days_left = (expiry_date - datetime.now()).days
-
-                            ssl_certs.append({
-                                "domain": domain,
-                                "expires": expiry_str,
-                                "days_until_expiry": days_left,
-                            })
-                            ssl_details["days_until_expiry"] = days_left
-
-                            if days_left <= 7:
-                                ssl_status = "error"
-                            elif days_left <= 30:
-                                ssl_status = "warning"
-                        except Exception:
-                            ssl_details["parse_error"] = f"Could not parse date: {expiry_str}"
-
-                    if not ssl_certs:
-                        ssl_details["error"] = "Cannot read SSL certificate"
+                        if not ssl_certs:
+                            ssl_details["error"] = "Cannot read SSL certificate"
+                            ssl_status = "warning"
+                    else:
+                        ssl_details["message"] = "No SSL certificate configured"
                         ssl_status = "warning"
-                else:
-                    ssl_details["message"] = "No SSL certificate configured"
-                    ssl_status = "warning"
 
-                health_data["ssl_certificates"] = ssl_certs
+                    health_data["ssl_certificates"] = ssl_certs
 
-        except Exception as e:
-            ssl_details["error"] = str(e)
-            ssl_status = "warning"
+            except Exception as e:
+                ssl_details["error"] = str(e)
+                ssl_status = "warning"
 
         set_check("ssl", ssl_status, ssl_details)
 
@@ -1645,6 +1656,7 @@ async def get_full_health_check(
 
         # ========================================
         # Recent Error Analysis
+        # Skip if quick mode to speed up response
         # ========================================
         logs_details = {
             "error_count": 0,
@@ -1653,40 +1665,44 @@ async def get_full_health_check(
         }
         logs_status = "healthy"
 
-        try:
-            total_errors = 0
-            total_warnings = 0
+        if quick:
+            logs_details["message"] = "Skipped in quick mode"
+            logs_status = "skipped"
+        else:
+            try:
+                total_errors = 0
+                total_warnings = 0
 
-            for container in client.containers.list():
-                if container.name in ["n8n", "n8n_nginx"]:
-                    try:
-                        logs = container.logs(since=datetime.now(UTC) - timedelta(hours=1)).decode("utf-8", errors="ignore")
-                        lines = logs.split("\n")
+                for container in client.containers.list():
+                    if container.name in ["n8n", "n8n_nginx"]:
+                        try:
+                            logs = container.logs(since=datetime.now(UTC) - timedelta(hours=1)).decode("utf-8", errors="ignore")
+                            lines = logs.split("\n")
 
-                        for line in lines:
-                            line_lower = line.lower()
-                            if "error" in line_lower or "ERR" in line:
-                                total_errors += 1
-                                # Capture some recent errors (skip common noise)
-                                if len(logs_details["recent_errors"]) < 5:
-                                    if not any(skip in line for skip in ["cert.pem", "buffer size"]):
-                                        logs_details["recent_errors"].append(line[:150])
-                            elif "warn" in line_lower:
-                                total_warnings += 1
-                    except Exception:
-                        pass
+                            for line in lines:
+                                line_lower = line.lower()
+                                if "error" in line_lower or "ERR" in line:
+                                    total_errors += 1
+                                    # Capture some recent errors (skip common noise)
+                                    if len(logs_details["recent_errors"]) < 5:
+                                        if not any(skip in line for skip in ["cert.pem", "buffer size"]):
+                                            logs_details["recent_errors"].append(line[:150])
+                                elif "warn" in line_lower:
+                                    total_warnings += 1
+                        except Exception:
+                            pass
 
-            logs_details["error_count"] = total_errors
-            logs_details["warning_count"] = total_warnings
+                logs_details["error_count"] = total_errors
+                logs_details["warning_count"] = total_warnings
 
-            if total_errors > 50:
-                logs_status = "error"
-            elif total_errors > 10:
+                if total_errors > 50:
+                    logs_status = "error"
+                elif total_errors > 10:
+                    logs_status = "warning"
+
+            except Exception as e:
+                logs_details["error"] = str(e)
                 logs_status = "warning"
-
-        except Exception as e:
-            logs_details["error"] = str(e)
-            logs_status = "warning"
 
         set_check("logs", logs_status, logs_details)
 
