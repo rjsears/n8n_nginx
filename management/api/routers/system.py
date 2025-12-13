@@ -1320,19 +1320,33 @@ async def get_full_health_check(
 
         try:
             if nginx_container:
-                # Get the domain from nginx config (like health_check.sh does)
+                # Search for ssl_certificate in nginx config files (main + includes)
+                # Try multiple search strategies to find the cert path
+                domain = None
+
+                # Strategy 1: Search all nginx config files
                 exit_code, output = nginx_container.exec_run(
-                    "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
+                    "grep -rh 'ssl_certificate ' /etc/nginx/ 2>/dev/null | head -1",
                     demux=True
                 )
 
-                domain = None
                 if exit_code == 0 and output[0]:
                     config_line = output[0].decode("utf-8").strip()
                     # Extract domain from path like /etc/letsencrypt/live/example.com/fullchain.pem
                     match = re.search(r'/live/([^/]+)/', config_line)
                     if match:
                         domain = match.group(1)
+
+                # Strategy 2: List letsencrypt live directories if no domain found
+                if not domain:
+                    exit_code, output = nginx_container.exec_run(
+                        "ls /etc/letsencrypt/live/ 2>/dev/null | head -1",
+                        demux=True
+                    )
+                    if exit_code == 0 and output[0]:
+                        found_domain = output[0].decode("utf-8").strip()
+                        if found_domain and found_domain != "README":
+                            domain = found_domain
 
                 if domain:
                     # Use openssl s_client to check cert like health_check.sh does

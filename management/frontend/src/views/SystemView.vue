@@ -74,7 +74,6 @@ const tabs = [
   { id: 'health', name: 'Health', icon: SignalIcon },
   { id: 'overview', name: 'Overview', icon: CpuChipIcon },
   { id: 'network', name: 'Network', icon: GlobeAltIcon },
-  { id: 'ssl', name: 'SSL', icon: ShieldCheckIcon },
   { id: 'terminal', name: 'Terminal', icon: CommandLineIcon },
 ]
 
@@ -824,7 +823,7 @@ onUnmounted(() => {
             </div>
           </Card>
 
-          <!-- Database -->
+          <!-- n8n Database -->
           <Card :neon="true" :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
@@ -832,18 +831,18 @@ onUnmounted(() => {
                   <CircleStackIcon class="h-5 w-5 text-amber-500" />
                 </div>
                 <div class="flex-1">
-                  <h3 class="font-semibold text-primary">Database</h3>
-                  <p class="text-xs text-muted">PostgreSQL health</p>
+                  <h3 class="font-semibold text-primary">n8n Database</h3>
+                  <p class="text-xs text-muted">Main workflow database</p>
                 </div>
                 <span
                   :class="[
                     'px-2 py-1 rounded-full text-xs font-medium',
-                    healthData.checks?.database?.status === 'ok'
+                    healthData.checks?.database?.details?.n8n_db === 'ok'
                       ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
                       : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
                   ]"
                 >
-                  {{ healthData.checks?.database?.status?.toUpperCase() || 'N/A' }}
+                  {{ healthData.checks?.database?.details?.n8n_db === 'ok' ? 'OK' : 'ERROR' }}
                 </span>
               </div>
               <div class="space-y-2">
@@ -854,14 +853,18 @@ onUnmounted(() => {
                   </span>
                 </div>
                 <div class="flex justify-between items-center text-sm">
-                  <span class="text-secondary">Queries</span>
-                  <span :class="['font-medium', healthData.checks?.database?.details?.query === 'ok' ? 'text-emerald-500' : 'text-red-500']">
-                    {{ healthData.checks?.database?.details?.query || 'N/A' }}
+                  <span class="text-secondary">Database</span>
+                  <span :class="['font-medium', healthData.checks?.database?.details?.n8n_db === 'ok' ? 'text-emerald-500' : 'text-red-500']">
+                    {{ healthData.checks?.database?.details?.n8n_db || 'N/A' }}
                   </span>
                 </div>
                 <div v-if="healthData.checks?.database?.details?.version" class="flex justify-between items-center text-sm">
                   <span class="text-secondary">Version</span>
-                  <span class="font-medium text-primary">{{ healthData.checks?.database?.details?.version }}</span>
+                  <span class="font-medium text-primary">PostgreSQL {{ healthData.checks?.database?.details?.version }}</span>
+                </div>
+                <div v-if="healthData.checks?.database?.details?.user" class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">User</span>
+                  <span class="font-medium text-primary">{{ healthData.checks?.database?.details?.user }}</span>
                 </div>
               </div>
             </div>
@@ -972,6 +975,7 @@ onUnmounted(() => {
                   {{ healthData.checks?.ssl?.status?.toUpperCase() || 'N/A' }}
                 </span>
               </div>
+              <!-- Show certificates from array if available -->
               <div v-if="healthData.ssl_certificates?.length" class="space-y-2">
                 <div
                   v-for="cert in healthData.ssl_certificates"
@@ -991,49 +995,74 @@ onUnmounted(() => {
                   </span>
                 </div>
               </div>
-              <div v-else class="text-sm text-muted">No certificates found</div>
+              <!-- Fallback: show from ssl details if no certificates array but domain exists -->
+              <div v-else-if="healthData.checks?.ssl?.details?.domain" class="space-y-2">
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Domain</span>
+                  <span class="font-medium text-primary truncate max-w-[120px]" :title="healthData.checks?.ssl?.details?.domain">
+                    {{ healthData.checks?.ssl?.details?.domain }}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Expires In</span>
+                  <span
+                    :class="[
+                      'font-medium',
+                      (healthData.checks?.ssl?.details?.days_until_expiry || 0) > 30 ? 'text-emerald-500' :
+                      (healthData.checks?.ssl?.details?.days_until_expiry || 0) > 7 ? 'text-amber-500' : 'text-red-500'
+                    ]"
+                  >
+                    {{ healthData.checks?.ssl?.details?.days_until_expiry || 0 }} days
+                  </span>
+                </div>
+              </div>
+              <!-- No SSL data at all -->
+              <div v-else class="text-sm text-muted">
+                {{ healthData.checks?.ssl?.details?.message || 'No certificates found' }}
+              </div>
             </div>
           </Card>
 
-          <!-- Network -->
+          <!-- Management Database -->
           <Card :neon="true" :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
-                  <GlobeAltIcon class="h-5 w-5 text-indigo-500" />
+                  <CircleStackIcon class="h-5 w-5 text-indigo-500" />
                 </div>
                 <div class="flex-1">
-                  <h3 class="font-semibold text-primary">Network</h3>
-                  <p class="text-xs text-muted">Connectivity status</p>
+                  <h3 class="font-semibold text-primary">Management DB</h3>
+                  <p class="text-xs text-muted">Console database</p>
                 </div>
                 <span
                   :class="[
                     'px-2 py-1 rounded-full text-xs font-medium',
-                    healthData.checks?.network?.status === 'ok'
+                    healthData.checks?.database?.details?.management_db === 'ok'
                       ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
-                      : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                      : healthData.checks?.database?.details?.management_db === 'warning'
+                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
+                        : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
                   ]"
                 >
-                  {{ healthData.checks?.network?.status?.toUpperCase() || 'N/A' }}
+                  {{ healthData.checks?.database?.details?.management_db === 'ok' ? 'OK' : healthData.checks?.database?.details?.management_db === 'warning' ? 'WARN' : 'ERROR' }}
                 </span>
               </div>
               <div class="space-y-2">
-                <div
-                  v-for="(status, target) in healthData.checks?.network?.details"
-                  :key="target"
-                  class="flex justify-between items-center text-sm"
-                >
-                  <span class="text-secondary capitalize">{{ target.replace('_', ' ') }}</span>
-                  <span
-                    :class="[
-                      'flex items-center gap-1 font-medium',
-                      status === 'ok' ? 'text-emerald-500' : 'text-red-500'
-                    ]"
-                  >
-                    <CheckCircleIcon v-if="status === 'ok'" class="h-4 w-4" />
-                    <XCircleIcon v-else class="h-4 w-4" />
-                    {{ status }}
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Connection</span>
+                  <span :class="['font-medium', healthData.checks?.database?.details?.connection === 'ok' ? 'text-emerald-500' : 'text-red-500']">
+                    {{ healthData.checks?.database?.details?.connection || 'N/A' }}
                   </span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Database</span>
+                  <span :class="['font-medium', healthData.checks?.database?.details?.management_db === 'ok' ? 'text-emerald-500' : healthData.checks?.database?.details?.management_db === 'warning' ? 'text-amber-500' : 'text-red-500']">
+                    {{ healthData.checks?.database?.details?.management_db || 'N/A' }}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Name</span>
+                  <span class="font-medium text-primary">n8n_management</span>
                 </div>
               </div>
             </div>
@@ -1330,53 +1359,6 @@ onUnmounted(() => {
           </div>
         </Card>
       </div>
-
-      <!-- Health Checks -->
-      <Card title="Health Checks" :neon="true">
-        <template #actions>
-          <button @click="runHealthCheck" class="btn-secondary text-sm flex items-center gap-1">
-            <SignalIcon class="h-4 w-4" />
-            Run Check
-          </button>
-        </template>
-
-        <div class="space-y-3">
-          <div
-            v-for="check in healthChecks"
-            :key="check.name"
-            class="flex items-center justify-between p-3 rounded-lg bg-surface-hover"
-          >
-            <div class="flex items-center gap-3">
-              <div
-                :class="[
-                  'p-2 rounded-lg',
-                  check.status === 'healthy'
-                    ? 'bg-emerald-100 dark:bg-emerald-500/20'
-                    : 'bg-red-100 dark:bg-red-500/20'
-                ]"
-              >
-                <CheckCircleIcon
-                  v-if="check.status === 'healthy'"
-                  class="h-5 w-5 text-emerald-500"
-                />
-                <ExclamationTriangleIcon v-else class="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <p class="font-medium text-primary">{{ check.name }}</p>
-                <p class="text-xs text-muted">{{ check.message || 'OK' }}</p>
-              </div>
-            </div>
-            <span
-              :class="[
-                'text-sm font-medium',
-                check.status === 'healthy' ? 'text-emerald-500' : 'text-red-500'
-              ]"
-            >
-              {{ check.status }}
-            </span>
-          </div>
-        </div>
-      </Card>
     </template>
 
     <!-- Network Tab -->
@@ -1675,109 +1657,6 @@ onUnmounted(() => {
                 </div>
               </div>
             </template>
-          </Card>
-        </div>
-      </template>
-    </template>
-
-    <!-- SSL Tab -->
-    <template v-if="activeTab === 'ssl'">
-      <LoadingSpinner v-if="sslLoading" size="lg" text="Loading SSL info..." class="py-12" />
-
-      <template v-else>
-        <Card v-if="sslInfo.error" title="SSL Status" :neon="true">
-          <div class="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-500/10 rounded-lg">
-            <ExclamationTriangleIcon class="h-6 w-6 text-amber-500" />
-            <p class="text-amber-700 dark:text-amber-400">{{ sslInfo.error }}</p>
-          </div>
-        </Card>
-
-        <Card v-else-if="!sslInfo.configured" title="SSL Status" :neon="true">
-          <div class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-500/10 rounded-lg">
-            <LockClosedIcon class="h-6 w-6 text-gray-400" />
-            <p class="text-muted">No SSL certificates found. Certificates are typically managed by the nginx container.</p>
-          </div>
-        </Card>
-
-        <div v-else class="space-y-6">
-          <Card
-            v-for="cert in sslInfo.certificates"
-            :key="cert.domain"
-            :title="cert.domain"
-            :subtitle="cert.type"
-            :neon="true"
-          >
-            <div class="space-y-4">
-              <!-- Status Banner -->
-              <div
-                :class="[
-                  'flex items-center gap-3 p-4 rounded-lg',
-                  cert.status === 'valid'
-                    ? cert.warning
-                      ? 'bg-amber-50 dark:bg-amber-500/10'
-                      : 'bg-emerald-50 dark:bg-emerald-500/10'
-                    : 'bg-red-50 dark:bg-red-500/10'
-                ]"
-              >
-                <CheckCircleIcon
-                  v-if="cert.status === 'valid' && !cert.warning"
-                  class="h-6 w-6 text-emerald-500"
-                />
-                <ExclamationTriangleIcon
-                  v-else-if="cert.warning || cert.status !== 'valid'"
-                  :class="['h-6 w-6', cert.status === 'valid' ? 'text-amber-500' : 'text-red-500']"
-                />
-                <div>
-                  <p :class="[
-                    'font-medium',
-                    cert.status === 'valid'
-                      ? cert.warning ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'
-                      : 'text-red-700 dark:text-red-400'
-                  ]">
-                    {{ cert.days_until_expiry }} days until expiry
-                  </p>
-                  <p v-if="cert.warning" class="text-sm text-amber-600 dark:text-amber-500">
-                    {{ cert.warning }}
-                  </p>
-                </div>
-              </div>
-
-              <!-- Certificate Details -->
-              <div class="space-y-3">
-                <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                  <span class="text-secondary">Subject</span>
-                  <span class="font-medium text-primary text-right max-w-[300px] truncate">
-                    {{ cert.subject }}
-                  </span>
-                </div>
-                <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                  <span class="text-secondary">Issuer</span>
-                  <span class="font-medium text-primary text-right max-w-[300px] truncate">
-                    {{ cert.issuer }}
-                  </span>
-                </div>
-                <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                  <span class="text-secondary">Valid From</span>
-                  <span class="font-medium text-primary">{{ cert.valid_from }}</span>
-                </div>
-                <div class="flex justify-between py-2 border-b border-[var(--color-border)]">
-                  <span class="text-secondary">Valid Until</span>
-                  <span class="font-medium text-primary">{{ cert.valid_until }}</span>
-                </div>
-                <div v-if="cert.san?.length" class="py-2">
-                  <span class="text-secondary block mb-2">Subject Alternative Names</span>
-                  <div class="flex flex-wrap gap-2">
-                    <span
-                      v-for="san in cert.san"
-                      :key="san"
-                      class="px-2 py-1 text-xs font-mono rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300"
-                    >
-                      {{ san }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
           </Card>
         </div>
       </template>
