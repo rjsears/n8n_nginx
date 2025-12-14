@@ -3204,6 +3204,9 @@ configure_optional_services() {
     echo -e "    ${CYAN}•${NC} Adminer - Web-based database management"
     echo -e "    ${CYAN}•${NC} Dozzle - Real-time container log viewer"
     echo ""
+    echo -e "  ${WHITE}${BOLD}Notifications:${NC}"
+    echo -e "    ${CYAN}•${NC} NTFY - Self-hosted push notification server"
+    echo ""
 
     if confirm_prompt "Would you like to configure optional services?" "n"; then
         # Portainer
