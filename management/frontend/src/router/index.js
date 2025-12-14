@@ -6,6 +6,7 @@ import LoginView from '@/views/LoginView.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import BackupsView from '@/views/BackupsView.vue'
 import NotificationsView from '@/views/NotificationsView.vue'
+import NtfyView from '@/views/NtfyView.vue'
 import ContainersView from '@/views/ContainersView.vue'
 import FlowsView from '@/views/FlowsView.vue'
 import SystemView from '@/views/SystemView.vue'
@@ -34,6 +35,12 @@ const routes = [
     path: '/notifications',
     name: 'notifications',
     component: NotificationsView,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/ntfy',
+    name: 'ntfy',
+    component: NtfyView,
     meta: { requiresAuth: true },
   },
   {

@@ -103,11 +103,12 @@ app.add_middleware(
 )
 
 # Include routers
-from api.routers import auth, settings, notifications, backups, containers, system, email, flows, terminal
+from api.routers import auth, settings, notifications, backups, containers, system, email, flows, terminal, ntfy
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
+app.include_router(ntfy.router, prefix="/api/ntfy", tags=["NTFY"])
 app.include_router(backups.router, prefix="/api/backups", tags=["Backups"])
 app.include_router(containers.router, prefix="/api/containers", tags=["Containers"])
 app.include_router(system.router, prefix="/api/system", tags=["System"])
