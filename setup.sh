@@ -2125,6 +2125,10 @@ events {
 }
 
 http {
+    # Docker internal DNS resolver for dynamic upstream resolution
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    resolver_timeout 5s;
+
     # Buffer sizes for large payloads
     client_max_body_size 50M;
     client_body_buffer_size 10M;
@@ -2149,7 +2153,8 @@ http {
     # Main n8n HTTPS Server (Port 443)
     # ===========================================
     server {
-        listen 443 ssl http2;
+        listen 443 ssl;
+        http2 on;
         server_name ${N8N_DOMAIN};
 
         ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
@@ -2281,7 +2286,25 @@ EOF
 
         # NTFY Push Notifications
         location /ntfy/ {
-            proxy_pass http://n8n_ntfy:80/;
+            # Use variable to enable runtime DNS resolution (prevents startup failure)
+            set $ntfy_upstream http://n8n_ntfy:80;
+
+            # CORS headers for external access
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
+
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' '*';
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS';
+                add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With';
+                add_header 'Access-Control-Max-Age' 86400;
+                add_header 'Content-Length' 0;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                return 204;
+            }
+
+            proxy_pass $ntfy_upstream/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
