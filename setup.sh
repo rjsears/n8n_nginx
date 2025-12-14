@@ -2116,6 +2116,9 @@ services:
       - NFS_PATH=${NFS_PATH:-}
       # Timezone
       - TZ=${TIMEZONE:-America/Los_Angeles}
+      # n8n API Integration (for creating test workflows)
+      - N8N_API_KEY=${N8N_API_KEY:-}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-}
 EOF
 
     # Add notification environment variables if configured
@@ -2147,8 +2150,11 @@ EOF
 
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
-      - management_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - mgmt_backup_staging:/app/backups
+      - mgmt_logs:/app/logs
+      - mgmt_config:/app/config
+      - ./.env:/app/host_env/.env:rw
 EOF
 
     # Add NFS mount if configured
@@ -2322,7 +2328,7 @@ EOF
     container_name: n8n_adminer
     restart: always
     environment:
-      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DEFAULT_SERVER=\${POSTGRES_CONTAINER:-n8n_postgres}
       - ADMINER_DESIGN=nette
     expose:
       - "8080"
@@ -2381,16 +2387,17 @@ EOF
     expose:
       - "80"
     volumes:
-      - ntfy_cache:/var/cache/ntfy
       - ntfy_data:/var/lib/ntfy
+      - ntfy_cache:/var/cache/ntfy
+      - ./ntfy:/etc/ntfy:ro
     networks:
       - n8n_network
     healthcheck:
-      test: ["CMD", "wget", "-q", "--tries=1", "http://localhost:80/v1/health", "-O", "-"]
-      interval: 30s
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1"]
+      interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 40s
 
 EOF
     fi
@@ -2405,7 +2412,11 @@ volumes:
     driver: local
   postgres_data:
     driver: local
-  management_data:
+  mgmt_backup_staging:
+    driver: local
+  mgmt_logs:
+    driver: local
+  mgmt_config:
     driver: local
   letsencrypt:
     external: true
@@ -2753,7 +2764,38 @@ EOF
             proxy_buffering off;
         }
 
+        # WebSocket terminal endpoint (long-lived connections)
+        location /management/api/ws/ {
+            # Block external access
+            if ($access_level = "external") {
+                return 403;
+            }
+
+            proxy_pass http://management/api/ws/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # WebSocket required headers
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            # Long timeouts for terminal sessions (24 hours)
+            proxy_connect_timeout 86400s;
+            proxy_send_timeout 86400s;
+            proxy_read_timeout 86400s;
+
+            proxy_buffering off;
+        }
+
         location /management/api/ {
+            # Block external access
+            if ($access_level = "external") {
+                return 403;
+            }
+
             proxy_pass http://management/api/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -3408,6 +3450,7 @@ configure_ntfy() {
         1)
             INSTALL_NTFY=true
             NTFY_BASE_URL="http://n8n_ntfy:80"
+            create_ntfy_config
             print_success "Self-hosted NTFY server will be installed"
             print_info "NTFY will be available at https://\${DOMAIN}/ntfy/"
             ;;
@@ -3428,14 +3471,43 @@ configure_ntfy() {
                 print_error "No URL provided, defaulting to self-hosted"
                 INSTALL_NTFY=true
                 NTFY_BASE_URL="http://n8n_ntfy:80"
+                create_ntfy_config
             fi
             ;;
         *)
             INSTALL_NTFY=true
             NTFY_BASE_URL="http://n8n_ntfy:80"
+            create_ntfy_config
             print_success "Self-hosted NTFY server will be installed"
             ;;
     esac
+}
+
+create_ntfy_config() {
+    # Create ntfy config directory and default server.yml
+    mkdir -p "${SCRIPT_DIR}/ntfy"
+
+    cat > "${SCRIPT_DIR}/ntfy/server.yml" << 'NTFYEOF'
+# NTFY Server Configuration
+# See https://ntfy.sh/docs/config/ for all options
+
+# Cache settings
+cache-file: /var/cache/ntfy/cache.db
+cache-duration: 12h
+
+# Attachment settings
+attachment-cache-dir: /var/cache/ntfy/attachments
+attachment-total-size-limit: 100M
+attachment-file-size-limit: 15M
+attachment-expiry-duration: 3h
+
+# Auth settings (managed via environment variables)
+# auth-file: /var/lib/ntfy/auth.db
+# auth-default-access: read-write
+
+# Logging
+log-level: info
+NTFYEOF
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
