@@ -165,7 +165,7 @@ services:
   # ===========================================
   # Adminer (Database Management) - Optional
   # ===========================================
-  n8n_adminer:
+  adminer:
     image: adminer:latest
     container_name: n8n_adminer
     restart: always
@@ -180,7 +180,7 @@ services:
   # ===========================================
   # Dozzle (Container Logs) - Optional
   # ===========================================
-  n8n_dozzle:
+  dozzle:
     image: amir20/dozzle:latest
     container_name: n8n_dozzle
     restart: always
@@ -195,7 +195,7 @@ services:
   # ===========================================
   # Cloudflare Tunnel - Optional
   # ===========================================
-  n8n_cloudflared:
+  cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: n8n_cloudflared
     restart: always
@@ -208,7 +208,7 @@ services:
   # ===========================================
   # Tailscale VPN - Optional
   # ===========================================
-  n8n_tailscale:
+  tailscale:
     image: tailscale/tailscale:latest
     container_name: n8n_tailscale
     restart: always
