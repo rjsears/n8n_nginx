@@ -550,6 +550,47 @@ clear_state() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# DNS PROVIDER HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+restore_dns_settings_from_provider() {
+    # Restore DNS_CERTBOT_IMAGE and related settings based on DNS_PROVIDER
+    # This is needed when loading config that only has DNS_PROVIDER saved
+    local provider="${DNS_PROVIDER:-${DNS_PROVIDER_NAME:-}}"
+
+    # Sync variable names (config uses DNS_PROVIDER, code uses DNS_PROVIDER_NAME)
+    if [ -n "$DNS_PROVIDER" ] && [ -z "$DNS_PROVIDER_NAME" ]; then
+        DNS_PROVIDER_NAME="$DNS_PROVIDER"
+    fi
+
+    # Set DNS_CERTBOT_IMAGE based on provider if not already set
+    if [ -z "$DNS_CERTBOT_IMAGE" ] && [ -n "$DNS_PROVIDER_NAME" ]; then
+        case $DNS_PROVIDER_NAME in
+            cloudflare)
+                DNS_CERTBOT_IMAGE="certbot/dns-cloudflare:latest"
+                DNS_CREDENTIALS_FILE="cloudflare.ini"
+                ;;
+            route53)
+                DNS_CERTBOT_IMAGE="certbot/dns-route53:latest"
+                DNS_CREDENTIALS_FILE="route53.ini"
+                ;;
+            google)
+                DNS_CERTBOT_IMAGE="certbot/dns-google:latest"
+                DNS_CREDENTIALS_FILE="google.json"
+                ;;
+            digitalocean)
+                DNS_CERTBOT_IMAGE="certbot/dns-digitalocean:latest"
+                DNS_CREDENTIALS_FILE="digitalocean.ini"
+                ;;
+            manual|*)
+                DNS_CERTBOT_IMAGE="certbot/certbot:latest"
+                DNS_CREDENTIALS_FILE="credentials.ini"
+                ;;
+        esac
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # VERSION DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -3440,12 +3481,16 @@ main() {
         # Load existing config
         if [ -f "$CONFIG_FILE" ]; then
             source "$CONFIG_FILE" 2>/dev/null || true
+            # Restore DNS settings (DNS_CERTBOT_IMAGE, etc.) from provider name
+            restore_dns_settings_from_provider
         fi
         run_migration_v2_to_v3
     elif [ "$INSTALL_MODE" = "reconfigure" ]; then
         # Load existing config first
         if [ -f "$CONFIG_FILE" ]; then
             source "$CONFIG_FILE" 2>/dev/null || true
+            # Restore DNS settings (DNS_CERTBOT_IMAGE, etc.) from provider name
+            restore_dns_settings_from_provider
             print_success "Loaded existing configuration"
         fi
 
