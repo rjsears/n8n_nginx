@@ -4,6 +4,7 @@ n8n API service - interact with n8n's REST API for workflow management.
 
 import httpx
 import logging
+import os
 from typing import Dict, Any, Optional, List
 from api.config import settings
 
@@ -15,7 +16,14 @@ class N8nApiService:
 
     def __init__(self):
         self.base_url = settings.n8n_api_url.rstrip("/")
-        self.api_key = settings.n8n_api_key
+
+    @property
+    def api_key(self) -> Optional[str]:
+        """
+        Get the API key dynamically from environment.
+        This allows the key to be updated at runtime without restart.
+        """
+        return os.environ.get("N8N_API_KEY") or settings.n8n_api_key
 
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for n8n API requests."""

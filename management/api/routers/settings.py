@@ -328,6 +328,10 @@ async def update_env_variable(
             detail="Failed to update .env file",
         )
 
+    # Also update the current process environment so changes take effect immediately
+    os.environ[key] = update.value
+    logger.info(f"Updated runtime environment variable: {key}")
+
     config = ALLOWED_ENV_KEYS[key]
     return EnvVariableResponse(
         key=key,
