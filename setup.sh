@@ -1577,8 +1577,9 @@ generate_env_file() {
 # Required Settings
 # ===========================================
 
-# Domain name
+# Domain name (both variables for compatibility)
 DOMAIN=${N8N_DOMAIN}
+N8N_DOMAIN=${N8N_DOMAIN}
 
 # PostgreSQL credentials
 POSTGRES_USER=${DB_USER}
