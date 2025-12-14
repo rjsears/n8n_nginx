@@ -2017,6 +2017,8 @@ EOF
       - NTFY_ATTACHMENT_EXPIRY_DURATION=\${NTFY_ATTACHMENT_EXPIRY_DURATION:-24h}
       - NTFY_KEEPALIVE_INTERVAL=\${NTFY_KEEPALIVE_INTERVAL:-45s}
       # SMTP Email Notifications (optional - configure in .env)
+      # For IP-whitelisted relay (Google Workspace): just set ADDR and FROM, leave USER/PASS empty
+      # For authenticated SMTP (Gmail personal): set all four values
       - NTFY_SMTP_SENDER_ADDR=\${NTFY_SMTP_SENDER_ADDR:-}
       - NTFY_SMTP_SENDER_USER=\${NTFY_SMTP_SENDER_USER:-}
       - NTFY_SMTP_SENDER_PASS=\${NTFY_SMTP_SENDER_PASS:-}
