@@ -3383,6 +3383,7 @@ main() {
         echo -e "  ${GRAY}Optional services available:${NC}"
         echo -e "    • Cloudflare Tunnel - Secure access without exposing ports"
         echo -e "    • Tailscale - Private mesh VPN network access"
+        echo -e "    • NTFY - Self-hosted push notification server"
         echo -e "    • Adminer - Web-based database management"
         echo -e "    • Dozzle - Real-time container log viewer"
         echo -e "    • Portainer / Portainer Agent - Container management UI"
