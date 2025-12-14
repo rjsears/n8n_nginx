@@ -579,11 +579,21 @@ handle_version_detection() {
 
     case $current_version in
         "3.0")
-            print_info "Version 3.0 detected."
+            # Show prominent existing setup detection banner
             echo ""
-            echo -e "  ${WHITE}Options:${NC}"
-            echo -e "    ${CYAN}1)${NC} Reconfigure existing installation"
-            echo -e "    ${CYAN}2)${NC} Start fresh (will backup existing config)"
+            echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${YELLOW}║                                                                           ║${NC}"
+            echo -e "${YELLOW}║              ${BOLD}⚡  EXISTING SETUP DETECTED  ⚡${NC}                          ${YELLOW}║${NC}"
+            echo -e "${YELLOW}║                                                                           ║${NC}"
+            echo -e "${YELLOW}║${NC}       ${WHITE}Version 3.0 installation found in this directory${NC}                 ${YELLOW}║${NC}"
+            echo -e "${YELLOW}║${NC}       ${GRAY}Your existing configuration and data are preserved${NC}               ${YELLOW}║${NC}"
+            echo -e "${YELLOW}║                                                                           ║${NC}"
+            echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+            echo -e "  ${WHITE}What would you like to do?${NC}"
+            echo ""
+            echo -e "    ${CYAN}1)${NC} ${GREEN}Reconfigure${NC} existing installation"
+            echo -e "    ${CYAN}2)${NC} Start ${RED}fresh${NC} (will backup existing config)"
             echo -e "    ${CYAN}3)${NC} Exit"
             echo ""
 
@@ -602,6 +612,7 @@ handle_version_detection() {
                     INSTALL_MODE="fresh"
                     ;;
                 3)
+                    print_info "Exiting. Your installation remains unchanged."
                     exit 0
                     ;;
             esac
@@ -3355,22 +3366,34 @@ main() {
 
     print_header "n8n HTTPS Interactive Setup v${SCRIPT_VERSION}"
 
-    echo -e "  ${GRAY}This script will set up a production-ready n8n instance with:${NC}"
-    echo -e "    • Automated SSL certificates via Let's Encrypt (DNS-01)"
-    echo -e "    • PostgreSQL 16 with pgvector for AI workflows"
-    echo -e "    • Nginx reverse proxy with security headers"
-    echo -e "    • ${GREEN}NEW:${NC} Management console for backups and monitoring"
-    echo ""
-    echo -e "  ${GRAY}Optional services available:${NC}"
-    echo -e "    • Cloudflare Tunnel - Secure access without exposing ports"
-    echo -e "    • Tailscale - Private mesh VPN network access"
-    echo -e "    • Adminer - Web-based database management"
-    echo -e "    • Dozzle - Real-time container log viewer"
-    echo -e "    • Portainer / Portainer Agent - Container management UI"
-    echo ""
+    # Check for existing installation FIRST - before showing feature list
+    local detected_version=$(detect_current_version)
+    if [ "$detected_version" = "3.0" ]; then
+        # Existing v3.0 installation - show prominent banner immediately
+        handle_version_detection
+        # If we get here, user chose reconfigure or fresh - skip the "Ready to begin?" prompt
+    else
+        # Fresh install or upgrade - show normal welcome screen
+        echo -e "  ${GRAY}This script will set up a production-ready n8n instance with:${NC}"
+        echo -e "    • Automated SSL certificates via Let's Encrypt (DNS-01)"
+        echo -e "    • PostgreSQL 16 with pgvector for AI workflows"
+        echo -e "    • Nginx reverse proxy with security headers"
+        echo -e "    • ${GREEN}NEW:${NC} Management console for backups and monitoring"
+        echo ""
+        echo -e "  ${GRAY}Optional services available:${NC}"
+        echo -e "    • Cloudflare Tunnel - Secure access without exposing ports"
+        echo -e "    • Tailscale - Private mesh VPN network access"
+        echo -e "    • Adminer - Web-based database management"
+        echo -e "    • Dozzle - Real-time container log viewer"
+        echo -e "    • Portainer / Portainer Agent - Container management UI"
+        echo ""
 
-    if ! confirm_prompt "Ready to begin?"; then
-        exit 0
+        if ! confirm_prompt "Ready to begin?"; then
+            exit 0
+        fi
+
+        # Handle v2.0 upgrade or fresh install
+        handle_version_detection
     fi
 
     # Check if running in LXC container and show warning
@@ -3410,8 +3433,7 @@ main() {
     # System requirements check
     perform_system_checks
 
-    # Version detection
-    handle_version_detection
+    # Note: Version detection already happened at the top of main()
 
     if [ "$INSTALL_MODE" = "upgrade" ]; then
         # Load existing config
