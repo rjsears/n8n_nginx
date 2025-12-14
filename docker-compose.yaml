@@ -2,7 +2,7 @@ version: '3.8'
 
 # n8n with Management Console v3.0
 # Includes: n8n, PostgreSQL, Nginx, Certbot, Management Console
-# Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale
+# Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale, Portainer
 
 services:
   # ===========================================
@@ -226,6 +226,22 @@ services:
     networks:
       - n8n_network
 
+  # ===========================================
+  # Portainer - Container Management UI
+  # ===========================================
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: n8n_portainer
+    restart: always
+    command: --base-url /portainer
+    expose:
+      - "9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - n8n_network
+
 # ===========================================
 # Volumes
 # ===========================================
@@ -253,6 +269,10 @@ volumes:
 
   # Optional: Tailscale state
   tailscale_data:
+    driver: local
+
+  # Portainer data
+  portainer_data:
     driver: local
 
 # ===========================================
