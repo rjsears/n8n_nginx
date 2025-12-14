@@ -62,6 +62,7 @@ INSTALL_ADMINER=false
 INSTALL_DOZZLE=false
 INSTALL_PORTAINER=false
 INSTALL_PORTAINER_AGENT=false
+INSTALL_NTFY=false
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COLORS & STYLING
@@ -1987,6 +1988,33 @@ EOF
 EOF
     fi
 
+    # Add NTFY if configured
+    if [ "$INSTALL_NTFY" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  # ═══════════════════════════════════════════════════════════════════════════
+  # NTFY - Push Notifications
+  # ═══════════════════════════════════════════════════════════════════════════
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: n8n_ntfy
+    restart: always
+    command: serve --base-url https://\${DOMAIN}/ntfy
+    environment:
+      - TZ=\${TIMEZONE:-America/Los_Angeles}
+      - NTFY_BASE_URL=https://\${DOMAIN}/ntfy
+      - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
+    expose:
+      - "80"
+    volumes:
+      - ntfy_data:/var/lib/ntfy
+      - ntfy_cache:/var/cache/ntfy
+      - ./ntfy/server.yml:/etc/ntfy/server.yml:ro
+    networks:
+      - n8n_network
+
+EOF
+    fi
+
     # Add volumes section
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2033,6 +2061,16 @@ EOF
     if [ "$INSTALL_PORTAINER" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   portainer_data:
+    driver: local
+EOF
+    fi
+
+    # Add NTFY volumes if configured
+    if [ "$INSTALL_NTFY" = true ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  ntfy_data:
+    driver: local
+  ntfy_cache:
     driver: local
 EOF
     fi
@@ -2206,6 +2244,25 @@ EOF
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
+        }
+EOF
+    fi
+
+    # Add NTFY location if configured
+    if [ "$INSTALL_NTFY" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # NTFY Push Notifications
+        location /ntfy/ {
+            proxy_pass http://n8n_ntfy:80/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
         }
 EOF
     fi
@@ -2773,6 +2830,11 @@ configure_optional_services() {
         if confirm_prompt "  Install Dozzle for container log viewing?" "n"; then
             configure_dozzle
         fi
+
+        # NTFY
+        if confirm_prompt "  Install NTFY for push notifications?" "n"; then
+            configure_ntfy
+        fi
     else
         print_info "Skipping optional services. You can add them later by running setup again."
     fi
@@ -2869,6 +2931,44 @@ configure_dozzle() {
     INSTALL_DOZZLE=true
 
     print_success "Dozzle will be available at https://\${DOMAIN}/dozzle/"
+}
+
+configure_ntfy() {
+    print_subsection
+    echo -e "${WHITE}  NTFY Configuration${NC}"
+    echo ""
+    echo -e "  ${GRAY}NTFY provides push notifications for n8n workflows.${NC}"
+    echo -e "  ${GRAY}You can send notifications to your phone or desktop.${NC}"
+    echo ""
+
+    INSTALL_NTFY=true
+
+    # Create ntfy config directory
+    mkdir -p "${SCRIPT_DIR}/ntfy"
+
+    # Create default server.yml config
+    cat > "${SCRIPT_DIR}/ntfy/server.yml" << 'NTFYEOF'
+# NTFY Server Configuration
+# See https://ntfy.sh/docs/config/ for all options
+
+# Base URL (set via environment variable NTFY_BASE_URL)
+# base-url: https://your-domain.com/ntfy
+
+# Cache settings for message templates
+cache-file: /var/cache/ntfy/cache.db
+cache-duration: 12h
+
+# Attachment settings
+attachment-cache-dir: /var/cache/ntfy/attachments
+attachment-total-size-limit: 100M
+attachment-file-size-limit: 15M
+attachment-expiry-duration: 3h
+
+# Logging
+log-level: info
+NTFYEOF
+
+    print_success "NTFY will be available at https://\${DOMAIN}/ntfy/"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

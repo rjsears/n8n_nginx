@@ -1,6 +1,6 @@
 # n8n with Management Console v3.0
 # Includes: n8n, PostgreSQL, Nginx, Certbot, Management Console
-# Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale, Portainer
+# Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale, Portainer, NTFY
 
 services:
   # ===========================================
@@ -268,6 +268,27 @@ services:
     networks:
       - n8n_network
 
+  # ===========================================
+  # NTFY - Push Notifications
+  # ===========================================
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: n8n_ntfy
+    restart: always
+    command: serve --base-url https://${DOMAIN}/ntfy
+    environment:
+      - TZ=${TIMEZONE:-America/Los_Angeles}
+      - NTFY_BASE_URL=https://${DOMAIN}/ntfy
+      - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
+    expose:
+      - "80"
+    volumes:
+      - ntfy_data:/var/lib/ntfy
+      - ntfy_cache:/var/cache/ntfy
+      - ./ntfy/server.yml:/etc/ntfy/server.yml:ro
+    networks:
+      - n8n_network
+
 # ===========================================
 # Volumes
 # ===========================================
@@ -299,6 +320,12 @@ volumes:
 
   # Portainer data
   portainer_data:
+    driver: local
+
+  # NTFY data
+  ntfy_data:
+    driver: local
+  ntfy_cache:
     driver: local
 
 # ===========================================
