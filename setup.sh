@@ -804,6 +804,23 @@ backup_existing_config() {
         backed_up=$((backed_up + 1))
     fi
 
+    # Backup Let's Encrypt certificates from Docker volume
+    if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
+        mkdir -p "${backup_dir}/letsencrypt"
+        if $DOCKER_SUDO docker run --rm \
+            -v letsencrypt:/source:ro \
+            -v "${backup_dir}/letsencrypt:/backup" \
+            alpine sh -c "cp -rL /source/* /backup/ 2>/dev/null || true" 2>/dev/null; then
+            # Check if anything was actually copied
+            if [ -n "$(ls -A ${backup_dir}/letsencrypt 2>/dev/null)" ]; then
+                print_success "Backed up Let's Encrypt certificates"
+                backed_up=$((backed_up + 1))
+            else
+                rmdir "${backup_dir}/letsencrypt" 2>/dev/null
+            fi
+        fi
+    fi
+
     echo ""
     if [ $backed_up -gt 0 ]; then
         # Create a manifest file listing what was backed up
@@ -914,21 +931,43 @@ rollback_config() {
     for file in .env .n8n_setup_config .n8n_setup_state docker-compose.yaml nginx.conf cloudflare.ini route53.ini google.json digitalocean.ini credentials.ini portainer_password.txt dozzle_users.yml geo-access.conf; do
         [ -f "${SCRIPT_DIR}/${file}" ] && cp "${SCRIPT_DIR}/${file}" "${safety_backup}/"
     done
+    # Also backup current letsencrypt certs
+    if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
+        mkdir -p "${safety_backup}/letsencrypt"
+        $DOCKER_SUDO docker run --rm -v letsencrypt:/source:ro -v "${safety_backup}/letsencrypt:/backup" \
+            alpine sh -c "cp -rL /source/* /backup/ 2>/dev/null || true" 2>/dev/null
+    fi
 
     # Restore files from backup
     print_info "Restoring configuration files..."
     local restored=0
     for file in "$backup_dir"/*; do
         local filename=$(basename "$file")
-        if [ "$filename" != "MANIFEST" ]; then
+        if [ "$filename" != "MANIFEST" ] && [ "$filename" != "letsencrypt" ]; then
             cp "$file" "${SCRIPT_DIR}/${filename}"
             print_success "Restored ${filename}"
             restored=$((restored + 1))
         fi
     done
 
+    # Restore Let's Encrypt certificates if they exist in backup
+    if [ -d "${backup_dir}/letsencrypt" ] && [ -n "$(ls -A ${backup_dir}/letsencrypt 2>/dev/null)" ]; then
+        print_info "Restoring Let's Encrypt certificates..."
+        # Create volume if it doesn't exist
+        $DOCKER_SUDO docker volume create letsencrypt >/dev/null 2>&1 || true
+        if $DOCKER_SUDO docker run --rm \
+            -v "${backup_dir}/letsencrypt:/source:ro" \
+            -v letsencrypt:/dest \
+            alpine sh -c "rm -rf /dest/* && cp -rL /source/* /dest/" 2>/dev/null; then
+            print_success "Restored Let's Encrypt certificates"
+            restored=$((restored + 1))
+        else
+            print_warning "Could not restore Let's Encrypt certificates"
+        fi
+    fi
+
     echo ""
-    print_success "Rollback complete! ${restored} files restored."
+    print_success "Rollback complete! ${restored} items restored."
     echo ""
     echo -e "  ${WHITE}Safety backup saved to:${NC} ${CYAN}${safety_backup}${NC}"
     echo ""
