@@ -1649,6 +1649,22 @@ EOF
 generate_env_file() {
     print_info "Generating .env file..."
 
+    # Read existing .env file to preserve values not stored in config
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        # Source existing .env to get values we might not have in memory
+        # Use a subshell to avoid polluting current environment unexpectedly
+        while IFS='=' read -r key value; do
+            # Skip comments and empty lines
+            [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+            # Remove any leading/trailing whitespace from key
+            key=$(echo "$key" | xargs)
+            # Only set if not already set in current environment
+            if [ -z "${!key}" ] && [ -n "$value" ]; then
+                export "$key=$value"
+            fi
+        done < "${SCRIPT_DIR}/.env"
+    fi
+
     # Generate secrets if not already set
     if command_exists openssl; then
         MGMT_SECRET_KEY=${MGMT_SECRET_KEY:-$(openssl rand -base64 32)}
