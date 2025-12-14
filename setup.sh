@@ -593,7 +593,7 @@ handle_version_detection() {
             echo -e "  ${WHITE}What would you like to do?${NC}"
             echo ""
             echo -e "    ${CYAN}1)${NC} ${GREEN}Reconfigure${NC} existing installation"
-            echo -e "    ${CYAN}2)${NC} Start ${RED}fresh${NC} (will backup existing config)"
+            echo -e "    ${CYAN}2)${NC} Start ${RED}Fresh${NC} (will backup existing config)"
             echo -e "    ${CYAN}3)${NC} Exit"
             echo ""
 
