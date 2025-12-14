@@ -176,6 +176,8 @@ services:
       - postgres
     networks:
       - n8n_network
+    profiles:
+      - tools
 
   # ===========================================
   # Dozzle (Container Logs) - Optional
@@ -191,6 +193,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - n8n_network
+    profiles:
+      - tools
 
   # ===========================================
   # Cloudflare Tunnel - Optional
@@ -204,6 +208,8 @@ services:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
       - n8n_network
+    profiles:
+      - cloudflare
 
   # ===========================================
   # Tailscale VPN - Optional
@@ -225,6 +231,8 @@ services:
       - SYS_MODULE
     networks:
       - n8n_network
+    profiles:
+      - tailscale
 
 # ===========================================
 # Volumes
