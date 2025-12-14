@@ -40,9 +40,9 @@
   --color-bg-tertiary: #1e293b;
   --color-surface: #1e293b;
   --color-surface-hover: #334155;
-  --color-border: #94a3b8;
+  --color-border: #cbd5e1;
   --color-text-primary: #f1f5f9;
-  --color-text-secondary: #94a3b8;
+  --color-text-secondary: #cbd5e1;
   --color-text-muted: #64748b;
 
   /* Accent colors - brighter for dark mode */
@@ -67,11 +67,11 @@
 .dark .border-r,
 .dark [class*="border-"] {
   --tw-border-opacity: 1 !important;
-  border-color: #94a3b8 !important;
+  border-color: #cbd5e1 !important;
 }
 
 .dark * {
-  --color-border: #94a3b8;
+  --color-border: #cbd5e1;
 }
 
 /* Alternative dark theme (softer) */

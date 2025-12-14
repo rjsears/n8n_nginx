@@ -74,10 +74,10 @@ onMounted(async () => {
   --color-bg-tertiary: #1e293b;
   --color-surface: #1e293b;
   --color-surface-hover: #334155;
-  --color-border: #94a3b8;
+  --color-border: #cbd5e1;
   --color-text-primary: #f1f5f9;
-  --color-text-secondary: #94a3b8;
-  --color-text-muted: #94a3b8;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #cbd5e1;
 
   /* Accent colors - brighter for dark mode */
   --color-accent-primary: #60a5fa;
@@ -123,12 +123,12 @@ onMounted(async () => {
 }
 
 .dark .border-\[var\(--color-border\)\] {
-  border-color: #94a3b8 !important;
+  border-color: #cbd5e1 !important;
 }
 
 /* Force dark mode borders on common elements */
 .dark [class*="border-[var(--color-border)"] {
-  border-color: #94a3b8 !important;
+  border-color: #cbd5e1 !important;
 }
 
 .dark .border-b,
@@ -136,7 +136,7 @@ onMounted(async () => {
 .dark .border-r,
 .dark .border-l,
 .dark .border {
-  border-color: #94a3b8;
+  border-color: #cbd5e1;
 }
 
 /* Dark mode inputs and selects */
@@ -147,12 +147,12 @@ onMounted(async () => {
 .dark .select-field {
   background-color: #1e293b !important;
   color: #f1f5f9 !important;
-  border-color: #94a3b8 !important;
+  border-color: #cbd5e1 !important;
 }
 
 .dark input::placeholder,
 .dark textarea::placeholder {
-  color: #94a3b8 !important;
+  color: #cbd5e1 !important;
 }
 
 .dark select option {
