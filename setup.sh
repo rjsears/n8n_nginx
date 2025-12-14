@@ -3228,6 +3228,7 @@ configure_portainer() {
             INSTALL_PORTAINER_AGENT=false
 
             print_success "Full Portainer will be installed at /portainer/"
+            echo -e "  ${CYAN}ℹ${NC}  ${GRAY}Login credentials will be the same as the Management Console${NC}"
             ;;
     esac
 }
@@ -3383,6 +3384,7 @@ configure_dozzle() {
     INSTALL_DOZZLE=true
 
     print_success "Dozzle will be available at https://\${DOMAIN}/dozzle/"
+    echo -e "  ${CYAN}ℹ${NC}  ${GRAY}Login credentials will be the same as the Management Console${NC}"
 }
 
 configure_ntfy() {
