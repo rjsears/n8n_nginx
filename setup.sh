@@ -590,6 +590,42 @@ restore_dns_settings_from_provider() {
     fi
 }
 
+restore_optional_services_from_config() {
+    # Restore INSTALL_* variables from *_ENABLED variables loaded from config
+    # Config saves: CLOUDFLARE_TUNNEL_ENABLED, NTFY_ENABLED, etc.
+    # Code uses: INSTALL_CLOUDFLARE_TUNNEL, INSTALL_NTFY, etc.
+
+    # Cloudflare Tunnel
+    if [ -n "$CLOUDFLARE_TUNNEL_ENABLED" ]; then
+        INSTALL_CLOUDFLARE_TUNNEL="$CLOUDFLARE_TUNNEL_ENABLED"
+    fi
+
+    # Tailscale
+    if [ -n "$TAILSCALE_ENABLED" ]; then
+        INSTALL_TAILSCALE="$TAILSCALE_ENABLED"
+    fi
+
+    # Adminer
+    if [ -n "$ADMINER_ENABLED" ]; then
+        INSTALL_ADMINER="$ADMINER_ENABLED"
+    fi
+
+    # Dozzle
+    if [ -n "$DOZZLE_ENABLED" ]; then
+        INSTALL_DOZZLE="$DOZZLE_ENABLED"
+    fi
+
+    # Portainer Agent
+    if [ -n "$PORTAINER_AGENT_ENABLED" ]; then
+        INSTALL_PORTAINER_AGENT="$PORTAINER_AGENT_ENABLED"
+    fi
+
+    # NTFY
+    if [ -n "$NTFY_ENABLED" ]; then
+        INSTALL_NTFY="$NTFY_ENABLED"
+    fi
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # VERSION DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3481,16 +3517,18 @@ main() {
         # Load existing config
         if [ -f "$CONFIG_FILE" ]; then
             source "$CONFIG_FILE" 2>/dev/null || true
-            # Restore DNS settings (DNS_CERTBOT_IMAGE, etc.) from provider name
+            # Restore settings from config (variable name mapping)
             restore_dns_settings_from_provider
+            restore_optional_services_from_config
         fi
         run_migration_v2_to_v3
     elif [ "$INSTALL_MODE" = "reconfigure" ]; then
         # Load existing config first
         if [ -f "$CONFIG_FILE" ]; then
             source "$CONFIG_FILE" 2>/dev/null || true
-            # Restore DNS settings (DNS_CERTBOT_IMAGE, etc.) from provider name
+            # Restore settings from config (variable name mapping)
             restore_dns_settings_from_provider
+            restore_optional_services_from_config
             print_success "Loaded existing configuration"
         fi
 
