@@ -1659,9 +1659,9 @@ generate_docker_compose_v3() {
 
     cat > "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
 services:
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # PostgreSQL Database
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   postgres:
     image: pgvector/pgvector:pg16
     container_name: ${POSTGRES_CONTAINER:-n8n_postgres}
@@ -1680,9 +1680,9 @@ services:
     networks:
       - n8n_network
 
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # n8n Workflow Automation
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   n8n:
     image: n8nio/n8n:latest
     container_name: ${N8N_CONTAINER:-n8n}
@@ -1719,9 +1719,9 @@ services:
     networks:
       - n8n_network
 
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Management Console (NEW in v3.0)
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   n8n_management:
     build:
       context: ./management
@@ -1796,9 +1796,9 @@ EOF
     networks:
       - n8n_network
 
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Nginx Reverse Proxy
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   nginx:
     image: nginx:alpine
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
@@ -1826,9 +1826,9 @@ EOF
     networks:
       - n8n_network
 
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Certbot SSL Certificate Manager
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   certbot:
     image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
     container_name: ${CERTBOT_CONTAINER}
@@ -1854,9 +1854,9 @@ EOF
         fi
 
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Portainer - Container Management UI
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   portainer:
     image: portainer/portainer-ce:latest
     container_name: n8n_portainer
@@ -1876,9 +1876,9 @@ EOF
     # Add Portainer Agent if configured (for remote management)
     if [ "$INSTALL_PORTAINER_AGENT" = true ] && [ "$INSTALL_PORTAINER" != true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Portainer Agent (for remote Portainer server)
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   portainer_agent:
     image: portainer/agent:latest
     container_name: portainer_agent
@@ -1898,9 +1898,9 @@ EOF
     # Add Cloudflare Tunnel if configured
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Cloudflare Tunnel
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: n8n_cloudflared
@@ -1917,9 +1917,9 @@ EOF
     # Add Tailscale if configured
     if [ "$INSTALL_TAILSCALE" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Tailscale VPN
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   tailscale:
     image: tailscale/tailscale:latest
     container_name: n8n_tailscale
@@ -1943,9 +1943,9 @@ EOF
     # Add Adminer if configured
     if [ "$INSTALL_ADMINER" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Adminer - Database Management
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   adminer:
     image: adminer:latest
     container_name: n8n_adminer
@@ -1966,9 +1966,9 @@ EOF
     # Add Dozzle if configured
     if [ "$INSTALL_DOZZLE" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # Dozzle - Container Log Viewer
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   dozzle:
     image: amir20/dozzle:latest
     container_name: n8n_dozzle
@@ -1991,14 +1991,16 @@ EOF
     # Add NTFY if configured
     if [ "$INSTALL_NTFY" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   # NTFY - Push Notifications
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ===========================================
   ntfy:
     image: binwiederhier/ntfy:latest
     container_name: n8n_ntfy
-    restart: always
-    command: serve --base-url https://\${DOMAIN}/ntfy
+    restart: unless-stopped
+    init: true
+    command:
+      - serve
     environment:
       - TZ=\${TIMEZONE:-America/Los_Angeles}
       - NTFY_BASE_URL=https://\${DOMAIN}/ntfy
@@ -2008,7 +2010,13 @@ EOF
     volumes:
       - ntfy_data:/var/lib/ntfy
       - ntfy_cache:/var/cache/ntfy
-      - ./ntfy/server.yml:/etc/ntfy/server.yml:ro
+      - ./ntfy:/etc/ntfy:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - n8n_network
 
@@ -2017,9 +2025,9 @@ EOF
 
     # Add volumes section
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================
 # Volumes
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================
 volumes:
   n8n_data:
     driver: local
@@ -2078,9 +2086,9 @@ EOF
     # Add networks section
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================
 # Networks
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================
 networks:
   n8n_network:
     driver: bridge
@@ -2118,9 +2126,9 @@ http {
         server ${DEFAULT_MANAGEMENT_CONTAINER}:80;
     }
 
-    # ═══════════════════════════════════════════════════════════════════════════
+    # ===========================================
     # Main n8n HTTPS Server (Port 443)
-    # ═══════════════════════════════════════════════════════════════════════════
+    # ===========================================
     server {
         listen 443 ssl http2;
         server_name ${N8N_DOMAIN};
