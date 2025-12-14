@@ -54,7 +54,7 @@ async function handleLogout() {
 <template>
   <div class="min-h-screen bg-background-primary">
     <!-- Top Navigation Bar -->
-    <header class="sticky top-0 z-[100] border-b border-gray-300 dark:border-slate-400 bg-surface backdrop-blur-sm bg-opacity-95 dark:bg-opacity-95">
+    <header class="sticky top-0 z-[100] border-b border-gray-300 dark:border-black bg-surface backdrop-blur-sm bg-opacity-95 dark:bg-opacity-95">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div class="flex h-16 items-center justify-between">
           <!-- Logo -->

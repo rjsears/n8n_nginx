@@ -24,7 +24,7 @@ const themeStore = useThemeStore()
 <template>
   <div
     :class="[
-      'rounded-lg border border-gray-300 dark:border-slate-400 bg-surface',
+      'rounded-lg border border-gray-300 dark:border-black bg-surface',
       neon && themeStore.isNeon ? 'neon-card' : '',
       padding ? '' : 'p-0',
       flex ? 'flex flex-col' : ''
@@ -34,7 +34,7 @@ const themeStore = useThemeStore()
     <div
       v-if="title || $slots.header"
       :class="[
-        'border-b border-gray-300 dark:border-slate-400 flex-shrink-0',
+        'border-b border-gray-300 dark:border-black flex-shrink-0',
         padding ? 'px-6 py-4' : 'px-4 py-3'
       ]"
     >
@@ -67,7 +67,7 @@ const themeStore = useThemeStore()
     <div
       v-if="$slots.footer"
       :class="[
-        'border-t border-gray-300 dark:border-slate-400 flex-shrink-0',
+        'border-t border-gray-300 dark:border-black flex-shrink-0',
         padding ? 'px-6 py-4' : 'px-4 py-3'
       ]"
     >

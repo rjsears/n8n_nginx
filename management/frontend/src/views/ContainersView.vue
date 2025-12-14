@@ -382,7 +382,7 @@ onUnmounted(() => {
           :padding="false"
         >
           <!-- Card Header -->
-          <div class="p-4 border-b border-gray-300 dark:border-slate-400">
+          <div class="p-4 border-b border-gray-300 dark:border-black">
             <div class="flex items-start justify-between">
               <div class="flex items-center gap-3">
                 <div
@@ -476,7 +476,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Actions Footer -->
-          <div class="p-4 border-t border-gray-300 dark:border-slate-400 flex items-center justify-between">
+          <div class="p-4 border-t border-gray-300 dark:border-black flex items-center justify-between">
             <div class="flex items-center gap-2">
               <!-- Start Button (when stopped) -->
               <button

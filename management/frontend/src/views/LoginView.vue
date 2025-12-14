@@ -77,7 +77,7 @@ async function handleLogin() {
       <form
         @submit.prevent="handleLogin"
         :class="[
-          'bg-surface rounded-xl border border-gray-300 dark:border-slate-400 p-6',
+          'bg-surface rounded-xl border border-gray-300 dark:border-black p-6',
           themeStore.isNeon ? 'neon-card' : ''
         ]"
       >
