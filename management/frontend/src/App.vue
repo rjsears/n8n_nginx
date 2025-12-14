@@ -74,7 +74,7 @@ onMounted(async () => {
   --color-bg-tertiary: #1e293b;
   --color-surface: #1e293b;
   --color-surface-hover: #334155;
-  --color-border: #475569;
+  --color-border: #000000;
   --color-text-primary: #f1f5f9;
   --color-text-secondary: #94a3b8;
   --color-text-muted: #64748b;
@@ -136,7 +136,7 @@ onMounted(async () => {
 .dark .border-r,
 .dark .border-l,
 .dark .border {
-  border-color: #475569;
+  border-color: #000000;
 }
 
 /* Dark mode inputs and selects */
