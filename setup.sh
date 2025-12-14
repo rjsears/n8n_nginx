@@ -1748,6 +1748,7 @@ services:
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # n8n API Integration (for creating test workflows)
       - N8N_API_KEY=${N8N_API_KEY:-}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-}
 EOF
 
     # Add notification environment variables if configured
@@ -1771,8 +1772,11 @@ EOF
 
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
-      - management_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - mgmt_backup_staging:/app/backups
+      - mgmt_logs:/app/logs
+      - mgmt_config:/app/config
+      - ./.env:/app/host_env/.env:rw
 EOF
 
     # Add NFS mount if configured
@@ -1946,7 +1950,7 @@ EOF
     container_name: n8n_adminer
     restart: always
     environment:
-      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DEFAULT_SERVER=\${POSTGRES_CONTAINER:-n8n_postgres}
       - ADMINER_DESIGN=nette
     expose:
       - "8080"
@@ -1993,7 +1997,11 @@ volumes:
     driver: local
   postgres_data:
     driver: local
-  management_data:
+  mgmt_backup_staging:
+    driver: local
+  mgmt_logs:
+    driver: local
+  mgmt_config:
     driver: local
   letsencrypt:
     external: true

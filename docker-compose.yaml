@@ -1,5 +1,3 @@
-version: '3.8'
-
 # n8n with Management Console v3.0
 # Includes: n8n, PostgreSQL, Nginx, Certbot, Management Console
 # Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale, Portainer
@@ -10,7 +8,7 @@ services:
   # ===========================================
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: n8n_postgres
+    container_name: ${POSTGRES_CONTAINER:-n8n_postgres}
     restart: always
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-n8n}
@@ -32,7 +30,7 @@ services:
   # ===========================================
   n8n:
     image: n8nio/n8n:latest
-    container_name: n8n
+    container_name: ${N8N_CONTAINER:-n8n}
     restart: always
     environment:
       # Database Configuration
@@ -74,11 +72,19 @@ services:
 
       # Community Nodes
       - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      # Proxy
+      - N8N_TRUST_PROXY=true
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:5678/healthz || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - n8n_network
 
@@ -87,7 +93,7 @@ services:
   # ===========================================
   nginx:
     image: nginx:alpine
-    container_name: n8n_nginx
+    container_name: ${NGINX_CONTAINER:-n8n_nginx}
     restart: always
     ports:
       - "443:443"
@@ -99,6 +105,12 @@ services:
     depends_on:
       - n8n
       - n8n_management
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - n8n_network
 
@@ -106,14 +118,14 @@ services:
   # Certbot (SSL certificate management)
   # ===========================================
   certbot:
-    image: certbot/dns-cloudflare:latest
-    container_name: n8n_certbot
+    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
+    container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
     volumes:
       - letsencrypt:/etc/letsencrypt
       - certbot_data:/var/www/certbot
-      - ./cloudflare.ini:/cloudflare.ini:ro
+      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:/credentials.ini:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --dns-cloudflare --dns-cloudflare-credentials /cloudflare.ini --deploy-hook 'docker exec n8n_nginx nginx -s reload' || true; sleep 12h & wait $${!}; done;"
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER:-n8n_nginx} nginx -s reload' || true; sleep 12h & wait $${!}; done;"
     networks:
       - n8n_network
 
@@ -124,7 +136,7 @@ services:
     build:
       context: ./management
       dockerfile: Dockerfile
-    container_name: n8n_management
+    container_name: ${MANAGEMENT_CONTAINER:-n8n_management}
     restart: always
     environment:
       # Database connection (using asyncpg driver for async SQLAlchemy)
@@ -133,6 +145,14 @@ services:
       # Security
       - SECRET_KEY=${MGMT_SECRET_KEY:?MGMT_SECRET_KEY is required}
       - ENCRYPTION_KEY=${MGMT_ENCRYPTION_KEY:-${N8N_ENCRYPTION_KEY}}
+      # Admin user (created on first startup)
+      - ADMIN_USERNAME=${ADMIN_USER}
+      - ADMIN_PASSWORD=${ADMIN_PASS}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@localhost}
+      # Server
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
       # n8n API integration
       - N8N_API_KEY=${N8N_API_KEY:-}
       - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-}
@@ -155,12 +175,13 @@ services:
       - mgmt_config:/app/config
       # Host .env file for environment variable management (read-write)
       - ./.env:/app/host_env/.env:rw
+    expose:
+      - "80"
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - n8n_network
-    # Note: No ports exposed - accessed via nginx on MGMT_PORT
 
   # ===========================================
   # Adminer (Database Management) - Optional
@@ -170,8 +191,10 @@ services:
     container_name: n8n_adminer
     restart: always
     environment:
-      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DEFAULT_SERVER=${POSTGRES_CONTAINER:-n8n_postgres}
       - ADMINER_DESIGN=nette
+    expose:
+      - "8080"
     depends_on:
       - postgres
     networks:
@@ -186,9 +209,13 @@ services:
     restart: always
     environment:
       - DOZZLE_NO_ANALYTICS=true
-      - DOZZLE_BASE=/logs
+      - DOZZLE_BASE=/dozzle
+      - DOZZLE_AUTH_PROVIDER=simple
+    expose:
+      - "8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dozzle/users.yml:/data/users.yml:ro
     networks:
       - n8n_network
 
@@ -216,13 +243,12 @@ services:
     environment:
       - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
       - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false
+      - TS_USERSPACE=true
+      - TS_EXTRA_ARGS=--accept-routes
     volumes:
       - tailscale_data:/var/lib/tailscale
-      - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
-      - SYS_MODULE
     networks:
       - n8n_network
 
