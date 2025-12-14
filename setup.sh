@@ -63,6 +63,12 @@ INSTALL_DOZZLE=false
 INSTALL_PORTAINER=false
 INSTALL_PORTAINER_AGENT=false
 INSTALL_NTFY=false
+NTFY_BASE_URL=""
+
+# Internal IP ranges that get full access (space-separated CIDR blocks)
+DEFAULT_INTERNAL_IP_RANGES="100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
+INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
+CUSTOM_INTERNAL_IPS=""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COLORS & STYLING
@@ -457,6 +463,12 @@ SAVED_INSTALL_ADMINER="$INSTALL_ADMINER"
 SAVED_ADMINER_PORT="$ADMINER_PORT"
 SAVED_INSTALL_DOZZLE="$INSTALL_DOZZLE"
 SAVED_DOZZLE_PORT="$DOZZLE_PORT"
+SAVED_INSTALL_NTFY="$INSTALL_NTFY"
+SAVED_NTFY_BASE_URL="$NTFY_BASE_URL"
+
+# Access Control
+SAVED_INTERNAL_IP_RANGES="$INTERNAL_IP_RANGES"
+SAVED_CUSTOM_INTERNAL_IPS="$CUSTOM_INTERNAL_IPS"
 EOF
     chmod 600 "$STATE_FILE"
 }
@@ -507,6 +519,12 @@ load_state() {
         ADMINER_PORT="${SAVED_ADMINER_PORT:-}"
         INSTALL_DOZZLE="${SAVED_INSTALL_DOZZLE:-false}"
         DOZZLE_PORT="${SAVED_DOZZLE_PORT:-}"
+        INSTALL_NTFY="${SAVED_INSTALL_NTFY:-false}"
+        NTFY_BASE_URL="${SAVED_NTFY_BASE_URL:-}"
+
+        # Access Control
+        INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
+        CUSTOM_INTERNAL_IPS="${SAVED_CUSTOM_INTERNAL_IPS:-}"
 
         CURRENT_STEP="${SAVED_STEP_NUM:-0}"
         return 0
@@ -2010,9 +2028,9 @@ generate_docker_compose_v3() {
 
     cat > "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
 services:
-  # ===========================================
+  # ===========================================================================
   # PostgreSQL Database
-  # ===========================================
+  # ===========================================================================
   postgres:
     image: pgvector/pgvector:pg16
     container_name: ${POSTGRES_CONTAINER:-n8n_postgres}
@@ -2031,9 +2049,9 @@ services:
     networks:
       - n8n_network
 
-  # ===========================================
+  # ===========================================================================
   # n8n Workflow Automation
-  # ===========================================
+  # ===========================================================================
   n8n:
     image: n8nio/n8n:latest
     container_name: ${N8N_CONTAINER:-n8n}
@@ -2070,9 +2088,9 @@ services:
     networks:
       - n8n_network
 
-  # ===========================================
+  # ===========================================================================
   # Management Console (NEW in v3.0)
-  # ===========================================
+  # ===========================================================================
   n8n_management:
     build:
       context: ./management
@@ -2098,9 +2116,6 @@ services:
       - NFS_PATH=${NFS_PATH:-}
       # Timezone
       - TZ=${TIMEZONE:-America/Los_Angeles}
-      # n8n API Integration (for creating test workflows)
-      - N8N_API_KEY=${N8N_API_KEY:-}
-      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-}
 EOF
 
     # Add notification environment variables if configured
@@ -2122,13 +2137,18 @@ EOF
         fi
     fi
 
+    # Add NTFY environment variable if configured
+    if [ -n "$NTFY_BASE_URL" ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+      # NTFY Push Notifications
+      - NTFY_BASE_URL=${NTFY_BASE_URL}
+EOF
+    fi
+
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
+      - management_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - mgmt_backup_staging:/app/backups
-      - mgmt_logs:/app/logs
-      - mgmt_config:/app/config
-      - ./.env:/app/host_env/.env:rw
 EOF
 
     # Add NFS mount if configured
@@ -2147,9 +2167,9 @@ EOF
     networks:
       - n8n_network
 
-  # ===========================================
+  # ===========================================================================
   # Nginx Reverse Proxy
-  # ===========================================
+  # ===========================================================================
   nginx:
     image: nginx:alpine
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
@@ -2177,9 +2197,9 @@ EOF
     networks:
       - n8n_network
 
-  # ===========================================
+  # ===========================================================================
   # Certbot SSL Certificate Manager
-  # ===========================================
+  # ===========================================================================
   certbot:
     image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
     container_name: ${CERTBOT_CONTAINER}
@@ -2205,9 +2225,9 @@ EOF
         fi
 
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  # ===========================================
+  # ===========================================================================
   # Portainer - Container Management UI
-  # ===========================================
+  # ===========================================================================
   portainer:
     image: portainer/portainer-ce:latest
     container_name: n8n_portainer
@@ -2227,9 +2247,9 @@ EOF
     # Add Portainer Agent if configured (for remote management)
     if [ "$INSTALL_PORTAINER_AGENT" = true ] && [ "$INSTALL_PORTAINER" != true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
-  # ===========================================
+  # ===========================================================================
   # Portainer Agent (for remote Portainer server)
-  # ===========================================
+  # ===========================================================================
   portainer_agent:
     image: portainer/agent:latest
     container_name: portainer_agent
@@ -2249,9 +2269,9 @@ EOF
     # Add Cloudflare Tunnel if configured
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
-  # ===========================================
+  # ===========================================================================
   # Cloudflare Tunnel
-  # ===========================================
+  # ===========================================================================
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: n8n_cloudflared
@@ -2268,9 +2288,9 @@ EOF
     # Add Tailscale if configured
     if [ "$INSTALL_TAILSCALE" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
-  # ===========================================
+  # ===========================================================================
   # Tailscale VPN
-  # ===========================================
+  # ===========================================================================
   tailscale:
     image: tailscale/tailscale:latest
     container_name: n8n_tailscale
@@ -2294,15 +2314,15 @@ EOF
     # Add Adminer if configured
     if [ "$INSTALL_ADMINER" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  # ===========================================
+  # ===========================================================================
   # Adminer - Database Management
-  # ===========================================
+  # ===========================================================================
   adminer:
     image: adminer:latest
     container_name: n8n_adminer
     restart: always
     environment:
-      - ADMINER_DEFAULT_SERVER=\${POSTGRES_CONTAINER:-n8n_postgres}
+      - ADMINER_DEFAULT_SERVER=postgres
       - ADMINER_DESIGN=nette
     expose:
       - "8080"
@@ -2317,9 +2337,9 @@ EOF
     # Add Dozzle if configured
     if [ "$INSTALL_DOZZLE" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  # ===========================================
+  # ===========================================================================
   # Dozzle - Container Log Viewer
-  # ===========================================
+  # ===========================================================================
   dozzle:
     image: amir20/dozzle:latest
     container_name: n8n_dozzle
@@ -2342,71 +2362,50 @@ EOF
     # Add NTFY if configured
     if [ "$INSTALL_NTFY" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  # ===========================================
-  # NTFY - Push Notifications
-  # ===========================================
+  # ===========================================================================
+  # NTFY - Push Notification Server
+  # ===========================================================================
   ntfy:
     image: binwiederhier/ntfy:latest
     container_name: n8n_ntfy
-    restart: unless-stopped
-    init: true
+    restart: always
     command:
       - serve
     environment:
-      - TZ=\${TIMEZONE:-America/Los_Angeles}
-      - NTFY_BASE_URL=https://\${DOMAIN}/ntfy
+      - NTFY_BASE_URL=https://\${N8N_DOMAIN}/ntfy
       - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
-      - NTFY_BEHIND_PROXY=true
       - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
-      - NTFY_AUTH_FILE=/var/lib/ntfy/auth.db
-      - NTFY_AUTH_DEFAULT_ACCESS=\${NTFY_AUTH_DEFAULT_ACCESS:-read-write}
-      - NTFY_ENABLE_LOGIN=\${NTFY_ENABLE_LOGIN:-true}
-      - NTFY_ENABLE_SIGNUP=\${NTFY_ENABLE_SIGNUP:-false}
-      - NTFY_CACHE_DURATION=\${NTFY_CACHE_DURATION:-24h}
-      - NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT=\${NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT:-100M}
-      - NTFY_ATTACHMENT_FILE_SIZE_LIMIT=\${NTFY_ATTACHMENT_FILE_SIZE_LIMIT:-15M}
-      - NTFY_ATTACHMENT_EXPIRY_DURATION=\${NTFY_ATTACHMENT_EXPIRY_DURATION:-24h}
-      - NTFY_KEEPALIVE_INTERVAL=\${NTFY_KEEPALIVE_INTERVAL:-45s}
-      # SMTP Email Notifications (optional - configure in .env)
-      # For IP-whitelisted relay (Google Workspace): just set ADDR and FROM, leave USER/PASS empty
-      # For authenticated SMTP (Gmail personal): set all four values
-      - NTFY_SMTP_SENDER_ADDR=\${NTFY_SMTP_SENDER_ADDR:-}
-      - NTFY_SMTP_SENDER_USER=\${NTFY_SMTP_SENDER_USER:-}
-      - NTFY_SMTP_SENDER_PASS=\${NTFY_SMTP_SENDER_PASS:-}
-      - NTFY_SMTP_SENDER_FROM=\${NTFY_SMTP_SENDER_FROM:-}
+      - NTFY_CACHE_DURATION=12h
+      - NTFY_ATTACHMENT_CACHE_DIR=/var/cache/ntfy/attachments
+      - NTFY_BEHIND_PROXY=true
     expose:
       - "80"
     volumes:
-      - ntfy_data:/var/lib/ntfy
       - ntfy_cache:/var/cache/ntfy
-      - ./ntfy:/etc/ntfy:ro
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      - ntfy_data:/var/lib/ntfy
     networks:
       - n8n_network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--tries=1", "http://localhost:80/v1/health", "-O", "-"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 EOF
     fi
 
     # Add volumes section
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-# ===========================================
+# ===========================================================================
 # Volumes
-# ===========================================
+# ===========================================================================
 volumes:
   n8n_data:
     driver: local
   postgres_data:
     driver: local
-  mgmt_backup_staging:
-    driver: local
-  mgmt_logs:
-    driver: local
-  mgmt_config:
+  management_data:
     driver: local
   letsencrypt:
     external: true
@@ -2445,9 +2444,9 @@ EOF
     # Add NTFY volumes if configured
     if [ "$INSTALL_NTFY" = true ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  ntfy_data:
-    driver: local
   ntfy_cache:
+    driver: local
+  ntfy_data:
     driver: local
 EOF
     fi
@@ -2455,9 +2454,9 @@ EOF
     # Add networks section
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
 
-# ===========================================
+# ===========================================================================
 # Networks
-# ===========================================
+# ===========================================================================
 networks:
   n8n_network:
     driver: bridge
@@ -2499,9 +2498,46 @@ http {
         server ${DEFAULT_MANAGEMENT_CONTAINER}:80;
     }
 
-    # ===========================================
+    # ===========================================================================
+    # IP-based Access Control
+    # ===========================================================================
+    # Classifies requests as "internal" (full access) or "external" (restricted)
+    # Internal: Tailscale, Docker networks, private IP ranges
+    # External: Cloudflare Tunnel, public internet
+    geo \$access_level {
+        default          "external";
+EOF
+
+    # Add internal IP ranges to geo block
+    for range in $INTERNAL_IP_RANGES $CUSTOM_INTERNAL_IPS; do
+        if [ -n "$range" ]; then
+            cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+        ${range}    "internal";
+EOF
+        fi
+    done
+
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+    }
+
+    # ===========================================================================
+    # ACCESS CONTROL SUMMARY:
+    # ===========================================================================
+    # EXTERNALLY ACCESSIBLE (public internet):
+    #   - /webhook/     - n8n workflow webhooks
+    #   - /ntfy/        - NTFY push notifications (if enabled)
+    #
+    # INTERNAL ACCESS ONLY (Tailscale, VPN, whitelisted IPs):
+    #   - /             - n8n editor
+    #   - /management/  - Management console
+    #   - /portainer/   - Container management (if enabled)
+    #   - /adminer/     - Database management (if enabled)
+    #   - /dozzle/      - Log viewer (if enabled)
+    # ===========================================================================
+
+    # ===========================================================================
     # Main n8n HTTPS Server (Port 443)
-    # ===========================================
+    # ===========================================================================
     server {
         listen 443 ssl;
         http2 on;
@@ -2546,8 +2582,14 @@ http {
             proxy_buffering off;
         }
 
-        # Default n8n proxy
+        # Default n8n proxy - INTERNAL ACCESS ONLY
+        # n8n editor/UI should not be publicly accessible
         location / {
+            # Block external access - only allow internal IPs
+            if (\$access_level = "external") {
+                return 403;
+            }
+
             add_header X-Frame-Options "SAMEORIGIN" always;
 
             proxy_pass http://n8n;
@@ -2571,9 +2613,14 @@ EOF
     if [ "$INSTALL_PORTAINER" = true ]; then
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        # Portainer Container Management (configured with --base-url /portainer)
-        # The trailing slash in proxy_pass strips /portainer/ prefix
+        # Portainer Container Management - INTERNAL ACCESS ONLY
+        # (configured with --base-url /portainer)
         location /portainer/ {
+            # Block external access
+            if ($access_level = "external") {
+                return 403;
+            }
+
             proxy_pass http://n8n_portainer:9000/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -2600,8 +2647,13 @@ EOF
     if [ "$INSTALL_ADMINER" = true ]; then
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        # Adminer Database Management
+        # Adminer Database Management - INTERNAL ACCESS ONLY
         location /adminer/ {
+            # Block external access
+            if ($access_level = "external") {
+                return 403;
+            }
+
             proxy_pass http://n8n_adminer:8080/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -2616,8 +2668,14 @@ EOF
     if [ "$INSTALL_DOZZLE" = true ]; then
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        # Dozzle Log Viewer (configured with DOZZLE_BASE=/dozzle)
+        # Dozzle Log Viewer - INTERNAL ACCESS ONLY
+        # (configured with DOZZLE_BASE=/dozzle)
         location /dozzle/ {
+            # Block external access
+            if ($access_level = "external") {
+                return 403;
+            }
+
             proxy_pass http://n8n_dozzle:8080;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -2634,7 +2692,8 @@ EOF
     if [ "$INSTALL_NTFY" = true ]; then
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        # NTFY Push Notifications
+        # NTFY Push Notification Server - EXTERNALLY ACCESSIBLE
+        # Required for mobile apps and external services to receive notifications
         location /ntfy/ {
             # Use variable to enable runtime DNS resolution (prevents startup failure)
             set $ntfy_upstream http://n8n_ntfy:80;
@@ -2663,6 +2722,12 @@ EOF
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
             proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_redirect off;
+            chunked_transfer_encoding on;
+            # Long timeout for SSE/WebSocket notification streams
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
         }
 EOF
     fi
@@ -2670,8 +2735,13 @@ EOF
     # Add Management Console location block
     cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        # Management Console
+        # Management Console - INTERNAL ACCESS ONLY
         location /management/ {
+            # Block external access
+            if ($access_level = "external") {
+                return 403;
+            }
+
             proxy_pass http://management/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -2680,27 +2750,6 @@ EOF
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
-            proxy_buffering off;
-        }
-
-        # WebSocket terminal endpoint (long-lived connections)
-        location /management/api/ws/ {
-            proxy_pass http://management/api/ws/;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-
-            # WebSocket required headers
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-
-            # Long timeouts for terminal sessions (24 hours)
-            proxy_connect_timeout 86400s;
-            proxy_send_timeout 86400s;
-            proxy_read_timeout 86400s;
-
             proxy_buffering off;
         }
 
@@ -3205,7 +3254,7 @@ configure_optional_services() {
     echo -e "    ${CYAN}•${NC} Dozzle - Real-time container log viewer"
     echo ""
     echo -e "  ${WHITE}${BOLD}Notifications:${NC}"
-    echo -e "    ${CYAN}•${NC} NTFY - Self-hosted push notification server"
+    echo -e "    ${CYAN}•${NC} NTFY - Self-hosted push notifications server"
     echo ""
 
     if confirm_prompt "Would you like to configure optional services?" "n"; then
@@ -3338,40 +3387,53 @@ configure_dozzle() {
 
 configure_ntfy() {
     print_subsection
-    echo -e "${WHITE}  NTFY Configuration${NC}"
+    echo -e "${WHITE}  NTFY Push Notifications Configuration${NC}"
     echo ""
-    echo -e "  ${GRAY}NTFY provides push notifications for n8n workflows.${NC}"
-    echo -e "  ${GRAY}You can send notifications to your phone or desktop.${NC}"
+    echo -e "  ${GRAY}NTFY is a simple HTTP-based pub-sub notification service.${NC}"
+    echo -e "  ${GRAY}It allows you to send push notifications to your phone or desktop.${NC}"
+    echo ""
+    echo -e "  ${GRAY}You can choose to:${NC}"
+    echo -e "    1. Install a self-hosted NTFY server (recommended)"
+    echo -e "    2. Use the public ntfy.sh server"
+    echo -e "    3. Connect to your own existing NTFY server"
     echo ""
 
-    INSTALL_NTFY=true
+    echo -ne "${WHITE}  Choose option [1/2/3, default: 1]${NC}: "
+    read ntfy_choice
+    ntfy_choice=${ntfy_choice:-1}
 
-    # Create ntfy config directory
-    mkdir -p "${SCRIPT_DIR}/ntfy"
-
-    # Create default server.yml config
-    cat > "${SCRIPT_DIR}/ntfy/server.yml" << 'NTFYEOF'
-# NTFY Server Configuration
-# See https://ntfy.sh/docs/config/ for all options
-
-# Base URL (set via environment variable NTFY_BASE_URL)
-# base-url: https://your-domain.com/ntfy
-
-# Cache settings for message templates
-cache-file: /var/cache/ntfy/cache.db
-cache-duration: 12h
-
-# Attachment settings
-attachment-cache-dir: /var/cache/ntfy/attachments
-attachment-total-size-limit: 100M
-attachment-file-size-limit: 15M
-attachment-expiry-duration: 3h
-
-# Logging
-log-level: info
-NTFYEOF
-
-    print_success "NTFY will be available at https://\${DOMAIN}/ntfy/"
+    case "$ntfy_choice" in
+        1)
+            INSTALL_NTFY=true
+            NTFY_BASE_URL="http://n8n_ntfy:80"
+            print_success "Self-hosted NTFY server will be installed"
+            print_info "NTFY will be available at https://\${DOMAIN}/ntfy/"
+            ;;
+        2)
+            INSTALL_NTFY=false
+            NTFY_BASE_URL="https://ntfy.sh"
+            print_success "Using public ntfy.sh server"
+            print_warning "Note: Messages sent via ntfy.sh are public unless you use access tokens"
+            ;;
+        3)
+            INSTALL_NTFY=false
+            echo -ne "${WHITE}  Enter your NTFY server URL${NC}: "
+            read custom_ntfy_url
+            if [ -n "$custom_ntfy_url" ]; then
+                NTFY_BASE_URL="$custom_ntfy_url"
+                print_success "Using custom NTFY server: $NTFY_BASE_URL"
+            else
+                print_error "No URL provided, defaulting to self-hosted"
+                INSTALL_NTFY=true
+                NTFY_BASE_URL="http://n8n_ntfy:80"
+            fi
+            ;;
+        *)
+            INSTALL_NTFY=true
+            NTFY_BASE_URL="http://n8n_ntfy:80"
+            print_success "Self-hosted NTFY server will be installed"
+            ;;
+    esac
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3409,7 +3471,8 @@ show_configuration_summary() {
     # Show optional services if any are enabled
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] || [ "$INSTALL_TAILSCALE" = true ] || \
        [ "$INSTALL_ADMINER" = true ] || [ "$INSTALL_DOZZLE" = true ] || \
-       [ "$INSTALL_PORTAINER" = true ] || [ "$INSTALL_PORTAINER_AGENT" = true ]; then
+       [ "$INSTALL_PORTAINER" = true ] || [ "$INSTALL_PORTAINER_AGENT" = true ] || \
+       [ "$INSTALL_NTFY" = true ] || [ -n "$NTFY_BASE_URL" ]; then
         echo -e "  ${WHITE}${BOLD}Optional Services:${NC}"
         if [ "$INSTALL_PORTAINER" = true ]; then
             echo -e "    Portainer:           ${GREEN}enabled${NC} (/portainer/)"
@@ -3427,6 +3490,11 @@ show_configuration_summary() {
         fi
         if [ "$INSTALL_DOZZLE" = true ]; then
             echo -e "    Dozzle:              ${GREEN}enabled${NC} (/dozzle/)"
+        fi
+        if [ "$INSTALL_NTFY" = true ]; then
+            echo -e "    NTFY:                ${GREEN}enabled${NC} (/ntfy/)"
+        elif [ -n "$NTFY_BASE_URL" ]; then
+            echo -e "    NTFY:                ${CYAN}external${NC} (${NTFY_BASE_URL})"
         fi
         echo ""
     fi
@@ -3508,9 +3576,141 @@ deploy_stack() {
     show_final_summary_v3
 }
 
+# =============================================================================
+# SSL CERTIFICATE MANAGEMENT
+# =============================================================================
+
+check_existing_ssl_certificate() {
+    # Check if valid SSL certificate already exists in the letsencrypt volume
+    # Returns 0 if valid certificate exists, 1 otherwise
+    # Sets CERT_INFO variable with certificate details
+
+    local domain="$1"
+
+    # Check if letsencrypt volume exists
+    if ! $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
+        print_info "No existing letsencrypt volume found"
+        return 1
+    fi
+
+    # Check if certificate files exist and get info
+    CERT_INFO=$($DOCKER_SUDO docker run --rm \
+        -v letsencrypt:/etc/letsencrypt:ro \
+        alpine/openssl \
+        sh -c "
+            CERT_PATH=\"/etc/letsencrypt/live/${domain}/fullchain.pem\"
+            KEY_PATH=\"/etc/letsencrypt/live/${domain}/privkey.pem\"
+
+            if [ ! -f \"\$CERT_PATH\" ] || [ ! -f \"\$KEY_PATH\" ]; then
+                echo 'NOT_FOUND'
+                exit 1
+            fi
+
+            # Get certificate info
+            SUBJECT=\$(openssl x509 -in \"\$CERT_PATH\" -noout -subject 2>/dev/null | sed 's/subject=//')
+            ISSUER=\$(openssl x509 -in \"\$CERT_PATH\" -noout -issuer 2>/dev/null | sed 's/issuer=//' | sed 's/.*CN = //')
+            NOT_BEFORE=\$(openssl x509 -in \"\$CERT_PATH\" -noout -startdate 2>/dev/null | sed 's/notBefore=//')
+            NOT_AFTER=\$(openssl x509 -in \"\$CERT_PATH\" -noout -enddate 2>/dev/null | sed 's/notAfter=//')
+            DAYS_LEFT=\$(openssl x509 -in \"\$CERT_PATH\" -noout -checkend 0 >/dev/null 2>&1 && \
+                         echo \$(( (\$(date -d \"\$NOT_AFTER\" +%s) - \$(date +%s)) / 86400 )) || echo '0')
+
+            # Check if expired
+            if [ \"\$DAYS_LEFT\" -le 0 ]; then
+                echo 'EXPIRED'
+                exit 1
+            fi
+
+            echo \"VALID|\$SUBJECT|\$ISSUER|\$NOT_BEFORE|\$NOT_AFTER|\$DAYS_LEFT\"
+        " 2>/dev/null)
+
+    if [ -z "$CERT_INFO" ] || [ "$CERT_INFO" = "NOT_FOUND" ] || [ "$CERT_INFO" = "EXPIRED" ]; then
+        return 1
+    fi
+
+    return 0
+}
+
+display_certificate_info() {
+    # Parse and display certificate information
+    local info="$CERT_INFO"
+
+    local status=$(echo "$info" | cut -d'|' -f1)
+    local subject=$(echo "$info" | cut -d'|' -f2)
+    local issuer=$(echo "$info" | cut -d'|' -f3)
+    local not_before=$(echo "$info" | cut -d'|' -f4)
+    local not_after=$(echo "$info" | cut -d'|' -f5)
+    local days_left=$(echo "$info" | cut -d'|' -f6)
+
+    echo ""
+    echo -e "  ${WHITE}${BOLD}Existing SSL Certificate Found:${NC}"
+    echo -e "  ============================================="
+    echo -e "  Domain(s):     ${CYAN}${N8N_DOMAIN}${NC}"
+    echo -e "  Issuer:        ${CYAN}${issuer}${NC}"
+    echo -e "  Issued:        ${GRAY}${not_before}${NC}"
+    echo -e "  Expires:       ${GRAY}${not_after}${NC}"
+
+    # Color code days left
+    if [ "$days_left" -gt 60 ]; then
+        echo -e "  Days Left:     ${GREEN}${days_left} days${NC}"
+    elif [ "$days_left" -gt 30 ]; then
+        echo -e "  Days Left:     ${YELLOW}${days_left} days${NC}"
+    else
+        echo -e "  Days Left:     ${RED}${days_left} days${NC}"
+    fi
+    echo -e "  ============================================="
+    echo ""
+}
+
 obtain_ssl_certificate() {
     local cred_mount=""
     local cred_volume_opt=""
+    local force_renew="${FORCE_SSL_RENEWAL:-false}"
+
+    # Check for existing valid certificate first
+    if check_existing_ssl_certificate "$N8N_DOMAIN"; then
+        display_certificate_info
+
+        # Check if force renewal via env var
+        if [ "$force_renew" = "true" ]; then
+            print_info "FORCE_SSL_RENEWAL=true - obtaining new certificate"
+        else
+            print_success "Your SSL certificate is still valid!"
+            echo ""
+
+            # Interactive prompt (skip if non-interactive)
+            if [ -t 0 ] && [ "$NON_INTERACTIVE" != "true" ]; then
+                echo -e "  ${GRAY}Would you like to request a new certificate anyway?${NC}"
+                echo -e "  ${GRAY}(This is usually not necessary unless you need to add domains)${NC}"
+                echo ""
+                echo -ne "  ${WHITE}Force renewal? [y/N]${NC}: "
+                read -r renew_choice
+
+                if [ "$renew_choice" != "y" ] && [ "$renew_choice" != "Y" ]; then
+                    print_info "Keeping existing certificate"
+                    return 0
+                fi
+
+                # Rate limit warning
+                echo ""
+                echo -e "  ${RED}${BOLD}=== Rate Limit Warning ===${NC}"
+                echo -e "  ${YELLOW}Let's Encrypt has strict rate limits:${NC}"
+                echo -e "    ${GRAY}- 5 certificates per domain per week${NC}"
+                echo -e "    ${GRAY}- 5 failed validations per hour${NC}"
+                echo -e "    ${GRAY}- Exceeding limits may block certificate issuance for days${NC}"
+                echo ""
+                echo -ne "  ${WHITE}Are you sure? Type 'yes' to confirm${NC}: "
+                read -r confirm
+
+                if [ "$confirm" != "yes" ]; then
+                    print_info "Keeping existing certificate"
+                    return 0
+                fi
+            else
+                print_info "Non-interactive mode - keeping existing certificate"
+                return 0
+            fi
+        fi
+    fi
 
     case $DNS_PROVIDER_NAME in
         cloudflare|digitalocean)
@@ -3615,6 +3815,9 @@ show_final_summary_v3() {
     if [ "$INSTALL_DOZZLE" = true ]; then
         echo -e "    Dozzle (Logs):       ${CYAN}https://${N8N_DOMAIN}/dozzle/${NC}"
     fi
+    if [ "$INSTALL_NTFY" = true ]; then
+        echo -e "    NTFY (Push):         ${CYAN}https://${N8N_DOMAIN}/ntfy/${NC}"
+    fi
     echo ""
     echo -e "  ${WHITE}${BOLD}Management Login:${NC}"
     echo -e "    Username:            ${CYAN}${ADMIN_USER}${NC}"
@@ -3659,6 +3862,161 @@ show_final_summary_v3() {
     echo ""
 }
 
+# =============================================================================
+# ACCESS CONTROL CONFIGURATION
+# =============================================================================
+
+configure_access_control() {
+    # Only configure if Cloudflare Tunnel is being used
+    if [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
+        print_info "No Cloudflare Tunnel configured - skipping access control setup"
+        print_info "All access will be treated as internal (full access)"
+        return
+    fi
+
+    print_section "Access Control Configuration"
+
+    echo ""
+    echo -e "  ${GRAY}Since you're using Cloudflare Tunnel, your n8n instance will be${NC}"
+    echo -e "  ${GRAY}accessible from the public internet. Access control helps protect${NC}"
+    echo -e "  ${GRAY}sensitive endpoints from unauthorized access.${NC}"
+    echo ""
+    echo -e "  ${WHITE}${BOLD}How Access Control Works:${NC}"
+    echo -e "    - ${CYAN}Public Access${NC} (via Cloudflare Tunnel):"
+    echo -e "      Only these endpoints are accessible:"
+    echo -e "        - ${GREEN}/webhook/${NC} - n8n workflow webhooks"
+    echo -e "        - ${GREEN}/ntfy/${NC} - Push notification service"
+    echo ""
+    echo -e "    - ${CYAN}Internal Access${NC} (Tailscale, VPN, Local Network):"
+    echo -e "      Full access to all endpoints including:"
+    echo -e "        - ${GREEN}/${NC} - n8n main interface"
+    echo -e "        - ${GREEN}/management/${NC} - Management console"
+    echo -e "        - ${GREEN}/adminer/${NC} - Database admin (if installed)"
+    echo -e "        - ${GREEN}/dozzle/${NC} - Log viewer (if installed)"
+    echo ""
+
+    # Default internal IP ranges
+    INTERNAL_IP_RANGES="$DEFAULT_INTERNAL_IP_RANGES"
+    CUSTOM_INTERNAL_IPS=""
+
+    # Ask about Tailscale
+    if [ "$INSTALL_TAILSCALE" = "true" ]; then
+        echo -e "  ${GREEN}[OK]${NC} Tailscale detected - Tailscale IPs (100.64.0.0/10) will have full access"
+        echo ""
+    fi
+
+    # Show default ranges
+    echo -e "  ${WHITE}${BOLD}Default Internal IP Ranges:${NC}"
+    echo -e "    ${CYAN}100.64.0.0/10${NC}  - Tailscale CGNAT range"
+    echo -e "    ${CYAN}172.16.0.0/12${NC}  - Docker/Internal networks"
+    echo -e "    ${CYAN}10.0.0.0/8${NC}     - Private network (Class A)"
+    echo -e "    ${CYAN}192.168.0.0/16${NC} - Private network (Class C)"
+    echo ""
+
+    # Ask about custom IP ranges
+    if confirm_prompt "  Would you like to add additional IP ranges?" "n"; then
+        echo ""
+        echo -e "  ${GRAY}Enter IP ranges in CIDR notation (e.g., 203.0.113.0/24)${NC}"
+        echo -e "  ${GRAY}Enter 'done' when finished${NC}"
+        echo ""
+
+        while true; do
+            read -p "  Enter IP range (or 'done'): " ip_range
+
+            if [ "$ip_range" = "done" ] || [ -z "$ip_range" ]; then
+                break
+            fi
+
+            # Validate CIDR notation
+            if [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+                CUSTOM_INTERNAL_IPS="$CUSTOM_INTERNAL_IPS $ip_range"
+                echo -e "    ${GREEN}[OK]${NC} Added: $ip_range"
+            else
+                echo -e "    ${RED}[ERROR]${NC} Invalid CIDR format: $ip_range"
+                echo -e "      ${GRAY}Example: 192.168.1.0/24${NC}"
+            fi
+        done
+    fi
+
+    # Show summary
+    echo ""
+    echo -e "  ${WHITE}${BOLD}Access Control Summary:${NC}"
+    echo -e "    ${CYAN}Internal IP Ranges:${NC}"
+    for range in $INTERNAL_IP_RANGES $CUSTOM_INTERNAL_IPS; do
+        echo -e "      - $range"
+    done
+    echo ""
+
+    print_success "Access control configured"
+}
+
+update_access_control() {
+    # Function for --update-access flag
+    print_section "Update Access Control"
+
+    echo ""
+    echo -e "  ${GRAY}This will update the nginx access control configuration${NC}"
+    echo -e "  ${GRAY}without reinstalling other services.${NC}"
+    echo ""
+
+    # Load existing state if available
+    if [ -f "$STATE_FILE" ]; then
+        source "$STATE_FILE"
+        INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
+        CUSTOM_INTERNAL_IPS="${SAVED_CUSTOM_INTERNAL_IPS:-}"
+        N8N_DOMAIN="${SAVED_N8N_DOMAIN:-}"
+        INSTALL_CLOUDFLARE_TUNNEL="${SAVED_INSTALL_CLOUDFLARE_TUNNEL:-false}"
+        INSTALL_TAILSCALE="${SAVED_INSTALL_TAILSCALE:-false}"
+    else
+        print_error "No existing configuration found. Please run setup.sh first."
+        exit 1
+    fi
+
+    if [ -z "$N8N_DOMAIN" ]; then
+        print_error "Domain not configured. Please run setup.sh first."
+        exit 1
+    fi
+
+    echo -e "  ${WHITE}Current Domain:${NC} ${CYAN}$N8N_DOMAIN${NC}"
+    echo ""
+
+    # Show current configuration
+    echo -e "  ${WHITE}${BOLD}Current Internal IP Ranges:${NC}"
+    for range in $INTERNAL_IP_RANGES $CUSTOM_INTERNAL_IPS; do
+        echo -e "    ${CYAN}$range${NC}"
+    done
+    echo ""
+
+    if confirm_prompt "  Would you like to reconfigure access control?" "y"; then
+        # Reset and reconfigure
+        INTERNAL_IP_RANGES="$DEFAULT_INTERNAL_IP_RANGES"
+        CUSTOM_INTERNAL_IPS=""
+
+        configure_access_control
+
+        # Regenerate nginx.conf
+        print_info "Regenerating nginx configuration..."
+        generate_nginx_conf_v3
+
+        # Reload nginx if running
+        local nginx_container="${NGINX_CONTAINER:-n8n_nginx}"
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${nginx_container}$"; then
+            print_info "Reloading nginx..."
+            if docker exec "${nginx_container}" nginx -s reload 2>/dev/null; then
+                print_success "Nginx reloaded successfully"
+            else
+                print_warning "Could not reload nginx. You may need to restart it manually."
+            fi
+        else
+            print_info "Nginx container not running. Configuration will apply on next start."
+        fi
+
+        print_success "Access control updated successfully!"
+    else
+        print_info "No changes made."
+    fi
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # COMMAND LINE ARGUMENTS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3671,6 +4029,7 @@ show_help() {
     echo "Options:"
     echo "  --help              Show this help message"
     echo "  --rollback          Rollback to v2.0 (if migrated within 30 days)"
+    echo "  --update-access     Update access control settings (IP whitelist)"
     echo "  --version           Show version information"
     echo ""
 }
@@ -3700,6 +4059,10 @@ main() {
             ;;
         --rollback)
             handle_rollback
+            exit 0
+            ;;
+        --update-access)
+            update_access_control
             exit 0
             ;;
         --version|-v)
@@ -4013,6 +4376,8 @@ ADMINER_ENABLED=${INSTALL_ADMINER}
 ADMINER_PORT=${ADMINER_PORT:-$DEFAULT_ADMINER_PORT}
 DOZZLE_ENABLED=${INSTALL_DOZZLE}
 DOZZLE_PORT=${DOZZLE_PORT:-$DEFAULT_DOZZLE_PORT}
+NTFY_ENABLED=${INSTALL_NTFY}
+NTFY_BASE_URL=${NTFY_BASE_URL}
 EOF
         chmod 600 "${CONFIG_FILE}"
 
