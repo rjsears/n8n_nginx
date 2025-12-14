@@ -3459,6 +3459,10 @@ deploy_stack() {
     print_step "4" "4" "Verifying services"
     verify_services_v3
 
+    # Create backup of working configuration after successful deployment
+    print_info "Creating backup of working configuration..."
+    backup_existing_config
+
     show_final_summary_v3
 }
 
