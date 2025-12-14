@@ -3419,8 +3419,89 @@ main() {
             source "$CONFIG_FILE" 2>/dev/null || true
         fi
         run_migration_v2_to_v3
-    else
-        # Fresh install or reconfigure
+    elif [ "$INSTALL_MODE" = "reconfigure" ]; then
+        # Load existing config first
+        if [ -f "$CONFIG_FILE" ]; then
+            source "$CONFIG_FILE" 2>/dev/null || true
+            print_success "Loaded existing configuration"
+        fi
+
+        # Show reconfigure menu
+        print_section "Reconfigure Options"
+        echo -e "  ${WHITE}Select what you want to reconfigure:${NC}"
+        echo ""
+        echo -e "    ${CYAN}1)${NC} Domain & SSL settings"
+        echo -e "    ${CYAN}2)${NC} Database credentials"
+        echo -e "    ${CYAN}3)${NC} Optional services (Cloudflare, Tailscale, NTFY, etc.)"
+        echo -e "    ${CYAN}4)${NC} Access control (IP ranges)"
+        echo -e "    ${CYAN}5)${NC} Admin credentials"
+        echo -e "    ${CYAN}6)${NC} NFS backup storage"
+        echo -e "    ${CYAN}7)${NC} Regenerate all config files (keeps settings)"
+        echo -e "    ${CYAN}8)${NC} Full reconfiguration (all settings)"
+        echo -e "    ${CYAN}9)${NC} Exit"
+        echo ""
+
+        local reconfig_choice=""
+        while [[ ! "$reconfig_choice" =~ ^[1-9]$ ]]; do
+            echo -ne "${WHITE}  Enter your choice [1-9]${NC}: "
+            read reconfig_choice
+        done
+
+        case $reconfig_choice in
+            1)
+                configure_dns_provider
+                configure_url
+                ;;
+            2)
+                configure_database
+                ;;
+            3)
+                configure_optional_services
+                ;;
+            4)
+                configure_access_control
+                ;;
+            5)
+                create_admin_user
+                ;;
+            6)
+                configure_nfs
+                ;;
+            7)
+                print_info "Regenerating configuration files with current settings..."
+                ;;
+            8)
+                # Full reconfigure - fall through to fresh install flow
+                INSTALL_MODE="fresh"
+                ;;
+            9)
+                print_info "Exiting without changes"
+                exit 0
+                ;;
+        esac
+
+        # For options 1-7, regenerate config files and optionally redeploy
+        if [ "$INSTALL_MODE" = "reconfigure" ]; then
+            print_section "Generating Configuration Files"
+            generate_env_file
+            generate_tool_auth_files
+            generate_docker_compose_v3
+            generate_nginx_conf_v3
+
+            print_success "Configuration files regenerated!"
+            echo ""
+
+            if confirm_prompt "Would you like to redeploy the stack now?"; then
+                deploy_stack
+            else
+                print_info "Configuration saved. Run 'docker compose up -d' when ready."
+            fi
+            exit 0
+        fi
+    fi
+
+    if [ "$INSTALL_MODE" = "fresh" ]; then
+        # Fresh install
         # Each step saves state so user can resume if interrupted
 
         # Step 1: DNS Provider
