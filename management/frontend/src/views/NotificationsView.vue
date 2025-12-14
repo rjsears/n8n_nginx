@@ -396,7 +396,7 @@ onMounted(loadData)
           <div
             v-for="channel in channels"
             :key="channel.id"
-            class="flex items-center justify-between p-4 rounded-lg bg-surface-hover border border-gray-300 dark:border-slate-500"
+            class="flex items-center justify-between p-4 rounded-lg bg-surface-hover border border-gray-300 dark:border-slate-400"
           >
             <div class="flex items-center gap-4">
               <div
@@ -505,7 +505,7 @@ onMounted(loadData)
               <div
                 v-for="item in history.slice(0, 20)"
                 :key="item.id"
-                class="border border-gray-300 dark:border-slate-500 rounded-lg overflow-hidden"
+                class="border border-gray-300 dark:border-slate-400 rounded-lg overflow-hidden"
               >
                 <!-- Collapsed Header Row -->
                 <div
@@ -533,7 +533,7 @@ onMounted(loadData)
                 <Transition name="collapse">
                   <div
                     v-if="expandedHistoryItems.has(item.id)"
-                    class="px-4 pb-4 pt-2 border-t border-gray-300 dark:border-slate-500 bg-gray-50 dark:bg-gray-800/50"
+                    class="px-4 pb-4 pt-2 border-t border-gray-300 dark:border-slate-400 bg-gray-50 dark:bg-gray-800/50"
                   >
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <!-- Left Column -->

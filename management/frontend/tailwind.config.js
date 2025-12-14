@@ -1,5 +1,3 @@
-import plugin from 'tailwindcss/plugin'
-
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -49,16 +47,5 @@ export default {
       },
     },
   },
-  plugins: [
-    plugin(function({ addBase }) {
-      addBase({
-        '.dark *': {
-          '--color-border': '#64748b',
-        },
-        '.dark [class*="border"]': {
-          'border-color': '#64748b !important',
-        },
-      })
-    }),
-  ],
+  plugins: [],
 }
