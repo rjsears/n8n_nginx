@@ -728,17 +728,224 @@ handle_version_detection() {
 }
 
 backup_existing_config() {
-    local backup_suffix=$(date +%Y%m%d_%H%M%S)
+    # Create timestamped backup directory
+    local backup_timestamp=$(date +%Y%m%d_%H%M%S)
+    local backup_dir="${SCRIPT_DIR}/.backups/${backup_timestamp}"
 
+    mkdir -p "$backup_dir"
+
+    print_section "Creating Configuration Backup"
+    echo -e "  ${WHITE}Backup location:${NC} ${CYAN}${backup_dir}${NC}"
+    echo ""
+
+    local backed_up=0
+
+    # Backup .env file (CRITICAL - contains all secrets)
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        cp "${SCRIPT_DIR}/.env" "${backup_dir}/.env"
+        print_success "Backed up .env"
+        backed_up=$((backed_up + 1))
+    fi
+
+    # Backup setup config file
+    if [ -f "${SCRIPT_DIR}/.n8n_setup_config" ]; then
+        cp "${SCRIPT_DIR}/.n8n_setup_config" "${backup_dir}/.n8n_setup_config"
+        print_success "Backed up .n8n_setup_config"
+        backed_up=$((backed_up + 1))
+    fi
+
+    # Backup setup state file
+    if [ -f "${SCRIPT_DIR}/.n8n_setup_state" ]; then
+        cp "${SCRIPT_DIR}/.n8n_setup_state" "${backup_dir}/.n8n_setup_state"
+        print_success "Backed up .n8n_setup_state"
+        backed_up=$((backed_up + 1))
+    fi
+
+    # Backup docker-compose.yaml
     if [ -f "${SCRIPT_DIR}/docker-compose.yaml" ]; then
-        cp "${SCRIPT_DIR}/docker-compose.yaml" "${SCRIPT_DIR}/docker-compose.yaml.backup.${backup_suffix}"
+        cp "${SCRIPT_DIR}/docker-compose.yaml" "${backup_dir}/docker-compose.yaml"
         print_success "Backed up docker-compose.yaml"
+        backed_up=$((backed_up + 1))
     fi
 
+    # Backup nginx.conf
     if [ -f "${SCRIPT_DIR}/nginx.conf" ]; then
-        cp "${SCRIPT_DIR}/nginx.conf" "${SCRIPT_DIR}/nginx.conf.backup.${backup_suffix}"
+        cp "${SCRIPT_DIR}/nginx.conf" "${backup_dir}/nginx.conf"
         print_success "Backed up nginx.conf"
+        backed_up=$((backed_up + 1))
     fi
+
+    # Backup DNS credential files (Cloudflare, Route53, Google, DigitalOcean)
+    for cred_file in cloudflare.ini route53.ini google.json digitalocean.ini credentials.ini; do
+        if [ -f "${SCRIPT_DIR}/${cred_file}" ]; then
+            cp "${SCRIPT_DIR}/${cred_file}" "${backup_dir}/${cred_file}"
+            print_success "Backed up ${cred_file}"
+            backed_up=$((backed_up + 1))
+        fi
+    done
+
+    # Backup any tool auth files
+    if [ -f "${SCRIPT_DIR}/portainer_password.txt" ]; then
+        cp "${SCRIPT_DIR}/portainer_password.txt" "${backup_dir}/portainer_password.txt"
+        print_success "Backed up portainer_password.txt"
+        backed_up=$((backed_up + 1))
+    fi
+
+    if [ -f "${SCRIPT_DIR}/dozzle_users.yml" ]; then
+        cp "${SCRIPT_DIR}/dozzle_users.yml" "${backup_dir}/dozzle_users.yml"
+        print_success "Backed up dozzle_users.yml"
+        backed_up=$((backed_up + 1))
+    fi
+
+    # Backup geo-access.conf if it exists
+    if [ -f "${SCRIPT_DIR}/geo-access.conf" ]; then
+        cp "${SCRIPT_DIR}/geo-access.conf" "${backup_dir}/geo-access.conf"
+        print_success "Backed up geo-access.conf"
+        backed_up=$((backed_up + 1))
+    fi
+
+    echo ""
+    if [ $backed_up -gt 0 ]; then
+        # Create a manifest file listing what was backed up
+        echo "# Backup created: $(date)" > "${backup_dir}/MANIFEST"
+        echo "# Files backed up: ${backed_up}" >> "${backup_dir}/MANIFEST"
+        ls -la "${backup_dir}" >> "${backup_dir}/MANIFEST"
+
+        print_success "Backup complete! ${backed_up} files saved to ${backup_dir}"
+
+        # Keep only last 10 backups to prevent disk fill
+        local backup_count=$(ls -d ${SCRIPT_DIR}/.backups/*/ 2>/dev/null | wc -l)
+        if [ "$backup_count" -gt 10 ]; then
+            print_info "Cleaning up old backups (keeping last 10)..."
+            ls -dt ${SCRIPT_DIR}/.backups/*/ | tail -n +11 | xargs rm -rf
+        fi
+    else
+        print_warning "No configuration files found to backup"
+        rmdir "$backup_dir" 2>/dev/null
+    fi
+
+    echo ""
+    LAST_BACKUP_DIR="$backup_dir"
+}
+
+list_available_backups() {
+    # List all available backup directories
+    local backup_base="${SCRIPT_DIR}/.backups"
+
+    if [ ! -d "$backup_base" ] || [ -z "$(ls -A $backup_base 2>/dev/null)" ]; then
+        return 1
+    fi
+
+    AVAILABLE_BACKUPS=()
+    while IFS= read -r backup_dir; do
+        if [ -d "$backup_dir" ]; then
+            local timestamp=$(basename "$backup_dir")
+            local formatted_date=$(echo "$timestamp" | sed 's/\([0-9]\{4\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)_\([0-9]\{2\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)/\1-\2-\3 \4:\5:\6/')
+            local file_count=$(ls -1 "$backup_dir" 2>/dev/null | grep -v MANIFEST | wc -l)
+            AVAILABLE_BACKUPS+=("${timestamp}|${formatted_date}|${file_count} files")
+        fi
+    done < <(ls -dt ${backup_base}/*/ 2>/dev/null)
+
+    if [ ${#AVAILABLE_BACKUPS[@]} -eq 0 ]; then
+        return 1
+    fi
+
+    return 0
+}
+
+rollback_config() {
+    print_section "Rollback Configuration"
+
+    if ! list_available_backups; then
+        print_error "No backups found in ${SCRIPT_DIR}/.backups/"
+        echo ""
+        print_info "Backups are created automatically before any reconfiguration."
+        return 1
+    fi
+
+    echo -e "  ${WHITE}Available backups:${NC}"
+    echo ""
+
+    local i=1
+    for backup_info in "${AVAILABLE_BACKUPS[@]}"; do
+        local timestamp=$(echo "$backup_info" | cut -d'|' -f1)
+        local formatted_date=$(echo "$backup_info" | cut -d'|' -f2)
+        local file_count=$(echo "$backup_info" | cut -d'|' -f3)
+        echo -e "    ${CYAN}${i})${NC} ${WHITE}${formatted_date}${NC} (${file_count})"
+        i=$((i + 1))
+    done
+    echo -e "    ${CYAN}${i})${NC} Cancel - return to menu"
+    echo ""
+
+    local max_choice=$i
+    local choice=""
+    while [[ ! "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "$max_choice" ]; do
+        echo -ne "${WHITE}  Select backup to restore [1-${max_choice}]${NC}: "
+        read choice
+    done
+
+    if [ "$choice" -eq "$max_choice" ]; then
+        print_info "Rollback cancelled"
+        return 0
+    fi
+
+    local selected_index=$((choice - 1))
+    local selected_backup=$(echo "${AVAILABLE_BACKUPS[$selected_index]}" | cut -d'|' -f1)
+    local backup_dir="${SCRIPT_DIR}/.backups/${selected_backup}"
+
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}WARNING: This will overwrite your current configuration!${NC}"
+    echo ""
+    echo -e "  ${WHITE}Files to be restored from ${CYAN}${selected_backup}${NC}:${NC}"
+    ls -1 "$backup_dir" | grep -v MANIFEST | while read file; do
+        echo -e "    • ${file}"
+    done
+    echo ""
+
+    if ! confirm_prompt "Are you sure you want to restore this backup?"; then
+        print_info "Rollback cancelled"
+        return 0
+    fi
+
+    # Create a backup of current state before rollback (safety net)
+    print_info "Creating safety backup of current state..."
+    local safety_backup="${SCRIPT_DIR}/.backups/pre_rollback_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$safety_backup"
+    for file in .env .n8n_setup_config .n8n_setup_state docker-compose.yaml nginx.conf cloudflare.ini route53.ini google.json digitalocean.ini credentials.ini portainer_password.txt dozzle_users.yml geo-access.conf; do
+        [ -f "${SCRIPT_DIR}/${file}" ] && cp "${SCRIPT_DIR}/${file}" "${safety_backup}/"
+    done
+
+    # Restore files from backup
+    print_info "Restoring configuration files..."
+    local restored=0
+    for file in "$backup_dir"/*; do
+        local filename=$(basename "$file")
+        if [ "$filename" != "MANIFEST" ]; then
+            cp "$file" "${SCRIPT_DIR}/${filename}"
+            print_success "Restored ${filename}"
+            restored=$((restored + 1))
+        fi
+    done
+
+    echo ""
+    print_success "Rollback complete! ${restored} files restored."
+    echo ""
+    echo -e "  ${WHITE}Safety backup saved to:${NC} ${CYAN}${safety_backup}${NC}"
+    echo ""
+
+    if confirm_prompt "Would you like to redeploy the stack with the restored configuration?"; then
+        # Reload the restored config
+        if [ -f "${SCRIPT_DIR}/.n8n_setup_config" ]; then
+            source "${SCRIPT_DIR}/.n8n_setup_config" 2>/dev/null || true
+            restore_dns_settings_from_provider
+            restore_optional_services_from_config
+        fi
+        deploy_stack_v3
+    else
+        print_info "Configuration restored. Run './setup.sh' and choose 'Reconfigure' then option 7 to redeploy."
+    fi
+
+    return 0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3539,7 +3746,12 @@ main() {
         fi
         run_migration_v2_to_v3
     elif [ "$INSTALL_MODE" = "reconfigure" ]; then
-        # Load existing config first
+        # ═══════════════════════════════════════════════════════════════════════
+        # MANDATORY BACKUP - DO THIS FIRST BEFORE ANYTHING ELSE
+        # ═══════════════════════════════════════════════════════════════════════
+        backup_existing_config
+
+        # Load existing config
         if [ -f "$CONFIG_FILE" ]; then
             source "$CONFIG_FILE" 2>/dev/null || true
             # Restore settings from config (variable name mapping)
@@ -3560,12 +3772,13 @@ main() {
         echo -e "    ${CYAN}6)${NC} NFS backup storage"
         echo -e "    ${CYAN}7)${NC} Regenerate all config files (keeps settings)"
         echo -e "    ${CYAN}8)${NC} Full reconfiguration (all settings)"
-        echo -e "    ${CYAN}9)${NC} Exit"
+        echo -e "    ${CYAN}9)${NC} ${YELLOW}Rollback to previous configuration${NC}"
+        echo -e "    ${CYAN}0)${NC} Exit"
         echo ""
 
         local reconfig_choice=""
-        while [[ ! "$reconfig_choice" =~ ^[1-9]$ ]]; do
-            echo -ne "${WHITE}  Enter your choice [1-9]${NC}: "
+        while [[ ! "$reconfig_choice" =~ ^[0-9]$ ]]; do
+            echo -ne "${WHITE}  Enter your choice [0-9]${NC}: "
             read reconfig_choice
         done
 
@@ -3597,6 +3810,11 @@ main() {
                 INSTALL_MODE="fresh"
                 ;;
             9)
+                # Rollback to previous configuration
+                rollback_config
+                exit 0
+                ;;
+            0)
                 print_info "Exiting without changes"
                 exit 0
                 ;;
