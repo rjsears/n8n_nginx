@@ -1,8 +1,10 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notifications'
+import { useDebugStore } from '@/stores/debug'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -20,21 +22,25 @@ import {
   CheckIcon,
   SunIcon,
   MoonIcon,
-  ComputerDesktopIcon,
-  SparklesIcon,
-  GlobeAltIcon,
-  PlusIcon,
-  TrashIcon,
-  ArrowPathIcon,
+  BugAntIcon,
+  Bars3Icon,
+  ViewColumnsIcon,
 } from '@heroicons/vue/24/outline'
 
+const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
+const debugStore = useDebugStore()
 
 const loading = ref(true)
 const saving = ref(false)
-const activeTab = ref('appearance')
+const activeTab = ref(route.query.tab || 'appearance')
+
+// Watch for tab query changes
+watch(() => route.query.tab, (newTab) => {
+  if (newTab) activeTab.value = newTab
+})
 
 // Password change
 const passwordForm = ref({
@@ -48,6 +54,18 @@ const showPasswords = ref({
   confirm: false,
 })
 const changingPassword = ref(false)
+
+// Debug mode - use store (local refs for backward compatibility in template)
+const debugMode = computed(() => debugStore.isEnabled)
+const debugModeLoading = computed(() => debugStore.loading)
+
+// n8n API Key state
+const n8nApiKey = ref('')
+const n8nApiKeyMasked = ref('')
+const n8nApiKeyIsSet = ref(false)
+const n8nApiKeyLoading = ref(false)
+const showN8nApiKey = ref(false)
+const n8nApiKeyEditing = ref(false)
 
 // Settings
 const settings = ref({
@@ -74,64 +92,15 @@ const settings = ref({
   },
 })
 
-// Access Control
-const accessControl = ref({
-  enabled: false,
-  ip_ranges: [],
-  nginx_config_path: '',
-  last_updated: null,
-})
-const accessControlLoading = ref(false)
-const reloadingNginx = ref(false)
-const addingIpRange = ref(false)
-const newIpRange = ref({
-  cidr: '',
-  description: '',
-  access_level: 'internal',
-})
-const defaultIpRanges = ref([])
-const deleteConfirmDialog = ref(null)
-const ipRangeToDelete = ref(null)
-
-// Theme presets
-const themePresets = [
-  {
-    id: 'modern_light',
-    name: 'Modern Light',
-    description: 'Clean, minimal design with light colors',
-    icon: SunIcon,
-    preview: 'bg-white border-gray-200',
-  },
-  {
-    id: 'modern_dark',
-    name: 'Modern Dark',
-    description: 'Sleek dark theme for reduced eye strain',
-    icon: MoonIcon,
-    preview: 'bg-gray-900 border-gray-700',
-  },
-  {
-    id: 'dashboard_light',
-    name: 'Dashboard Light',
-    description: 'Sidebar layout with light theme',
-    icon: ComputerDesktopIcon,
-    preview: 'bg-gray-50 border-gray-200',
-  },
-  {
-    id: 'dashboard_dark_neon',
-    name: 'Cyberpunk Neon',
-    description: 'Dark theme with neon glow effects',
-    icon: SparklesIcon,
-    preview: 'bg-gray-950 border-cyan-500',
-  },
-]
+// No longer using theme presets - removed in favor of simpler light/dark toggle
 
 const tabs = [
   { id: 'appearance', name: 'Appearance', icon: PaintBrushIcon },
   { id: 'backup', name: 'Backup', icon: CircleStackIcon },
-  { id: 'notifications', name: 'Notifications', icon: BellIcon },
+  { id: 'notifications', name: 'System Notifications', icon: BellIcon },
   { id: 'security', name: 'Security', icon: ShieldCheckIcon },
-  { id: 'access-control', name: 'Access Control', icon: GlobeAltIcon },
   { id: 'account', name: 'Account', icon: UserIcon },
+  { id: 'api-debug', name: 'n8n API / Debug', icon: BugAntIcon },
 ]
 
 async function loadSettings() {
@@ -140,6 +109,15 @@ async function loadSettings() {
     const response = await api.settings.getAll()
     if (response.data) {
       settings.value = { ...settings.value, ...response.data }
+    }
+
+    // Load n8n API key status
+    try {
+      const apiKeyRes = await api.settings.getEnvVariable('N8N_API_KEY')
+      n8nApiKeyIsSet.value = apiKeyRes.data.is_set
+      n8nApiKeyMasked.value = apiKeyRes.data.masked_value || ''
+    } catch (e) {
+      console.error('Failed to load n8n API key status:', e)
     }
   } catch (error) {
     console.error('Failed to load settings:', error)
@@ -151,9 +129,11 @@ async function loadSettings() {
 async function saveSettings(section) {
   saving.value = true
   try {
-    await api.settings.update(section, settings.value[section])
+    // Backend expects {value: data} format per SettingUpdate schema
+    await api.settings.update(section, { value: settings.value[section] })
     notificationStore.success('Settings saved successfully')
   } catch (error) {
+    console.error('Failed to save settings:', error)
     notificationStore.error('Failed to save settings')
   } finally {
     saving.value = false
@@ -186,101 +166,57 @@ async function changePassword() {
   }
 }
 
-function applyThemePreset(presetId) {
-  themeStore.applyPreset(presetId)
-  notificationStore.success('Theme applied')
+// Theme selection with notification feedback
+function selectTheme(mode) {
+  themeStore.setColorMode(mode)
+  notificationStore.success(`Theme changed to ${mode === 'dark' ? 'Dark' : 'Light'} mode`)
 }
 
-// Access Control functions
-async function loadAccessControl() {
-  accessControlLoading.value = true
-  try {
-    const [configResponse, defaultsResponse] = await Promise.all([
-      api.settings.getAccessControl(),
-      api.settings.getDefaultIpRanges(),
-    ])
-    accessControl.value = configResponse.data
-    defaultIpRanges.value = defaultsResponse.data
-  } catch (error) {
-    console.error('Failed to load access control:', error)
-    notificationStore.error('Failed to load access control configuration')
-  } finally {
-    accessControlLoading.value = false
+async function toggleDebugMode() {
+  const success = await debugStore.toggleDebugMode()
+  if (success) {
+    notificationStore.success(`Debug mode ${debugStore.isEnabled ? 'enabled' : 'disabled'}`)
+  } else {
+    notificationStore.error('Failed to update debug mode')
   }
 }
 
-async function addIpRange() {
-  if (!newIpRange.value.cidr) {
-    notificationStore.error('Please enter a CIDR address')
+function startEditN8nApiKey() {
+  n8nApiKeyEditing.value = true
+  n8nApiKey.value = ''
+}
+
+function cancelEditN8nApiKey() {
+  n8nApiKeyEditing.value = false
+  n8nApiKey.value = ''
+}
+
+async function saveN8nApiKey() {
+  if (!n8nApiKey.value.trim()) {
+    notificationStore.error('API key cannot be empty')
     return
   }
 
-  addingIpRange.value = true
+  n8nApiKeyLoading.value = true
   try {
-    await api.settings.addIpRange(newIpRange.value)
-    notificationStore.success(`IP range ${newIpRange.value.cidr} added`)
-    newIpRange.value = { cidr: '', description: '', access_level: 'internal' }
-    await loadAccessControl()
+    await api.settings.updateEnvVariable('N8N_API_KEY', n8nApiKey.value.trim())
+    n8nApiKeyIsSet.value = true
+    n8nApiKeyMasked.value = n8nApiKey.value.length > 8
+      ? `${n8nApiKey.value.slice(0, 4)}...${n8nApiKey.value.slice(-4)}`
+      : '*'.repeat(n8nApiKey.value.length)
+    n8nApiKeyEditing.value = false
+    n8nApiKey.value = ''
+    notificationStore.success('n8n API key updated successfully')
   } catch (error) {
-    notificationStore.error(error.response?.data?.detail || 'Failed to add IP range')
+    console.error('Failed to update API key:', error)
+    notificationStore.error('Failed to update n8n API key')
   } finally {
-    addingIpRange.value = false
+    n8nApiKeyLoading.value = false
   }
 }
 
-function confirmDeleteIpRange(ipRange) {
-  ipRangeToDelete.value = ipRange
-  deleteConfirmDialog.value?.open()
-}
-
-async function deleteIpRange() {
-  if (!ipRangeToDelete.value) return
-
-  try {
-    await api.settings.deleteIpRange(ipRangeToDelete.value.cidr)
-    notificationStore.success(`IP range ${ipRangeToDelete.value.cidr} deleted`)
-    ipRangeToDelete.value = null
-    await loadAccessControl()
-  } catch (error) {
-    notificationStore.error(error.response?.data?.detail || 'Failed to delete IP range')
-  }
-}
-
-async function reloadNginx() {
-  reloadingNginx.value = true
-  try {
-    await api.settings.reloadNginx()
-    notificationStore.success('Nginx reloaded successfully')
-  } catch (error) {
-    notificationStore.error(error.response?.data?.detail || 'Failed to reload nginx')
-  } finally {
-    reloadingNginx.value = false
-  }
-}
-
-function addDefaultRange(defaultRange) {
-  // Check if already exists
-  const exists = accessControl.value.ip_ranges.some(r => r.cidr === defaultRange.cidr)
-  if (exists) {
-    notificationStore.warning(`${defaultRange.cidr} is already configured`)
-    return
-  }
-
-  // Pre-fill the form with default values
-  newIpRange.value = {
-    cidr: defaultRange.cidr,
-    description: defaultRange.description,
-    access_level: defaultRange.access_level,
-  }
-}
-
-onMounted(loadSettings)
-
-// Watch for tab changes to load access control data
-watch(activeTab, (newTab) => {
-  if (newTab === 'access-control' && accessControl.value.ip_ranges.length === 0) {
-    loadAccessControl()
-  }
+onMounted(async () => {
+  await loadSettings()
 })
 </script>
 
@@ -324,82 +260,138 @@ watch(activeTab, (newTab) => {
 
       <!-- Appearance Tab -->
       <div v-if="activeTab === 'appearance'" class="space-y-6">
-        <Card title="Theme Presets" subtitle="Choose your preferred look and feel" :neon="true">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              v-for="preset in themePresets"
-              :key="preset.id"
-              @click="applyThemePreset(preset.id)"
+        <Card title="Theme" subtitle="Choose your preferred color scheme and navigation layout">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Modern Light Theme Card -->
+            <div
               :class="[
-                'relative flex items-start gap-4 p-4 rounded-lg border-2 transition-all text-left',
-                themeStore.currentPreset === preset.id
-                  ? themeStore.isNeon
-                    ? 'border-cyan-500 bg-cyan-500/10'
-                    : 'border-blue-500 bg-blue-500/10'
-                  : 'border-[var(--color-border)] hover:border-blue-300 dark:hover:border-blue-700'
+                'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
+                !themeStore.isDark
+                  ? 'border-blue-500 ring-2 ring-blue-500/20'
+                  : 'border-gray-200 hover:border-gray-300'
               ]"
+              @click="selectTheme('light')"
             >
-              <div
-                :class="[
-                  'w-12 h-12 rounded-lg border-2 flex items-center justify-center',
-                  preset.preview
-                ]"
-              >
-                <component :is="preset.icon" class="h-6 w-6" />
+              <!-- Preview Area -->
+              <div class="bg-white p-4 border-b border-gray-200">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-300 to-orange-400 flex items-center justify-center">
+                    <SunIcon class="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p class="font-semibold text-gray-900">Modern Light</p>
+                    <p class="text-xs text-gray-500">Clean and bright interface</p>
+                  </div>
+                  <CheckIcon
+                    v-if="!themeStore.isDark"
+                    class="h-6 w-6 text-blue-500 ml-auto"
+                  />
+                </div>
+                <!-- Mini preview -->
+                <div class="bg-gray-50 rounded-lg p-2 space-y-1">
+                  <div class="h-2 w-3/4 bg-gray-200 rounded"></div>
+                  <div class="h-2 w-1/2 bg-gray-200 rounded"></div>
+                  <div class="h-2 w-2/3 bg-gray-200 rounded"></div>
+                </div>
               </div>
-              <div class="flex-1">
-                <p class="font-medium text-primary">{{ preset.name }}</p>
-                <p class="text-sm text-secondary mt-0.5">{{ preset.description }}</p>
+              <!-- Layout Toggle -->
+              <div class="bg-gray-50 p-3" @click.stop>
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-medium text-gray-700">Navigation</span>
+                  <div class="flex items-center gap-2 bg-white rounded-lg p-1 border border-gray-200">
+                    <button
+                      @click="themeStore.setLayoutMode('horizontal')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'horizontal'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      ]"
+                    >
+                      <Bars3Icon class="h-4 w-4" />
+                      Top
+                    </button>
+                    <button
+                      @click="themeStore.setLayoutMode('sidebar')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'sidebar'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      ]"
+                    >
+                      <ViewColumnsIcon class="h-4 w-4" />
+                      Side
+                    </button>
+                  </div>
+                </div>
               </div>
-              <CheckIcon
-                v-if="themeStore.currentPreset === preset.id"
-                :class="[
-                  'h-5 w-5 absolute top-4 right-4',
-                  themeStore.isNeon ? 'text-cyan-400' : 'text-blue-500'
-                ]"
-              />
-            </button>
-          </div>
-        </Card>
+            </div>
 
-        <Card title="Layout Options" :neon="true">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Layout Style</p>
-                <p class="text-sm text-secondary">Choose navigation layout</p>
+            <!-- Modern Dark Theme Card -->
+            <div
+              :class="[
+                'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
+                themeStore.isDark
+                  ? 'border-blue-500 ring-2 ring-blue-500/20'
+                  : 'border-gray-200 hover:border-gray-300'
+              ]"
+              @click="selectTheme('dark')"
+            >
+              <!-- Preview Area -->
+              <div class="bg-slate-900 p-4 border-b border-slate-700">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <MoonIcon class="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p class="font-semibold text-white">Modern Dark</p>
+                    <p class="text-xs text-slate-400">Easy on the eyes at night</p>
+                  </div>
+                  <CheckIcon
+                    v-if="themeStore.isDark"
+                    class="h-6 w-6 text-blue-400 ml-auto"
+                  />
+                </div>
+                <!-- Mini preview -->
+                <div class="bg-slate-800 rounded-lg p-2 space-y-1">
+                  <div class="h-2 w-3/4 bg-slate-700 rounded"></div>
+                  <div class="h-2 w-1/2 bg-slate-700 rounded"></div>
+                  <div class="h-2 w-2/3 bg-slate-700 rounded"></div>
+                </div>
               </div>
-              <select v-model="themeStore.layout" class="select-field w-48">
-                <option value="horizontal">Horizontal (Top Nav)</option>
-                <option value="sidebar">Sidebar (Side Nav)</option>
-              </select>
-            </div>
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Color Mode</p>
-                <p class="text-sm text-secondary">Light or dark appearance</p>
+              <!-- Layout Toggle -->
+              <div class="bg-slate-800 p-3" @click.stop>
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-medium text-slate-300">Navigation</span>
+                  <div class="flex items-center gap-2 bg-slate-900 rounded-lg p-1 border border-slate-700">
+                    <button
+                      @click="themeStore.setLayoutMode('horizontal')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'horizontal'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-slate-400 hover:bg-slate-800'
+                      ]"
+                    >
+                      <Bars3Icon class="h-4 w-4" />
+                      Top
+                    </button>
+                    <button
+                      @click="themeStore.setLayoutMode('sidebar')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'sidebar'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-slate-400 hover:bg-slate-800'
+                      ]"
+                    >
+                      <ViewColumnsIcon class="h-4 w-4" />
+                      Side
+                    </button>
+                  </div>
+                </div>
               </div>
-              <select v-model="themeStore.colorMode" class="select-field w-48">
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </div>
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Neon Effects</p>
-                <p class="text-sm text-secondary">Enable glowing neon effects (dark mode)</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  v-model="themeStore.neonEffects"
-                  :disabled="themeStore.colorMode === 'light'"
-                  class="sr-only peer"
-                />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-cyan-500 peer-disabled:opacity-50"
-                ></div>
-              </label>
             </div>
           </div>
         </Card>
@@ -609,50 +601,53 @@ watch(activeTab, (newTab) => {
         <Card title="Session Settings" :neon="true">
           <div class="space-y-4">
             <div class="flex items-center justify-between">
-              <div>
+              <div class="flex-1">
                 <p class="font-medium text-primary">Session Timeout</p>
                 <p class="text-sm text-secondary">Minutes of inactivity before logout</p>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 w-40 justify-end">
                 <input
                   type="number"
                   v-model="settings.security.session_timeout"
                   min="5"
                   max="480"
-                  class="input-field w-24"
+                  class="input-field w-20 text-right"
                 />
-                <span class="text-secondary">min</span>
+                <span class="text-secondary w-16">min</span>
               </div>
             </div>
 
             <div class="flex items-center justify-between">
-              <div>
+              <div class="flex-1">
                 <p class="font-medium text-primary">Max Login Attempts</p>
                 <p class="text-sm text-secondary">Failed attempts before lockout</p>
               </div>
-              <input
-                type="number"
-                v-model="settings.security.max_login_attempts"
-                min="3"
-                max="10"
-                class="input-field w-24"
-              />
+              <div class="flex items-center gap-2 w-40 justify-end">
+                <input
+                  type="number"
+                  v-model="settings.security.max_login_attempts"
+                  min="3"
+                  max="10"
+                  class="input-field w-20 text-right"
+                />
+                <span class="text-secondary w-16">attempts</span>
+              </div>
             </div>
 
             <div class="flex items-center justify-between">
-              <div>
+              <div class="flex-1">
                 <p class="font-medium text-primary">Lockout Duration</p>
                 <p class="text-sm text-secondary">Minutes to wait after lockout</p>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 w-40 justify-end">
                 <input
                   type="number"
                   v-model="settings.security.lockout_duration"
                   min="5"
                   max="60"
-                  class="input-field w-24"
+                  class="input-field w-20 text-right"
                 />
-                <span class="text-secondary">min</span>
+                <span class="text-secondary w-16">min</span>
               </div>
             </div>
           </div>
@@ -669,180 +664,6 @@ watch(activeTab, (newTab) => {
             </div>
           </template>
         </Card>
-      </div>
-
-      <!-- Access Control Tab -->
-      <div v-if="activeTab === 'access-control'" class="space-y-6">
-        <LoadingSpinner v-if="accessControlLoading" size="lg" text="Loading access control..." class="py-12" />
-
-        <template v-else>
-          <!-- Status Card -->
-          <Card title="Access Control Status" :neon="true">
-            <div class="space-y-4">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="font-medium text-primary">Status</p>
-                  <p class="text-sm text-secondary">IP-based access control via nginx geo block</p>
-                </div>
-                <span
-                  :class="[
-                    'px-3 py-1 rounded-full text-sm font-medium',
-                    accessControl.enabled
-                      ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                      : 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400'
-                  ]"
-                >
-                  {{ accessControl.enabled ? 'Enabled' : 'Not Configured' }}
-                </span>
-              </div>
-
-              <div v-if="accessControl.last_updated" class="flex items-center justify-between">
-                <div>
-                  <p class="font-medium text-primary">Last Updated</p>
-                  <p class="text-sm text-secondary">Configuration file modification time</p>
-                </div>
-                <span class="text-secondary text-sm">
-                  {{ new Date(accessControl.last_updated).toLocaleString() }}
-                </span>
-              </div>
-            </div>
-
-            <template #footer>
-              <div class="flex justify-end">
-                <button
-                  @click="reloadNginx"
-                  :disabled="reloadingNginx"
-                  class="btn-primary flex items-center gap-2"
-                >
-                  <ArrowPathIcon :class="['h-4 w-4', reloadingNginx && 'animate-spin']" />
-                  {{ reloadingNginx ? 'Reloading...' : 'Reload Nginx' }}
-                </button>
-              </div>
-            </template>
-          </Card>
-
-          <!-- Current IP Ranges -->
-          <Card title="Configured IP Ranges" subtitle="Internal networks with privileged access" :neon="true">
-            <div v-if="accessControl.ip_ranges.length === 0" class="text-center py-8 text-secondary">
-              No IP ranges configured. Add ranges below or use defaults.
-            </div>
-
-            <div v-else class="space-y-2">
-              <div
-                v-for="(range, index) in accessControl.ip_ranges"
-                :key="index"
-                class="flex items-center justify-between p-3 rounded-lg bg-surface-hover"
-              >
-                <div class="flex-1">
-                  <p class="font-mono text-primary">{{ range.cidr }}</p>
-                  <p v-if="range.description" class="text-sm text-secondary">{{ range.description }}</p>
-                </div>
-                <div class="flex items-center gap-3">
-                  <span
-                    :class="[
-                      'px-2 py-0.5 rounded text-xs font-medium',
-                      range.access_level === 'internal'
-                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
-                        : 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400'
-                    ]"
-                  >
-                    {{ range.access_level }}
-                  </span>
-                  <button
-                    @click="confirmDeleteIpRange(range)"
-                    class="p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded"
-                    title="Delete IP range"
-                  >
-                    <TrashIcon class="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <!-- Add IP Range -->
-          <Card title="Add IP Range" subtitle="Add a new IP range for internal access" :neon="true">
-            <div class="space-y-4">
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label class="block text-sm font-medium text-primary mb-1.5">CIDR Address</label>
-                  <input
-                    type="text"
-                    v-model="newIpRange.cidr"
-                    placeholder="e.g., 192.168.1.0/24"
-                    class="input-field w-full font-mono"
-                  />
-                </div>
-                <div>
-                  <label class="block text-sm font-medium text-primary mb-1.5">Description</label>
-                  <input
-                    type="text"
-                    v-model="newIpRange.description"
-                    placeholder="e.g., Home Network"
-                    class="input-field w-full"
-                  />
-                </div>
-                <div>
-                  <label class="block text-sm font-medium text-primary mb-1.5">Access Level</label>
-                  <select v-model="newIpRange.access_level" class="select-field w-full">
-                    <option value="internal">Internal</option>
-                    <option value="external">External</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <template #footer>
-              <div class="flex justify-end">
-                <button
-                  @click="addIpRange"
-                  :disabled="addingIpRange || !newIpRange.cidr"
-                  class="btn-primary flex items-center gap-2"
-                >
-                  <PlusIcon class="h-4 w-4" />
-                  {{ addingIpRange ? 'Adding...' : 'Add IP Range' }}
-                </button>
-              </div>
-            </template>
-          </Card>
-
-          <!-- Default Ranges -->
-          <Card title="Common Networks" subtitle="Quick-add common internal network ranges" :neon="true">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <button
-                v-for="defaultRange in defaultIpRanges"
-                :key="defaultRange.cidr"
-                @click="addDefaultRange(defaultRange)"
-                :class="[
-                  'flex items-center justify-between p-3 rounded-lg border text-left transition-colors',
-                  accessControl.ip_ranges.some(r => r.cidr === defaultRange.cidr)
-                    ? 'border-green-500 bg-green-50 dark:bg-green-500/10'
-                    : 'border-[var(--color-border)] hover:border-blue-300 dark:hover:border-blue-700 hover:bg-surface-hover'
-                ]"
-              >
-                <div>
-                  <p class="font-mono text-primary text-sm">{{ defaultRange.cidr }}</p>
-                  <p class="text-xs text-secondary">{{ defaultRange.description }}</p>
-                </div>
-                <CheckIcon
-                  v-if="accessControl.ip_ranges.some(r => r.cidr === defaultRange.cidr)"
-                  class="h-5 w-5 text-green-500"
-                />
-                <PlusIcon v-else class="h-5 w-5 text-muted" />
-              </button>
-            </div>
-          </Card>
-        </template>
-
-        <!-- Delete Confirmation Dialog -->
-        <ConfirmDialog
-          ref="deleteConfirmDialog"
-          title="Delete IP Range"
-          :message="`Are you sure you want to delete ${ipRangeToDelete?.cidr}? This will remove access for this network range.`"
-          confirm-text="Delete"
-          confirm-class="btn-danger"
-          @confirm="deleteIpRange"
-        />
       </div>
 
       <!-- Account Tab -->
@@ -941,6 +762,157 @@ watch(activeTab, (newTab) => {
             </div>
           </form>
         </Card>
+      </div>
+
+      <!-- n8n API / Debug Tab -->
+      <div v-if="activeTab === 'api-debug'" class="space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- n8n API Key Card -->
+          <Card :neon="true" :padding="false">
+            <template #header>
+              <div class="flex items-center gap-2 px-4 py-3">
+                <KeyIcon class="h-5 w-5 text-blue-500" />
+                <h3 class="font-semibold text-primary">n8n API Key</h3>
+              </div>
+            </template>
+            <div class="p-4">
+              <p class="text-sm text-secondary mb-4">
+                The n8n API key enables communication with your n8n instance for workflow management
+                and notifications. Generate this key in n8n under
+                <span class="font-medium">Settings &rarr; API</span>.
+              </p>
+
+              <div class="flex items-center justify-between mb-3 py-2 border-b border-[var(--color-border)]">
+                <span class="text-sm text-secondary">Status</span>
+                <span
+                  :class="[
+                    'flex items-center gap-2 text-sm font-medium',
+                    n8nApiKeyIsSet ? 'text-emerald-500' : 'text-amber-500'
+                  ]"
+                >
+                  <span :class="['w-2 h-2 rounded-full', n8nApiKeyIsSet ? 'bg-emerald-500' : 'bg-amber-500']"></span>
+                  {{ n8nApiKeyIsSet ? 'Configured' : 'Not Set' }}
+                </span>
+              </div>
+
+              <div v-if="n8nApiKeyIsSet && !n8nApiKeyEditing" class="flex items-center justify-between mb-4 py-2 border-b border-[var(--color-border)]">
+                <span class="text-sm text-secondary">Current Key</span>
+                <span class="font-mono text-sm text-primary">{{ n8nApiKeyMasked }}</span>
+              </div>
+
+              <!-- Edit Form -->
+              <div v-if="n8nApiKeyEditing" class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-primary mb-1.5">New API Key</label>
+                  <div class="relative">
+                    <KeyIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted" />
+                    <input
+                      v-model="n8nApiKey"
+                      :type="showN8nApiKey ? 'text' : 'password'"
+                      placeholder="Enter your n8n API key"
+                      class="input-field pl-10 pr-10 w-full"
+                    />
+                    <button
+                      type="button"
+                      @click="showN8nApiKey = !showN8nApiKey"
+                      class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-secondary"
+                    >
+                      <EyeSlashIcon v-if="showN8nApiKey" class="h-5 w-5" />
+                      <EyeIcon v-else class="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+                <div class="flex gap-3">
+                  <button
+                    @click="saveN8nApiKey"
+                    :disabled="n8nApiKeyLoading || !n8nApiKey.trim()"
+                    class="btn-primary"
+                  >
+                    {{ n8nApiKeyLoading ? 'Saving...' : 'Save Key' }}
+                  </button>
+                  <button
+                    @click="cancelEditN8nApiKey"
+                    :disabled="n8nApiKeyLoading"
+                    class="btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+
+              <!-- Edit Button -->
+              <button
+                v-if="!n8nApiKeyEditing"
+                @click="startEditN8nApiKey"
+                :class="[
+                  'w-full py-2 rounded-lg font-medium transition-all',
+                  n8nApiKeyIsSet
+                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                    : 'btn-primary'
+                ]"
+              >
+                {{ n8nApiKeyIsSet ? 'Update API Key' : 'Set API Key' }}
+              </button>
+            </div>
+          </Card>
+
+          <!-- Debug Mode Card -->
+          <Card :neon="true" :padding="false">
+            <template #header>
+              <div class="flex items-center gap-2 px-4 py-3">
+                <BugAntIcon class="h-5 w-5 text-amber-500" />
+                <h3 class="font-semibold text-primary">Debug Mode</h3>
+              </div>
+            </template>
+            <div class="p-4">
+              <p class="text-sm text-secondary mb-4">
+                Enable debug mode to show detailed error messages and verbose logging.
+                Useful for troubleshooting issues with the management console.
+              </p>
+
+              <div class="flex items-center justify-between py-3 border-y border-[var(--color-border)]">
+                <div>
+                  <p class="font-medium text-primary">Enable Debug Mode</p>
+                  <p class="text-sm text-secondary">
+                    Shows detailed errors in the browser console
+                  </p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    :checked="debugMode"
+                    @change="toggleDebugMode"
+                    :disabled="debugModeLoading"
+                    class="sr-only peer"
+                  />
+                  <div
+                    :class="[
+                      'w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700',
+                      'peer-checked:after:translate-x-full peer-checked:after:border-white',
+                      `after:content-[''] after:absolute after:top-[2px] after:left-[2px]`,
+                      'after:bg-white after:border-gray-300 after:border after:rounded-full',
+                      'after:h-5 after:w-5 after:transition-all dark:border-gray-600',
+                      'peer-checked:bg-amber-500',
+                      debugModeLoading ? 'opacity-50' : ''
+                    ]"
+                  ></div>
+                </label>
+              </div>
+
+              <div v-if="debugMode" class="mt-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                <p class="text-sm text-amber-700 dark:text-amber-400">
+                  Debug mode is active. Check the browser developer console (F12) for detailed logs.
+                </p>
+              </div>
+
+              <div v-else class="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                <p class="text-sm text-secondary">
+                  Debug mode is disabled. Enable it when troubleshooting issues.
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
       </div>
     </template>
   </div>
