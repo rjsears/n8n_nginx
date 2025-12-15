@@ -102,9 +102,9 @@ import {
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
+  onSend: { type: Function, required: true },
+  onDelete: { type: Function, required: true },
 })
-
-const emit = defineEmits(['send', 'delete'])
 
 // State
 const sendingId = ref(null)
@@ -141,7 +141,7 @@ async function sendMessage(message) {
   results.value[message.id] = null
 
   try {
-    const result = await emit('send', message.id)
+    const result = await props.onSend(message.id)
     results.value[message.id] = result
 
     // Clear result after 3 seconds
@@ -159,7 +159,7 @@ async function sendMessage(message) {
 async function deleteMessage(message) {
   if (!confirm(`Delete saved message "${message.name}"?`)) return
 
-  const result = await emit('delete', message.id)
+  const result = await props.onDelete(message.id)
   if (!result?.success) {
     alert(result?.error || 'Failed to delete message')
   }

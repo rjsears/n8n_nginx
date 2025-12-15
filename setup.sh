@@ -64,6 +64,8 @@ INSTALL_PORTAINER=false
 INSTALL_PORTAINER_AGENT=false
 INSTALL_NTFY=false
 NTFY_BASE_URL=""
+NTFY_PUBLIC_URL=""
+NTFY_INTERNAL_URL=""
 
 # Internal IP ranges that get full access (space-separated CIDR blocks)
 DEFAULT_INTERNAL_IP_RANGES="100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
@@ -465,6 +467,8 @@ SAVED_INSTALL_DOZZLE="$INSTALL_DOZZLE"
 SAVED_DOZZLE_PORT="$DOZZLE_PORT"
 SAVED_INSTALL_NTFY="$INSTALL_NTFY"
 SAVED_NTFY_BASE_URL="$NTFY_BASE_URL"
+SAVED_NTFY_PUBLIC_URL="$NTFY_PUBLIC_URL"
+SAVED_NTFY_INTERNAL_URL="$NTFY_INTERNAL_URL"
 
 # Access Control
 SAVED_INTERNAL_IP_RANGES="$INTERNAL_IP_RANGES"
@@ -521,6 +525,8 @@ load_state() {
         DOZZLE_PORT="${SAVED_DOZZLE_PORT:-}"
         INSTALL_NTFY="${SAVED_INSTALL_NTFY:-false}"
         NTFY_BASE_URL="${SAVED_NTFY_BASE_URL:-}"
+        NTFY_PUBLIC_URL="${SAVED_NTFY_PUBLIC_URL:-}"
+        NTFY_INTERNAL_URL="${SAVED_NTFY_INTERNAL_URL:-}"
 
         # Access Control
         INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
@@ -2375,20 +2381,36 @@ EOF
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   # ===========================================================================
   # NTFY - Push Notification Server
+  # Accessible via its own subdomain (configured in Cloudflare Tunnel)
   # ===========================================================================
   ntfy:
     image: binwiederhier/ntfy:latest
     container_name: n8n_ntfy
-    restart: always
+    restart: unless-stopped
+    init: true
     command:
       - serve
     environment:
-      - NTFY_BASE_URL=https://\${N8N_DOMAIN}/ntfy
+      - TZ=\${TIMEZONE:-America/Los_Angeles}
+      # NTFY_BASE_URL: Public URL for NTFY (must match Cloudflare Tunnel hostname)
+      - NTFY_BASE_URL=${NTFY_PUBLIC_URL}
       - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
-      - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
-      - NTFY_CACHE_DURATION=12h
-      - NTFY_ATTACHMENT_CACHE_DIR=/var/cache/ntfy/attachments
       - NTFY_BEHIND_PROXY=true
+      - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
+      - NTFY_AUTH_FILE=/var/lib/ntfy/auth.db
+      - NTFY_AUTH_DEFAULT_ACCESS=\${NTFY_AUTH_DEFAULT_ACCESS:-read-write}
+      - NTFY_ENABLE_LOGIN=\${NTFY_ENABLE_LOGIN:-true}
+      - NTFY_ENABLE_SIGNUP=\${NTFY_ENABLE_SIGNUP:-false}
+      - NTFY_CACHE_DURATION=\${NTFY_CACHE_DURATION:-24h}
+      - NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT=\${NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT:-100M}
+      - NTFY_ATTACHMENT_FILE_SIZE_LIMIT=\${NTFY_ATTACHMENT_FILE_SIZE_LIMIT:-15M}
+      - NTFY_ATTACHMENT_EXPIRY_DURATION=\${NTFY_ATTACHMENT_EXPIRY_DURATION:-24h}
+      - NTFY_KEEPALIVE_INTERVAL=\${NTFY_KEEPALIVE_INTERVAL:-45s}
+      # SMTP Email Notifications (optional)
+      - NTFY_SMTP_SENDER_ADDR=\${NTFY_SMTP_SENDER_ADDR:-}
+      - NTFY_SMTP_SENDER_USER=\${NTFY_SMTP_SENDER_USER:-}
+      - NTFY_SMTP_SENDER_PASS=\${NTFY_SMTP_SENDER_PASS:-}
+      - NTFY_SMTP_SENDER_FROM=\${NTFY_SMTP_SENDER_FROM:-}
     expose:
       - "80"
     volumes:
@@ -2398,7 +2420,7 @@ EOF
     networks:
       - n8n_network
     healthcheck:
-      test: ["CMD", "wget", "-q", "--tries=1", "http://localhost:80/v1/health", "-O", "-"]
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\\\s*:\\\\s*true' || exit 1"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -2704,47 +2726,14 @@ EOF
 EOF
     fi
 
-    # Add NTFY location if configured
+    # Note: NTFY is accessed via its own subdomain through Cloudflare Tunnel
+    # No nginx location block is needed - Cloudflare Tunnel routes directly to n8n_ntfy:80
     if [ "$INSTALL_NTFY" = true ]; then
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        # NTFY Push Notification Server - EXTERNALLY ACCESSIBLE
-        # Required for mobile apps and external services to receive notifications
-        location /ntfy/ {
-            # Use variable to enable runtime DNS resolution (prevents startup failure)
-            set $ntfy_upstream http://n8n_ntfy:80;
-
-            # CORS headers for external access
-            add_header 'Access-Control-Allow-Origin' '*' always;
-            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
-
-            if ($request_method = 'OPTIONS') {
-                add_header 'Access-Control-Allow-Origin' '*';
-                add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS';
-                add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With';
-                add_header 'Access-Control-Max-Age' 86400;
-                add_header 'Content-Length' 0;
-                add_header 'Content-Type' 'text/plain charset=UTF-8';
-                return 204;
-            }
-
-            proxy_pass $ntfy_upstream/;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_buffering off;
-            proxy_request_buffering off;
-            proxy_redirect off;
-            chunked_transfer_encoding on;
-            # Long timeout for SSE/WebSocket notification streams
-            proxy_read_timeout 86400s;
-            proxy_send_timeout 86400s;
-        }
+        # Note: NTFY is accessed via its own subdomain (e.g., ntfy.example.com)
+        # Configure Cloudflare Tunnel to route the NTFY subdomain to n8n_ntfy:80
+        # No proxy configuration needed here since Cloudflare Tunnel handles routing
 EOF
     fi
 
@@ -3441,6 +3430,9 @@ configure_ntfy() {
     echo -e "  ${GRAY}NTFY is a simple HTTP-based pub-sub notification service.${NC}"
     echo -e "  ${GRAY}It allows you to send push notifications to your phone or desktop.${NC}"
     echo ""
+    echo -e "  ${YELLOW}Important:${NC} ${GRAY}NTFY requires its own subdomain (e.g., ntfy.example.com).${NC}"
+    echo -e "  ${GRAY}It cannot run on a subpath like /ntfy/ due to how NTFY handles requests.${NC}"
+    echo ""
     echo -e "  ${GRAY}You can choose to:${NC}"
     echo -e "    1. Install a self-hosted NTFY server (recommended)"
     echo -e "    2. Use the public ntfy.sh server"
@@ -3454,14 +3446,41 @@ configure_ntfy() {
     case "$ntfy_choice" in
         1)
             INSTALL_NTFY=true
-            NTFY_BASE_URL="http://n8n_ntfy:80"
+            # Internal URL for management console communication
+            NTFY_INTERNAL_URL="http://n8n_ntfy:80"
+
+            # Prompt for subdomain
+            local default_ntfy_subdomain="ntfy.${N8N_DOMAIN}"
+            echo ""
+            echo -e "  ${GRAY}Enter the subdomain for your NTFY server.${NC}"
+            echo -e "  ${GRAY}This will be the public URL for accessing NTFY.${NC}"
+            echo -ne "${WHITE}  NTFY subdomain [default: ${default_ntfy_subdomain}]${NC}: "
+            read ntfy_subdomain
+            ntfy_subdomain=${ntfy_subdomain:-$default_ntfy_subdomain}
+
+            # Set the public URL
+            NTFY_PUBLIC_URL="https://${ntfy_subdomain}"
+            NTFY_BASE_URL="${NTFY_PUBLIC_URL}"
+
             create_ntfy_config
+
             print_success "Self-hosted NTFY server will be installed"
-            print_info "NTFY will be available at https://\${DOMAIN}/ntfy/"
+            echo ""
+            echo -e "  ${CYAN}ℹ${NC}  ${WHITE}NTFY Configuration:${NC}"
+            echo -e "      Public URL:   ${CYAN}${NTFY_PUBLIC_URL}${NC}"
+            echo -e "      Internal URL: ${GRAY}${NTFY_INTERNAL_URL}${NC} (for management console)"
+            echo ""
+            echo -e "  ${YELLOW}⚠${NC}  ${WHITE}Required: Configure Cloudflare Tunnel${NC}"
+            echo -e "      ${GRAY}Add a public hostname in Cloudflare Zero Trust:${NC}"
+            echo -e "      ${GRAY}  - Public hostname: ${CYAN}${ntfy_subdomain}${NC}"
+            echo -e "      ${GRAY}  - Service type:    ${CYAN}HTTP${NC}"
+            echo -e "      ${GRAY}  - Service URL:     ${CYAN}n8n_ntfy:80${NC}"
+            echo ""
             ;;
         2)
             INSTALL_NTFY=false
             NTFY_BASE_URL="https://ntfy.sh"
+            NTFY_PUBLIC_URL="https://ntfy.sh"
             print_success "Using public ntfy.sh server"
             print_warning "Note: Messages sent via ntfy.sh are public unless you use access tokens"
             ;;
@@ -3471,17 +3490,22 @@ configure_ntfy() {
             read custom_ntfy_url
             if [ -n "$custom_ntfy_url" ]; then
                 NTFY_BASE_URL="$custom_ntfy_url"
+                NTFY_PUBLIC_URL="$custom_ntfy_url"
                 print_success "Using custom NTFY server: $NTFY_BASE_URL"
             else
                 print_error "No URL provided, defaulting to self-hosted"
                 INSTALL_NTFY=true
-                NTFY_BASE_URL="http://n8n_ntfy:80"
+                NTFY_INTERNAL_URL="http://n8n_ntfy:80"
+                NTFY_PUBLIC_URL="https://ntfy.${N8N_DOMAIN}"
+                NTFY_BASE_URL="${NTFY_PUBLIC_URL}"
                 create_ntfy_config
             fi
             ;;
         *)
             INSTALL_NTFY=true
-            NTFY_BASE_URL="http://n8n_ntfy:80"
+            NTFY_INTERNAL_URL="http://n8n_ntfy:80"
+            NTFY_PUBLIC_URL="https://ntfy.${N8N_DOMAIN}"
+            NTFY_BASE_URL="${NTFY_PUBLIC_URL}"
             create_ntfy_config
             print_success "Self-hosted NTFY server will be installed"
             ;;
@@ -3571,9 +3595,9 @@ show_configuration_summary() {
             echo -e "    Dozzle:              ${GREEN}enabled${NC} (/dozzle/)"
         fi
         if [ "$INSTALL_NTFY" = true ]; then
-            echo -e "    NTFY:                ${GREEN}enabled${NC} (/ntfy/)"
+            echo -e "    NTFY:                ${GREEN}enabled${NC} (${NTFY_PUBLIC_URL:-subdomain})"
         elif [ -n "$NTFY_BASE_URL" ]; then
-            echo -e "    NTFY:                ${CYAN}external${NC} (${NTFY_BASE_URL})"
+            echo -e "    NTFY:                ${CYAN}external${NC} (${NTFY_PUBLIC_URL:-$NTFY_BASE_URL})"
         fi
         echo ""
     fi
@@ -3895,7 +3919,8 @@ show_final_summary_v3() {
         echo -e "    Dozzle (Logs):       ${CYAN}https://${N8N_DOMAIN}/dozzle/${NC}"
     fi
     if [ "$INSTALL_NTFY" = true ]; then
-        echo -e "    NTFY (Push):         ${CYAN}https://${N8N_DOMAIN}/ntfy/${NC}"
+        echo -e "    NTFY (Push):         ${CYAN}${NTFY_PUBLIC_URL:-https://ntfy.${N8N_DOMAIN}}${NC}"
+        echo -e "                         ${GRAY}(Configure in Cloudflare Tunnel)${NC}"
     fi
     echo ""
     echo -e "  ${WHITE}${BOLD}Management Login:${NC}"
@@ -4461,6 +4486,8 @@ DOZZLE_ENABLED=${INSTALL_DOZZLE}
 DOZZLE_PORT=${DOZZLE_PORT:-$DEFAULT_DOZZLE_PORT}
 NTFY_ENABLED=${INSTALL_NTFY}
 NTFY_BASE_URL=${NTFY_BASE_URL}
+NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL}
+NTFY_INTERNAL_URL=${NTFY_INTERNAL_URL:-http://n8n_ntfy:80}
 EOF
         chmod 600 "${CONFIG_FILE}"
 
