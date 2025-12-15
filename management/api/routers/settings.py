@@ -711,7 +711,12 @@ async def update_env_variable(
                     v = f'"{v}"'
                 f.write(f"{k}={v}\n")
 
-        return SuccessResponse(message=f"Environment variable '{key}' updated. Container restart may be required.")
+        # Also update os.environ so the change takes effect immediately
+        # This allows services like n8n_api_service to see the new value
+        # without requiring a container restart
+        os.environ[key] = value
+
+        return SuccessResponse(message=f"Environment variable '{key}' updated successfully.")
 
     except Exception as e:
         raise HTTPException(
