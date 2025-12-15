@@ -386,7 +386,15 @@ async function handleGroupSave(formData) {
     }
     groupDialog.value.open = false
   } catch (error) {
-    notificationStore.error('Failed to save group: ' + (error.response?.data?.detail || 'Unknown error'))
+    console.error('Group save error:', error)
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error('Failed to save group: ' + errorMsg)
+    // Store form data and reopen dialog to preserve user input
+    const savedFormData = { ...formData }
+    groupDialog.value.open = false
+    setTimeout(() => {
+      groupDialog.value = { open: true, group: savedFormData.id ? savedFormData : null }
+    }, 100)
   }
 }
 
