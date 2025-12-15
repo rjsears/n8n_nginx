@@ -841,7 +841,7 @@ async function handleNtfyUpdateConfig(config) {
 
             <div v-else class="space-y-2 pt-2">
               <!-- Header row -->
-              <div class="grid grid-cols-[auto_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 px-3 py-2 text-xs font-medium text-secondary uppercase tracking-wide">
+              <div class="grid grid-cols-[44px_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 px-3 py-2 text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
                 <div>Channel Slug</div>
@@ -853,7 +853,7 @@ async function handleNtfyUpdateConfig(config) {
               <div
                 v-for="channel in channels"
                 :key="channel.id"
-                class="grid grid-cols-[auto_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
+                class="grid grid-cols-[44px_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
               >
                 <!-- Icon -->
                 <div
