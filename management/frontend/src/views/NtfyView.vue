@@ -94,6 +94,7 @@
             :on-create="handleCreateTopic"
             :on-update="handleUpdateTopic"
             :on-delete="handleDeleteTopic"
+            :on-sync="handleSyncTopics"
           />
         </div>
 
@@ -337,6 +338,15 @@ async function handleDeleteTopic(id) {
     const statusRes = await api.ntfy.status()
     status.value = statusRes.data
     return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+async function handleSyncTopics() {
+  try {
+    const res = await api.ntfy.syncTopicsToChannels()
+    return res.data
   } catch (error) {
     return { success: false, error: error.response?.data?.detail || error.message }
   }

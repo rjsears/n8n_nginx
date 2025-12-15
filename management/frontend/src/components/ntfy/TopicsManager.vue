@@ -1,14 +1,41 @@
 <template>
   <div class="topics-manager">
     <div class="flex justify-between items-center mb-4">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Topics</h3>
-      <button
-        @click="openEditor(null)"
-        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-      >
-        <PlusIcon class="w-5 h-5" />
-        New Topic
-      </button>
+      <div>
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Topics</h3>
+        <p class="text-sm text-gray-500 dark:text-gray-400">
+          Topics are automatically available as notification channels
+        </p>
+      </div>
+      <div class="flex gap-2">
+        <button
+          v-if="topics.length > 0"
+          @click="syncChannels"
+          :disabled="syncing"
+          class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center gap-2 disabled:opacity-50"
+          title="Sync existing topics to notification channels"
+        >
+          <ArrowPathIcon :class="['w-5 h-5', syncing ? 'animate-spin' : '']" />
+          {{ syncing ? 'Syncing...' : 'Sync Channels' }}
+        </button>
+        <button
+          @click="openEditor(null)"
+          class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+        >
+          <PlusIcon class="w-5 h-5" />
+          New Topic
+        </button>
+      </div>
+    </div>
+
+    <!-- Sync Result Message -->
+    <div v-if="syncMessage" :class="[
+      'mb-4 p-3 rounded-lg text-sm',
+      syncSuccess
+        ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+        : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
+    ]">
+      {{ syncMessage }}
     </div>
 
     <!-- Topics List -->
@@ -222,6 +249,7 @@ import {
   PencilIcon,
   TrashIcon,
   XMarkIcon,
+  ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -229,12 +257,16 @@ const props = defineProps({
   onCreate: { type: Function, required: true },
   onUpdate: { type: Function, required: true },
   onDelete: { type: Function, required: true },
+  onSync: { type: Function, required: true },
 })
 
 // State
 const showEditor = ref(false)
 const editingTopic = ref(null)
 const saving = ref(false)
+const syncing = ref(false)
+const syncMessage = ref('')
+const syncSuccess = ref(false)
 
 const editorForm = ref({
   name: '',
@@ -322,6 +354,33 @@ async function deleteTopic(topic) {
   const result = await props.onDelete(topic.id)
   if (!result?.success) {
     alert(result?.error || 'Failed to delete topic')
+  }
+}
+
+// Sync topics to notification channels
+async function syncChannels() {
+  syncing.value = true
+  syncMessage.value = ''
+
+  try {
+    const result = await props.onSync()
+    if (result?.success) {
+      syncSuccess.value = true
+      syncMessage.value = result.message || `Synced ${result.synced} topics to notification channels`
+    } else {
+      syncSuccess.value = false
+      syncMessage.value = result?.error || 'Failed to sync topics'
+    }
+
+    // Clear message after 5 seconds
+    setTimeout(() => {
+      syncMessage.value = ''
+    }, 5000)
+  } catch (error) {
+    syncSuccess.value = false
+    syncMessage.value = error.message || 'Failed to sync topics'
+  } finally {
+    syncing.value = false
   }
 }
 </script>

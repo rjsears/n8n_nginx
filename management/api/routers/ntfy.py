@@ -20,6 +20,7 @@ from api.models.ntfy import (
     NtfyMessageHistory,
     NtfyServerConfig,
 )
+from api.models.notifications import NotificationService, generate_slug
 from api.schemas.ntfy import (
     NtfyHealthResponse,
     NtfyStatusResponse,
@@ -47,6 +48,83 @@ from api.services.ntfy_service import ntfy_service, COMMON_EMOJIS
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# =============================================================================
+# Helper: Sync NTFY Topic to Notification Channel
+# =============================================================================
+
+async def sync_ntfy_topic_to_notification_channel(
+    db: AsyncSession,
+    topic: NtfyTopic,
+    action: str = "create"  # "create", "update", or "delete"
+) -> Optional[NotificationService]:
+    """
+    Sync an NTFY topic to a notification channel.
+    This allows NTFY topics to be used as notification channels and added to groups.
+    """
+    # Generate a consistent slug for the notification service
+    service_slug = f"ntfy_{generate_slug(topic.name)}"
+
+    # Check if a notification service already exists for this topic
+    existing_result = await db.execute(
+        select(NotificationService).where(NotificationService.slug == service_slug)
+    )
+    existing_service = existing_result.scalar_one_or_none()
+
+    if action == "delete":
+        # Delete the corresponding notification service
+        if existing_service:
+            await db.delete(existing_service)
+            logger.info(f"Deleted notification channel for NTFY topic: {topic.name}")
+        return None
+
+    # Build the notification service config
+    service_config = {
+        "server": ntfy_service.base_url,  # Internal URL for sending
+        "topic": topic.name,
+        "tags": topic.default_tags or [],
+    }
+
+    # Add auth token if topic requires auth
+    if topic.requires_auth:
+        # Note: The token would need to be configured separately or pulled from server config
+        service_config["requires_auth"] = True
+
+    if action == "create" and not existing_service:
+        # Create new notification service
+        new_service = NotificationService(
+            name=f"NTFY: {topic.name}",
+            slug=service_slug,
+            service_type="ntfy",
+            enabled=topic.enabled,
+            config=service_config,
+            priority=topic.default_priority or 3,
+            webhook_enabled=True,  # Allow webhook routing to this channel
+        )
+        db.add(new_service)
+        logger.info(f"Created notification channel for NTFY topic: {topic.name}")
+        return new_service
+
+    elif action == "update" and existing_service:
+        # Update existing notification service
+        existing_service.name = f"NTFY: {topic.name}"
+        existing_service.enabled = topic.enabled
+        existing_service.config = service_config
+        existing_service.priority = topic.default_priority or 3
+        logger.info(f"Updated notification channel for NTFY topic: {topic.name}")
+        return existing_service
+
+    elif action == "create" and existing_service:
+        # Service already exists, just update it
+        existing_service.name = f"NTFY: {topic.name}"
+        existing_service.enabled = topic.enabled
+        existing_service.config = service_config
+        existing_service.priority = topic.default_priority or 3
+        logger.info(f"Updated existing notification channel for NTFY topic: {topic.name}")
+        return existing_service
+
+    return existing_service
 
 
 # =============================================================================
@@ -470,13 +548,48 @@ async def list_topics(
     return [NtfyTopicResponse.model_validate(t) for t in topics]
 
 
+@router.post("/topics/sync-channels")
+async def sync_topics_to_channels(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sync all existing NTFY topics to notification channels.
+    This creates notification services for topics that don't have them yet.
+    """
+    result = await db.execute(select(NtfyTopic))
+    topics = result.scalars().all()
+
+    synced = 0
+    errors = []
+
+    for topic in topics:
+        try:
+            service = await sync_ntfy_topic_to_notification_channel(db, topic, action="create")
+            if service:
+                synced += 1
+        except Exception as e:
+            errors.append({"topic": topic.name, "error": str(e)})
+            logger.error(f"Failed to sync topic {topic.name}: {e}")
+
+    await db.commit()
+
+    return {
+        "success": True,
+        "synced": synced,
+        "total_topics": len(topics),
+        "errors": errors if errors else None,
+        "message": f"Synced {synced} of {len(topics)} topics to notification channels"
+    }
+
+
 @router.post("/topics", response_model=NtfyTopicResponse)
 async def create_topic(
     topic: NtfyTopicCreate,
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new NTFY topic."""
+    """Create a new NTFY topic and sync to notification channels."""
     # Check for duplicate
     existing = await db.execute(
         select(NtfyTopic).where(NtfyTopic.name == topic.name)
@@ -496,6 +609,12 @@ async def create_topic(
         default_tags=topic.default_tags,
     )
     db.add(db_topic)
+    await db.flush()  # Get the ID without committing
+    await db.refresh(db_topic)
+
+    # Sync to notification channels - creates a notification service for this topic
+    await sync_ntfy_topic_to_notification_channel(db, db_topic, action="create")
+
     await db.commit()
     await db.refresh(db_topic)
 
@@ -509,7 +628,7 @@ async def update_topic(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update an NTFY topic."""
+    """Update an NTFY topic and sync to notification channels."""
     result = await db.execute(
         select(NtfyTopic).where(NtfyTopic.id == topic_id)
     )
@@ -526,6 +645,9 @@ async def update_topic(
         else:
             setattr(topic, field, value)
 
+    # Sync to notification channels - updates the corresponding notification service
+    await sync_ntfy_topic_to_notification_channel(db, topic, action="update")
+
     await db.commit()
     await db.refresh(topic)
     return NtfyTopicResponse.model_validate(topic)
@@ -537,7 +659,7 @@ async def delete_topic(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete an NTFY topic."""
+    """Delete an NTFY topic and its corresponding notification channel."""
     result = await db.execute(
         select(NtfyTopic).where(NtfyTopic.id == topic_id)
     )
@@ -547,6 +669,9 @@ async def delete_topic(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Topic not found"
         )
+
+    # Delete the corresponding notification channel first
+    await sync_ntfy_topic_to_notification_channel(db, topic, action="delete")
 
     await db.delete(topic)
     await db.commit()
