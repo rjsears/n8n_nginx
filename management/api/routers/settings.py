@@ -749,6 +749,8 @@ def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
         "management": {"icon": "cog", "color": "cyan", "default_desc": "Management console"},
         "healthz": {"icon": "heart", "color": "green", "default_desc": "Health check endpoint"},
         "n8n": {"icon": "bolt", "color": "rose", "default_desc": "n8n workflow automation"},
+        "ntfy": {"icon": "bell", "color": "purple", "default_desc": "NTFY push notification server"},
+        "n8n_ntfy": {"icon": "bell", "color": "purple", "default_desc": "NTFY push notification server"},
     }
 
     def extract_location_blocks(content):
@@ -806,9 +808,11 @@ def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
         has_auth_request = 'auth_request' in block_content
         is_public = not has_trusted_check and not has_auth_request
 
-        # Determine proxy target
-        proxy_match = re.search(r'proxy_pass\s+http://([a-zA-Z0-9_]+)', block_content)
+        # Determine proxy target and port
+        # Match patterns like: proxy_pass http://n8n; or proxy_pass http://n8n:5678; or proxy_pass http://n8n_ntfy:8085/;
+        proxy_match = re.search(r'proxy_pass\s+http://([a-zA-Z0-9_]+)(?::(\d+))?(/[^;]*)?;', block_content)
         proxy_target = proxy_match.group(1) if proxy_match else None
+        proxy_port = int(proxy_match.group(2)) if proxy_match and proxy_match.group(2) else None
 
         # Skip if no proxy (static content or internal)
         if not proxy_target:
@@ -831,10 +835,8 @@ def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
                 description = desc_text
 
         if not description:
-            description = service_info.get("default_desc", f"Proxied to {proxy_target}")
-
-        # Determine if this is a webhook route (can be managed)
-        is_webhook = path_key.startswith('webhook') if path_key else False
+            port_info = f":{proxy_port}" if proxy_port else ""
+            description = service_info.get("default_desc", f"Proxied to {proxy_target}{port_info}")
 
         routes.append({
             "path": clean_path,
@@ -842,10 +844,11 @@ def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
             "is_public": is_public,
             "has_auth": has_auth_request,
             "proxy_target": proxy_target,
+            "proxy_port": proxy_port,
             "icon": service_info.get("icon", "link"),
             "color": service_info.get("color", "gray"),
             "protected": clean_path in PROTECTED_EXTERNAL_ROUTES,
-            "manageable": is_webhook,  # Only webhook routes can be added/removed
+            "manageable": True,  # All routes can be managed
         })
 
     # Sort: public first, then by path
@@ -865,15 +868,47 @@ def get_domain_from_nginx_config(config_content: str) -> str:
     return None
 
 
-def generate_external_route_block(path: str, description: str = "") -> str:
-    """Generate nginx location block for an external route."""
-    comment = f"# PUBLIC: {description}\n        " if description else ""
-    return f'''{comment}location {path} {{
+def generate_external_route_block(
+    path: str,
+    description: str = "",
+    upstream: str = "n8n",
+    upstream_port: int = None,
+    is_public: bool = True
+) -> str:
+    """Generate nginx location block for an external route.
+
+    Args:
+        path: URL path (e.g., /ntfy/, /webhook-custom/)
+        description: Description for the comment
+        upstream: Upstream server name (e.g., n8n, n8n_ntfy)
+        upstream_port: Optional port number (e.g., 8085)
+        is_public: If True, route is public. If False, adds $is_trusted check.
+    """
+    # Build comment
+    access_type = "PUBLIC" if is_public else "RESTRICTED"
+    comment = f"# {access_type}: {description}\n        " if description else f"# {access_type}\n        "
+
+    # Build proxy_pass URL
+    if upstream_port:
+        proxy_url = f"http://{upstream}:{upstream_port}"
+    else:
+        proxy_url = f"http://{upstream}"
+
+    # Build the trusted check if restricted
+    trusted_check = ""
+    if not is_public:
+        trusted_check = """
+            if ($is_trusted = 0) {
+                return 403;
+            }
+"""
+
+    return f'''{comment}location {path} {{{trusted_check}
             add_header X-Frame-Options "SAMEORIGIN" always;
             add_header X-Content-Type-Options "nosniff" always;
             add_header X-XSS-Protection "1; mode=block" always;
 
-            proxy_pass http://n8n;
+            proxy_pass {proxy_url};
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -886,7 +921,14 @@ def generate_external_route_block(path: str, description: str = "") -> str:
         }}'''
 
 
-def add_external_route_to_config(config_content: str, path: str, description: str = "") -> str:
+def add_external_route_to_config(
+    config_content: str,
+    path: str,
+    description: str = "",
+    upstream: str = "n8n",
+    upstream_port: int = None,
+    is_public: bool = True
+) -> str:
     """Add a new external route to nginx.conf."""
     import re
 
@@ -899,14 +941,14 @@ def add_external_route_to_config(config_content: str, path: str, description: st
     if restricted_match:
         # Insert before the RESTRICTED section
         insert_pos = restricted_match.start()
-        new_block = generate_external_route_block(path, description)
+        new_block = generate_external_route_block(path, description, upstream, upstream_port, is_public)
         return config_content[:insert_pos] + "\n\n        " + new_block + "\n" + config_content[insert_pos:]
 
     # Fallback: look for "location / {" with $is_trusted check
     main_location_match = re.search(r'(\s*location\s+/\s*\{[^}]*\$is_trusted)', config_content, re.DOTALL)
     if main_location_match:
         insert_pos = main_location_match.start()
-        new_block = generate_external_route_block(path, description)
+        new_block = generate_external_route_block(path, description, upstream, upstream_port, is_public)
         return config_content[:insert_pos] + "\n\n        " + new_block + "\n" + config_content[insert_pos:]
 
     # Last fallback: insert before the last location / block
@@ -968,7 +1010,15 @@ async def add_external_route(
     request: AddExternalRouteRequest,
     _=Depends(get_current_user),
 ):
-    """Add a new externally accessible route."""
+    """Add a new externally accessible route.
+
+    Routes can be any valid path (e.g., /ntfy/, /webhook-custom/, /myservice/).
+    You can configure:
+    - upstream: The backend service name (e.g., n8n, n8n_ntfy)
+    - upstream_port: Optional port number (e.g., 8085)
+    - is_public: If true (default), route is publicly accessible.
+                 If false, route requires IP restriction ($is_trusted check).
+    """
     import os
 
     # Validate path format
@@ -978,12 +1028,14 @@ async def add_external_route(
     if not path.endswith('/'):
         path = path + '/'
 
-    # Only allow webhook-like paths for security
-    if not path.startswith('/webhook'):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="External routes must start with /webhook for security. Use paths like /webhook-custom/ or /webhook-myapp/",
-        )
+    # Basic security: disallow some dangerous paths
+    dangerous_paths = ['/api/', '/admin/', '/config/', '/.']
+    for dangerous in dangerous_paths:
+        if path.startswith(dangerous) or dangerous in path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Path '{path}' is not allowed for security reasons.",
+            )
 
     try:
         if not os.path.exists(NGINX_CONFIG_PATH):
@@ -1004,13 +1056,21 @@ async def add_external_route(
                     detail=f"Route {path} already exists",
                 )
 
-        # Add the route
-        new_content = add_external_route_to_config(content, path, request.description)
+        # Add the route with all parameters
+        new_content = add_external_route_to_config(
+            content,
+            path,
+            request.description,
+            request.upstream,
+            request.upstream_port,
+            request.is_public
+        )
 
         with open(NGINX_CONFIG_PATH, 'w') as f:
             f.write(new_content)
 
-        return SuccessResponse(message=f"External route {path} added. Reload nginx to apply changes.")
+        access_type = "public" if request.is_public else "restricted"
+        return SuccessResponse(message=f"External route {path} added ({access_type}). Reload nginx to apply changes.")
 
     except HTTPException:
         raise
