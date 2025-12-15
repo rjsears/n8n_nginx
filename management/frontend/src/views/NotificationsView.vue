@@ -1550,26 +1550,37 @@ async function handleNtfyUpdateConfig(config) {
                       <!-- Channels in group -->
                       <div v-if="group.channels && group.channels.length > 0">
                         <p class="text-xs font-medium text-secondary uppercase tracking-wide mb-2">Channels in this group</p>
-                        <div class="space-y-1">
+                        <div class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                          <!-- Header row -->
+                          <div class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(160px,2fr)_70px_70px] gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-xs font-medium text-secondary uppercase tracking-wide">
+                            <div></div>
+                            <div>Name</div>
+                            <div>Slug</div>
+                            <div class="text-center">Webhook</div>
+                            <div class="text-center">Type</div>
+                          </div>
+                          <!-- Channel rows -->
                           <div
                             v-for="channel in group.channels"
                             :key="channel.id"
-                            class="flex items-center gap-3 p-2 rounded-lg bg-white dark:bg-gray-700/50"
+                            class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(160px,2fr)_70px_70px] gap-2 px-3 py-2 items-center bg-white dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700"
                           >
                             <component
                               :is="channelIcons[channel.service_type] || BellIcon"
-                              class="h-4 w-4 text-gray-500 flex-shrink-0"
+                              class="h-4 w-4 text-gray-500"
                             />
                             <span class="font-medium text-sm text-primary truncate">{{ channel.name }}</span>
-                            <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded flex-shrink-0">channel:{{ channel.slug }}</code>
-                            <span
-                              v-if="channel.webhook_enabled"
-                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 flex-shrink-0"
-                            >
-                              <LinkIcon class="h-3 w-3" />
-                              Webhook
-                            </span>
-                            <span class="text-xs text-secondary capitalize flex-shrink-0">{{ channel.service_type }}</span>
+                            <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded truncate">channel:{{ channel.slug }}</code>
+                            <div class="flex justify-center">
+                              <span
+                                v-if="channel.webhook_enabled"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300"
+                              >
+                                <LinkIcon class="h-3 w-3" />
+                              </span>
+                              <span v-else class="text-xs text-gray-400">-</span>
+                            </div>
+                            <span class="text-xs text-secondary capitalize text-center">{{ channel.service_type }}</span>
                           </div>
                         </div>
                       </div>
