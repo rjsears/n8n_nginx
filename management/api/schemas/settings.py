@@ -116,11 +116,16 @@ class AddIPRangeRequest(BaseModel):
 
 # External Routes schemas
 class ExternalRoute(BaseModel):
-    """A publicly accessible route in nginx (no IP restriction)."""
+    """A route configured in nginx with access status."""
     path: str = Field(..., min_length=1, description="URL path (e.g., /webhook/)")
     description: str = Field(default="", description="Description of what this route is for")
-    protected: bool = Field(default=False, description="If true, this route cannot be removed (e.g., /webhook/)")
-    proxy_target: str = Field(default="n8n", description="Upstream target (e.g., n8n, management)")
+    is_public: bool = Field(default=False, description="True if publicly accessible (no IP/auth check)")
+    has_auth: bool = Field(default=False, description="True if requires SSO authentication")
+    proxy_target: str = Field(default="n8n", description="Upstream target (e.g., n8n, n8n_portainer)")
+    icon: str = Field(default="link", description="Icon name for UI display")
+    color: str = Field(default="gray", description="Color theme for UI display")
+    protected: bool = Field(default=False, description="If true, this route cannot be removed")
+    manageable: bool = Field(default=False, description="If true, can be added/removed via UI")
 
 
 class ExternalRoutesResponse(BaseModel):

@@ -672,33 +672,39 @@ PROTECTED_EXTERNAL_ROUTES = ["/webhook/", "/webhook-test/"]
 
 
 def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
-    """Parse nginx.conf to find public location blocks (those without $is_trusted check)."""
+    """Parse nginx.conf to find ALL location blocks and their access status."""
     import re
 
     routes = []
 
-    # We need to find location blocks that:
-    # 1. Proxy to http://n8n (the main n8n upstream, not n8n_portainer, n8n_management, etc.)
-    # 2. Don't have $is_trusted or $access_level checks
-    # 3. Are webhook-related paths
+    # Known services with metadata for icons and descriptions
+    known_services = {
+        "webhook": {"icon": "webhook", "color": "green", "default_desc": "n8n Webhook endpoint"},
+        "webhook-test": {"icon": "flask", "color": "amber", "default_desc": "n8n Test webhook endpoint"},
+        "portainer": {"icon": "cube", "color": "blue", "default_desc": "Docker container management"},
+        "adminer": {"icon": "database", "color": "purple", "default_desc": "Database administration"},
+        "logs": {"icon": "document-text", "color": "emerald", "default_desc": "Dozzle log viewer"},
+        "dozzle": {"icon": "document-text", "color": "emerald", "default_desc": "Dozzle log viewer"},
+        "grafana": {"icon": "chart-bar", "color": "orange", "default_desc": "Monitoring dashboard"},
+        "prometheus": {"icon": "fire", "color": "red", "default_desc": "Metrics collection"},
+        "management": {"icon": "cog", "color": "cyan", "default_desc": "Management console"},
+        "healthz": {"icon": "heart", "color": "green", "default_desc": "Health check endpoint"},
+        "n8n": {"icon": "bolt", "color": "rose", "default_desc": "n8n workflow automation"},
+    }
 
-    # Use a more careful approach - find location blocks and their full content
-    # by counting braces
     def extract_location_blocks(content):
         """Extract location blocks with proper brace matching."""
         blocks = []
         i = 0
         while i < len(content):
-            # Find "location"
             match = re.search(r'location\s+(/[a-zA-Z0-9_/-]*)\s*\{', content[i:])
             if not match:
                 break
 
             path = match.group(1)
             start = i + match.start()
-            brace_start = i + match.end() - 1  # Position of opening brace
+            brace_start = i + match.end() - 1
 
-            # Count braces to find the matching closing brace
             brace_count = 1
             j = brace_start + 1
             while j < len(content) and brace_count > 0:
@@ -718,41 +724,73 @@ def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
 
     location_blocks = extract_location_blocks(config_content)
 
-    # Skip paths that are clearly not webhook routes
-    skip_paths = ['/', '/healthz', '/api/', '/api/auth/verify', '/api/ws/',
-                  '/api/backups/download/', '/adminer/', '/logs/', '/portainer/',
-                  '/management/', '/grafana/', '/prometheus/']
+    # Skip internal/nginx-specific paths
+    skip_paths = ['/api/', '/api/auth/verify', '/api/ws/', '/api/backups/download/']
+
+    seen_paths = set()
 
     for path, block_content, start_pos in location_blocks:
-        # Skip non-webhook paths
-        if path in skip_paths or not path.startswith('/webhook'):
+        # Skip internal paths
+        if path in skip_paths:
             continue
 
-        # Check if this is a public route (no $is_trusted or $access_level check)
+        # Clean up path
+        clean_path = path.rstrip('/') + '/' if path != '/' and not path.endswith('/') else path
+
+        # Skip duplicates
+        if clean_path in seen_paths:
+            continue
+        seen_paths.add(clean_path)
+
+        # Determine access level
         has_trusted_check = '$is_trusted' in block_content or '$access_level' in block_content
+        has_auth_request = 'auth_request' in block_content
+        is_public = not has_trusted_check and not has_auth_request
 
-        # Check if it proxies to n8n (exactly "http://n8n", not "http://n8n_something")
-        # Use regex to match "proxy_pass http://n8n;" or "proxy_pass http://n8n/"
-        proxies_to_n8n = bool(re.search(r'proxy_pass\s+http://n8n[;/\s]', block_content))
+        # Determine proxy target
+        proxy_match = re.search(r'proxy_pass\s+http://([a-zA-Z0-9_]+)', block_content)
+        proxy_target = proxy_match.group(1) if proxy_match else None
 
-        if proxies_to_n8n and not has_trusted_check:
-            # This is a public route to n8n
-            # Try to extract description from comment before location block
-            description = ""
-            pre_context = config_content[:start_pos]
-            last_comment = re.search(r'#\s*(?:PUBLIC:?)?\s*([^\n]+)\s*$', pre_context)
-            if last_comment:
-                description = last_comment.group(1).strip()
+        # Skip if no proxy (static content or internal)
+        if not proxy_target:
+            continue
 
-            # Clean up path (ensure trailing slash consistency)
-            clean_path = path.rstrip('/') + '/' if not path.endswith('/') else path
+        # Get service info based on path or proxy target
+        path_key = clean_path.strip('/').split('/')[0] if clean_path != '/' else ''
 
-            routes.append({
-                "path": clean_path,
-                "description": description,
-                "protected": clean_path in PROTECTED_EXTERNAL_ROUTES,
-                "proxy_target": "n8n",
-            })
+        # Try path key first, then proxy target
+        service_info = known_services.get(path_key) or known_services.get(proxy_target, {})
+
+        # Try to extract description from comment
+        description = ""
+        pre_context = config_content[:start_pos]
+        comment_match = re.search(r'#\s*(?:PUBLIC:|RESTRICTED:)?\s*([^\n]+)\s*$', pre_context)
+        if comment_match:
+            desc_text = comment_match.group(1).strip()
+            # Skip separator comments
+            if not desc_text.startswith('==='):
+                description = desc_text
+
+        if not description:
+            description = service_info.get("default_desc", f"Proxied to {proxy_target}")
+
+        # Determine if this is a webhook route (can be managed)
+        is_webhook = path_key.startswith('webhook') if path_key else False
+
+        routes.append({
+            "path": clean_path,
+            "description": description,
+            "is_public": is_public,
+            "has_auth": has_auth_request,
+            "proxy_target": proxy_target,
+            "icon": service_info.get("icon", "link"),
+            "color": service_info.get("color", "gray"),
+            "protected": clean_path in PROTECTED_EXTERNAL_ROUTES,
+            "manageable": is_webhook,  # Only webhook routes can be added/removed
+        })
+
+    # Sort: public first, then by path
+    routes.sort(key=lambda r: (not r["is_public"], r["path"]))
 
     return routes
 

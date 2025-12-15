@@ -30,6 +30,16 @@ import {
   TrashIcon,
   ArrowPathIcon,
   LockClosedIcon,
+  LockOpenIcon,
+  CubeIcon,
+  DocumentTextIcon,
+  ChartBarIcon,
+  FireIcon,
+  HeartIcon,
+  BoltIcon,
+  LinkIcon,
+  BeakerIcon,
+  ServerIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -424,6 +434,70 @@ async function deleteExternalRoute() {
     notificationStore.error(error.response?.data?.detail || 'Failed to delete external route')
     showDeleteRouteConfirm.value = false
   }
+}
+
+// Icon mapping for routes
+const iconMap = {
+  'webhook': BoltIcon,
+  'flask': BeakerIcon,
+  'cube': CubeIcon,
+  'database': CircleStackIcon,
+  'document-text': DocumentTextIcon,
+  'chart-bar': ChartBarIcon,
+  'fire': FireIcon,
+  'cog': Cog6ToothIcon,
+  'heart': HeartIcon,
+  'bolt': BoltIcon,
+  'link': LinkIcon,
+  'server': ServerIcon,
+}
+
+// Color mapping for background
+const colorBgMap = {
+  'green': 'rgba(34, 197, 94, 0.15)',
+  'amber': 'rgba(245, 158, 11, 0.15)',
+  'blue': 'rgba(59, 130, 246, 0.15)',
+  'purple': 'rgba(168, 85, 247, 0.15)',
+  'emerald': 'rgba(16, 185, 129, 0.15)',
+  'orange': 'rgba(249, 115, 22, 0.15)',
+  'red': 'rgba(239, 68, 68, 0.15)',
+  'cyan': 'rgba(6, 182, 212, 0.15)',
+  'rose': 'rgba(244, 63, 94, 0.15)',
+  'gray': 'rgba(107, 114, 128, 0.15)',
+}
+
+// Color mapping for icon
+const colorIconMap = {
+  'green': '#22c55e',
+  'amber': '#f59e0b',
+  'blue': '#3b82f6',
+  'purple': '#a855f7',
+  'emerald': '#10b981',
+  'orange': '#f97316',
+  'red': '#ef4444',
+  'cyan': '#06b6d4',
+  'rose': '#f43f5e',
+  'gray': '#6b7280',
+}
+
+function getRouteIcon(iconName) {
+  return iconMap[iconName] || LinkIcon
+}
+
+function getRouteIconBg(color) {
+  return colorBgMap[color] || colorBgMap['gray']
+}
+
+function getRouteIconColor(color) {
+  return colorIconMap[color] || colorIconMap['gray']
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    notificationStore.success('URL copied to clipboard')
+  }).catch(() => {
+    notificationStore.error('Failed to copy to clipboard')
+  })
 }
 
 onMounted(async () => {
@@ -920,66 +994,155 @@ watch(activeTab, (newTab) => {
             </div>
           </div>
 
-          <!-- External Routes Section -->
-          <Card title="Publicly Accessible Routes" subtitle="URL paths accessible without IP restrictions (webhooks)" :neon="true">
+          <!-- Nginx Routes Section -->
+          <Card title="Nginx Routes" subtitle="All configured routes and their access levels" :neon="true">
             <LoadingSpinner v-if="externalRoutesLoading" size="sm" text="Loading routes..." class="py-4" />
 
             <template v-else>
-              <div v-if="externalRoutes.domain" class="mb-4 p-3 rounded-lg bg-surface-hover">
-                <p class="text-sm text-secondary">
-                  Domain: <span class="font-mono text-primary">{{ externalRoutes.domain }}</span>
-                </p>
+              <!-- Domain Info -->
+              <div v-if="externalRoutes.domain" class="mb-4 p-3 rounded-lg bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border border-blue-200 dark:border-blue-800">
+                <div class="flex items-center gap-2">
+                  <GlobeAltIcon class="h-5 w-5 text-blue-500" />
+                  <span class="text-sm text-secondary">Domain:</span>
+                  <span class="font-mono text-primary font-medium">{{ externalRoutes.domain }}</span>
+                </div>
+              </div>
+
+              <!-- Legend -->
+              <div class="flex flex-wrap gap-4 mb-4 text-xs">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                  <span class="text-secondary">Public (No Auth)</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span class="text-secondary">SSO Protected</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                  <span class="text-secondary">IP Restricted</span>
+                </div>
               </div>
 
               <div v-if="externalRoutes.routes.length === 0" class="text-center py-6 text-secondary">
-                No public routes configured. Add webhook paths below.
+                No routes found in nginx configuration.
               </div>
 
-              <div v-else class="space-y-2 mb-4">
+              <!-- Routes Grid -->
+              <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
                 <div
                   v-for="(route, index) in externalRoutes.routes"
                   :key="index"
-                  class="flex items-center justify-between p-3 rounded-lg bg-surface-hover"
+                  :class="[
+                    'relative p-4 rounded-xl border transition-all hover:shadow-md',
+                    route.is_public
+                      ? 'bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 border-green-200 dark:border-green-800'
+                      : route.has_auth
+                        ? 'bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 border-amber-200 dark:border-amber-800'
+                        : 'bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/10 dark:to-rose-900/10 border-red-200 dark:border-red-800'
+                  ]"
                 >
-                  <div class="flex-1">
-                    <div class="flex items-center gap-2">
-                      <p class="font-mono text-primary">{{ route.path }}</p>
-                      <span
-                        v-if="route.protected"
-                        class="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
-                      >
-                        Protected
-                      </span>
+                  <!-- Access Status Badge -->
+                  <div class="absolute top-3 right-3">
+                    <span
+                      :class="[
+                        'inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
+                        route.is_public
+                          ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+                          : route.has_auth
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                            : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                      ]"
+                    >
+                      <component
+                        :is="route.is_public ? LockOpenIcon : LockClosedIcon"
+                        class="h-3 w-3"
+                      />
+                      {{ route.is_public ? 'Public' : route.has_auth ? 'SSO' : 'Restricted' }}
+                    </span>
+                  </div>
+
+                  <div class="flex items-start gap-3">
+                    <!-- Icon -->
+                    <div
+                      :class="[
+                        'flex-shrink-0 p-2.5 rounded-lg',
+                        `bg-${route.color}-100 dark:bg-${route.color}-500/20`
+                      ]"
+                      :style="{
+                        backgroundColor: getRouteIconBg(route.color)
+                      }"
+                    >
+                      <component
+                        :is="getRouteIcon(route.icon)"
+                        :class="[
+                          'h-5 w-5',
+                          `text-${route.color}-600 dark:text-${route.color}-400`
+                        ]"
+                        :style="{
+                          color: getRouteIconColor(route.color)
+                        }"
+                      />
                     </div>
-                    <p v-if="route.description" class="text-sm text-secondary">{{ route.description }}</p>
-                    <p v-if="externalRoutes.domain" class="text-xs text-muted mt-1 font-mono">
-                      https://{{ externalRoutes.domain }}{{ route.path }}
-                    </p>
+
+                    <div class="flex-1 min-w-0 pr-16">
+                      <!-- Path -->
+                      <div class="flex items-center gap-2 mb-1">
+                        <p class="font-mono text-primary font-semibold truncate">{{ route.path }}</p>
+                        <span
+                          v-if="route.protected"
+                          class="flex-shrink-0 text-xs px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
+                          title="System route - cannot be removed"
+                        >
+                          System
+                        </span>
+                      </div>
+
+                      <!-- Description -->
+                      <p class="text-sm text-secondary mb-2">{{ route.description }}</p>
+
+                      <!-- Full URL -->
+                      <div v-if="externalRoutes.domain" class="flex items-center gap-2">
+                        <code class="text-xs text-muted bg-black/5 dark:bg-white/5 px-2 py-1 rounded font-mono truncate">
+                          https://{{ externalRoutes.domain }}{{ route.path }}
+                        </code>
+                        <button
+                          @click="copyToClipboard(`https://${externalRoutes.domain}${route.path}`)"
+                          class="flex-shrink-0 p-1 text-muted hover:text-primary rounded"
+                          title="Copy URL"
+                        >
+                          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      <!-- Proxy Target -->
+                      <p class="text-xs text-muted mt-2">
+                        <ServerIcon class="inline h-3 w-3 mr-1" />
+                        Proxied to: <span class="font-mono">{{ route.proxy_target }}</span>
+                      </p>
+                    </div>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <button
-                      v-if="route.protected"
-                      class="p-1.5 text-gray-400 dark:text-gray-500 cursor-not-allowed"
-                      title="Protected - cannot be removed"
-                      disabled
-                    >
-                      <LockClosedIcon class="h-4 w-4" />
-                    </button>
-                    <button
-                      v-else
-                      @click="confirmDeleteRoute(route)"
-                      class="p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded"
-                      title="Remove route"
-                    >
-                      <TrashIcon class="h-4 w-4" />
-                    </button>
-                  </div>
+
+                  <!-- Delete button for manageable routes -->
+                  <button
+                    v-if="route.manageable && !route.protected"
+                    @click="confirmDeleteRoute(route)"
+                    class="absolute bottom-3 right-3 p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg transition-colors"
+                    title="Remove route"
+                  >
+                    <TrashIcon class="h-4 w-4" />
+                  </button>
                 </div>
               </div>
 
               <!-- Add Route Form -->
               <div class="border-t border-[var(--color-border)] pt-4 mt-4">
-                <p class="text-sm font-medium text-primary mb-3">Add New Webhook Path</p>
+                <div class="flex items-center gap-2 mb-3">
+                  <PlusIcon class="h-5 w-5 text-green-500" />
+                  <p class="text-sm font-medium text-primary">Add New Public Webhook Path</p>
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label class="block text-sm text-secondary mb-1.5">Path</label>
