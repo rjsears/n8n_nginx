@@ -277,23 +277,36 @@ class N8nApiService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def generate_notification_test_workflow(
-        self, webhook_url: str, api_key: str
+    def generate_broadcast_test_workflow(
+        self, webhook_url: str
     ) -> Dict[str, Any]:
         """
-        Generate a test workflow for notification webhook.
-        This workflow has a manual trigger and sends a test notification.
+        Generate a test workflow that broadcasts to ALL webhook-enabled channels.
+        Uses targets: ["all"]
         """
         return {
-            "name": "Management Console - Test Notifications",
+            "name": "Notification Test - Broadcast to All Channels",
             "nodes": [
+                {
+                    "parameters": {
+                        "content": "# 📢 Broadcast Test Workflow\n\n## What This Does\nSends a notification to **ALL** webhook-enabled channels.\n\n## Setup Instructions\n1. Click on the **Send to All Channels** node\n2. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key from Management Console\n3. Save the credential\n4. Click **Execute Workflow** to test\n\n## Targeting\nThis workflow uses `\"targets\": [\"all\"]` which sends to every channel that has **Webhook Enabled** checked.",
+                        "height": 340,
+                        "width": 320,
+                        "color": 4,
+                    },
+                    "id": "note-instructions",
+                    "name": "Setup Instructions",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [60, 60],
+                },
                 {
                     "parameters": {},
                     "id": "manual-trigger",
-                    "name": "Manual Trigger",
+                    "name": "Click to Test",
                     "type": "n8n-nodes-base.manualTrigger",
                     "typeVersion": 1,
-                    "position": [250, 300],
+                    "position": [440, 300],
                 },
                 {
                     "parameters": {
@@ -303,14 +316,14 @@ class N8nApiService:
                         "genericAuthType": "httpHeaderAuth",
                         "sendBody": True,
                         "specifyBody": "json",
-                        "jsonBody": '={\n  "title": "Test from n8n",\n  "message": "This is a test notification sent from your n8n workflow at {{ $now.format(\'yyyy-MM-dd HH:mm:ss\') }}",\n  "priority": "normal"\n}',
+                        "jsonBody": '={\n  "title": "📢 Broadcast Test",\n  "message": "This notification was sent to ALL webhook-enabled channels at {{ $now.format(\'yyyy-MM-dd HH:mm:ss\') }}",\n  "priority": "normal",\n  "targets": ["all"]\n}',
                         "options": {},
                     },
                     "id": "http-request",
-                    "name": "Send Notification",
+                    "name": "Send to All Channels",
                     "type": "n8n-nodes-base.httpRequest",
                     "typeVersion": 4.2,
-                    "position": [470, 300],
+                    "position": [660, 300],
                     "credentials": {
                         "httpHeaderAuth": {
                             "id": "PLACEHOLDER",
@@ -345,45 +358,46 @@ class N8nApiService:
                     "name": "Check Result",
                     "type": "n8n-nodes-base.if",
                     "typeVersion": 2,
-                    "position": [690, 300],
+                    "position": [880, 300],
                 },
                 {
                     "parameters": {
-                        "content": "=## Notification Sent Successfully!\n\n**Channels notified:** {{ $json.channels_notified }}\n\n**Channels:** {{ $json.channels.join(', ') }}",
+                        "content": "=## ✅ Success!\n\n**Channels notified:** {{ $json.channels_notified }}\n\n**Channels:** {{ $json.channels.join(', ') }}",
                         "height": 160,
-                        "width": 260,
+                        "width": 280,
+                        "color": 4,
                     },
                     "id": "note-success",
-                    "name": "Success",
+                    "name": "Success Output",
                     "type": "n8n-nodes-base.stickyNote",
                     "typeVersion": 1,
-                    "position": [910, 180],
+                    "position": [1100, 180],
                 },
                 {
                     "parameters": {
-                        "content": "=## Notification Failed\n\n**Errors:** {{ $json.errors ? $json.errors.join(', ') : 'Unknown error' }}",
+                        "content": "=## ❌ Failed\n\n**Errors:** {{ $json.errors ? $json.errors.join(', ') : ($json.detail || 'Unknown error') }}",
                         "height": 160,
-                        "width": 260,
+                        "width": 280,
                         "color": 5,
                     },
                     "id": "note-failure",
-                    "name": "Failure",
+                    "name": "Error Output",
                     "type": "n8n-nodes-base.stickyNote",
                     "typeVersion": 1,
-                    "position": [910, 400],
+                    "position": [1100, 380],
                 },
             ],
             "connections": {
-                "Manual Trigger": {
-                    "main": [[{"node": "Send Notification", "type": "main", "index": 0}]],
+                "Click to Test": {
+                    "main": [[{"node": "Send to All Channels", "type": "main", "index": 0}]],
                 },
-                "Send Notification": {
+                "Send to All Channels": {
                     "main": [[{"node": "Check Result", "type": "main", "index": 0}]],
                 },
                 "Check Result": {
                     "main": [
-                        [{"node": "Success", "type": "main", "index": 0}],
-                        [{"node": "Failure", "type": "main", "index": 0}],
+                        [{"node": "Success Output", "type": "main", "index": 0}],
+                        [{"node": "Error Output", "type": "main", "index": 0}],
                     ],
                 },
             },
@@ -392,11 +406,294 @@ class N8nApiService:
             },
         }
 
+    def generate_channel_test_workflow(
+        self, webhook_url: str
+    ) -> Dict[str, Any]:
+        """
+        Generate a test workflow that targets a SPECIFIC channel by slug.
+        User must edit the channel slug in the JSON body.
+        """
+        return {
+            "name": "Notification Test - Target Specific Channel",
+            "nodes": [
+                {
+                    "parameters": {
+                        "content": "# 🎯 Channel Targeting Test\n\n## What This Does\nSends a notification to a **SPECIFIC** channel using its slug.\n\n## Setup Instructions\n1. **Find your channel slug** in Management Console → Notifications → Channels tab\n2. Click on the **Send to Channel** node\n3. Edit the JSON body and replace `YOUR_CHANNEL_SLUG` with your actual slug\n4. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key\n5. Click **Execute Workflow** to test\n\n## Example Slugs\n- `devops_slack`\n- `alerts_email`\n- `mobile_push`\n\n## Targeting Syntax\n`\"targets\": [\"channel:your_slug\"]`",
+                        "height": 440,
+                        "width": 340,
+                        "color": 6,
+                    },
+                    "id": "note-instructions",
+                    "name": "Setup Instructions",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [60, 40],
+                },
+                {
+                    "parameters": {},
+                    "id": "manual-trigger",
+                    "name": "Click to Test",
+                    "type": "n8n-nodes-base.manualTrigger",
+                    "typeVersion": 1,
+                    "position": [460, 300],
+                },
+                {
+                    "parameters": {
+                        "method": "POST",
+                        "url": webhook_url,
+                        "authentication": "genericCredentialType",
+                        "genericAuthType": "httpHeaderAuth",
+                        "sendBody": True,
+                        "specifyBody": "json",
+                        "jsonBody": '={\n  "title": "🎯 Channel Test",\n  "message": "This notification was sent to a SPECIFIC channel at {{ $now.format(\'yyyy-MM-dd HH:mm:ss\') }}",\n  "priority": "normal",\n  "targets": ["channel:YOUR_CHANNEL_SLUG"]\n}',
+                        "options": {},
+                    },
+                    "id": "http-request",
+                    "name": "Send to Channel",
+                    "type": "n8n-nodes-base.httpRequest",
+                    "typeVersion": 4.2,
+                    "position": [680, 300],
+                    "credentials": {
+                        "httpHeaderAuth": {
+                            "id": "PLACEHOLDER",
+                            "name": "Management Webhook API Key",
+                        },
+                    },
+                },
+                {
+                    "parameters": {
+                        "conditions": {
+                            "options": {
+                                "caseSensitive": True,
+                                "leftValue": "",
+                                "typeValidation": "strict",
+                            },
+                            "conditions": [
+                                {
+                                    "id": "condition-success",
+                                    "leftValue": "={{ $json.success }}",
+                                    "rightValue": True,
+                                    "operator": {
+                                        "type": "boolean",
+                                        "operation": "equals",
+                                    },
+                                },
+                            ],
+                            "combinator": "and",
+                        },
+                        "options": {},
+                    },
+                    "id": "if-success",
+                    "name": "Check Result",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 2,
+                    "position": [900, 300],
+                },
+                {
+                    "parameters": {
+                        "content": "=## ✅ Success!\n\n**Channels notified:** {{ $json.channels_notified }}\n\n**Channel:** {{ $json.channels.join(', ') }}",
+                        "height": 160,
+                        "width": 280,
+                        "color": 4,
+                    },
+                    "id": "note-success",
+                    "name": "Success Output",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [1120, 180],
+                },
+                {
+                    "parameters": {
+                        "content": "=## ❌ Failed\n\n**Errors:** {{ $json.errors ? $json.errors.join(', ') : ($json.detail || 'Unknown error') }}\n\n**Common Issues:**\n- Channel slug doesn't exist\n- Channel not webhook-enabled\n- Invalid API key",
+                        "height": 200,
+                        "width": 280,
+                        "color": 5,
+                    },
+                    "id": "note-failure",
+                    "name": "Error Output",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [1120, 360],
+                },
+            ],
+            "connections": {
+                "Click to Test": {
+                    "main": [[{"node": "Send to Channel", "type": "main", "index": 0}]],
+                },
+                "Send to Channel": {
+                    "main": [[{"node": "Check Result", "type": "main", "index": 0}]],
+                },
+                "Check Result": {
+                    "main": [
+                        [{"node": "Success Output", "type": "main", "index": 0}],
+                        [{"node": "Error Output", "type": "main", "index": 0}],
+                    ],
+                },
+            },
+            "settings": {
+                "executionOrder": "v1",
+            },
+        }
+
+    def generate_group_test_workflow(
+        self, webhook_url: str
+    ) -> Dict[str, Any]:
+        """
+        Generate a test workflow that targets a notification GROUP.
+        User must edit the group slug in the JSON body.
+        """
+        return {
+            "name": "Notification Test - Target Group",
+            "nodes": [
+                {
+                    "parameters": {
+                        "content": "# 👥 Group Targeting Test\n\n## What This Does\nSends a notification to **ALL channels in a group** using the group's slug.\n\n## Setup Instructions\n1. **Create a group** in Management Console → Notifications → Groups tab\n2. **Add channels** to the group\n3. Click on the **Send to Group** node\n4. Edit the JSON body and replace `YOUR_GROUP_SLUG` with your actual group slug\n5. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key\n6. Click **Execute Workflow** to test\n\n## Example Groups\n- `devops` → All DevOps team channels\n- `critical_alerts` → High-priority channels\n- `management` → Management team\n\n## Targeting Syntax\n`\"targets\": [\"group:your_slug\"]`",
+                        "height": 500,
+                        "width": 360,
+                        "color": 3,
+                    },
+                    "id": "note-instructions",
+                    "name": "Setup Instructions",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [60, 20],
+                },
+                {
+                    "parameters": {},
+                    "id": "manual-trigger",
+                    "name": "Click to Test",
+                    "type": "n8n-nodes-base.manualTrigger",
+                    "typeVersion": 1,
+                    "position": [480, 300],
+                },
+                {
+                    "parameters": {
+                        "method": "POST",
+                        "url": webhook_url,
+                        "authentication": "genericCredentialType",
+                        "genericAuthType": "httpHeaderAuth",
+                        "sendBody": True,
+                        "specifyBody": "json",
+                        "jsonBody": '={\n  "title": "👥 Group Test",\n  "message": "This notification was sent to ALL channels in a GROUP at {{ $now.format(\'yyyy-MM-dd HH:mm:ss\') }}",\n  "priority": "normal",\n  "targets": ["group:YOUR_GROUP_SLUG"]\n}',
+                        "options": {},
+                    },
+                    "id": "http-request",
+                    "name": "Send to Group",
+                    "type": "n8n-nodes-base.httpRequest",
+                    "typeVersion": 4.2,
+                    "position": [700, 300],
+                    "credentials": {
+                        "httpHeaderAuth": {
+                            "id": "PLACEHOLDER",
+                            "name": "Management Webhook API Key",
+                        },
+                    },
+                },
+                {
+                    "parameters": {
+                        "conditions": {
+                            "options": {
+                                "caseSensitive": True,
+                                "leftValue": "",
+                                "typeValidation": "strict",
+                            },
+                            "conditions": [
+                                {
+                                    "id": "condition-success",
+                                    "leftValue": "={{ $json.success }}",
+                                    "rightValue": True,
+                                    "operator": {
+                                        "type": "boolean",
+                                        "operation": "equals",
+                                    },
+                                },
+                            ],
+                            "combinator": "and",
+                        },
+                        "options": {},
+                    },
+                    "id": "if-success",
+                    "name": "Check Result",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 2,
+                    "position": [920, 300],
+                },
+                {
+                    "parameters": {
+                        "content": "=## ✅ Success!\n\n**Channels notified:** {{ $json.channels_notified }}\n\n**Channels in group:** {{ $json.channels.join(', ') }}",
+                        "height": 160,
+                        "width": 300,
+                        "color": 4,
+                    },
+                    "id": "note-success",
+                    "name": "Success Output",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [1140, 180],
+                },
+                {
+                    "parameters": {
+                        "content": "=## ❌ Failed\n\n**Errors:** {{ $json.errors ? $json.errors.join(', ') : ($json.detail || 'Unknown error') }}\n\n**Common Issues:**\n- Group slug doesn't exist\n- Group is disabled\n- No channels in group\n- Invalid API key",
+                        "height": 220,
+                        "width": 300,
+                        "color": 5,
+                    },
+                    "id": "note-failure",
+                    "name": "Error Output",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [1140, 360],
+                },
+            ],
+            "connections": {
+                "Click to Test": {
+                    "main": [[{"node": "Send to Group", "type": "main", "index": 0}]],
+                },
+                "Send to Group": {
+                    "main": [[{"node": "Check Result", "type": "main", "index": 0}]],
+                },
+                "Check Result": {
+                    "main": [
+                        [{"node": "Success Output", "type": "main", "index": 0}],
+                        [{"node": "Error Output", "type": "main", "index": 0}],
+                    ],
+                },
+            },
+            "settings": {
+                "executionOrder": "v1",
+            },
+        }
+
+    def generate_notification_test_workflow(
+        self, webhook_url: str, api_key: str
+    ) -> Dict[str, Any]:
+        """
+        Generate a test workflow for notification webhook.
+        This workflow has a manual trigger and sends a test notification.
+        DEPRECATED: Use generate_broadcast_test_workflow instead.
+        """
+        # For backwards compatibility, generate the broadcast workflow
+        return self.generate_broadcast_test_workflow(webhook_url)
+
     async def create_notification_test_workflow(
         self, webhook_url: str, api_key: str
     ) -> Dict[str, Any]:
-        """Create the notification test workflow in n8n."""
-        workflow = self.generate_notification_test_workflow(webhook_url, api_key)
+        """Create the notification test workflow in n8n (broadcasts to all)."""
+        workflow = self.generate_broadcast_test_workflow(webhook_url)
+        return await self.create_workflow(workflow)
+
+    async def create_channel_test_workflow(
+        self, webhook_url: str
+    ) -> Dict[str, Any]:
+        """Create a workflow that targets a specific channel."""
+        workflow = self.generate_channel_test_workflow(webhook_url)
+        return await self.create_workflow(workflow)
+
+    async def create_group_test_workflow(
+        self, webhook_url: str
+    ) -> Dict[str, Any]:
+        """Create a workflow that targets a notification group."""
+        workflow = self.generate_group_test_workflow(webhook_url)
         return await self.create_workflow(workflow)
 
 
