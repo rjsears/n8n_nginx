@@ -677,44 +677,69 @@ def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
 
     routes = []
 
-    # Find the main server block (port 443)
-    # Look for location blocks that don't have $is_trusted check
-    # Pattern: location /path/ { ... } where the block doesn't contain $is_trusted
+    # We need to find location blocks that:
+    # 1. Proxy to http://n8n (the main n8n upstream, not n8n_portainer, n8n_management, etc.)
+    # 2. Don't have $is_trusted or $access_level checks
+    # 3. Are webhook-related paths
 
-    # First, find all location blocks in the 443 server block
-    # We'll look for location blocks followed by their content
+    # Use a more careful approach - find location blocks and their full content
+    # by counting braces
+    def extract_location_blocks(content):
+        """Extract location blocks with proper brace matching."""
+        blocks = []
+        i = 0
+        while i < len(content):
+            # Find "location"
+            match = re.search(r'location\s+(/[a-zA-Z0-9_/-]*)\s*\{', content[i:])
+            if not match:
+                break
 
-    # Extract the HTTPS server block (listen 443 ssl)
-    server_443_match = re.search(
-        r'server\s*\{[^}]*listen\s+443\s+ssl[^}]*\}',
-        config_content,
-        re.DOTALL
-    )
+            path = match.group(1)
+            start = i + match.start()
+            brace_start = i + match.end() - 1  # Position of opening brace
 
-    # If we can't find a clean server block, use a different approach
-    # Look for location blocks with proxy_pass http://n8n that don't have $is_trusted
-    location_pattern = r'location\s+(/[a-zA-Z0-9_/-]*)\s*\{([^}]+)\}'
+            # Count braces to find the matching closing brace
+            brace_count = 1
+            j = brace_start + 1
+            while j < len(content) and brace_count > 0:
+                if content[j] == '{':
+                    brace_count += 1
+                elif content[j] == '}':
+                    brace_count -= 1
+                j += 1
 
-    for match in re.finditer(location_pattern, config_content, re.DOTALL):
-        path = match.group(1)
-        block_content = match.group(2)
+            if brace_count == 0:
+                block_content = content[brace_start + 1:j - 1]
+                blocks.append((path, block_content, start))
 
-        # Skip internal nginx locations
-        if path in ['/', '/healthz', '/api/', '/api/auth/verify', '/api/ws/', '/api/backups/download/']:
+            i = j if brace_count == 0 else i + match.end()
+
+        return blocks
+
+    location_blocks = extract_location_blocks(config_content)
+
+    # Skip paths that are clearly not webhook routes
+    skip_paths = ['/', '/healthz', '/api/', '/api/auth/verify', '/api/ws/',
+                  '/api/backups/download/', '/adminer/', '/logs/', '/portainer/',
+                  '/management/', '/grafana/', '/prometheus/']
+
+    for path, block_content, start_pos in location_blocks:
+        # Skip non-webhook paths
+        if path in skip_paths or not path.startswith('/webhook'):
             continue
 
-        # Check if this is a public route (no $is_trusted check)
+        # Check if this is a public route (no $is_trusted or $access_level check)
         has_trusted_check = '$is_trusted' in block_content or '$access_level' in block_content
 
-        # Check if it proxies to n8n
-        proxies_to_n8n = 'proxy_pass http://n8n' in block_content
+        # Check if it proxies to n8n (exactly "http://n8n", not "http://n8n_something")
+        # Use regex to match "proxy_pass http://n8n;" or "proxy_pass http://n8n/"
+        proxies_to_n8n = bool(re.search(r'proxy_pass\s+http://n8n[;/\s]', block_content))
 
         if proxies_to_n8n and not has_trusted_check:
             # This is a public route to n8n
             # Try to extract description from comment before location block
             description = ""
-            # Look for comment like # PUBLIC: description
-            pre_context = config_content[:match.start()]
+            pre_context = config_content[:start_pos]
             last_comment = re.search(r'#\s*(?:PUBLIC:?)?\s*([^\n]+)\s*$', pre_context)
             if last_comment:
                 description = last_comment.group(1).strip()
