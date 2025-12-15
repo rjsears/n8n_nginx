@@ -62,15 +62,34 @@ COMMON_EMOJIS = {
 class NtfyService:
     """Service to interact with the NTFY server."""
 
-    def __init__(self, base_url: Optional[str] = None):
+    def __init__(self, base_url: Optional[str] = None, public_url: Optional[str] = None):
         """
         Initialize the NTFY service.
 
         Args:
-            base_url: NTFY server URL. Defaults to local container or env var.
+            base_url: NTFY server URL for internal communication. Defaults to local container or env var.
+            public_url: NTFY public URL for documentation/examples. Defaults to env var or constructs from DOMAIN.
         """
+        # Internal URL for container-to-container communication
         self.base_url = base_url or os.environ.get("NTFY_BASE_URL", "http://n8n_ntfy:80")
         self.base_url = self.base_url.rstrip("/")
+
+        # Public URL for external access (used in examples/documentation)
+        if public_url:
+            self.public_url = public_url.rstrip("/")
+        else:
+            # Try NTFY_PUBLIC_URL first, then construct from DOMAIN
+            env_public_url = os.environ.get("NTFY_PUBLIC_URL")
+            if env_public_url:
+                self.public_url = env_public_url.rstrip("/")
+            else:
+                # Construct from DOMAIN env var (e.g., ntfy.loft.aero)
+                domain = os.environ.get("DOMAIN", "")
+                if domain:
+                    self.public_url = f"https://ntfy.{domain}"
+                else:
+                    # Fallback to placeholder
+                    self.public_url = "https://ntfy.your-domain.com"
 
     async def health_check(self) -> Dict[str, Any]:
         """

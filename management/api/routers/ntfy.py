@@ -814,59 +814,83 @@ async def get_integration_examples(
     _=Depends(get_current_user),
     category: Optional[str] = None,
 ):
-    """Get example integration code snippets."""
+    """Get example integration code snippets with dynamic NTFY URL."""
+    # Use the public URL from ntfy_service (configured from environment)
+    ntfy_url = ntfy_service.public_url
+
     examples = [
         IntegrationExample(
             name="Basic cURL",
             description="Send a simple notification using cURL",
             category="curl",
-            code='''curl -X POST \\
+            code=f'''curl -X POST \\
   -H "Content-Type: application/json" \\
-  -d '{"topic":"alerts","message":"Hello World!","title":"Test"}' \\
-  https://your-domain.com/ntfy''',
+  -d '{{"topic":"alerts","message":"Hello World!","title":"Test"}}' \\
+  {ntfy_url}''',
             variables={"topic": "alerts", "message": "Hello World!"},
         ),
         IntegrationExample(
             name="cURL with Priority & Tags",
             description="Send with priority and emoji tags",
             category="curl",
-            code='''curl -X POST \\
+            code=f'''curl -X POST \\
   -H "Content-Type: application/json" \\
-  -d '{
+  -d '{{
     "topic": "alerts",
     "message": "Server CPU at 95%",
     "title": "High CPU Alert",
     "priority": 4,
     "tags": ["warning", "computer"]
-  }' \\
-  https://your-domain.com/ntfy''',
+  }}' \\
+  {ntfy_url}''',
         ),
         IntegrationExample(
             name="cURL with Actions",
             description="Send notification with action buttons",
             category="curl",
-            code='''curl -X POST \\
+            code=f'''curl -X POST \\
   -H "Content-Type: application/json" \\
-  -d '{
+  -d '{{
     "topic": "alerts",
     "message": "Deployment ready for approval",
     "title": "Deploy Request",
     "actions": [
-      {"action": "view", "label": "View PR", "url": "https://github.com/..."},
-      {"action": "http", "label": "Approve", "url": "https://api.example.com/deploy/approve"}
+      {{"action": "view", "label": "View PR", "url": "https://github.com/..."}},
+      {{"action": "http", "label": "Approve", "url": "https://api.example.com/deploy/approve"}}
     ]
-  }' \\
-  https://your-domain.com/ntfy''',
+  }}' \\
+  {ntfy_url}''',
         ),
         IntegrationExample(
-            name="n8n HTTP Request",
-            description="Configure n8n HTTP Request node for NTFY",
+            name="n8n HTTP Request (External)",
+            description="Configure n8n HTTP Request node to send NTFY notifications externally",
             category="n8n",
-            code='''{
+            code=f'''{{
   "method": "POST",
-  "url": "https://your-domain.com/ntfy",
-  "headers": {
+  "url": "{ntfy_url}",
+  "headers": {{
     "Content-Type": "application/json"
+  }},
+  "body": {{
+    "topic": "{{{{ $json.topic }}}}",
+    "message": "{{{{ $json.message }}}}",
+    "title": "{{{{ $json.title }}}}",
+    "priority": 3,
+    "tags": ["n8n", "workflow"]
+  }}
+}}''',
+        ),
+        IntegrationExample(
+            name="n8n HTTP Request (Internal)",
+            description="Configure n8n to send via management API (recommended for internal workflows)",
+            category="n8n",
+            code='''// Use this URL when n8n and management are on the same Docker network
+{
+  "method": "POST",
+  "url": "http://n8n_management:8000/api/ntfy/send",
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer {{ $credentials.managementApiKey }}"
   },
   "body": {
     "topic": "{{ $json.topic }}",
@@ -881,17 +905,17 @@ async def get_integration_examples(
             name="Python requests",
             description="Send notification using Python",
             category="python",
-            code='''import requests
+            code=f'''import requests
 
 response = requests.post(
-    "https://your-domain.com/ntfy",
-    json={
+    "{ntfy_url}",
+    json={{
         "topic": "alerts",
         "message": "Hello from Python!",
         "title": "Python Notification",
         "priority": 3,
         "tags": ["python", "tada"]
-    }
+    }}
 )
 print(response.json())''',
         ),
@@ -899,15 +923,33 @@ print(response.json())''',
             name="Scheduled Message",
             description="Send a delayed/scheduled notification",
             category="curl",
-            code='''curl -X POST \\
+            code=f'''curl -X POST \\
   -H "Content-Type: application/json" \\
-  -d '{
+  -d '{{
     "topic": "reminders",
     "message": "Time for your meeting!",
     "title": "Reminder",
     "delay": "30m"
-  }' \\
-  https://your-domain.com/ntfy''',
+  }}' \\
+  {ntfy_url}''',
+        ),
+        IntegrationExample(
+            name="JavaScript/Node.js",
+            description="Send notification using fetch API",
+            category="javascript",
+            code=f'''const response = await fetch("{ntfy_url}", {{
+  method: "POST",
+  headers: {{ "Content-Type": "application/json" }},
+  body: JSON.stringify({{
+    topic: "alerts",
+    message: "Hello from JavaScript!",
+    title: "JS Notification",
+    priority: 3,
+    tags: ["javascript"]
+  }})
+}});
+const result = await response.json();
+console.log(result);''',
         ),
     ]
 
@@ -923,7 +965,8 @@ async def generate_webhook_url(
     _=Depends(get_current_user),
 ):
     """Generate a webhook URL for a topic with example usage."""
-    base_url = ntfy_service.base_url.replace("http://n8n_ntfy:80", "https://your-domain.com/ntfy")
+    # Use the public URL for external webhook documentation
+    base_url = ntfy_service.public_url
 
     return WebhookUrlResponse(
         url=f"{base_url}/{topic}",
