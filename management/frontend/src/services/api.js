@@ -144,7 +144,8 @@ export const notificationsApi = {
   regenerateWebhookKey: () => api.post('/notifications/webhook/regenerate-key'),
   // n8n API integration
   getN8nStatus: () => api.get('/notifications/webhook/n8n-status'),
-  createTestWorkflow: () => api.post('/notifications/webhook/create-test-workflow'),
+  createTestWorkflow: (workflowType = 'broadcast') => api.post(`/notifications/webhook/create-test-workflow?workflow_type=${workflowType}`),
+  createAllTestWorkflows: () => api.post('/notifications/webhook/create-all-test-workflows'),
 }
 
 export const emailApi = {
