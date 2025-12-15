@@ -84,40 +84,30 @@ class GeneralConfigUpdate(BaseModel):
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR)$")
 
 
-class EnvVariableUpdate(BaseModel):
-    """Update an environment variable in the .env file."""
-    key: str = Field(..., min_length=1, description="Environment variable name")
-    value: str = Field(..., description="Environment variable value")
+# Access Control schemas
+class IPRange(BaseModel):
+    """IP range configuration."""
+    cidr: str = Field(..., min_length=1, description="CIDR notation (e.g., 192.168.1.0/24)")
+    description: str = Field(default="", description="Description of the IP range")
+    access_level: str = Field(default="internal", pattern="^(internal|external)$")
 
 
-class EnvVariableResponse(BaseModel):
-    """Response for environment variable operations."""
-    key: str
-    is_set: bool
-    masked_value: Optional[str] = None
-    requires_restart: bool = False
-    affected_containers: List[str] = []
+class AccessControlConfig(BaseModel):
+    """Access control configuration."""
+    enabled: bool = True
+    ip_ranges: List[IPRange] = []
 
 
-class DebugModeUpdate(BaseModel):
-    """Update debug mode setting."""
-    enabled: bool = Field(..., description="Enable or disable debug mode")
-
-
-class DebugModeResponse(BaseModel):
-    """Debug mode status response."""
+class AccessControlResponse(BaseModel):
+    """Access control configuration response."""
     enabled: bool
-    log_level: str
+    ip_ranges: List[IPRange]
+    nginx_config_path: str
+    last_updated: Optional[datetime] = None
 
 
-class ContainerRestartRequest(BaseModel):
-    """Request to restart a container."""
-    container_name: str = Field(..., min_length=1)
-    reason: Optional[str] = None
-
-
-class ContainerRestartResponse(BaseModel):
-    """Response for container restart operation."""
-    success: bool
-    message: str
-    container_name: str
+class AddIPRangeRequest(BaseModel):
+    """Request to add an IP range."""
+    cidr: str = Field(..., min_length=1, description="CIDR notation (e.g., 192.168.1.0/24)")
+    description: str = Field(default="", description="Description of the IP range")
+    access_level: str = Field(default="internal", pattern="^(internal|external)$")

@@ -172,6 +172,13 @@ export const settingsApi = {
   setDebugMode: (enabled) => api.put('/settings/debug', { enabled }),
   // Container restart
   restartContainer: (containerName, reason) => api.post('/settings/container/restart', { container_name: containerName, reason }),
+  // Access Control
+  getAccessControl: () => api.get('/settings/access-control'),
+  updateAccessControl: (data) => api.put('/settings/access-control', data),
+  addIpRange: (data) => api.post('/settings/access-control/ip', data),
+  deleteIpRange: (cidr) => api.delete(`/settings/access-control/ip/${encodeURIComponent(cidr)}`),
+  reloadNginx: () => api.post('/settings/access-control/reload-nginx'),
+  getDefaultIpRanges: () => api.get('/settings/access-control/defaults'),
   // Aliases for view compatibility
   getAll: () => api.get('/settings/'),
 }

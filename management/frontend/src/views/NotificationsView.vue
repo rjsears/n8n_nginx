@@ -1,14 +1,24 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useNotificationStore } from '@/stores/notifications'
-import { notificationsApi } from '@/services/api'
+import { notificationsApi, ntfyApi } from '@/services/api'
+import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import NotificationServiceDialog from '@/components/notifications/NotificationServiceDialog.vue'
+// NTFY Components
+import MessageComposer from '@/components/ntfy/MessageComposer.vue'
+import TemplateBuilder from '@/components/ntfy/TemplateBuilder.vue'
+import TopicsManager from '@/components/ntfy/TopicsManager.vue'
+import SavedMessages from '@/components/ntfy/SavedMessages.vue'
+import MessageHistory from '@/components/ntfy/MessageHistory.vue'
+import ServerSettings from '@/components/ntfy/ServerSettings.vue'
+import IntegrationHub from '@/components/ntfy/IntegrationHub.vue'
 import {
   BellIcon,
   PlusIcon,
@@ -32,10 +42,34 @@ import {
   PlayIcon,
   Cog6ToothIcon,
   ClockIcon,
+  MegaphoneIcon,
+  DocumentTextIcon,
+  HashtagIcon,
+  BookmarkIcon,
+  CodeBracketIcon,
 } from '@heroicons/vue/24/outline'
 
+const route = useRoute()
 const themeStore = useThemeStore()
 const notificationStore = useNotificationStore()
+
+// Main tab navigation (Channels vs NTFY Push)
+const mainTab = ref('channels')
+
+// Main tabs configuration
+const mainTabs = [
+  { id: 'channels', name: 'Channels', icon: BellIcon },
+  { id: 'ntfy', name: 'NTFY Push', icon: MegaphoneIcon },
+]
+
+// Watch for query param to switch tabs
+watch(() => route.query.tab, (newTab) => {
+  if (newTab === 'ntfy') {
+    mainTab.value = 'ntfy'
+  } else if (newTab === 'channels') {
+    mainTab.value = 'channels'
+  }
+}, { immediate: true })
 
 const loading = ref(true)
 const channels = ref([])
@@ -289,6 +323,262 @@ async function confirmDelete() {
 }
 
 onMounted(loadData)
+
+// ==================== NTFY Section ====================
+
+// NTFY State
+const ntfyLoading = ref(true)
+const ntfyHealth = ref({ healthy: false, status: 'unknown' })
+const ntfyStatus = ref({})
+const ntfyActiveTab = ref('composer')
+
+// NTFY Data
+const ntfyTopics = ref([])
+const ntfyTemplates = ref([])
+const ntfySavedMessages = ref([])
+const ntfyHistory = ref([])
+const ntfyServerConfig = ref({})
+const ntfyEmojiCategories = ref({})
+const ntfyIntegrationExamples = ref([])
+
+// NTFY Tabs configuration
+const ntfyTabs = [
+  { id: 'composer', name: 'Compose', icon: PaperAirplaneIcon },
+  { id: 'templates', name: 'Templates', icon: DocumentTextIcon },
+  { id: 'topics', name: 'Topics', icon: HashtagIcon },
+  { id: 'saved', name: 'Saved', icon: BookmarkIcon },
+  { id: 'history', name: 'History', icon: ClockIcon },
+  { id: 'settings', name: 'Settings', icon: Cog6ToothIcon },
+  { id: 'integrations', name: 'Integrations', icon: CodeBracketIcon },
+]
+
+// NTFY Formatters
+function formatNtfyTime(dateStr) {
+  if (!dateStr) return 'Never'
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now - date
+
+  if (diff < 60000) return 'Just now'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
+  return date.toLocaleDateString()
+}
+
+// NTFY Load data
+async function loadNtfyData() {
+  ntfyLoading.value = true
+  try {
+    // Load health and status in parallel
+    const [healthRes, statusRes] = await Promise.all([
+      api.ntfy.health(),
+      api.ntfy.status(),
+    ])
+    ntfyHealth.value = healthRes.data
+    ntfyStatus.value = statusRes.data
+
+    // Load other data
+    const [topicsRes, templatesRes, savedRes, historyRes, configRes, emojisRes, examplesRes] = await Promise.all([
+      api.ntfy.getTopics(),
+      api.ntfy.getTemplates(),
+      api.ntfy.getSavedMessages(),
+      api.ntfy.getHistory({ limit: 50 }),
+      api.ntfy.getConfig(),
+      api.ntfy.getEmojiCategories(),
+      api.ntfy.getExamples(),
+    ])
+
+    ntfyTopics.value = topicsRes.data || []
+    ntfyTemplates.value = templatesRes.data || []
+    ntfySavedMessages.value = savedRes.data || []
+    ntfyHistory.value = historyRes.data || []
+    ntfyServerConfig.value = configRes.data || {}
+    ntfyEmojiCategories.value = emojisRes.data || {}
+    ntfyIntegrationExamples.value = examplesRes.data || []
+  } catch (error) {
+    console.error('Failed to load NTFY data:', error)
+  } finally {
+    ntfyLoading.value = false
+  }
+}
+
+// Watch for tab change to load NTFY data
+watch(mainTab, (newTab) => {
+  if (newTab === 'ntfy' && ntfyLoading.value) {
+    loadNtfyData()
+  }
+})
+
+// NTFY Message handlers
+async function handleNtfySendMessage(message) {
+  try {
+    const res = await api.ntfy.send(message)
+    if (res.data.success) {
+      // Refresh history
+      const historyRes = await api.ntfy.getHistory({ limit: 50 })
+      ntfyHistory.value = historyRes.data || []
+      // Refresh status
+      const statusRes = await api.ntfy.status()
+      ntfyStatus.value = statusRes.data
+      return { success: true }
+    }
+    return { success: false, error: res.data.error }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+async function handleNtfySaveMessage(message) {
+  try {
+    await api.ntfy.createSavedMessage(message)
+    const savedRes = await api.ntfy.getSavedMessages()
+    ntfySavedMessages.value = savedRes.data || []
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+// NTFY Template handlers
+async function handleNtfyCreateTemplate(template) {
+  try {
+    await api.ntfy.createTemplate(template)
+    const res = await api.ntfy.getTemplates()
+    ntfyTemplates.value = res.data || []
+    // Refresh status
+    const statusRes = await api.ntfy.status()
+    ntfyStatus.value = statusRes.data
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+async function handleNtfyUpdateTemplate(id, template) {
+  try {
+    await api.ntfy.updateTemplate(id, template)
+    const res = await api.ntfy.getTemplates()
+    ntfyTemplates.value = res.data || []
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+async function handleNtfyDeleteTemplate(id) {
+  try {
+    await api.ntfy.deleteTemplate(id)
+    const res = await api.ntfy.getTemplates()
+    ntfyTemplates.value = res.data || []
+    // Refresh status
+    const statusRes = await api.ntfy.status()
+    ntfyStatus.value = statusRes.data
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+async function handleNtfyPreviewTemplate(data) {
+  try {
+    const res = await api.ntfy.previewTemplate(data)
+    return res.data
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+// NTFY Topic handlers
+async function handleNtfyCreateTopic(topic) {
+  try {
+    await api.ntfy.createTopic(topic)
+    const res = await api.ntfy.getTopics()
+    ntfyTopics.value = res.data || []
+    // Refresh status
+    const statusRes = await api.ntfy.status()
+    ntfyStatus.value = statusRes.data
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+async function handleNtfyUpdateTopic(id, topic) {
+  try {
+    await api.ntfy.updateTopic(id, topic)
+    const res = await api.ntfy.getTopics()
+    ntfyTopics.value = res.data || []
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+async function handleNtfyDeleteTopic(id) {
+  try {
+    await api.ntfy.deleteTopic(id)
+    const res = await api.ntfy.getTopics()
+    ntfyTopics.value = res.data || []
+    // Refresh status
+    const statusRes = await api.ntfy.status()
+    ntfyStatus.value = statusRes.data
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+// NTFY Saved message handlers
+async function handleNtfySendSavedMessage(id) {
+  try {
+    const res = await api.ntfy.sendSavedMessage(id)
+    if (res.data.success) {
+      // Refresh history
+      const historyRes = await api.ntfy.getHistory({ limit: 50 })
+      ntfyHistory.value = historyRes.data || []
+      // Refresh status
+      const statusRes = await api.ntfy.status()
+      ntfyStatus.value = statusRes.data
+      return { success: true }
+    }
+    return { success: false, error: res.data.error }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+async function handleNtfyDeleteSavedMessage(id) {
+  try {
+    await api.ntfy.deleteSavedMessage(id)
+    const res = await api.ntfy.getSavedMessages()
+    ntfySavedMessages.value = res.data || []
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
+// NTFY History handlers
+async function loadMoreNtfyHistory() {
+  try {
+    const res = await api.ntfy.getHistory({ limit: 50, offset: ntfyHistory.value.length })
+    ntfyHistory.value = [...ntfyHistory.value, ...(res.data || [])]
+  } catch (error) {
+    console.error('Failed to load more history:', error)
+  }
+}
+
+// NTFY Config handler
+async function handleNtfyUpdateConfig(config) {
+  try {
+    await api.ntfy.updateConfig(config)
+    const res = await api.ntfy.getConfig()
+    ntfyServerConfig.value = res.data || {}
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
 </script>
 
 <template>
@@ -304,10 +594,10 @@ onMounted(loadData)
         >
           Notifications
         </h1>
-        <p class="text-secondary mt-1">Configure notification channels and view history</p>
+        <p class="text-secondary mt-1">Configure notification channels and push notifications</p>
       </div>
       <button
-        v-if="!loading && channels.length > 0"
+        v-if="mainTab === 'channels' && !loading && channels.length > 0"
         @click="openAddDialog"
         :class="[
           'btn-primary flex items-center gap-2',
@@ -319,9 +609,31 @@ onMounted(loadData)
       </button>
     </div>
 
-    <LoadingSpinner v-if="loading" size="lg" text="Loading notifications..." class="py-12" />
+    <!-- Main Tab Navigation -->
+    <div class="border-b border-gray-200 dark:border-gray-700">
+      <nav class="flex -mb-px space-x-4">
+        <button
+          v-for="tab in mainTabs"
+          :key="tab.id"
+          @click="mainTab = tab.id"
+          :class="[
+            'flex items-center px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+            mainTab === tab.id
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+          ]"
+        >
+          <component :is="tab.icon" class="w-5 h-5 mr-2" />
+          {{ tab.name }}
+        </button>
+      </nav>
+    </div>
 
-    <template v-else>
+    <!-- Channels Tab Content -->
+    <template v-if="mainTab === 'channels'">
+      <LoadingSpinner v-if="loading" size="lg" text="Loading notifications..." class="py-12" />
+
+      <template v-else>
       <!-- Stats Grid -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card :neon="true" :padding="false">
@@ -799,6 +1111,131 @@ onMounted(loadData)
           </div>
         </Transition>
       </Card>
+      </template>
+    </template>
+
+    <!-- NTFY Push Tab Content -->
+    <template v-else-if="mainTab === 'ntfy'">
+      <LoadingSpinner v-if="ntfyLoading" size="lg" text="Loading NTFY..." class="py-12" />
+
+      <template v-else>
+        <!-- NTFY Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-secondary">Status</p>
+                  <p class="text-xl font-bold" :class="ntfyHealth.healthy ? 'text-green-500' : 'text-red-500'">
+                    {{ ntfyHealth.healthy ? 'Connected' : 'Disconnected' }}
+                  </p>
+                </div>
+                <div :class="['w-3 h-3 rounded-full', ntfyHealth.healthy ? 'bg-green-500' : 'bg-red-500']"></div>
+              </div>
+            </div>
+          </Card>
+
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <p class="text-sm text-secondary">Topics</p>
+              <p class="text-xl font-bold text-primary">{{ ntfyStatus.topics_count || 0 }}</p>
+            </div>
+          </Card>
+
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <p class="text-sm text-secondary">Templates</p>
+              <p class="text-xl font-bold text-primary">{{ ntfyStatus.templates_count || 0 }}</p>
+            </div>
+          </Card>
+
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <p class="text-sm text-secondary">Messages Today</p>
+              <p class="text-xl font-bold text-primary">{{ ntfyStatus.messages_today || 0 }}</p>
+            </div>
+          </Card>
+        </div>
+
+        <!-- NTFY Sub-Tabs -->
+        <Card :neon="true" :padding="false">
+          <div class="border-b border-gray-200 dark:border-gray-700">
+            <nav class="flex -mb-px overflow-x-auto">
+              <button
+                v-for="tab in ntfyTabs"
+                :key="tab.id"
+                @click="ntfyActiveTab = tab.id"
+                :class="[
+                  'px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors',
+                  ntfyActiveTab === tab.id
+                    ? 'border-orange-500 text-orange-600 dark:text-orange-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                ]"
+              >
+                <component :is="tab.icon" class="w-5 h-5 inline-block mr-2 -mt-0.5" />
+                {{ tab.name }}
+              </button>
+            </nav>
+          </div>
+
+          <div class="p-6">
+            <!-- Message Composer Tab -->
+            <div v-if="ntfyActiveTab === 'composer'" class="space-y-6">
+              <MessageComposer
+                :topics="ntfyTopics"
+                :emoji-categories="ntfyEmojiCategories"
+                @send="handleNtfySendMessage"
+                @save="handleNtfySaveMessage"
+              />
+            </div>
+
+            <!-- Templates Tab -->
+            <div v-else-if="ntfyActiveTab === 'templates'" class="space-y-6">
+              <TemplateBuilder
+                :templates="ntfyTemplates"
+                @create="handleNtfyCreateTemplate"
+                @update="handleNtfyUpdateTemplate"
+                @delete="handleNtfyDeleteTemplate"
+                @preview="handleNtfyPreviewTemplate"
+              />
+            </div>
+
+            <!-- Topics Tab -->
+            <div v-else-if="ntfyActiveTab === 'topics'" class="space-y-6">
+              <TopicsManager
+                :topics="ntfyTopics"
+                @create="handleNtfyCreateTopic"
+                @update="handleNtfyUpdateTopic"
+                @delete="handleNtfyDeleteTopic"
+              />
+            </div>
+
+            <!-- Saved Messages Tab -->
+            <div v-else-if="ntfyActiveTab === 'saved'" class="space-y-6">
+              <SavedMessages
+                :messages="ntfySavedMessages"
+                @send="handleNtfySendSavedMessage"
+                @delete="handleNtfyDeleteSavedMessage"
+              />
+            </div>
+
+            <!-- History Tab -->
+            <div v-else-if="ntfyActiveTab === 'history'" class="space-y-6">
+              <MessageHistory :history="ntfyHistory" @load-more="loadMoreNtfyHistory" />
+            </div>
+
+            <!-- Settings Tab -->
+            <div v-else-if="ntfyActiveTab === 'settings'" class="space-y-6">
+              <ServerSettings :config="ntfyServerConfig" @update="handleNtfyUpdateConfig" />
+            </div>
+
+            <!-- Integration Hub Tab -->
+            <div v-else-if="ntfyActiveTab === 'integrations'" class="space-y-6">
+              <IntegrationHub :examples="ntfyIntegrationExamples" :topics="ntfyTopics" />
+            </div>
+          </div>
+        </Card>
+      </template>
     </template>
 
     <!-- Delete Confirmation Dialog -->

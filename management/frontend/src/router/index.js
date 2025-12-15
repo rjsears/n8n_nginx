@@ -10,7 +10,6 @@ import ContainersView from '@/views/ContainersView.vue'
 import FlowsView from '@/views/FlowsView.vue'
 import SystemView from '@/views/SystemView.vue'
 import SettingsView from '@/views/SettingsView.vue'
-import NtfyView from '@/views/NtfyView.vue'
 
 const routes = [
   {
@@ -62,10 +61,9 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    // Redirect /ntfy to notifications with ntfy tab
     path: '/ntfy',
-    name: 'ntfy',
-    component: NtfyView,
-    meta: { requiresAuth: true },
+    redirect: { name: 'notifications', query: { tab: 'ntfy' } },
   },
   {
     path: '/:pathMatch(.*)*',

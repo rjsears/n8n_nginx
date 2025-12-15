@@ -1,9 +1,5 @@
 """
 Settings API routes.
-
-IMPORTANT: Route order matters in FastAPI!
-Specific routes (like /debug, /env, /nfs) must come BEFORE
-catch-all routes like /{key} to be matched correctly.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,9 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from typing import List, Dict, Any
 from datetime import datetime, UTC
-import os
-import re
-import logging
 
 from api.database import get_db
 from api.dependencies import get_current_user
@@ -26,127 +19,15 @@ from api.schemas.settings import (
     SystemConfigUpdate,
     NFSConfigUpdate,
     NFSStatusResponse,
-    EnvVariableUpdate,
-    EnvVariableResponse,
-    DebugModeUpdate,
-    DebugModeResponse,
-    ContainerRestartRequest,
-    ContainerRestartResponse,
+    IPRange,
+    AccessControlConfig,
+    AccessControlResponse,
+    AddIPRangeRequest,
 )
 from api.schemas.common import SuccessResponse
 
-logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Path to host .env file (mounted in docker-compose)
-HOST_ENV_FILE = "/app/host_env/.env"
-
-# Allowed environment variable keys for security
-ALLOWED_ENV_KEYS = {
-    "N8N_API_KEY": {
-        "requires_restart": False,
-        "affected_containers": [],
-        "description": "n8n REST API key for workflow management",
-    },
-    "CLOUDFLARE_TUNNEL_TOKEN": {
-        "requires_restart": True,
-        "affected_containers": ["n8n_cloudflared"],
-        "description": "Cloudflare Tunnel authentication token",
-    },
-    "TAILSCALE_AUTH_KEY": {
-        "requires_restart": True,
-        "affected_containers": ["n8n_tailscale"],
-        "description": "Tailscale authentication key",
-    },
-}
-
-
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-def _read_env_file() -> Dict[str, str]:
-    """Read the host .env file and return as dict."""
-    env_vars = {}
-    if os.path.exists(HOST_ENV_FILE):
-        try:
-            with open(HOST_ENV_FILE, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    # Skip empty lines and comments
-                    if not line or line.startswith('#'):
-                        continue
-                    # Parse KEY=VALUE
-                    if '=' in line:
-                        key, _, value = line.partition('=')
-                        key = key.strip()
-                        value = value.strip()
-                        # Remove quotes if present
-                        if value and value[0] in ('"', "'") and value[-1] == value[0]:
-                            value = value[1:-1]
-                        env_vars[key] = value
-        except Exception as e:
-            logger.error(f"Error reading .env file: {e}")
-    return env_vars
-
-
-def _write_env_file(env_vars: Dict[str, str], key: str, value: str) -> bool:
-    """
-    Update a specific key in the .env file.
-    Preserves comments and formatting.
-    """
-    if not os.path.exists(HOST_ENV_FILE):
-        logger.error(f".env file not found at {HOST_ENV_FILE}")
-        return False
-
-    try:
-        # Read current file content
-        with open(HOST_ENV_FILE, 'r') as f:
-            lines = f.readlines()
-
-        # Update or add the key
-        key_found = False
-        new_lines = []
-        pattern = re.compile(rf'^{re.escape(key)}\s*=')
-
-        for line in lines:
-            if pattern.match(line.strip()):
-                # Replace this line with new value
-                new_lines.append(f"{key}={value}\n")
-                key_found = True
-            else:
-                new_lines.append(line)
-
-        # If key wasn't found, add it at the end
-        if not key_found:
-            # Add a newline if file doesn't end with one
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines.append('\n')
-            new_lines.append(f"{key}={value}\n")
-
-        # Write back
-        with open(HOST_ENV_FILE, 'w') as f:
-            f.writelines(new_lines)
-
-        logger.info(f"Updated environment variable: {key}")
-        return True
-    except Exception as e:
-        logger.error(f"Error writing to .env file: {e}")
-        return False
-
-
-def _mask_value(value: str) -> str:
-    """Mask sensitive value for display, showing only first/last few chars."""
-    if not value:
-        return ""
-    if len(value) <= 8:
-        return "*" * len(value)
-    return f"{value[:4]}...{value[-4:]}"
-
-
-# =============================================================================
-# Root and Categories Routes (no path parameters)
-# =============================================================================
 
 @router.get("/", response_model=List[SettingValue])
 async def list_settings(
@@ -177,180 +58,118 @@ async def list_categories(
     return [row[0] for row in result.all()]
 
 
-# =============================================================================
-# Debug Mode Management (MUST come before /{key} catch-all)
-# =============================================================================
-
-@router.get("/debug", response_model=DebugModeResponse)
-async def get_debug_mode(
+@router.get("/{key}", response_model=SettingValue)
+async def get_setting(
+    key: str,
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get current debug mode status."""
+    """Get a specific setting."""
     result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == "debug_mode")
+        select(SettingsModel).where(SettingsModel.key == key)
     )
     setting = result.scalar_one_or_none()
 
-    enabled = setting.value if setting else False
-    log_level = "DEBUG" if enabled else "INFO"
+    if not setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Setting not found",
+        )
 
-    return DebugModeResponse(enabled=enabled, log_level=log_level)
+    return SettingValue.model_validate(setting)
 
 
-@router.put("/debug", response_model=DebugModeResponse)
-async def update_debug_mode(
-    update: DebugModeUpdate,
+@router.put("/{key}", response_model=SettingValue)
+async def update_setting(
+    key: str,
+    update: SettingUpdate,
     user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Enable or disable debug mode."""
+    """Update a setting."""
     result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == "debug_mode")
+        select(SettingsModel).where(SettingsModel.key == key)
     )
     setting = result.scalar_one_or_none()
 
-    if setting:
-        setting.value = update.enabled
-        setting.updated_at = datetime.now(UTC)
-        setting.updated_by = user.id
-    else:
-        # Create the setting if it doesn't exist
-        setting = SettingsModel(
-            key="debug_mode",
-            value=update.enabled,
-            category="system",
-            description="Enable verbose logging and debug information",
-            is_secret=False,
-            updated_by=user.id,
+    if not setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Setting not found",
         )
-        db.add(setting)
+
+    setting.value = update.value
+    if update.description is not None:
+        setting.description = update.description
+    setting.updated_at = datetime.now(UTC)
+    setting.updated_by = user.id
 
     await db.commit()
+    await db.refresh(setting)
 
-    # Update the logging level in the current process
-    import logging
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG if update.enabled else logging.INFO)
-
-    log_level = "DEBUG" if update.enabled else "INFO"
-    logger.info(f"Debug mode {'enabled' if update.enabled else 'disabled'} by user {user.username}")
-
-    return DebugModeResponse(enabled=update.enabled, log_level=log_level)
+    return SettingValue.model_validate(setting)
 
 
-# =============================================================================
-# Environment Variable Management (MUST come before /{key} catch-all)
-# =============================================================================
+# System Configuration
 
-@router.get("/env", response_model=List[EnvVariableResponse])
-async def list_env_variables(
+@router.get("/config/{config_type}", response_model=SystemConfigResponse)
+async def get_system_config(
+    config_type: str,
     _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """List all manageable environment variables."""
-    env_vars = _read_env_file()
-    results = []
-
-    for key, config in ALLOWED_ENV_KEYS.items():
-        # First check runtime environment variable (from docker-compose)
-        value = os.environ.get(key, "")
-        # If not in runtime env, check the .env file
-        if not value:
-            value = env_vars.get(key, "")
-
-        results.append(EnvVariableResponse(
-            key=key,
-            is_set=bool(value),
-            masked_value=_mask_value(value) if value else None,
-            requires_restart=config["requires_restart"],
-            affected_containers=config["affected_containers"],
-        ))
-
-    return results
-
-
-@router.get("/env/{key}", response_model=EnvVariableResponse)
-async def get_env_variable(
-    key: str,
-    _=Depends(get_current_user),
-):
-    """Get an environment variable status (value is masked)."""
-    if key not in ALLOWED_ENV_KEYS:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access to '{key}' is not allowed",
-        )
-
-    # First check runtime environment variable (from docker-compose)
-    value = os.environ.get(key, "")
-
-    # If not in runtime env, check the .env file
-    if not value:
-        env_vars = _read_env_file()
-        value = env_vars.get(key, "")
-
-    config = ALLOWED_ENV_KEYS[key]
-
-    return EnvVariableResponse(
-        key=key,
-        is_set=bool(value),
-        masked_value=_mask_value(value) if value else None,
-        requires_restart=config["requires_restart"],
-        affected_containers=config["affected_containers"],
+    """Get system configuration by type."""
+    result = await db.execute(
+        select(SystemConfig).where(SystemConfig.config_type == config_type)
     )
+    config = result.scalar_one_or_none()
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Configuration '{config_type}' not found",
+        )
+
+    return SystemConfigResponse.model_validate(config)
 
 
-@router.put("/env/{key}", response_model=EnvVariableResponse)
-async def update_env_variable(
-    key: str,
-    update: EnvVariableUpdate,
+@router.put("/config/{config_type}", response_model=SystemConfigResponse)
+async def update_system_config(
+    config_type: str,
+    update: SystemConfigUpdate,
     _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Update an environment variable in the .env file."""
-    if key not in ALLOWED_ENV_KEYS:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access to '{key}' is not allowed",
-        )
-
-    if update.key != key:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Key in URL must match key in body",
-        )
-
-    env_vars = _read_env_file()
-    success = _write_env_file(env_vars, key, update.value)
-
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update .env file",
-        )
-
-    # Also update the current process environment so changes take effect immediately
-    os.environ[key] = update.value
-    logger.info(f"Updated runtime environment variable: {key}")
-
-    config = ALLOWED_ENV_KEYS[key]
-    return EnvVariableResponse(
-        key=key,
-        is_set=True,
-        masked_value=_mask_value(update.value),
-        requires_restart=config["requires_restart"],
-        affected_containers=config["affected_containers"],
+    """Update system configuration."""
+    result = await db.execute(
+        select(SystemConfig).where(SystemConfig.config_type == config_type)
     )
+    config = result.scalar_one_or_none()
+
+    if config:
+        config.config = update.config
+        config.updated_at = datetime.now(UTC)
+    else:
+        config = SystemConfig(
+            config_type=config_type,
+            config=update.config,
+        )
+        db.add(config)
+
+    await db.commit()
+    await db.refresh(config)
+
+    return SystemConfigResponse.model_validate(config)
 
 
-# =============================================================================
-# NFS Configuration (MUST come before /{key} catch-all)
-# =============================================================================
+# NFS Configuration
 
 @router.get("/nfs/status", response_model=NFSStatusResponse)
 async def get_nfs_status(
     _=Depends(get_current_user),
 ):
     """Get NFS mount status."""
+    import os
     from api.config import settings
 
     nfs_server = settings.nfs_server
@@ -428,238 +247,333 @@ async def update_nfs_config(
     return SuccessResponse(message="NFS configuration updated. Restart container to apply changes.")
 
 
-# =============================================================================
-# System Configuration (MUST come before /{key} catch-all)
-# =============================================================================
+# Access Control Configuration
+# Default IP ranges for common networks
+DEFAULT_IP_RANGES = [
+    {"cidr": "127.0.0.1/32", "description": "Localhost", "access_level": "internal"},
+    {"cidr": "10.0.0.0/8", "description": "Private Class A", "access_level": "internal"},
+    {"cidr": "172.16.0.0/12", "description": "Private Class B", "access_level": "internal"},
+    {"cidr": "192.168.0.0/16", "description": "Private Class C", "access_level": "internal"},
+    {"cidr": "100.64.0.0/10", "description": "Tailscale CGNAT", "access_level": "internal"},
+]
 
-@router.get("/config/{config_type}", response_model=SystemConfigResponse)
-async def get_system_config(
-    config_type: str,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get system configuration by type."""
-    result = await db.execute(
-        select(SystemConfig).where(SystemConfig.config_type == config_type)
-    )
-    config = result.scalar_one_or_none()
-
-    if not config:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Configuration '{config_type}' not found",
-        )
-
-    return SystemConfigResponse.model_validate(config)
+# Path to nginx config (mounted from host)
+NGINX_CONFIG_PATH = "/app/host_config/nginx.conf"
+HOST_ENV_PATH = "/app/host_env/.env"
 
 
-@router.put("/config/{config_type}", response_model=SystemConfigResponse)
-async def update_system_config(
-    config_type: str,
-    update: SystemConfigUpdate,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update system configuration."""
-    result = await db.execute(
-        select(SystemConfig).where(SystemConfig.config_type == config_type)
-    )
-    config = result.scalar_one_or_none()
+def parse_nginx_geo_block(config_content: str) -> List[Dict[str, Any]]:
+    """Parse the geo block from nginx.conf to extract IP ranges."""
+    import re
 
-    if config:
-        config.config = update.config
-        config.updated_at = datetime.now(UTC)
-    else:
-        config = SystemConfig(
-            config_type=config_type,
-            config=update.config,
-        )
-        db.add(config)
+    ip_ranges = []
 
-    await db.commit()
-    await db.refresh(config)
+    # Find the geo block
+    geo_match = re.search(r'geo\s+\$access_level\s*\{([^}]+)\}', config_content, re.DOTALL)
+    if not geo_match:
+        return ip_ranges
 
-    return SystemConfigResponse.model_validate(config)
+    geo_content = geo_match.group(1)
 
+    # Parse each line in the geo block
+    for line in geo_content.strip().split('\n'):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
 
-# =============================================================================
-# Appearance Settings (MUST come before /{key} catch-all)
-# =============================================================================
+        # Check for comment at end of line (description)
+        comment = ""
+        if '#' in line:
+            parts = line.split('#', 1)
+            line = parts[0].strip()
+            comment = parts[1].strip()
 
-@router.get("/appearance", response_model=SettingValue)
-async def get_appearance_settings(
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get appearance settings (theme, layout, etc.)."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == "appearance")
-    )
-    setting = result.scalar_one_or_none()
+        # Skip default directive
+        if line.startswith('default'):
+            continue
 
-    if not setting:
-        # Return default settings if none exist
-        return SettingValue(
-            key="appearance",
-            value={
-                "preset": "modern_light",
-                "layout": "horizontal",
-                "colorMode": "light",
-                "neonEffects": False,
-            },
-            category="user",
-            description="User appearance preferences",
-            is_secret=False,
-            updated_at=datetime.now(UTC),
-        )
+        # Parse CIDR and access level
+        parts = line.rstrip(';').split()
+        if len(parts) >= 2:
+            cidr = parts[0]
+            access_level = parts[1].strip('"').strip("'")
+            ip_ranges.append({
+                "cidr": cidr,
+                "description": comment,
+                "access_level": access_level,
+            })
 
-    return SettingValue.model_validate(setting)
+    return ip_ranges
 
 
-@router.put("/appearance", response_model=SettingValue)
-async def update_appearance_settings(
-    update: SettingUpdate,
-    user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update appearance settings."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == "appearance")
-    )
-    setting = result.scalar_one_or_none()
+def generate_nginx_geo_block(ip_ranges: List[Dict[str, Any]]) -> str:
+    """Generate nginx geo block from IP ranges."""
+    lines = ['geo $access_level {', '    default          "external";']
 
-    if setting:
-        setting.value = update.value
-        setting.updated_at = datetime.now(UTC)
-        setting.updated_by = user.id
-    else:
-        # Create the setting if it doesn't exist
-        setting = SettingsModel(
-            key="appearance",
-            value=update.value,
-            category="user",
-            description="User appearance preferences",
-            is_secret=False,
-            updated_by=user.id,
-        )
-        db.add(setting)
+    for ip_range in ip_ranges:
+        cidr = ip_range.get("cidr", "")
+        access_level = ip_range.get("access_level", "internal")
+        description = ip_range.get("description", "")
 
-    await db.commit()
-    await db.refresh(setting)
+        # Format the line with proper alignment
+        line = f'    {cidr:<20} "{access_level}";'
+        if description:
+            line += f'  # {description}'
+        lines.append(line)
 
-    return SettingValue.model_validate(setting)
+    lines.append('}')
+    return '\n'.join(lines)
 
 
-# =============================================================================
-# Container Restart (MUST come before /{key} catch-all)
-# =============================================================================
+def update_nginx_config_geo_block(config_content: str, ip_ranges: List[Dict[str, Any]]) -> str:
+    """Update the geo block in nginx.conf content."""
+    import re
 
-@router.post("/container/restart", response_model=ContainerRestartResponse)
-async def restart_container(
-    request: ContainerRestartRequest,
+    new_geo_block = generate_nginx_geo_block(ip_ranges)
+
+    # Try to replace existing geo block
+    pattern = r'geo\s+\$access_level\s*\{[^}]+\}'
+    if re.search(pattern, config_content, re.DOTALL):
+        return re.sub(pattern, new_geo_block, config_content, flags=re.DOTALL)
+
+    # If no geo block exists, add it at the beginning of http block
+    http_match = re.search(r'(http\s*\{)', config_content)
+    if http_match:
+        insert_pos = http_match.end()
+        return config_content[:insert_pos] + '\n    ' + new_geo_block + '\n' + config_content[insert_pos:]
+
+    # Fallback: add at the beginning
+    return new_geo_block + '\n\n' + config_content
+
+
+@router.get("/access-control", response_model=AccessControlResponse)
+async def get_access_control(
     _=Depends(get_current_user),
 ):
-    """Restart a specific Docker container."""
-    import docker
+    """Get current access control configuration."""
+    import os
 
-    # Only allow restarting specific containers for security
-    allowed_containers = {
-        "n8n_cloudflared": "Cloudflare Tunnel",
-        "n8n_tailscale": "Tailscale VPN",
-        "n8n": "n8n",
-        "n8n_nginx": "Nginx",
-    }
-
-    if request.container_name not in allowed_containers:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Restarting '{request.container_name}' is not allowed",
-        )
+    ip_ranges = []
+    last_updated = None
+    enabled = False
 
     try:
-        client = docker.from_env()
-        container = client.containers.get(request.container_name)
-        container.restart(timeout=30)
+        if os.path.exists(NGINX_CONFIG_PATH):
+            with open(NGINX_CONFIG_PATH, 'r') as f:
+                content = f.read()
 
-        logger.info(f"Restarted container '{request.container_name}'" +
-                    (f" - Reason: {request.reason}" if request.reason else ""))
+            # Check if geo block exists
+            if 'geo $access_level' in content:
+                enabled = True
+                ip_ranges = parse_nginx_geo_block(content)
 
-        return ContainerRestartResponse(
-            success=True,
-            message=f"Container '{allowed_containers[request.container_name]}' restarted successfully",
-            container_name=request.container_name,
-        )
-    except docker.errors.NotFound:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{request.container_name}' not found",
-        )
-    except docker.errors.APIError as e:
-        logger.error(f"Docker API error restarting container: {e}")
+            # Get last modified time
+            stat = os.stat(NGINX_CONFIG_PATH)
+            last_updated = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to restart container: {str(e)}",
+            detail=f"Failed to read nginx config: {str(e)}",
         )
 
+    return AccessControlResponse(
+        enabled=enabled,
+        ip_ranges=[IPRange(**r) for r in ip_ranges],
+        nginx_config_path=NGINX_CONFIG_PATH,
+        last_updated=last_updated,
+    )
 
-# =============================================================================
-# Generic Settings CRUD (MUST be LAST - catch-all routes)
-# =============================================================================
 
-@router.get("/{key}", response_model=SettingValue)
-async def get_setting(
-    key: str,
+@router.put("/access-control", response_model=SuccessResponse)
+async def update_access_control(
+    config: AccessControlConfig,
     _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Get a specific setting by key."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == key)
-    )
-    setting = result.scalar_one_or_none()
+    """Update access control configuration (replace all IP ranges)."""
+    import os
 
-    if not setting:
+    try:
+        if not os.path.exists(NGINX_CONFIG_PATH):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nginx config file not found",
+            )
+
+        with open(NGINX_CONFIG_PATH, 'r') as f:
+            content = f.read()
+
+        # Convert IP ranges to dict format
+        ip_ranges = [r.model_dump() for r in config.ip_ranges]
+
+        # Update the geo block
+        new_content = update_nginx_config_geo_block(content, ip_ranges)
+
+        with open(NGINX_CONFIG_PATH, 'w') as f:
+            f.write(new_content)
+
+        return SuccessResponse(message="Access control configuration updated. Reload nginx to apply changes.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Setting not found",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update access control: {str(e)}",
         )
 
-    return SettingValue.model_validate(setting)
 
-
-@router.put("/{key}", response_model=SettingValue)
-async def update_setting(
-    key: str,
-    update: SettingUpdate,
-    user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+@router.post("/access-control/ip", response_model=SuccessResponse)
+async def add_ip_range(
+    ip_range: AddIPRangeRequest,
+    _=Depends(get_current_user),
 ):
-    """Update or create a setting by key."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == key)
-    )
-    setting = result.scalar_one_or_none()
+    """Add a new IP range to access control."""
+    import os
 
-    if setting:
-        # Update existing setting
-        setting.value = update.value
-        if update.description is not None:
-            setting.description = update.description
-        setting.updated_at = datetime.now(UTC)
-        setting.updated_by = user.id
-    else:
-        # Create new setting if it doesn't exist
-        setting = SettingsModel(
-            key=key,
-            value=update.value,
-            category="user",
-            description=update.description or f"User setting: {key}",
-            is_secret=False,
-            updated_by=user.id,
+    try:
+        if not os.path.exists(NGINX_CONFIG_PATH):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nginx config file not found",
+            )
+
+        with open(NGINX_CONFIG_PATH, 'r') as f:
+            content = f.read()
+
+        # Get existing ranges
+        ip_ranges = parse_nginx_geo_block(content)
+
+        # Check for duplicate
+        for existing in ip_ranges:
+            if existing["cidr"] == ip_range.cidr:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"IP range {ip_range.cidr} already exists",
+                )
+
+        # Add new range
+        ip_ranges.append({
+            "cidr": ip_range.cidr,
+            "description": ip_range.description,
+            "access_level": ip_range.access_level,
+        })
+
+        # Update config
+        new_content = update_nginx_config_geo_block(content, ip_ranges)
+
+        with open(NGINX_CONFIG_PATH, 'w') as f:
+            f.write(new_content)
+
+        return SuccessResponse(message=f"IP range {ip_range.cidr} added. Reload nginx to apply changes.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add IP range: {str(e)}",
         )
-        db.add(setting)
 
-    await db.commit()
-    await db.refresh(setting)
 
-    return SettingValue.model_validate(setting)
+@router.delete("/access-control/ip/{cidr:path}", response_model=SuccessResponse)
+async def delete_ip_range(
+    cidr: str,
+    _=Depends(get_current_user),
+):
+    """Delete an IP range from access control."""
+    import os
+
+    try:
+        if not os.path.exists(NGINX_CONFIG_PATH):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nginx config file not found",
+            )
+
+        with open(NGINX_CONFIG_PATH, 'r') as f:
+            content = f.read()
+
+        # Get existing ranges
+        ip_ranges = parse_nginx_geo_block(content)
+
+        # Find and remove the range
+        original_count = len(ip_ranges)
+        ip_ranges = [r for r in ip_ranges if r["cidr"] != cidr]
+
+        if len(ip_ranges) == original_count:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"IP range {cidr} not found",
+            )
+
+        # Update config
+        new_content = update_nginx_config_geo_block(content, ip_ranges)
+
+        with open(NGINX_CONFIG_PATH, 'w') as f:
+            f.write(new_content)
+
+        return SuccessResponse(message=f"IP range {cidr} deleted. Reload nginx to apply changes.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete IP range: {str(e)}",
+        )
+
+
+@router.post("/access-control/reload-nginx", response_model=SuccessResponse)
+async def reload_nginx(
+    _=Depends(get_current_user),
+):
+    """Reload nginx to apply access control changes."""
+    import subprocess
+    import shutil
+
+    try:
+        # Check if docker is available
+        docker_cmd = shutil.which("docker")
+        if not docker_cmd:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Docker command not found",
+            )
+
+        # Try to reload nginx container
+        result = subprocess.run(
+            ["docker", "exec", "nginx", "nginx", "-s", "reload"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr or result.stdout or "Unknown error"
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to reload nginx: {error_msg}",
+            )
+
+        return SuccessResponse(message="Nginx reloaded successfully")
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Nginx reload timed out",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reload nginx: {str(e)}",
+        )
+
+
+@router.get("/access-control/defaults", response_model=List[IPRange])
+async def get_default_ip_ranges(
+    _=Depends(get_current_user),
+):
+    """Get default IP ranges for common networks."""
+    return [IPRange(**r) for r in DEFAULT_IP_RANGES]

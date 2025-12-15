@@ -20,7 +20,6 @@ import {
   XMarkIcon,
   InformationCircleIcon,
   BugAntIcon,
-  MegaphoneIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -36,7 +35,6 @@ const navItems = [
   { name: 'Dashboard', route: 'dashboard', icon: HomeIcon, color: 'text-blue-500' },
   { name: 'Backups', route: 'backups', icon: CloudIcon, color: 'text-emerald-500' },
   { name: 'Notifications', route: 'notifications', icon: BellIcon, color: 'text-amber-500' },
-  { name: 'NTFY', route: 'ntfy', icon: MegaphoneIcon, color: 'text-orange-500' },
   { name: 'Containers', route: 'containers', icon: ServerStackIcon, color: 'text-purple-500' },
   { name: 'Flows', route: 'flows', icon: CubeTransparentIcon, color: 'text-cyan-500' },
   { name: 'System', route: 'system', icon: CpuChipIcon, color: 'text-rose-500' },
