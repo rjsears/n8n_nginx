@@ -14,6 +14,9 @@ from api.models.notifications import (
     NotificationRule,
     NotificationHistory,
     NotificationBatch,
+    NotificationGroup,
+    NotificationGroupMembership,
+    generate_slug,
 )
 from api.schemas.notifications import NotificationEventType
 from api.config import settings
@@ -257,10 +260,19 @@ class NotificationService:
         enabled: bool = True,
         webhook_enabled: bool = False,
         priority: int = 0,
+        slug: str = None,
     ) -> NotificationServiceModel:
         """Create a notification service."""
+        # Generate slug if not provided
+        if not slug:
+            slug = generate_slug(name)
+
+        # Ensure slug is unique
+        slug = await self._ensure_unique_slug(slug)
+
         service = NotificationServiceModel(
             name=name,
+            slug=slug,
             service_type=service_type,
             config=config,
             enabled=enabled,
@@ -270,8 +282,25 @@ class NotificationService:
         self.db.add(service)
         await self.db.commit()
         await self.db.refresh(service)
-        logger.info(f"Created notification service: {name} ({service_type})")
+        logger.info(f"Created notification service: {name} ({service_type}) with slug: {slug}")
         return service
+
+    async def _ensure_unique_slug(self, base_slug: str, exclude_id: int = None) -> str:
+        """Ensure slug is unique across services."""
+        slug = base_slug
+        counter = 1
+
+        while True:
+            query = select(NotificationServiceModel).where(NotificationServiceModel.slug == slug)
+            if exclude_id:
+                query = query.where(NotificationServiceModel.id != exclude_id)
+
+            result = await self.db.execute(query)
+            if result.scalar_one_or_none() is None:
+                return slug
+
+            slug = f"{base_slug}_{counter}"
+            counter += 1
 
     async def update_service(
         self,
@@ -334,6 +363,162 @@ class NotificationService:
 
             return {"success": False, "error": str(e)}
 
+    # Group management
+
+    async def get_groups(self) -> List[NotificationGroup]:
+        """Get all notification groups."""
+        result = await self.db.execute(
+            select(NotificationGroup).order_by(NotificationGroup.name)
+        )
+        return list(result.scalars().all())
+
+    async def get_group(self, group_id: int) -> Optional[NotificationGroup]:
+        """Get notification group by ID."""
+        result = await self.db.execute(
+            select(NotificationGroup).where(NotificationGroup.id == group_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_group_by_slug(self, slug: str) -> Optional[NotificationGroup]:
+        """Get notification group by slug."""
+        result = await self.db.execute(
+            select(NotificationGroup).where(NotificationGroup.slug == slug)
+        )
+        return result.scalar_one_or_none()
+
+    async def _ensure_unique_group_slug(self, base_slug: str, exclude_id: int = None) -> str:
+        """Ensure group slug is unique."""
+        slug = base_slug
+        counter = 1
+
+        while True:
+            query = select(NotificationGroup).where(NotificationGroup.slug == slug)
+            if exclude_id:
+                query = query.where(NotificationGroup.id != exclude_id)
+
+            result = await self.db.execute(query)
+            if result.scalar_one_or_none() is None:
+                return slug
+
+            slug = f"{base_slug}_{counter}"
+            counter += 1
+
+    async def create_group(
+        self,
+        name: str,
+        channel_ids: List[int],
+        description: str = None,
+        enabled: bool = True,
+        slug: str = None,
+    ) -> NotificationGroup:
+        """Create a notification group with channels."""
+        # Generate slug if not provided
+        if not slug:
+            slug = generate_slug(name)
+
+        # Ensure slug is unique
+        slug = await self._ensure_unique_group_slug(slug)
+
+        # Verify all channel IDs exist
+        for channel_id in channel_ids:
+            service = await self.get_service(channel_id)
+            if not service:
+                raise ValueError(f"Channel with ID {channel_id} not found")
+
+        group = NotificationGroup(
+            name=name,
+            slug=slug,
+            description=description,
+            enabled=enabled,
+        )
+        self.db.add(group)
+        await self.db.flush()  # Get the group ID
+
+        # Add channel memberships
+        for channel_id in channel_ids:
+            membership = NotificationGroupMembership(
+                group_id=group.id,
+                service_id=channel_id,
+            )
+            self.db.add(membership)
+
+        await self.db.commit()
+        await self.db.refresh(group)
+        logger.info(f"Created notification group: {name} with slug: {slug}, {len(channel_ids)} channels")
+        return group
+
+    async def update_group(
+        self,
+        group_id: int,
+        name: str = None,
+        slug: str = None,
+        description: str = None,
+        enabled: bool = None,
+        channel_ids: List[int] = None,
+    ) -> Optional[NotificationGroup]:
+        """Update a notification group."""
+        group = await self.get_group(group_id)
+        if not group:
+            return None
+
+        if name is not None:
+            group.name = name
+
+        if slug is not None:
+            # Ensure new slug is unique
+            slug = await self._ensure_unique_group_slug(slug, exclude_id=group_id)
+            group.slug = slug
+
+        if description is not None:
+            group.description = description
+
+        if enabled is not None:
+            group.enabled = enabled
+
+        if channel_ids is not None:
+            # Verify all channel IDs exist
+            for channel_id in channel_ids:
+                service = await self.get_service(channel_id)
+                if not service:
+                    raise ValueError(f"Channel with ID {channel_id} not found")
+
+            # Remove existing memberships
+            await self.db.execute(
+                delete(NotificationGroupMembership).where(
+                    NotificationGroupMembership.group_id == group_id
+                )
+            )
+
+            # Add new memberships
+            for channel_id in channel_ids:
+                membership = NotificationGroupMembership(
+                    group_id=group_id,
+                    service_id=channel_id,
+                )
+                self.db.add(membership)
+
+        group.updated_at = datetime.now(UTC)
+        await self.db.commit()
+        await self.db.refresh(group)
+        return group
+
+    async def delete_group(self, group_id: int) -> bool:
+        """Delete a notification group."""
+        result = await self.db.execute(
+            delete(NotificationGroup).where(NotificationGroup.id == group_id)
+        )
+        await self.db.commit()
+        return result.rowcount > 0
+
+    async def get_groups_for_service(self, service_id: int) -> List[NotificationGroup]:
+        """Get all groups that contain a specific service."""
+        result = await self.db.execute(
+            select(NotificationGroup)
+            .join(NotificationGroupMembership, NotificationGroupMembership.group_id == NotificationGroup.id)
+            .where(NotificationGroupMembership.service_id == service_id)
+        )
+        return list(result.scalars().all())
+
     # Webhook routing
 
     async def get_webhook_enabled_services(self) -> List[NotificationServiceModel]:
@@ -346,28 +531,137 @@ class NotificationService:
         )
         return list(result.scalars().all())
 
+    async def get_service_by_slug(self, slug: str) -> Optional[NotificationServiceModel]:
+        """Get a notification service by its slug."""
+        result = await self.db.execute(
+            select(NotificationServiceModel).where(NotificationServiceModel.slug == slug)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_services_in_group(self, group_slug: str) -> List[NotificationServiceModel]:
+        """Get all services in a group by the group's slug."""
+        result = await self.db.execute(
+            select(NotificationServiceModel)
+            .join(NotificationGroupMembership, NotificationGroupMembership.service_id == NotificationServiceModel.id)
+            .join(NotificationGroup, NotificationGroup.id == NotificationGroupMembership.group_id)
+            .where(NotificationGroup.slug == group_slug)
+            .where(NotificationGroup.enabled == True)
+        )
+        return list(result.scalars().all())
+
+    async def resolve_targets(self, targets: List[str]) -> Dict[str, Any]:
+        """
+        Resolve target specifications to actual services.
+
+        Returns:
+            {
+                "services": List[NotificationServiceModel],  # Deduplicated services
+                "targets_resolved": Dict[str, List[str]],    # Map of target -> resolved channel names
+                "errors": List[str]                          # Any resolution errors
+            }
+        """
+        services_map: Dict[int, NotificationServiceModel] = {}  # id -> service (for dedup)
+        targets_resolved: Dict[str, List[str]] = {}
+        errors: List[str] = []
+
+        for target in targets:
+            target = target.strip().lower()
+
+            if target == "all":
+                # Send to all webhook-enabled channels
+                all_services = await self.get_webhook_enabled_services()
+                targets_resolved["all"] = [s.name for s in all_services]
+                for s in all_services:
+                    services_map[s.id] = s
+
+            elif target.startswith("channel:"):
+                # Target a specific channel by slug
+                slug = target[8:]  # Remove "channel:" prefix
+                service = await self.get_service_by_slug(slug)
+                if service:
+                    if service.enabled and service.webhook_enabled:
+                        services_map[service.id] = service
+                        targets_resolved[target] = [service.name]
+                    else:
+                        errors.append(f"Channel '{slug}' is disabled or not webhook-enabled")
+                        targets_resolved[target] = []
+                else:
+                    errors.append(f"Channel '{slug}' not found")
+                    targets_resolved[target] = []
+
+            elif target.startswith("group:"):
+                # Target all channels in a group
+                slug = target[6:]  # Remove "group:" prefix
+                group_services = await self.get_services_in_group(slug)
+                if group_services:
+                    resolved_names = []
+                    for s in group_services:
+                        if s.enabled and s.webhook_enabled:
+                            services_map[s.id] = s
+                            resolved_names.append(s.name)
+                    targets_resolved[target] = resolved_names
+                    if not resolved_names:
+                        errors.append(f"Group '{slug}' has no enabled webhook channels")
+                else:
+                    # Check if group exists but is empty
+                    group = await self.get_group_by_slug(slug)
+                    if group:
+                        errors.append(f"Group '{slug}' has no channels")
+                    else:
+                        errors.append(f"Group '{slug}' not found")
+                    targets_resolved[target] = []
+
+            else:
+                errors.append(f"Invalid target format: '{target}'. Use 'all', 'channel:slug', or 'group:slug'")
+                targets_resolved[target] = []
+
+        return {
+            "services": list(services_map.values()),
+            "targets_resolved": targets_resolved,
+            "errors": errors,
+        }
+
     async def send_webhook_notification(
         self,
         title: str,
         message: str,
         priority: str = "normal",
+        targets: List[str] = None,
     ) -> Dict[str, Any]:
         """
-        Send notification to all webhook-enabled services.
-        Used by n8n workflows to send notifications without configuring each channel.
+        Send notification to targeted channels.
+
+        Args:
+            title: Notification title
+            message: Notification message
+            priority: Priority level (low, normal, high, critical)
+            targets: List of targets - "all", "channel:slug", or "group:slug"
         """
-        services = await self.get_webhook_enabled_services()
+        if not targets:
+            return {
+                "success": False,
+                "channels_notified": 0,
+                "channels": [],
+                "targets_resolved": {},
+                "errors": ["No targets specified. Use 'all', 'channel:slug', or 'group:slug'"],
+            }
+
+        # Resolve targets to services
+        resolved = await self.resolve_targets(targets)
+        services = resolved["services"]
+        targets_resolved = resolved["targets_resolved"]
+        errors = resolved["errors"]
 
         if not services:
             return {
                 "success": False,
                 "channels_notified": 0,
                 "channels": [],
-                "errors": ["No webhook-enabled notification channels configured"],
+                "targets_resolved": targets_resolved,
+                "errors": errors if errors else ["No channels matched the specified targets"],
             }
 
         channels_notified = []
-        errors = []
 
         for service in services:
             try:
@@ -376,7 +670,7 @@ class NotificationService:
                 elif service.service_type == "ntfy":
                     success = await self.dispatcher.send_ntfy(service.config, title, message, priority)
                 elif service.service_type == "webhook":
-                    success = await self.dispatcher.send_webhook(service.config, title, message, {"source": "n8n_webhook"})
+                    success = await self.dispatcher.send_webhook(service.config, title, message, {"source": "n8n_webhook", "targets": targets})
                 elif service.service_type == "email":
                     success = await self.dispatcher.send_email(service.config, title, message, priority)
                 else:
@@ -388,7 +682,7 @@ class NotificationService:
                     # Log to history
                     history = NotificationHistory(
                         event_type="webhook.notification",
-                        event_data={"title": title, "message": message[:500], "priority": priority},
+                        event_data={"title": title, "message": message[:500], "priority": priority, "targets": targets},
                         severity=priority,
                         service_id=service.id,
                         service_name=service.name,
@@ -406,7 +700,7 @@ class NotificationService:
                 # Log failure to history
                 history = NotificationHistory(
                     event_type="webhook.notification",
-                    event_data={"title": title, "message": message[:500], "priority": priority},
+                    event_data={"title": title, "message": message[:500], "priority": priority, "targets": targets},
                     severity=priority,
                     service_id=service.id,
                     service_name=service.name,
@@ -422,6 +716,7 @@ class NotificationService:
             "success": len(channels_notified) > 0,
             "channels_notified": len(channels_notified),
             "channels": channels_notified,
+            "targets_resolved": targets_resolved,
             "errors": errors,
         }
 

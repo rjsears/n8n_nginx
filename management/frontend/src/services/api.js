@@ -118,11 +118,19 @@ export const containersApi = {
 }
 
 export const notificationsApi = {
+  // Channels (Services)
   getServices: () => api.get('/notifications/services'),
   createService: (data) => api.post('/notifications/services', data),
   updateService: (id, data) => api.put(`/notifications/services/${id}`, data),
   deleteService: (id) => api.delete(`/notifications/services/${id}`),
   testService: (id, data) => api.post(`/notifications/services/${id}/test`, data),
+  // Groups
+  getGroups: () => api.get('/notifications/groups'),
+  getGroup: (id) => api.get(`/notifications/groups/${id}`),
+  createGroup: (data) => api.post('/notifications/groups', data),
+  updateGroup: (id, data) => api.put(`/notifications/groups/${id}`, data),
+  deleteGroup: (id) => api.delete(`/notifications/groups/${id}`),
+  // Rules
   getRules: () => api.get('/notifications/rules'),
   createRule: (data) => api.post('/notifications/rules', data),
   updateRule: (id, data) => api.put(`/notifications/rules/${id}`, data),

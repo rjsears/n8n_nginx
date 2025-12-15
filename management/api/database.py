@@ -125,6 +125,58 @@ async def init_db() -> None:
     logger.info("Database initialized successfully")
 
 
+async def _migrate_notification_service_slugs(conn) -> None:
+    """Generate slugs for existing notification services that don't have one."""
+    import re
+
+    def generate_slug(name: str) -> str:
+        """Generate a URL-friendly slug from a name."""
+        slug = name.lower()
+        slug = re.sub(r'[^a-z0-9]+', '_', slug)
+        slug = slug.strip('_')
+        slug = re.sub(r'_+', '_', slug)
+        return slug
+
+    try:
+        # Get all services without slugs
+        result = await conn.execute(text("""
+            SELECT id, name FROM notification_services
+            WHERE slug IS NULL OR slug = ''
+        """))
+        services = result.fetchall()
+
+        if not services:
+            return
+
+        logger.info(f"Generating slugs for {len(services)} notification services...")
+
+        # Get existing slugs to avoid duplicates
+        existing = await conn.execute(text("""
+            SELECT slug FROM notification_services WHERE slug IS NOT NULL AND slug != ''
+        """))
+        existing_slugs = {row[0] for row in existing.fetchall()}
+
+        for service_id, name in services:
+            base_slug = generate_slug(name)
+            slug = base_slug
+            counter = 1
+
+            # Ensure uniqueness
+            while slug in existing_slugs:
+                slug = f"{base_slug}_{counter}"
+                counter += 1
+
+            existing_slugs.add(slug)
+
+            await conn.execute(text("""
+                UPDATE notification_services SET slug = :slug WHERE id = :id
+            """), {"slug": slug, "id": service_id})
+            logger.info(f"Generated slug '{slug}' for service '{name}'")
+
+    except Exception as e:
+        logger.warning(f"Failed to migrate notification service slugs: {e}")
+
+
 async def run_schema_migrations() -> None:
     """
     Run schema migrations to add missing columns to existing tables.
@@ -136,6 +188,8 @@ async def run_schema_migrations() -> None:
     migrations = [
         # notification_services.webhook_enabled added for webhook routing
         ("notification_services", "webhook_enabled", "BOOLEAN DEFAULT FALSE"),
+        # notification_services.slug added for targeted webhook routing
+        ("notification_services", "slug", "VARCHAR(100)"),
     ]
 
     async with engine.begin() as conn:
@@ -156,6 +210,9 @@ async def run_schema_migrations() -> None:
                     logger.info(f"Added column {table_name}.{column_name}")
             except Exception as e:
                 logger.warning(f"Migration check for {table_name}.{column_name} failed: {e}")
+
+        # Generate slugs for existing notification services that don't have one
+        await _migrate_notification_service_slugs(conn)
 
 
 async def close_db() -> None:

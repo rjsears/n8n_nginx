@@ -17,6 +17,9 @@ from api.schemas.notifications import (
     NotificationServiceCreate,
     NotificationServiceUpdate,
     NotificationServiceResponse,
+    NotificationGroupCreate,
+    NotificationGroupUpdate,
+    NotificationGroupResponse,
     NotificationRuleCreate,
     NotificationRuleUpdate,
     NotificationRuleResponse,
@@ -87,19 +90,39 @@ async def list_services(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all notification services."""
+    """List all notification services (channels)."""
     service = NotificationService(db)
     services = await service.get_services()
 
-    # Redact sensitive config values
+    # Redact sensitive config values and add group info
     result = []
     for s in services:
         config = dict(s.config)
         for key in ["password", "token", "secret", "api_key"]:
             if key in config:
                 config[key] = "***"
-        s.config = config
-        result.append(NotificationServiceResponse.model_validate(s))
+
+        # Get groups this service belongs to
+        groups = await service.get_groups_for_service(s.id)
+        group_slugs = [g.slug for g in groups]
+
+        response = NotificationServiceResponse(
+            id=s.id,
+            name=s.name,
+            slug=s.slug or "",
+            service_type=s.service_type,
+            enabled=s.enabled,
+            webhook_enabled=s.webhook_enabled,
+            config=config,
+            priority=s.priority,
+            last_test=s.last_test,
+            last_test_result=s.last_test_result,
+            last_test_error=s.last_test_error,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+            groups=group_slugs,
+        )
+        result.append(response)
 
     return result
 
@@ -110,10 +133,11 @@ async def create_service(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a notification service."""
+    """Create a notification service (channel)."""
     service = NotificationService(db)
     created = await service.create_service(
         name=data.name,
+        slug=data.slug,
         service_type=data.service_type.value,
         config=data.config,
         enabled=data.enabled,
@@ -205,6 +229,266 @@ async def test_service(
         )
 
     return {"success": True, "message": "Test notification sent"}
+
+
+# Groups
+
+@router.get("/groups", response_model=List[NotificationGroupResponse])
+async def list_groups(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all notification groups."""
+    service = NotificationService(db)
+    groups = await service.get_groups()
+
+    result = []
+    for g in groups:
+        # Get channels in this group with redacted config
+        channels = []
+        for membership in g.memberships:
+            s = membership.service
+            config = dict(s.config)
+            for key in ["password", "token", "secret", "api_key"]:
+                if key in config:
+                    config[key] = "***"
+
+            channels.append(NotificationServiceResponse(
+                id=s.id,
+                name=s.name,
+                slug=s.slug or "",
+                service_type=s.service_type,
+                enabled=s.enabled,
+                webhook_enabled=s.webhook_enabled,
+                config=config,
+                priority=s.priority,
+                last_test=s.last_test,
+                last_test_result=s.last_test_result,
+                last_test_error=s.last_test_error,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+                groups=[],  # Don't nest groups info
+            ))
+
+        result.append(NotificationGroupResponse(
+            id=g.id,
+            name=g.name,
+            slug=g.slug,
+            description=g.description,
+            enabled=g.enabled,
+            channel_count=len(channels),
+            channels=channels,
+            created_at=g.created_at,
+            updated_at=g.updated_at,
+        ))
+
+    return result
+
+
+@router.post("/groups", response_model=NotificationGroupResponse, status_code=status.HTTP_201_CREATED)
+async def create_group(
+    data: NotificationGroupCreate,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a notification group."""
+    service = NotificationService(db)
+
+    try:
+        created = await service.create_group(
+            name=data.name,
+            slug=data.slug,
+            description=data.description,
+            enabled=data.enabled,
+            channel_ids=data.channel_ids,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    # Build response with channels
+    channels = []
+    for membership in created.memberships:
+        s = membership.service
+        config = dict(s.config)
+        for key in ["password", "token", "secret", "api_key"]:
+            if key in config:
+                config[key] = "***"
+
+        channels.append(NotificationServiceResponse(
+            id=s.id,
+            name=s.name,
+            slug=s.slug or "",
+            service_type=s.service_type,
+            enabled=s.enabled,
+            webhook_enabled=s.webhook_enabled,
+            config=config,
+            priority=s.priority,
+            last_test=s.last_test,
+            last_test_result=s.last_test_result,
+            last_test_error=s.last_test_error,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+            groups=[],
+        ))
+
+    return NotificationGroupResponse(
+        id=created.id,
+        name=created.name,
+        slug=created.slug,
+        description=created.description,
+        enabled=created.enabled,
+        channel_count=len(channels),
+        channels=channels,
+        created_at=created.created_at,
+        updated_at=created.updated_at,
+    )
+
+
+@router.get("/groups/{group_id}", response_model=NotificationGroupResponse)
+async def get_group(
+    group_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a notification group."""
+    service = NotificationService(db)
+    group = await service.get_group(group_id)
+
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found",
+        )
+
+    # Build response with channels
+    channels = []
+    for membership in group.memberships:
+        s = membership.service
+        config = dict(s.config)
+        for key in ["password", "token", "secret", "api_key"]:
+            if key in config:
+                config[key] = "***"
+
+        channels.append(NotificationServiceResponse(
+            id=s.id,
+            name=s.name,
+            slug=s.slug or "",
+            service_type=s.service_type,
+            enabled=s.enabled,
+            webhook_enabled=s.webhook_enabled,
+            config=config,
+            priority=s.priority,
+            last_test=s.last_test,
+            last_test_result=s.last_test_result,
+            last_test_error=s.last_test_error,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+            groups=[],
+        ))
+
+    return NotificationGroupResponse(
+        id=group.id,
+        name=group.name,
+        slug=group.slug,
+        description=group.description,
+        enabled=group.enabled,
+        channel_count=len(channels),
+        channels=channels,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
+
+
+@router.put("/groups/{group_id}", response_model=NotificationGroupResponse)
+async def update_group(
+    group_id: int,
+    data: NotificationGroupUpdate,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a notification group."""
+    service = NotificationService(db)
+
+    try:
+        updated = await service.update_group(
+            group_id=group_id,
+            name=data.name,
+            slug=data.slug,
+            description=data.description,
+            enabled=data.enabled,
+            channel_ids=data.channel_ids,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found",
+        )
+
+    # Build response with channels
+    channels = []
+    for membership in updated.memberships:
+        s = membership.service
+        config = dict(s.config)
+        for key in ["password", "token", "secret", "api_key"]:
+            if key in config:
+                config[key] = "***"
+
+        channels.append(NotificationServiceResponse(
+            id=s.id,
+            name=s.name,
+            slug=s.slug or "",
+            service_type=s.service_type,
+            enabled=s.enabled,
+            webhook_enabled=s.webhook_enabled,
+            config=config,
+            priority=s.priority,
+            last_test=s.last_test,
+            last_test_result=s.last_test_result,
+            last_test_error=s.last_test_error,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+            groups=[],
+        ))
+
+    return NotificationGroupResponse(
+        id=updated.id,
+        name=updated.name,
+        slug=updated.slug,
+        description=updated.description,
+        enabled=updated.enabled,
+        channel_count=len(channels),
+        channels=channels,
+        created_at=updated.created_at,
+        updated_at=updated.updated_at,
+    )
+
+
+@router.delete("/groups/{group_id}", response_model=SuccessResponse)
+async def delete_group(
+    group_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a notification group."""
+    service = NotificationService(db)
+    deleted = await service.delete_group(group_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found",
+        )
+
+    return SuccessResponse(message="Group deleted")
 
 
 # Rules
@@ -387,10 +671,15 @@ async def send_webhook_notification(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Send notification to all webhook-enabled channels.
+    Send notification to targeted channels.
 
     This endpoint is designed for n8n workflows to send notifications
-    without needing to configure each notification channel individually.
+    to specific channels or groups.
+
+    Targets:
+    - "all" - sends to all webhook-enabled channels
+    - "channel:slug" - sends to a specific channel by its slug
+    - "group:slug" - sends to all channels in a group
 
     Authentication: Include API key as either:
     - Header: X-API-Key: your-api-key
@@ -417,12 +706,13 @@ async def send_webhook_notification(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Send to all webhook-enabled services
+    # Send to targeted channels
     service = NotificationService(db)
     result = await service.send_webhook_notification(
         title=request.title,
         message=request.message,
         priority=request.priority.value,
+        targets=request.targets,
     )
 
     return WebhookNotificationResponse(**result)
@@ -439,6 +729,17 @@ async def get_webhook_info(
     """
     api_key = await get_webhook_api_key_from_db(db)
 
+    # Get available channels and groups for targeting
+    service = NotificationService(db)
+    services = await service.get_webhook_enabled_services()
+    groups = await service.get_groups()
+
+    available_targets = {
+        "all": "Send to all webhook-enabled channels",
+        "channels": [{"slug": s.slug, "name": s.name} for s in services if s.slug],
+        "groups": [{"slug": g.slug, "name": g.name} for g in groups if g.enabled],
+    }
+
     return {
         "endpoint": "/api/notifications/webhook",
         "api_key": api_key,
@@ -452,7 +753,15 @@ async def get_webhook_info(
             "title": "string (optional, default: 'Notification')",
             "message": "string (required)",
             "priority": "string (optional: 'low', 'normal', 'high', 'critical')",
+            "targets": "array of strings (required): 'all', 'channel:slug', or 'group:slug'",
         },
+        "available_targets": available_targets,
+        "examples": [
+            {"targets": ["all"], "description": "Send to all webhook-enabled channels"},
+            {"targets": ["channel:devops_slack"], "description": "Send to a specific channel"},
+            {"targets": ["group:dev_ops"], "description": "Send to all channels in a group"},
+            {"targets": ["channel:ceo_phone", "group:management"], "description": "Multiple targets"},
+        ],
     }
 
 

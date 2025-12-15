@@ -11,6 +11,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import NotificationServiceDialog from '@/components/notifications/NotificationServiceDialog.vue'
+import NotificationGroupDialog from '@/components/notifications/NotificationGroupDialog.vue'
 // NTFY Components
 import MessageComposer from '@/components/ntfy/MessageComposer.vue'
 import TemplateBuilder from '@/components/ntfy/TemplateBuilder.vue'
@@ -53,12 +54,13 @@ const route = useRoute()
 const themeStore = useThemeStore()
 const notificationStore = useNotificationStore()
 
-// Main tab navigation (Channels vs NTFY Push)
+// Main tab navigation (Channels vs Groups vs NTFY Push)
 const mainTab = ref('channels')
 
 // Main tabs configuration
 const mainTabs = [
   { id: 'channels', name: 'Channels', icon: BellIcon },
+  { id: 'groups', name: 'Groups', icon: HashtagIcon },
   { id: 'ntfy', name: 'NTFY Push', icon: MegaphoneIcon },
 ]
 
@@ -68,11 +70,14 @@ watch(() => route.query.tab, (newTab) => {
     mainTab.value = 'ntfy'
   } else if (newTab === 'channels') {
     mainTab.value = 'channels'
+  } else if (newTab === 'groups') {
+    mainTab.value = 'groups'
   }
 }, { immediate: true })
 
 const loading = ref(true)
 const channels = ref([])
+const groups = ref([])
 const history = ref([])
 const webhookInfo = ref(null)
 const showApiKey = ref(false)
@@ -80,6 +85,10 @@ const webhookExpanded = ref(false)
 const historyExpanded = ref(false)
 const expandedHistoryItems = ref(new Set())
 const generatingKey = ref(false)
+
+// Groups dialog state
+const groupDialog = ref({ open: false, group: null })
+const deleteGroupDialog = ref({ open: false, group: null, loading: false })
 
 // Toggle individual history item expansion
 function toggleHistoryItem(itemId) {
@@ -109,11 +118,13 @@ const channelIcons = {
 // Stats - with defensive array checks
 const stats = computed(() => {
   const channelsList = Array.isArray(channels.value) ? channels.value : []
+  const groupsList = Array.isArray(groups.value) ? groups.value : []
   const historyList = Array.isArray(history.value) ? history.value : []
   return {
     total: channelsList.length,
     active: channelsList.filter((c) => c.enabled).length,
     webhookEnabled: channelsList.filter((c) => c.webhook_enabled).length,
+    groups: groupsList.length,
     sent: historyList.filter((h) => h.status === 'sent').length,
     failed: historyList.filter((h) => h.status === 'failed').length,
   }
@@ -122,13 +133,15 @@ const stats = computed(() => {
 async function loadData() {
   loading.value = true
   try {
-    const [servicesRes, historyRes, webhookRes] = await Promise.all([
+    const [servicesRes, groupsRes, historyRes, webhookRes] = await Promise.all([
       notificationsApi.getServices(),
+      notificationsApi.getGroups(),
       notificationsApi.getHistory(),
       notificationsApi.getWebhookInfo(),
     ])
     // Ensure we always have arrays
     channels.value = Array.isArray(servicesRes.data) ? servicesRes.data : []
+    groups.value = Array.isArray(groupsRes.data) ? groupsRes.data : []
     history.value = Array.isArray(historyRes.data) ? historyRes.data : []
     webhookInfo.value = webhookRes.data
   } catch (error) {
@@ -136,6 +149,7 @@ async function loadData() {
     notificationStore.error('Failed to load notification data')
     // Reset to empty arrays on error
     channels.value = []
+    groups.value = []
     history.value = []
   } finally {
     loading.value = false
@@ -276,6 +290,7 @@ async function handleServiceSave(formData) {
       // Update existing service
       const response = await notificationsApi.updateService(formData.id, {
         name: formData.name,
+        slug: formData.slug,
         service_type: formData.service_type,
         enabled: formData.enabled,
         webhook_enabled: formData.webhook_enabled,
@@ -291,6 +306,7 @@ async function handleServiceSave(formData) {
       // Create new service
       const response = await notificationsApi.createService({
         name: formData.name,
+        slug: formData.slug,
         service_type: formData.service_type,
         enabled: formData.enabled,
         webhook_enabled: formData.webhook_enabled,
@@ -303,6 +319,79 @@ async function handleServiceSave(formData) {
     serviceDialog.value.open = false
   } catch (error) {
     notificationStore.error('Failed to save channel: ' + (error.response?.data?.detail || 'Unknown error'))
+  }
+}
+
+// Group management functions
+function openAddGroupDialog() {
+  groupDialog.value = { open: true, group: null }
+}
+
+function openEditGroupDialog(group) {
+  groupDialog.value = { open: true, group }
+}
+
+function openDeleteGroupDialog(group) {
+  deleteGroupDialog.value = { open: true, group, loading: false }
+}
+
+async function handleGroupSave(formData) {
+  try {
+    if (formData.id) {
+      // Update existing group
+      const response = await notificationsApi.updateGroup(formData.id, {
+        name: formData.name,
+        slug: formData.slug,
+        description: formData.description,
+        enabled: formData.enabled,
+        channel_ids: formData.channel_ids,
+      })
+      const index = groups.value.findIndex(g => g.id === formData.id)
+      if (index !== -1) {
+        groups.value[index] = response.data
+      }
+      notificationStore.success('Group updated')
+    } else {
+      // Create new group
+      const response = await notificationsApi.createGroup({
+        name: formData.name,
+        slug: formData.slug,
+        description: formData.description,
+        enabled: formData.enabled,
+        channel_ids: formData.channel_ids,
+      })
+      groups.value.push(response.data)
+      notificationStore.success('Group created')
+    }
+    groupDialog.value.open = false
+  } catch (error) {
+    notificationStore.error('Failed to save group: ' + (error.response?.data?.detail || 'Unknown error'))
+  }
+}
+
+async function confirmDeleteGroup() {
+  if (!deleteGroupDialog.value.group) return
+
+  deleteGroupDialog.value.loading = true
+  try {
+    await notificationsApi.deleteGroup(deleteGroupDialog.value.group.id)
+    groups.value = groups.value.filter((g) => g.id !== deleteGroupDialog.value.group.id)
+    notificationStore.success('Group deleted')
+    deleteGroupDialog.value.open = false
+  } catch (error) {
+    notificationStore.error('Failed to delete group')
+  } finally {
+    deleteGroupDialog.value.loading = false
+  }
+}
+
+async function toggleGroup(group) {
+  try {
+    await notificationsApi.updateGroup(group.id, { enabled: !group.enabled })
+    group.enabled = !group.enabled
+    notificationStore.success(`Group ${group.enabled ? 'enabled' : 'disabled'}`)
+  } catch (error) {
+    notificationStore.error('Failed to update group')
   }
 }
 
@@ -1034,8 +1123,32 @@ async function handleNtfyUpdateConfig(config) {
                 <pre class="mt-1 overflow-x-auto whitespace-pre-wrap">{
   "title": "Alert Title",
   "message": "Your notification message",
-  "priority": "normal"
+  "priority": "normal",
+  "targets": ["all"]
 }</pre>
+              </div>
+            </div>
+
+            <!-- Targeting Examples -->
+            <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
+              <p class="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2">Target Examples:</p>
+              <div class="text-xs font-mono text-blue-600 dark:text-blue-400 space-y-2">
+                <div>
+                  <p class="text-blue-700 dark:text-blue-300 mb-1">All channels:</p>
+                  <code class="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded">"targets": ["all"]</code>
+                </div>
+                <div>
+                  <p class="text-blue-700 dark:text-blue-300 mb-1">Specific channel:</p>
+                  <code class="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded">"targets": ["channel:devops_slack"]</code>
+                </div>
+                <div>
+                  <p class="text-blue-700 dark:text-blue-300 mb-1">Group:</p>
+                  <code class="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded">"targets": ["group:dev_ops"]</code>
+                </div>
+                <div>
+                  <p class="text-blue-700 dark:text-blue-300 mb-1">Multiple targets:</p>
+                  <code class="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded">"targets": ["channel:ceo_phone", "group:management"]</code>
+                </div>
               </div>
             </div>
 
@@ -1111,6 +1224,197 @@ async function handleNtfyUpdateConfig(config) {
           </div>
         </Transition>
       </Card>
+      </template>
+    </template>
+
+    <!-- Groups Tab Content -->
+    <template v-else-if="mainTab === 'groups'">
+      <LoadingSpinner v-if="loading" size="lg" text="Loading groups..." class="py-12" />
+
+      <template v-else>
+        <!-- Groups Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
+                  <HashtagIcon class="h-5 w-5 text-indigo-500" />
+                </div>
+                <div>
+                  <p class="text-sm text-secondary">Total Groups</p>
+                  <p class="text-xl font-bold text-primary">{{ stats.groups }}</p>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
+                  <BellIcon class="h-5 w-5 text-blue-500" />
+                </div>
+                <div>
+                  <p class="text-sm text-secondary">Total Channels</p>
+                  <p class="text-xl font-bold text-primary">{{ stats.total }}</p>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card :neon="true" :padding="false">
+            <div class="p-4">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
+                  <LinkIcon class="h-5 w-5 text-green-500" />
+                </div>
+                <div>
+                  <p class="text-sm text-secondary">Webhook Enabled</p>
+                  <p class="text-xl font-bold text-primary">{{ stats.webhookEnabled }}</p>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        <!-- Groups List -->
+        <Card title="Notification Groups" subtitle="Group channels together for targeted notifications" :neon="true">
+          <template #actions>
+            <button
+              @click="openAddGroupDialog"
+              :class="[
+                'btn-primary flex items-center gap-2',
+                themeStore.isNeon ? 'neon-btn-cyan' : ''
+              ]"
+            >
+              <PlusIcon class="h-4 w-4" />
+              Add Group
+            </button>
+          </template>
+
+          <EmptyState
+            v-if="groups.length === 0"
+            :icon="HashtagIcon"
+            title="No groups configured"
+            description="Create groups to organize channels and target notifications."
+            action-text="Add Group"
+            @action="openAddGroupDialog"
+          />
+
+          <div v-else class="space-y-4">
+            <div
+              v-for="group in groups"
+              :key="group.id"
+              class="p-4 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
+            >
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-3">
+                  <div
+                    :class="[
+                      'p-2 rounded-lg',
+                      group.enabled
+                        ? 'bg-indigo-100 dark:bg-indigo-500/20'
+                        : 'bg-gray-100 dark:bg-gray-500/20'
+                    ]"
+                  >
+                    <HashtagIcon
+                      :class="[
+                        'h-5 w-5',
+                        group.enabled ? 'text-indigo-500' : 'text-gray-500'
+                      ]"
+                    />
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <p class="font-medium text-primary">{{ group.name }}</p>
+                      <StatusBadge :status="group.enabled ? 'active' : 'inactive'" size="sm" />
+                    </div>
+                    <p class="text-xs text-secondary mt-0.5">
+                      <span class="font-mono">group:{{ group.slug }}</span>
+                      <span class="mx-2">•</span>
+                      {{ group.channel_count }} channel{{ group.channel_count !== 1 ? 's' : '' }}
+                    </p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button @click="openEditGroupDialog(group)" class="btn-secondary p-2" title="Edit">
+                    <PencilSquareIcon class="h-4 w-4" />
+                  </button>
+                  <button
+                    @click="openDeleteGroupDialog(group)"
+                    class="btn-secondary p-2 text-red-500 hover:text-red-600"
+                    title="Delete"
+                  >
+                    <TrashIcon class="h-4 w-4" />
+                  </button>
+                  <label class="relative inline-flex items-center cursor-pointer ml-2">
+                    <input
+                      type="checkbox"
+                      :checked="group.enabled"
+                      @change="toggleGroup(group)"
+                      class="sr-only peer"
+                    />
+                    <div
+                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"
+                    ></div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Group description if present -->
+              <p v-if="group.description" class="text-sm text-secondary mb-3">{{ group.description }}</p>
+
+              <!-- Channels in group -->
+              <div v-if="group.channels && group.channels.length > 0" class="flex flex-wrap gap-2">
+                <div
+                  v-for="channel in group.channels"
+                  :key="channel.id"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                >
+                  <component
+                    :is="channelIcons[channel.service_type] || BellIcon"
+                    class="h-3.5 w-3.5"
+                  />
+                  {{ channel.name }}
+                  <span
+                    v-if="channel.webhook_enabled"
+                    class="w-1.5 h-1.5 rounded-full bg-green-500"
+                    title="Webhook enabled"
+                  ></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <!-- How to Use Groups -->
+        <Card title="How to Target Groups" subtitle="Use groups in your n8n webhooks" :neon="true">
+          <div class="space-y-4">
+            <p class="text-sm text-secondary">
+              When sending notifications from n8n, use the <code class="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono">targets</code> field to specify which groups or channels should receive the notification.
+            </p>
+
+            <div class="bg-gray-100 dark:bg-gray-700 rounded-lg p-4">
+              <p class="text-xs font-medium text-secondary mb-2">Example: Send to a specific group</p>
+              <pre class="text-xs font-mono text-gray-600 dark:text-gray-300 overflow-x-auto whitespace-pre-wrap">{
+  "title": "DevOps Alert",
+  "message": "Deployment failed on production",
+  "priority": "high",
+  "targets": ["group:dev_ops"]
+}</pre>
+            </div>
+
+            <div class="bg-gray-100 dark:bg-gray-700 rounded-lg p-4">
+              <p class="text-xs font-medium text-secondary mb-2">Example: Send to multiple targets</p>
+              <pre class="text-xs font-mono text-gray-600 dark:text-gray-300 overflow-x-auto whitespace-pre-wrap">{
+  "title": "Critical Alert",
+  "message": "Database connection lost",
+  "priority": "critical",
+  "targets": ["group:dev_ops", "channel:ceo_phone"]
+}</pre>
+            </div>
+          </div>
+        </Card>
       </template>
     </template>
 
@@ -1269,6 +1573,28 @@ async function handleNtfyUpdateConfig(config) {
       @save="handleServiceSave"
       @cancel="serviceDialog.open = false"
       @update:open="(val) => serviceDialog.open = val"
+    />
+
+    <!-- Add/Edit Group Dialog -->
+    <NotificationGroupDialog
+      :open="groupDialog.open"
+      :group="groupDialog.group"
+      :channels="channels"
+      @save="handleGroupSave"
+      @cancel="groupDialog.open = false"
+      @update:open="(val) => groupDialog.open = val"
+    />
+
+    <!-- Delete Group Confirmation Dialog -->
+    <ConfirmDialog
+      :open="deleteGroupDialog.open"
+      title="Delete Group"
+      message="Are you sure you want to delete this notification group? The channels in this group will not be deleted."
+      confirm-text="Delete"
+      :danger="true"
+      :loading="deleteGroupDialog.loading"
+      @confirm="confirmDeleteGroup"
+      @cancel="deleteGroupDialog.open = false"
     />
   </div>
 </template>
