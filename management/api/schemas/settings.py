@@ -90,6 +90,7 @@ class IPRange(BaseModel):
     cidr: str = Field(..., min_length=1, description="CIDR notation (e.g., 192.168.1.0/24)")
     description: str = Field(default="", description="Description of the IP range")
     access_level: str = Field(default="internal", pattern="^(internal|external)$")
+    protected: bool = Field(default=False, description="If true, this range cannot be deleted")
 
 
 class AccessControlConfig(BaseModel):

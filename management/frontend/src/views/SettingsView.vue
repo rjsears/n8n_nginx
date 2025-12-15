@@ -29,6 +29,7 @@ import {
   PlusIcon,
   TrashIcon,
   ArrowPathIcon,
+  LockClosedIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -112,7 +113,7 @@ const newIpRange = ref({
   access_level: 'internal',
 })
 const defaultIpRanges = ref([])
-const deleteConfirmDialog = ref(null)
+const showDeleteConfirm = ref(false)
 const ipRangeToDelete = ref(null)
 
 // No longer using theme presets - removed in favor of simpler light/dark toggle
@@ -293,7 +294,7 @@ async function addIpRange() {
 
 function confirmDeleteIpRange(ipRange) {
   ipRangeToDelete.value = ipRange
-  deleteConfirmDialog.value?.open()
+  showDeleteConfirm.value = true
 }
 
 async function deleteIpRange() {
@@ -303,9 +304,11 @@ async function deleteIpRange() {
     await api.settings.deleteIpRange(ipRangeToDelete.value.cidr)
     notificationStore.success(`IP range ${ipRangeToDelete.value.cidr} deleted`)
     ipRangeToDelete.value = null
+    showDeleteConfirm.value = false
     await loadAccessControl()
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to delete IP range')
+    showDeleteConfirm.value = false
   }
 }
 
@@ -863,13 +866,23 @@ watch(activeTab, (newTab) => {
                     :class="[
                       'px-2 py-0.5 rounded text-xs font-medium',
                       range.access_level === 'internal'
-                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
-                        : 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+                        : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
                     ]"
+                    :title="range.access_level === 'internal' ? 'Allowed full access' : 'External/restricted access'"
                   >
-                    {{ range.access_level }}
+                    {{ range.access_level === 'internal' ? 'Allowed' : 'External' }}
                   </span>
                   <button
+                    v-if="range.protected"
+                    class="p-1.5 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                    title="Protected - required for system functionality"
+                    disabled
+                  >
+                    <LockClosedIcon class="h-4 w-4" />
+                  </button>
+                  <button
+                    v-else
                     @click="confirmDeleteIpRange(range)"
                     class="p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded"
                     title="Delete IP range"
@@ -957,11 +970,11 @@ watch(activeTab, (newTab) => {
 
         <!-- Delete Confirmation Dialog -->
         <ConfirmDialog
-          ref="deleteConfirmDialog"
+          v-model:open="showDeleteConfirm"
           title="Delete IP Range"
           :message="`Are you sure you want to delete ${ipRangeToDelete?.cidr}? This will remove access for this network range.`"
           confirm-text="Delete"
-          confirm-class="btn-danger"
+          :danger="true"
           @confirm="deleteIpRange"
         />
       </div>

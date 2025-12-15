@@ -196,13 +196,14 @@ async def update_nfs_config(
 
 
 # Access Control Configuration
-# Default IP ranges for common networks
+# Protected IP ranges that cannot be removed (required for system functionality)
+PROTECTED_IP_RANGES = ["127.0.0.1/32"]
+
+# Default IP ranges shown as suggestions (user can choose to add these)
 DEFAULT_IP_RANGES = [
-    {"cidr": "127.0.0.1/32", "description": "Localhost", "access_level": "internal"},
-    {"cidr": "10.0.0.0/8", "description": "Private Class A", "access_level": "internal"},
-    {"cidr": "172.16.0.0/12", "description": "Private Class B", "access_level": "internal"},
-    {"cidr": "192.168.0.0/16", "description": "Private Class C", "access_level": "internal"},
-    {"cidr": "100.64.0.0/10", "description": "Tailscale CGNAT", "access_level": "internal"},
+    {"cidr": "127.0.0.1/32", "description": "Localhost (required)", "access_level": "internal", "protected": True},
+    {"cidr": "172.17.0.0/16", "description": "Docker default bridge", "access_level": "internal", "protected": False},
+    {"cidr": "100.64.0.0/10", "description": "Tailscale CGNAT", "access_level": "internal", "protected": False},
 ]
 
 # Path to nginx config (mounted from host)
@@ -249,6 +250,7 @@ def parse_nginx_geo_block(config_content: str) -> List[Dict[str, Any]]:
                 "cidr": cidr,
                 "description": comment,
                 "access_level": access_level,
+                "protected": cidr in PROTECTED_IP_RANGES,
             })
 
     return ip_ranges
@@ -445,6 +447,13 @@ async def delete_ip_range(
     import os
 
     try:
+        # Prevent deletion of protected IP ranges
+        if cidr in PROTECTED_IP_RANGES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete {cidr} - this IP range is required for system functionality",
+            )
+
         if not os.path.exists(NGINX_CONFIG_PATH):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
