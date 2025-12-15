@@ -4,6 +4,7 @@ Notification service - handles sending notifications via multiple channels.
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
+from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, UTC
 from typing import Optional, List, Dict, Any
 import logging
@@ -400,23 +401,29 @@ class NotificationService:
     # Group management
 
     async def get_groups(self) -> List[NotificationGroup]:
-        """Get all notification groups."""
+        """Get all notification groups with memberships eagerly loaded."""
         result = await self.db.execute(
-            select(NotificationGroup).order_by(NotificationGroup.name)
+            select(NotificationGroup)
+            .options(selectinload(NotificationGroup.memberships).selectinload(NotificationGroupMembership.service))
+            .order_by(NotificationGroup.name)
         )
         return list(result.scalars().all())
 
     async def get_group(self, group_id: int) -> Optional[NotificationGroup]:
-        """Get notification group by ID."""
+        """Get notification group by ID with memberships eagerly loaded."""
         result = await self.db.execute(
-            select(NotificationGroup).where(NotificationGroup.id == group_id)
+            select(NotificationGroup)
+            .options(selectinload(NotificationGroup.memberships).selectinload(NotificationGroupMembership.service))
+            .where(NotificationGroup.id == group_id)
         )
         return result.scalar_one_or_none()
 
     async def get_group_by_slug(self, slug: str) -> Optional[NotificationGroup]:
-        """Get notification group by slug."""
+        """Get notification group by slug with memberships eagerly loaded."""
         result = await self.db.execute(
-            select(NotificationGroup).where(NotificationGroup.slug == slug)
+            select(NotificationGroup)
+            .options(selectinload(NotificationGroup.memberships).selectinload(NotificationGroupMembership.service))
+            .where(NotificationGroup.slug == slug)
         )
         return result.scalar_one_or_none()
 
