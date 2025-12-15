@@ -861,18 +861,7 @@ watch(activeTab, (newTab) => {
                   <p class="font-mono text-primary">{{ range.cidr }}</p>
                   <p v-if="range.description" class="text-sm text-secondary">{{ range.description }}</p>
                 </div>
-                <div class="flex items-center gap-3">
-                  <span
-                    :class="[
-                      'px-2 py-0.5 rounded text-xs font-medium',
-                      range.access_level === 'internal'
-                        ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                        : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
-                    ]"
-                    :title="range.access_level === 'internal' ? 'Allowed full access' : 'External/restricted access'"
-                  >
-                    {{ range.access_level === 'internal' ? 'Allowed' : 'External' }}
-                  </span>
+                <div class="flex items-center gap-2">
                   <button
                     v-if="range.protected"
                     class="p-1.5 text-gray-400 dark:text-gray-500 cursor-not-allowed"
@@ -924,10 +913,7 @@ watch(activeTab, (newTab) => {
                   </select>
                 </div>
               </div>
-            </div>
-
-            <template #footer>
-              <div class="flex justify-end">
+              <div class="flex justify-end pt-4">
                 <button
                   @click="addIpRange"
                   :disabled="addingIpRange || !newIpRange.cidr"
@@ -937,7 +923,7 @@ watch(activeTab, (newTab) => {
                   {{ addingIpRange ? 'Adding...' : 'Add IP Range' }}
                 </button>
               </div>
-            </template>
+            </div>
           </Card>
 
           <!-- Default Ranges -->
