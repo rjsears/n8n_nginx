@@ -500,6 +500,7 @@ async def reload_nginx(
     """Reload nginx to apply access control changes."""
     import subprocess
     import shutil
+    import os
 
     try:
         # Check if docker is available
@@ -510,9 +511,12 @@ async def reload_nginx(
                 detail="Docker command not found",
             )
 
+        # Get nginx container name from environment or use default
+        nginx_container = os.environ.get("NGINX_CONTAINER", "n8n_nginx")
+
         # Try to reload nginx container
         result = subprocess.run(
-            ["docker", "exec", "nginx", "nginx", "-s", "reload"],
+            ["docker", "exec", nginx_container, "nginx", "-s", "reload"],
             capture_output=True,
             text=True,
             timeout=30,
