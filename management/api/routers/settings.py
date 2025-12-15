@@ -559,7 +559,7 @@ async def get_env_variable(
     import os
 
     # Only allow specific keys for security
-    allowed_keys = ["N8N_API_KEY", "NTFY_TOKEN"]
+    allowed_keys = ["N8N_API_KEY", "NTFY_TOKEN", "TAILSCALE_AUTH_KEY", "CLOUDFLARE_TUNNEL_TOKEN"]
     if key not in allowed_keys:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -611,7 +611,7 @@ async def update_env_variable(
     import os
 
     # Only allow specific keys for security
-    allowed_keys = ["N8N_API_KEY", "NTFY_TOKEN"]
+    allowed_keys = ["N8N_API_KEY", "NTFY_TOKEN", "TAILSCALE_AUTH_KEY", "CLOUDFLARE_TUNNEL_TOKEN"]
     if key not in allowed_keys:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
