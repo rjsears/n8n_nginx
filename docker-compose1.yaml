@@ -1,0 +1,364 @@
+# n8n with Management Console v3.0
+# Includes: n8n, PostgreSQL, Nginx, Certbot, Management Console
+# Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale, Portainer, NTFY
+
+services:
+  # ===========================================
+  # PostgreSQL Database (shared by n8n and management)
+  # ===========================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ${POSTGRES_CONTAINER:-n8n_postgres}
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=${POSTGRES_DB:-n8n}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # n8n Workflow Automation
+  # ===========================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: ${N8N_CONTAINER:-n8n}
+    restart: always
+    environment:
+      # Database Configuration
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-n8n}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+
+      # n8n Configuration - HTTPS
+      - N8N_HOST=${DOMAIN:?DOMAIN is required}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${DOMAIN}
+      - N8N_EDITOR_BASE_URL=https://${DOMAIN}
+
+      # Timezone
+      - GENERIC_TIMEZONE=${TIMEZONE:-America/Los_Angeles}
+      - TZ=${TIMEZONE:-America/Los_Angeles}
+
+      # Execution Configuration
+      - EXECUTIONS_MODE=regular
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
+
+      # Security
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY is required}
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+
+      # Performance & Isolation
+      - N8N_PAYLOAD_SIZE_MAX=16
+      - N8N_METRICS=false
+
+      # Logging
+      - N8N_LOG_LEVEL=info
+      - N8N_LOG_OUTPUT=console
+
+      # Community Nodes
+      - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      # Proxy
+      - N8N_TRUST_PROXY=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:5678/healthz || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Nginx Reverse Proxy (SSL termination)
+  # ===========================================
+  nginx:
+    image: nginx:alpine
+    container_name: ${NGINX_CONTAINER:-n8n_nginx}
+    restart: always
+    ports:
+      - "443:443"
+      - "${MGMT_PORT:-3333}:${MGMT_PORT:-3333}"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot_data:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - n8n
+      - n8n_management
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Certbot (SSL certificate management)
+  # ===========================================
+  certbot:
+    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
+    container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_data:/var/www/certbot
+      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:/credentials.ini:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER:-n8n_nginx} nginx -s reload' || true; sleep 12h & wait $${!}; done;"
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Management Console (NEW in v3.0)
+  # ===========================================
+  n8n_management:
+    build:
+      context: ./management
+      dockerfile: Dockerfile
+    container_name: ${MANAGEMENT_CONTAINER:-n8n_management}
+    restart: always
+    environment:
+      # Database connection (using asyncpg driver for async SQLAlchemy)
+      - DATABASE_URL=postgresql+asyncpg://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/n8n_management
+      - N8N_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
+      # Security
+      - SECRET_KEY=${MGMT_SECRET_KEY:?MGMT_SECRET_KEY is required}
+      - ENCRYPTION_KEY=${MGMT_ENCRYPTION_KEY:-${N8N_ENCRYPTION_KEY}}
+      # Admin user (created on first startup)
+      - ADMIN_USERNAME=${ADMIN_USER}
+      - ADMIN_PASSWORD=${ADMIN_PASS}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@localhost}
+      # Server
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
+      # n8n API integration
+      - N8N_API_KEY=${N8N_API_KEY:-}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-}
+      # NFS Configuration (optional)
+      - NFS_SERVER=${NFS_SERVER:-}
+      - NFS_PATH=${NFS_PATH:-}
+      - NFS_MOUNT_POINT=/mnt/backups
+      # Timezone
+      - TZ=${TIMEZONE:-America/Los_Angeles}
+      # PostgreSQL version (for pg_dump compatibility)
+      - POSTGRES_VERSION=16
+    volumes:
+      # Docker socket for container management (read-only)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Local backup staging area
+      - mgmt_backup_staging:/app/backups
+      # Logs
+      - mgmt_logs:/app/logs
+      # Configuration persistence
+      - mgmt_config:/app/config
+      # Host .env file for environment variable management (read-write)
+      - ./.env:/app/host_env/.env:rw
+      # Nginx config for access control management (read-write)
+      - ./nginx.conf:/app/host_config/nginx.conf:rw
+    expose:
+      - "80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Adminer (Database Management) - Optional
+  # ===========================================
+  adminer:
+    image: adminer:latest
+    container_name: n8n_adminer
+    restart: always
+    environment:
+      - ADMINER_DEFAULT_SERVER=${POSTGRES_CONTAINER:-n8n_postgres}
+      - ADMINER_DESIGN=nette
+    expose:
+      - "8080"
+    depends_on:
+      - postgres
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Dozzle (Container Logs) - Optional
+  # ===========================================
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: n8n_dozzle
+    restart: always
+    environment:
+      - DOZZLE_NO_ANALYTICS=true
+      - DOZZLE_BASE=/dozzle
+      - DOZZLE_AUTH_PROVIDER=simple
+    expose:
+      - "8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dozzle/users.yml:/data/users.yml:ro
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Cloudflare Tunnel - Optional
+  # ===========================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: n8n_cloudflared
+    restart: always
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Tailscale VPN - Optional
+  # ===========================================
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: n8n_tailscale
+    restart: always
+    hostname: n8n-tailscale
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=true
+      - TS_EXTRA_ARGS=--accept-routes
+    volumes:
+      - tailscale_data:/var/lib/tailscale
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Portainer - Container Management UI
+  # ===========================================
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: n8n_portainer
+    restart: always
+    command: --base-url /portainer
+    expose:
+      - "9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # NTFY - Push Notifications
+  # ===========================================
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: n8n_ntfy
+    restart: unless-stopped
+    init: true
+    command:
+      - serve
+    environment:
+      - TZ=${TIMEZONE:-America/Los_Angeles}
+      - NTFY_BASE_URL=https://${DOMAIN}/ntfy
+      - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
+      - NTFY_BEHIND_PROXY=true
+      - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
+      - NTFY_AUTH_FILE=/var/lib/ntfy/auth.db
+      - NTFY_AUTH_DEFAULT_ACCESS=${NTFY_AUTH_DEFAULT_ACCESS:-read-write}
+      - NTFY_ENABLE_LOGIN=${NTFY_ENABLE_LOGIN:-true}
+      - NTFY_ENABLE_SIGNUP=${NTFY_ENABLE_SIGNUP:-false}
+      - NTFY_CACHE_DURATION=${NTFY_CACHE_DURATION:-24h}
+      - NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT=${NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT:-100M}
+      - NTFY_ATTACHMENT_FILE_SIZE_LIMIT=${NTFY_ATTACHMENT_FILE_SIZE_LIMIT:-15M}
+      - NTFY_ATTACHMENT_EXPIRY_DURATION=${NTFY_ATTACHMENT_EXPIRY_DURATION:-24h}
+      - NTFY_KEEPALIVE_INTERVAL=${NTFY_KEEPALIVE_INTERVAL:-45s}
+      # SMTP Email Notifications (optional - configure in .env)
+      # For IP-whitelisted relay (Google Workspace): just set ADDR and FROM, leave USER/PASS empty
+      # For authenticated SMTP (Gmail personal): set all four values
+      - NTFY_SMTP_SENDER_ADDR=${NTFY_SMTP_SENDER_ADDR:-}
+      - NTFY_SMTP_SENDER_USER=${NTFY_SMTP_SENDER_USER:-}
+      - NTFY_SMTP_SENDER_PASS=${NTFY_SMTP_SENDER_PASS:-}
+      - NTFY_SMTP_SENDER_FROM=${NTFY_SMTP_SENDER_FROM:-}
+    expose:
+      - "80"
+    volumes:
+      - ntfy_data:/var/lib/ntfy
+      - ntfy_cache:/var/cache/ntfy
+      - ./ntfy:/etc/ntfy:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - n8n_network
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  # Core data volumes
+  n8n_data:
+    driver: local
+  postgres_data:
+    driver: local
+    # CRITICAL: postgres_data MUST stay local, NOT on NFS
+
+  # SSL certificates (external, created by setup.sh)
+  letsencrypt:
+    external: true
+  certbot_data:
+    driver: local
+
+  # Management container volumes
+  mgmt_backup_staging:
+    driver: local
+  mgmt_logs:
+    driver: local
+  mgmt_config:
+    driver: local
+
+  # Optional: Tailscale state
+  tailscale_data:
+    driver: local
+
+  # Portainer data
+  portainer_data:
+    driver: local
+
+  # NTFY data
+  ntfy_data:
+    driver: local
+  ntfy_cache:
+    driver: local
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  n8n_network:
+    driver: bridge
