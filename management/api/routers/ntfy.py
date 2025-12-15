@@ -20,7 +20,7 @@ from api.models.ntfy import (
     NtfyMessageHistory,
     NtfyServerConfig,
 )
-from api.models.notifications import NotificationService, generate_slug
+from api.models.notifications import NotificationService, NotificationHistory, generate_slug
 from api.schemas.ntfy import (
     NtfyHealthResponse,
     NtfyStatusResponse,
@@ -273,6 +273,31 @@ async def send_message(
     )
     db.add(history)
 
+    # Also log to main notification history so it shows in Recent Notifications
+    service_slug = f"ntfy_{generate_slug(request.topic)}"
+    service_result = await db.execute(
+        select(NotificationService).where(NotificationService.slug == service_slug)
+    )
+    ntfy_service_record = service_result.scalar_one_or_none()
+
+    main_history = NotificationHistory(
+        event_type="ntfy.message.sent",
+        event_data={
+            "title": request.title,
+            "message": request.message,
+            "topic": request.topic,
+            "priority": request.priority.value,
+            "tags": request.tags,
+        },
+        severity="info",
+        service_id=ntfy_service_record.id if ntfy_service_record else None,
+        service_name=f"NTFY: {request.topic}",
+        status="sent" if result["success"] else "failed",
+        sent_at=datetime.now(UTC) if result["success"] else None,
+        error_message=result.get("error"),
+    )
+    db.add(main_history)
+
     # Update topic stats if it exists
     topic_result = await db.execute(
         select(NtfyTopic).where(NtfyTopic.name == request.topic)
@@ -332,16 +357,66 @@ async def send_templated_message(
         # Use our custom template - process it locally
         # TODO: Implement Go template processing
         # For now, just use the template's defaults
+        message_text = template.message_template or "Message from template"
+        title_text = template.title_template
+        priority_val = request.priority.value if request.priority else template.default_priority
+        tags_list = (template.default_tags or []) + request.extra_tags
+
         result = await ntfy_service.send_message(
             topic=request.topic,
-            message=template.message_template or "Message from template",
-            title=template.title_template,
-            priority=request.priority.value if request.priority else template.default_priority,
-            tags=(template.default_tags or []) + request.extra_tags,
+            message=message_text,
+            title=title_text,
+            priority=priority_val,
+            tags=tags_list,
             click=template.default_click_url,
             icon=template.default_icon_url,
             markdown=template.use_markdown,
         )
+
+        # Record in NTFY history
+        ntfy_history = NtfyMessageHistory(
+            topic=request.topic,
+            title=title_text,
+            message=message_text,
+            priority=priority_val,
+            tags=tags_list,
+            request_payload={
+                "topic": request.topic,
+                "template": request.template_name,
+            },
+            status="sent" if result["success"] else "failed",
+            response_id=result.get("message_id"),
+            error_message=result.get("error"),
+            source="template",
+            sent_at=datetime.now(UTC) if result["success"] else None,
+        )
+        db.add(ntfy_history)
+
+        # Also log to main notification history
+        service_slug = f"ntfy_{generate_slug(request.topic)}"
+        service_result = await db.execute(
+            select(NotificationService).where(NotificationService.slug == service_slug)
+        )
+        ntfy_service_record = service_result.scalar_one_or_none()
+
+        main_history = NotificationHistory(
+            event_type="ntfy.message.sent",
+            event_data={
+                "title": title_text,
+                "message": message_text,
+                "topic": request.topic,
+                "priority": priority_val,
+                "tags": tags_list,
+                "template": request.template_name,
+            },
+            severity="info",
+            service_id=ntfy_service_record.id if ntfy_service_record else None,
+            service_name=f"NTFY: {request.topic}",
+            status="sent" if result["success"] else "failed",
+            sent_at=datetime.now(UTC) if result["success"] else None,
+            error_message=result.get("error"),
+        )
+        db.add(main_history)
 
         # Update template usage
         template.use_count += 1
@@ -758,6 +833,53 @@ async def send_saved_message(
         email=saved.email,
         markdown=saved.use_markdown,
     )
+
+    # Record in NTFY history
+    ntfy_history = NtfyMessageHistory(
+        topic=saved.topic,
+        title=saved.title,
+        message=saved.message,
+        priority=saved.priority,
+        tags=saved.tags,
+        request_payload={
+            "topic": saved.topic,
+            "message": saved.message,
+            "title": saved.title,
+            "priority": saved.priority,
+            "tags": saved.tags,
+        },
+        status="sent" if send_result["success"] else "failed",
+        response_id=send_result.get("message_id"),
+        error_message=send_result.get("error"),
+        source="saved",
+        sent_at=datetime.now(UTC) if send_result["success"] else None,
+    )
+    db.add(ntfy_history)
+
+    # Also log to main notification history
+    service_slug = f"ntfy_{generate_slug(saved.topic)}"
+    service_result = await db.execute(
+        select(NotificationService).where(NotificationService.slug == service_slug)
+    )
+    ntfy_service_record = service_result.scalar_one_or_none()
+
+    main_history = NotificationHistory(
+        event_type="ntfy.message.sent",
+        event_data={
+            "title": saved.title,
+            "message": saved.message,
+            "topic": saved.topic,
+            "priority": saved.priority,
+            "tags": saved.tags,
+        },
+        severity="info",
+        service_id=ntfy_service_record.id if ntfy_service_record else None,
+        service_name=f"NTFY: {saved.topic}",
+        status="sent" if send_result["success"] else "failed",
+        sent_at=datetime.now(UTC) if send_result["success"] else None,
+        error_message=send_result.get("error"),
+    )
+    db.add(main_history)
 
     # Update usage stats
     saved.use_count += 1
