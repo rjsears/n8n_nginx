@@ -1,0 +1,16 @@
+# n8n Metrics Agent Dependencies
+
+# Core
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+
+# System metrics
+psutil>=5.9.0
+
+# Docker
+docker>=6.1.0
+
+# Optional: for development
+# httpx  # For testing
+# pytest
