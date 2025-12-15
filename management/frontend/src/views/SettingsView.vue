@@ -42,6 +42,8 @@ import {
   ServerIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  PencilIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -144,6 +146,11 @@ const newExternalRoute = ref({
 })
 const showDeleteRouteConfirm = ref(false)
 const routeToDelete = ref(null)
+
+// IP Range editing state
+const editingIpRangeIndex = ref(null)
+const editingIpRangeDescription = ref('')
+const savingIpRangeDescription = ref(false)
 
 // Collapsible state for sections and individual items
 const routesSectionExpanded = ref(false)
@@ -436,6 +443,31 @@ function addDefaultRange(defaultRange) {
     cidr: defaultRange.cidr,
     description: defaultRange.description,
     access_level: defaultRange.access_level,
+  }
+}
+
+function startEditIpRangeDescription(index, currentDescription) {
+  editingIpRangeIndex.value = index
+  editingIpRangeDescription.value = currentDescription || ''
+}
+
+function cancelEditIpRangeDescription() {
+  editingIpRangeIndex.value = null
+  editingIpRangeDescription.value = ''
+}
+
+async function saveIpRangeDescription(cidr) {
+  savingIpRangeDescription.value = true
+  try {
+    await api.settings.updateIpRange(cidr, editingIpRangeDescription.value)
+    notificationStore.success('Description updated successfully')
+    editingIpRangeIndex.value = null
+    editingIpRangeDescription.value = ''
+    await loadAccessControl()
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to update description')
+  } finally {
+    savingIpRangeDescription.value = false
   }
 }
 
@@ -1264,51 +1296,6 @@ watch(activeTab, (newTab) => {
             </Transition>
           </div>
 
-          <!-- Status Card -->
-          <Card title="Direct Network Access" subtitle="IP ranges allowed to access services directly (not via tunnel)" :neon="true">
-            <div class="space-y-4">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="font-medium text-primary">Geo Block Status</p>
-                  <p class="text-sm text-secondary">nginx geo-based IP filtering</p>
-                </div>
-                <span
-                  :class="[
-                    'px-3 py-1 rounded-full text-sm font-medium',
-                    accessControl.enabled
-                      ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                      : 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400'
-                  ]"
-                >
-                  {{ accessControl.enabled ? 'Enabled' : 'Not Configured' }}
-                </span>
-              </div>
-
-              <div v-if="accessControl.last_updated" class="flex items-center justify-between">
-                <div>
-                  <p class="font-medium text-primary">Last Updated</p>
-                  <p class="text-sm text-secondary">Configuration file modification time</p>
-                </div>
-                <span class="text-secondary text-sm">
-                  {{ new Date(accessControl.last_updated).toLocaleString() }}
-                </span>
-              </div>
-            </div>
-
-            <template #footer>
-              <div class="flex justify-end">
-                <button
-                  @click="reloadNginx"
-                  :disabled="reloadingNginx"
-                  class="btn-primary flex items-center gap-2"
-                >
-                  <ArrowPathIcon :class="['h-4 w-4', reloadingNginx && 'animate-spin']" />
-                  {{ reloadingNginx ? 'Reloading...' : 'Reload Nginx' }}
-                </button>
-              </div>
-            </template>
-          </Card>
-
           <!-- Configured IP Ranges - Collapsible Card -->
           <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all overflow-hidden">
             <!-- Section Header (clickable) -->
@@ -1323,9 +1310,21 @@ watch(activeTab, (newTab) => {
 
               <!-- Title and Description -->
               <div class="flex-1 min-w-0">
-                <p class="font-semibold text-gray-900 dark:text-white text-lg">Configured IP Ranges</p>
-                <p class="text-sm text-gray-500 dark:text-gray-400">Internal networks with privileged access</p>
+                <p class="font-semibold text-gray-900 dark:text-white text-lg">IP Ranges (Direct Access)</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Networks allowed to bypass IP restrictions</p>
               </div>
+
+              <!-- Status Badge -->
+              <span
+                :class="[
+                  'flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium',
+                  accessControl.enabled
+                    ? 'bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-400'
+                    : 'bg-gray-50 text-gray-600 dark:bg-gray-500/10 dark:text-gray-400'
+                ]"
+              >
+                {{ accessControl.enabled ? 'Active' : 'Not Configured' }}
+              </span>
 
               <!-- Count Badge -->
               <span class="flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
@@ -1345,6 +1344,24 @@ watch(activeTab, (newTab) => {
             <Transition name="section-expand">
               <div v-if="ipRangesSectionExpanded" class="border-t border-gray-100 dark:border-gray-700">
                 <div class="p-5">
+                  <!-- Status Info and Reload Button -->
+                  <div class="flex items-center justify-between mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+                    <div class="text-sm text-gray-500 dark:text-gray-400">
+                      <span v-if="accessControl.last_updated">
+                        Last updated: {{ new Date(accessControl.last_updated).toLocaleString() }}
+                      </span>
+                      <span v-else>Configuration not yet saved</span>
+                    </div>
+                    <button
+                      @click.stop="reloadNginx"
+                      :disabled="reloadingNginx"
+                      class="btn-secondary text-sm flex items-center gap-2"
+                    >
+                      <ArrowPathIcon :class="['h-4 w-4', reloadingNginx && 'animate-spin']" />
+                      {{ reloadingNginx ? 'Reloading...' : 'Reload Nginx' }}
+                    </button>
+                  </div>
+
                   <div v-if="accessControl.ip_ranges.length === 0" class="text-center py-6 text-secondary">
                     No IP ranges configured. Add ranges below or use defaults.
                   </div>
@@ -1431,9 +1448,49 @@ watch(activeTab, (newTab) => {
                       <Transition name="expand">
                         <div v-if="expandedIpRanges.has(index)" class="px-3 pb-3 pt-1 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
                           <div class="space-y-2 text-sm">
-                            <p class="text-gray-600 dark:text-gray-300">
-                              {{ range.description || 'No description provided' }}
-                            </p>
+                            <!-- Description with edit capability -->
+                            <div v-if="editingIpRangeIndex === index" class="space-y-2">
+                              <label class="block text-xs text-gray-500 dark:text-gray-400">Description</label>
+                              <input
+                                type="text"
+                                v-model="editingIpRangeDescription"
+                                class="input-field w-full text-sm"
+                                placeholder="Enter description..."
+                                @click.stop
+                                @keyup.enter="saveIpRangeDescription(range.cidr)"
+                                @keyup.escape="cancelEditIpRangeDescription"
+                              />
+                              <div class="flex items-center gap-2">
+                                <button
+                                  @click.stop="saveIpRangeDescription(range.cidr)"
+                                  :disabled="savingIpRangeDescription"
+                                  class="text-xs px-2 py-1 rounded bg-blue-500 hover:bg-blue-600 text-white flex items-center gap-1"
+                                >
+                                  <CheckIcon class="h-3 w-3" />
+                                  {{ savingIpRangeDescription ? 'Saving...' : 'Save' }}
+                                </button>
+                                <button
+                                  @click.stop="cancelEditIpRangeDescription"
+                                  :disabled="savingIpRangeDescription"
+                                  class="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 flex items-center gap-1"
+                                >
+                                  <XMarkIcon class="h-3 w-3" />
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                            <div v-else class="flex items-start justify-between gap-2">
+                              <p class="text-gray-600 dark:text-gray-300 flex-1">
+                                {{ range.description || 'No description provided' }}
+                              </p>
+                              <button
+                                @click.stop="startEditIpRangeDescription(index, range.description)"
+                                class="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded transition-colors flex-shrink-0"
+                                title="Edit description"
+                              >
+                                <PencilIcon class="h-4 w-4" />
+                              </button>
+                            </div>
                             <div class="flex items-center gap-2">
                               <span class="text-gray-500 dark:text-gray-400">Type:</span>
                               <span class="text-gray-900 dark:text-white">

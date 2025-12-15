@@ -114,6 +114,11 @@ class AddIPRangeRequest(BaseModel):
     access_level: str = Field(default="internal", pattern="^(internal|external)$")
 
 
+class UpdateIPRangeRequest(BaseModel):
+    """Request to update an IP range's description."""
+    description: str = Field(..., description="New description for the IP range")
+
+
 # External Routes schemas
 class ExternalRoute(BaseModel):
     """A route configured in nginx with access status."""

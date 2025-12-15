@@ -23,6 +23,7 @@ from api.schemas.settings import (
     AccessControlConfig,
     AccessControlResponse,
     AddIPRangeRequest,
+    UpdateIPRangeRequest,
     ExternalRoute,
     ExternalRoutesResponse,
     AddExternalRouteRequest,
@@ -496,6 +497,59 @@ async def delete_ip_range(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete IP range: {str(e)}",
+        )
+
+
+@router.put("/access-control/ip/{cidr:path}", response_model=SuccessResponse)
+async def update_ip_range(
+    cidr: str,
+    update: UpdateIPRangeRequest,
+    _=Depends(get_current_user),
+):
+    """Update an IP range's description."""
+    import os
+
+    try:
+        if not os.path.exists(NGINX_CONFIG_PATH):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nginx config file not found",
+            )
+
+        with open(NGINX_CONFIG_PATH, 'r') as f:
+            content = f.read()
+
+        # Get existing ranges
+        ip_ranges = parse_nginx_geo_block(content)
+
+        # Find the range to update
+        found = False
+        for ip_range in ip_ranges:
+            if ip_range["cidr"] == cidr:
+                ip_range["description"] = update.description
+                found = True
+                break
+
+        if not found:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"IP range {cidr} not found",
+            )
+
+        # Update config
+        new_content = update_nginx_config_geo_block(content, ip_ranges)
+
+        with open(NGINX_CONFIG_PATH, 'w') as f:
+            f.write(new_content)
+
+        return SuccessResponse(message=f"IP range {cidr} updated.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update IP range: {str(e)}",
         )
 
 

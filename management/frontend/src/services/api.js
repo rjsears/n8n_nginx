@@ -176,6 +176,7 @@ export const settingsApi = {
   getAccessControl: () => api.get('/settings/access-control'),
   updateAccessControl: (data) => api.put('/settings/access-control', data),
   addIpRange: (data) => api.post('/settings/access-control/ip', data),
+  updateIpRange: (cidr, description) => api.put(`/settings/access-control/ip/${encodeURIComponent(cidr)}`, { description }),
   deleteIpRange: (cidr) => api.delete(`/settings/access-control/ip/${encodeURIComponent(cidr)}`),
   reloadNginx: () => api.post('/settings/access-control/reload-nginx'),
   getDefaultIpRanges: () => api.get('/settings/access-control/defaults'),
