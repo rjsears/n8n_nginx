@@ -707,13 +707,31 @@ async def get_server_config(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get NTFY server configuration."""
+    """Get NTFY server configuration with real-time health check."""
+    from datetime import datetime
+
     result = await db.execute(select(NtfyServerConfig).limit(1))
     config = result.scalar_one_or_none()
 
+    # Run a health check and get real-time status
+    health_result = await ntfy_service.health_check()
+    health_status = "healthy" if health_result["healthy"] else health_result.get("status", "unknown")
+    last_health_check = datetime.utcnow()
+
     if not config:
-        # Return defaults
-        return NtfyServerConfigResponse()
+        # Create config with health status
+        config = NtfyServerConfig(
+            health_status=health_status,
+            last_health_check=last_health_check,
+        )
+        db.add(config)
+        await db.commit()
+        await db.refresh(config)
+    else:
+        # Update health status in existing config
+        config.health_status = health_status
+        config.last_health_check = last_health_check
+        await db.commit()
 
     return NtfyServerConfigResponse(
         base_url=config.base_url,
@@ -728,8 +746,8 @@ async def get_server_config(
         visitor_message_daily_limit=config.visitor_message_daily_limit,
         smtp_configured=bool(config.smtp_sender_addr),
         web_push_configured=bool(config.web_push_public_key),
-        health_status=config.health_status,
-        last_health_check=config.last_health_check,
+        health_status=health_status,
+        last_health_check=last_health_check,
     )
 
 
@@ -740,6 +758,8 @@ async def update_server_config(
     db: AsyncSession = Depends(get_db),
 ):
     """Update NTFY server configuration."""
+    from datetime import datetime
+
     result = await db.execute(select(NtfyServerConfig).limit(1))
     config = result.scalar_one_or_none()
 
@@ -749,6 +769,14 @@ async def update_server_config(
 
     for field, value in update.model_dump(exclude_unset=True).items():
         setattr(config, field, value)
+
+    # Run a health check and update status
+    health_result = await ntfy_service.health_check()
+    health_status = "healthy" if health_result["healthy"] else health_result.get("status", "unknown")
+    last_health_check = datetime.utcnow()
+
+    config.health_status = health_status
+    config.last_health_check = last_health_check
 
     await db.commit()
     await db.refresh(config)
@@ -766,8 +794,8 @@ async def update_server_config(
         visitor_message_daily_limit=config.visitor_message_daily_limit,
         smtp_configured=bool(config.smtp_sender_addr),
         web_push_configured=bool(config.web_push_public_key),
-        health_status=config.health_status,
-        last_health_check=config.last_health_check,
+        health_status=health_status,
+        last_health_check=last_health_check,
     )
 
 
