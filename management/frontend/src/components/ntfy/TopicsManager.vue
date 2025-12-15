@@ -44,61 +44,91 @@
       <p>No topics configured. Create topics to organize your notifications.</p>
     </div>
 
-    <div v-else class="space-y-3">
+    <div v-else class="space-y-2">
       <div
         v-for="topic in topics"
         :key="topic.id"
-        class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600"
+        class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden"
       >
-        <div class="flex items-start justify-between">
-          <div class="flex-1">
-            <div class="flex items-center gap-3 mb-1">
-              <h4 class="font-medium text-gray-900 dark:text-white">{{ topic.name }}</h4>
-              <span :class="[
-                'px-2 py-0.5 rounded text-xs',
-                topic.enabled
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
-                  : 'bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
-              ]">
-                {{ topic.enabled ? 'Active' : 'Disabled' }}
-              </span>
-              <span v-if="topic.requires_auth" class="px-2 py-0.5 rounded text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
-                Auth Required
-              </span>
-            </div>
-            <p v-if="topic.description" class="text-sm text-gray-600 dark:text-gray-400 mb-2">
-              {{ topic.description }}
-            </p>
-            <div class="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-              <span>Access: {{ topic.access_level }}</span>
-              <span>Messages: {{ topic.message_count }}</span>
-              <span v-if="topic.last_message_at">
-                Last: {{ formatDate(topic.last_message_at) }}
-              </span>
-            </div>
-            <div v-if="topic.default_tags?.length" class="flex gap-1 mt-2">
-              <span
-                v-for="tag in topic.default_tags"
-                :key="tag"
-                class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs"
-              >
-                {{ tag }}
-              </span>
-            </div>
-          </div>
-          <div class="flex gap-2">
+        <!-- Collapsed Header -->
+        <div class="flex items-center">
+          <button
+            @click="toggleTopic(topic.id)"
+            class="flex-1 px-4 py-3 flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+          >
+            <ChevronRightIcon
+              :class="[
+                'w-4 h-4 flex-shrink-0 text-gray-400 transition-transform',
+                expandedTopics[topic.id] ? 'rotate-90' : ''
+              ]"
+            />
+            <h4 class="font-medium text-gray-900 dark:text-white">{{ topic.name }}</h4>
+            <span :class="[
+              'px-2 py-0.5 rounded text-xs',
+              topic.enabled
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+                : 'bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
+            ]">
+              {{ topic.enabled ? 'Active' : 'Disabled' }}
+            </span>
+            <span v-if="topic.requires_auth" class="px-2 py-0.5 rounded text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+              Auth Required
+            </span>
+            <span class="text-xs text-gray-500 dark:text-gray-400 ml-auto">
+              {{ topic.message_count }} messages
+            </span>
+          </button>
+          <div class="flex gap-1 pr-2">
             <button
-              @click="openEditor(topic)"
+              @click.stop="openEditor(topic)"
               class="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
             >
               <PencilIcon class="w-4 h-4" />
             </button>
             <button
-              @click="deleteTopic(topic)"
+              @click.stop="deleteTopic(topic)"
               class="p-2 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/30 rounded"
             >
               <TrashIcon class="w-4 h-4" />
             </button>
+          </div>
+        </div>
+
+        <!-- Expanded Content -->
+        <div v-if="expandedTopics[topic.id]" class="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-600">
+          <p v-if="topic.description" class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+            {{ topic.description }}
+          </p>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span class="text-gray-500 dark:text-gray-400">Access Level:</span>
+              <span class="ml-2 text-gray-900 dark:text-white">{{ topic.access_level }}</span>
+            </div>
+            <div>
+              <span class="text-gray-500 dark:text-gray-400">Default Priority:</span>
+              <span class="ml-2 text-gray-900 dark:text-white">{{ getPriorityLabel(topic.default_priority) }}</span>
+            </div>
+            <div>
+              <span class="text-gray-500 dark:text-gray-400">Messages Sent:</span>
+              <span class="ml-2 text-gray-900 dark:text-white">{{ topic.message_count }}</span>
+            </div>
+            <div v-if="topic.last_message_at">
+              <span class="text-gray-500 dark:text-gray-400">Last Message:</span>
+              <span class="ml-2 text-gray-900 dark:text-white">{{ formatDate(topic.last_message_at) }}</span>
+            </div>
+          </div>
+          <div v-if="topic.default_tags?.length" class="flex flex-wrap gap-1 mt-3">
+            <span class="text-xs text-gray-500 dark:text-gray-400 mr-1">Default Tags:</span>
+            <span
+              v-for="tag in topic.default_tags"
+              :key="tag"
+              class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs"
+            >
+              {{ tag }}
+            </span>
+          </div>
+          <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 text-xs text-gray-500 dark:text-gray-400">
+            Notification Channel: <code class="bg-gray-200 dark:bg-gray-600 px-1 rounded">ntfy_{{ topic.name.toLowerCase().replace(/[^a-z0-9]+/g, '_') }}</code>
           </div>
         </div>
       </div>
@@ -250,6 +280,7 @@ import {
   TrashIcon,
   XMarkIcon,
   ArrowPathIcon,
+  ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -257,7 +288,7 @@ const props = defineProps({
   onCreate: { type: Function, required: true },
   onUpdate: { type: Function, required: true },
   onDelete: { type: Function, required: true },
-  onSync: { type: Function, required: true },
+  onSync: { type: Function, default: null },
 })
 
 // State
@@ -267,6 +298,18 @@ const saving = ref(false)
 const syncing = ref(false)
 const syncMessage = ref('')
 const syncSuccess = ref(false)
+const expandedTopics = ref({})
+
+// Toggle topic expand/collapse
+function toggleTopic(id) {
+  expandedTopics.value[id] = !expandedTopics.value[id]
+}
+
+// Priority label helper
+const priorityLabels = ['', 'Min', 'Low', 'Default', 'High', 'Urgent']
+function getPriorityLabel(priority) {
+  return priorityLabels[priority] || 'Default'
+}
 
 const editorForm = ref({
   name: '',
@@ -359,6 +402,12 @@ async function deleteTopic(topic) {
 
 // Sync topics to notification channels
 async function syncChannels() {
+  if (typeof props.onSync !== 'function') {
+    syncSuccess.value = false
+    syncMessage.value = 'Sync function not available'
+    return
+  }
+
   syncing.value = true
   syncMessage.value = ''
 
