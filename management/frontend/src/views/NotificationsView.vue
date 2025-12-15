@@ -1648,7 +1648,6 @@ async function handleNtfyUpdateConfig(config) {
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2">
                           <p class="font-medium text-primary truncate">{{ group.name }}</p>
-                          <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded flex-shrink-0">group:{{ group.slug }}</code>
                           <StatusBadge :status="group.enabled ? 'active' : 'inactive'" size="sm" class="flex-shrink-0" />
                         </div>
                         <p class="text-xs text-secondary mt-0.5">
@@ -1656,6 +1655,13 @@ async function handleNtfyUpdateConfig(config) {
                           <span class="mx-1">•</span>
                           {{ getGroupMessageCount(group) }} message{{ getGroupMessageCount(group) !== 1 ? 's' : '' }} sent
                         </p>
+                      </div>
+                    </div>
+                    <!-- Group Slug (centered) -->
+                    <div class="flex-1 flex justify-center">
+                      <div class="text-center">
+                        <span class="text-xs font-medium text-secondary uppercase tracking-wide">Group Slug</span>
+                        <code class="block text-sm text-primary font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded mt-0.5">group:{{ group.slug }}</code>
                       </div>
                     </div>
                     <div class="flex items-center gap-1 flex-shrink-0" @click.stop>
@@ -1697,10 +1703,10 @@ async function handleNtfyUpdateConfig(config) {
                         <p class="text-xs font-medium text-secondary uppercase tracking-wide mb-2">Channels in this group</p>
                         <div class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                           <!-- Header row -->
-                          <div class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(160px,2fr)_70px_70px] gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-xs font-medium text-secondary uppercase tracking-wide">
+                          <div class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(180px,2fr)_70px_70px] gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-xs font-medium text-secondary uppercase tracking-wide">
                             <div></div>
                             <div>Name</div>
-                            <div>Slug</div>
+                            <div>Direct Channel Slug</div>
                             <div class="text-center">Webhook</div>
                             <div class="text-center">Type</div>
                           </div>
@@ -1708,7 +1714,7 @@ async function handleNtfyUpdateConfig(config) {
                           <div
                             v-for="channel in group.channels"
                             :key="channel.id"
-                            class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(160px,2fr)_70px_70px] gap-2 px-3 py-2 items-center bg-white dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700"
+                            class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(180px,2fr)_70px_70px] gap-2 px-3 py-2 items-center bg-white dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700"
                           >
                             <component
                               :is="channelIcons[channel.service_type] || BellIcon"
