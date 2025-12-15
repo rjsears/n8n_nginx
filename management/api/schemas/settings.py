@@ -127,6 +127,7 @@ class ExternalRoute(BaseModel):
     is_public: bool = Field(default=False, description="True if publicly accessible (no IP/auth check)")
     has_auth: bool = Field(default=False, description="True if requires SSO authentication")
     proxy_target: str = Field(default="n8n", description="Upstream target (e.g., n8n, n8n_portainer)")
+    proxy_port: Optional[int] = Field(default=None, description="Upstream port if specified in proxy_pass URL")
     icon: str = Field(default="link", description="Icon name for UI display")
     color: str = Field(default="gray", description="Color theme for UI display")
     protected: bool = Field(default=False, description="If true, this route cannot be removed")
@@ -142,5 +143,8 @@ class ExternalRoutesResponse(BaseModel):
 
 class AddExternalRouteRequest(BaseModel):
     """Request to add a new external route."""
-    path: str = Field(..., min_length=1, description="URL path (e.g., /webhook-test/)")
+    path: str = Field(..., min_length=1, description="URL path (e.g., /ntfy/, /webhook-custom/)")
     description: str = Field(default="", description="Description of what this route is for")
+    upstream: str = Field(default="n8n", description="Upstream server name (e.g., n8n, n8n_ntfy)")
+    upstream_port: Optional[int] = Field(default=None, description="Upstream server port (e.g., 8085). If None, uses upstream name only.")
+    is_public: bool = Field(default=True, description="If true, route is publicly accessible. If false, requires IP restriction ($is_trusted check).")

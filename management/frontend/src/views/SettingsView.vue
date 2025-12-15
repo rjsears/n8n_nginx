@@ -14,6 +14,7 @@ import {
   PaintBrushIcon,
   ShieldCheckIcon,
   BellIcon,
+  BellAlertIcon,
   CircleStackIcon,
   UserIcon,
   KeyIcon,
@@ -143,6 +144,9 @@ const addingExternalRoute = ref(false)
 const newExternalRoute = ref({
   path: '',
   description: '',
+  upstream: 'n8n',
+  upstream_port: null,
+  is_public: true,
 })
 const showDeleteRouteConfirm = ref(false)
 const routeToDelete = ref(null)
@@ -491,11 +495,18 @@ async function addExternalRoute() {
     return
   }
 
+  // Validate upstream port if provided
+  if (newExternalRoute.value.upstream_port && (newExternalRoute.value.upstream_port < 1 || newExternalRoute.value.upstream_port > 65535)) {
+    notificationStore.error('Port must be between 1 and 65535')
+    return
+  }
+
   addingExternalRoute.value = true
   try {
     await api.settings.addExternalRoute(newExternalRoute.value)
-    notificationStore.success(`External route ${newExternalRoute.value.path} added. Reload nginx to apply.`)
-    newExternalRoute.value = { path: '', description: '' }
+    const accessType = newExternalRoute.value.is_public ? 'public' : 'restricted'
+    notificationStore.success(`External route ${newExternalRoute.value.path} added (${accessType}). Reload nginx to apply.`)
+    newExternalRoute.value = { path: '', description: '', upstream: 'n8n', upstream_port: null, is_public: true }
     await loadExternalRoutes()
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to add external route')
@@ -538,6 +549,7 @@ const iconMap = {
   'bolt': BoltIcon,
   'link': LinkIcon,
   'server': ServerIcon,
+  'bell': BellAlertIcon,
 }
 
 // Color mapping for background
@@ -1232,7 +1244,9 @@ watch(activeTab, (newTab) => {
 
                               <div class="flex items-center gap-2">
                                 <span class="text-gray-500 dark:text-gray-400">Upstream:</span>
-                                <span class="font-mono text-gray-900 dark:text-white">{{ route.proxy_target }}</span>
+                                <span class="font-mono text-gray-900 dark:text-white">
+                                  {{ route.proxy_target }}{{ route.proxy_port ? `:${route.proxy_port}` : '' }}
+                                </span>
                               </div>
 
                               <div v-if="route.manageable && !route.protected" class="pt-1">
@@ -1254,29 +1268,84 @@ watch(activeTab, (newTab) => {
                     <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
                       <div class="flex items-center gap-2 mb-3">
                         <PlusIcon class="h-5 w-5 text-green-500" />
-                        <p class="text-sm font-medium text-primary">Add New Public Webhook Path</p>
+                        <p class="text-sm font-medium text-primary">Add New Route</p>
                       </div>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div>
-                          <label class="block text-sm text-secondary mb-1.5">Path</label>
+                          <label class="block text-sm text-secondary mb-1.5">Path *</label>
                           <input
                             type="text"
                             v-model="newExternalRoute.path"
-                            placeholder="/webhook-custom/"
+                            placeholder="/ntfy/, /myservice/"
                             class="input-field w-full font-mono"
                             @click.stop
                           />
-                          <p class="text-xs text-muted mt-1">Must start with /webhook</p>
+                          <p class="text-xs text-muted mt-1">Any path except /api, /admin, /config</p>
                         </div>
                         <div>
+                          <label class="block text-sm text-secondary mb-1.5">Upstream Server</label>
+                          <input
+                            type="text"
+                            v-model="newExternalRoute.upstream"
+                            placeholder="n8n"
+                            class="input-field w-full font-mono"
+                            @click.stop
+                          />
+                          <p class="text-xs text-muted mt-1">Service name (e.g., n8n, n8n_ntfy)</p>
+                        </div>
+                        <div>
+                          <label class="block text-sm text-secondary mb-1.5">Upstream Port</label>
+                          <input
+                            type="number"
+                            v-model.number="newExternalRoute.upstream_port"
+                            placeholder="Optional (e.g., 8085)"
+                            class="input-field w-full font-mono"
+                            min="1"
+                            max="65535"
+                            @click.stop
+                          />
+                          <p class="text-xs text-muted mt-1">Leave empty to use upstream name</p>
+                        </div>
+                        <div class="md:col-span-2 lg:col-span-2">
                           <label class="block text-sm text-secondary mb-1.5">Description</label>
                           <input
                             type="text"
                             v-model="newExternalRoute.description"
-                            placeholder="Custom webhook endpoint"
+                            placeholder="NTFY push notification server"
                             class="input-field w-full"
                             @click.stop
                           />
+                        </div>
+                        <div>
+                          <label class="block text-sm text-secondary mb-1.5">Access Level</label>
+                          <div class="flex gap-4 mt-2">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                v-model="newExternalRoute.is_public"
+                                :value="true"
+                                class="w-4 h-4 text-green-500 focus:ring-green-500"
+                                @click.stop
+                              />
+                              <span class="text-sm text-primary flex items-center gap-1">
+                                <LockOpenIcon class="h-4 w-4 text-green-500" />
+                                Public
+                              </span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                v-model="newExternalRoute.is_public"
+                                :value="false"
+                                class="w-4 h-4 text-red-500 focus:ring-red-500"
+                                @click.stop
+                              />
+                              <span class="text-sm text-primary flex items-center gap-1">
+                                <LockClosedIcon class="h-4 w-4 text-red-500" />
+                                Restricted (IP check)
+                              </span>
+                            </label>
+                          </div>
                         </div>
                       </div>
                       <div class="flex justify-end mt-4">
