@@ -40,6 +40,8 @@ const n8nUrl = ref('/n8n') // Default, will be loaded from API
 const executionsExpanded = ref(false)
 const workflowsExpanded = ref(true)
 const expandedWorkflows = ref(new Set())
+const expandedSuccessExecutions = ref(new Set())
+const expandedFailedExecutions = ref(new Set())
 
 function toggleWorkflowExpanded(workflowId) {
   if (expandedWorkflows.value.has(workflowId)) {
@@ -48,6 +50,36 @@ function toggleWorkflowExpanded(workflowId) {
     expandedWorkflows.value.add(workflowId)
   }
   expandedWorkflows.value = new Set(expandedWorkflows.value)
+}
+
+function toggleSuccessExecutions(workflowId) {
+  if (expandedSuccessExecutions.value.has(workflowId)) {
+    expandedSuccessExecutions.value.delete(workflowId)
+  } else {
+    expandedSuccessExecutions.value.add(workflowId)
+  }
+  expandedSuccessExecutions.value = new Set(expandedSuccessExecutions.value)
+}
+
+function toggleFailedExecutions(workflowId) {
+  if (expandedFailedExecutions.value.has(workflowId)) {
+    expandedFailedExecutions.value.delete(workflowId)
+  } else {
+    expandedFailedExecutions.value.add(workflowId)
+  }
+  expandedFailedExecutions.value = new Set(expandedFailedExecutions.value)
+}
+
+function getWorkflowSuccessExecutions(workflowId) {
+  return executions.value
+    .filter(e => e.workflowId === workflowId && e.status === 'success')
+    .slice(0, 5)
+}
+
+function getWorkflowFailedExecutions(workflowId) {
+  return executions.value
+    .filter(e => e.workflowId === workflowId && e.status === 'error')
+    .slice(0, 5)
 }
 
 // Confirm dialog state
@@ -504,6 +536,109 @@ onMounted(loadData)
                         <PlayIcon v-else class="h-5 w-5" />
                         <span class="font-medium">{{ workflow.active ? 'Deactivate' : 'Activate' }}</span>
                       </button>
+                    </div>
+
+                    <!-- Workflow Executions -->
+                    <div class="mt-4 space-y-2">
+                      <!-- Last 5 Successful Executions -->
+                      <div class="rounded-lg border border-emerald-200 dark:border-emerald-800 overflow-hidden">
+                        <div
+                          @click.stop="toggleSuccessExecutions(workflow.id)"
+                          class="flex items-center justify-between px-3 py-2 cursor-pointer bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                        >
+                          <div class="flex items-center gap-2">
+                            <component
+                              :is="expandedSuccessExecutions.has(workflow.id) ? ChevronDownIcon : ChevronRightIcon"
+                              class="h-4 w-4 text-emerald-600 dark:text-emerald-400"
+                            />
+                            <CheckCircleIcon class="h-4 w-4 text-emerald-500" />
+                            <span class="text-sm font-medium text-emerald-700 dark:text-emerald-300">Last 5 Successful Executions</span>
+                          </div>
+                          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300">
+                            {{ getWorkflowSuccessExecutions(workflow.id).length }}
+                          </span>
+                        </div>
+                        <Transition name="collapse">
+                          <div v-if="expandedSuccessExecutions.has(workflow.id)" class="border-t border-emerald-200 dark:border-emerald-800">
+                            <div v-if="getWorkflowSuccessExecutions(workflow.id).length === 0" class="px-3 py-3 text-sm text-secondary italic">
+                              No successful executions found
+                            </div>
+                            <div v-else class="divide-y divide-emerald-100 dark:divide-emerald-800/50">
+                              <div
+                                v-for="exec in getWorkflowSuccessExecutions(workflow.id)"
+                                :key="exec.id"
+                                class="flex items-center justify-between px-3 py-2 bg-white dark:bg-gray-800/30"
+                              >
+                                <div class="flex-1 min-w-0">
+                                  <p class="text-sm text-primary">
+                                    {{ new Date(exec.startedAt).toLocaleString() }}
+                                  </p>
+                                  <p class="text-xs text-secondary">
+                                    Duration: {{ formatDuration(exec.executionTime) }}
+                                  </p>
+                                </div>
+                                <button
+                                  @click.stop="openExecutionInN8n(exec)"
+                                  class="btn-secondary p-1.5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+                                  title="View in n8n"
+                                >
+                                  <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </Transition>
+                      </div>
+
+                      <!-- Last 5 Failed Executions -->
+                      <div class="rounded-lg border border-red-200 dark:border-red-800 overflow-hidden">
+                        <div
+                          @click.stop="toggleFailedExecutions(workflow.id)"
+                          class="flex items-center justify-between px-3 py-2 cursor-pointer bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                        >
+                          <div class="flex items-center gap-2">
+                            <component
+                              :is="expandedFailedExecutions.has(workflow.id) ? ChevronDownIcon : ChevronRightIcon"
+                              class="h-4 w-4 text-red-600 dark:text-red-400"
+                            />
+                            <XCircleIcon class="h-4 w-4 text-red-500" />
+                            <span class="text-sm font-medium text-red-700 dark:text-red-300">Last 5 Failed Executions</span>
+                          </div>
+                          <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-500/30 text-red-700 dark:text-red-300">
+                            {{ getWorkflowFailedExecutions(workflow.id).length }}
+                          </span>
+                        </div>
+                        <Transition name="collapse">
+                          <div v-if="expandedFailedExecutions.has(workflow.id)" class="border-t border-red-200 dark:border-red-800">
+                            <div v-if="getWorkflowFailedExecutions(workflow.id).length === 0" class="px-3 py-3 text-sm text-secondary italic">
+                              No failed executions found
+                            </div>
+                            <div v-else class="divide-y divide-red-100 dark:divide-red-800/50">
+                              <div
+                                v-for="exec in getWorkflowFailedExecutions(workflow.id)"
+                                :key="exec.id"
+                                class="flex items-center justify-between px-3 py-2 bg-white dark:bg-gray-800/30"
+                              >
+                                <div class="flex-1 min-w-0">
+                                  <p class="text-sm text-primary">
+                                    {{ new Date(exec.startedAt).toLocaleString() }}
+                                  </p>
+                                  <p class="text-xs text-secondary">
+                                    Duration: {{ formatDuration(exec.executionTime) }}
+                                  </p>
+                                </div>
+                                <button
+                                  @click.stop="openExecutionInN8n(exec)"
+                                  class="btn-secondary p-1.5 text-red-600 hover:text-red-700 dark:text-red-400"
+                                  title="View in n8n"
+                                >
+                                  <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </Transition>
+                      </div>
                     </div>
                   </div>
                 </Transition>
