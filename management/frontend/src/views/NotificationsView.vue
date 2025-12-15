@@ -386,7 +386,15 @@ async function handleGroupSave(formData) {
     }
     groupDialog.value.open = false
   } catch (error) {
-    notificationStore.error('Failed to save group: ' + (error.response?.data?.detail || 'Unknown error'))
+    console.error('Group save error:', error)
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error('Failed to save group: ' + errorMsg)
+    // Store form data and reopen dialog to preserve user input
+    const savedFormData = { ...formData }
+    groupDialog.value.open = false
+    setTimeout(() => {
+      groupDialog.value = { open: true, group: savedFormData.id ? savedFormData : null }
+    }, 100)
   }
 }
 
@@ -841,7 +849,7 @@ async function handleNtfyUpdateConfig(config) {
 
             <div v-else class="space-y-2 pt-2">
               <!-- Header row -->
-              <div class="grid grid-cols-[auto_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 px-3 py-2 text-xs font-medium text-secondary uppercase tracking-wide">
+              <div class="grid grid-cols-[44px_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 px-3 py-2 text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
                 <div>Channel Slug</div>
@@ -853,7 +861,7 @@ async function handleNtfyUpdateConfig(config) {
               <div
                 v-for="channel in channels"
                 :key="channel.id"
-                class="grid grid-cols-[auto_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
+                class="grid grid-cols-[44px_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
               >
                 <!-- Icon -->
                 <div
@@ -881,7 +889,12 @@ async function handleNtfyUpdateConfig(config) {
                 <!-- Webhook -->
                 <span
                   v-if="channel.webhook_enabled"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300"
+                  :class="[
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                    channel.enabled
+                      ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300'
+                      : 'bg-gray-100 dark:bg-gray-500/20 text-gray-500 dark:text-gray-400'
+                  ]"
                 >
                   <LinkIcon class="h-3 w-3" />
                   Webhook
