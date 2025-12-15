@@ -10,6 +10,7 @@ import ContainersView from '@/views/ContainersView.vue'
 import FlowsView from '@/views/FlowsView.vue'
 import SystemView from '@/views/SystemView.vue'
 import SettingsView from '@/views/SettingsView.vue'
+import NtfyView from '@/views/NtfyView.vue'
 
 const routes = [
   {
@@ -58,6 +59,12 @@ const routes = [
     path: '/settings',
     name: 'settings',
     component: SettingsView,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/ntfy',
+    name: 'ntfy',
+    component: NtfyView,
     meta: { requiresAuth: true },
   },
   {

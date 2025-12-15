@@ -10,6 +10,7 @@ from api.routers import containers
 from api.routers import system
 from api.routers import email
 from api.routers import flows
+from api.routers import ntfy
 
 __all__ = [
     "auth",
@@ -20,4 +21,5 @@ __all__ = [
     "system",
     "email",
     "flows",
+    "ntfy",
 ]

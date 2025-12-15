@@ -176,6 +176,43 @@ export const settingsApi = {
   getAll: () => api.get('/settings/'),
 }
 
+export const ntfyApi = {
+  // Health & Status
+  health: () => api.get('/ntfy/health'),
+  status: () => api.get('/ntfy/status'),
+  // Messages
+  send: (data) => api.post('/ntfy/send', data),
+  sendTemplate: (data) => api.post('/ntfy/send-template', data),
+  // Templates
+  getTemplates: (type) => api.get('/ntfy/templates', { params: { template_type: type } }),
+  getTemplate: (id) => api.get(`/ntfy/templates/${id}`),
+  createTemplate: (data) => api.post('/ntfy/templates', data),
+  updateTemplate: (id, data) => api.put(`/ntfy/templates/${id}`, data),
+  deleteTemplate: (id) => api.delete(`/ntfy/templates/${id}`),
+  previewTemplate: (data) => api.post('/ntfy/templates/preview', data),
+  // Topics
+  getTopics: () => api.get('/ntfy/topics'),
+  createTopic: (data) => api.post('/ntfy/topics', data),
+  updateTopic: (id, data) => api.put(`/ntfy/topics/${id}`, data),
+  deleteTopic: (id) => api.delete(`/ntfy/topics/${id}`),
+  // Saved Messages
+  getSavedMessages: () => api.get('/ntfy/saved-messages'),
+  createSavedMessage: (data) => api.post('/ntfy/saved-messages', data),
+  sendSavedMessage: (id) => api.post(`/ntfy/saved-messages/${id}/send`),
+  deleteSavedMessage: (id) => api.delete(`/ntfy/saved-messages/${id}`),
+  // History
+  getHistory: (params) => api.get('/ntfy/history', { params }),
+  // Server Config
+  getConfig: () => api.get('/ntfy/config'),
+  updateConfig: (data) => api.put('/ntfy/config', data),
+  // Emojis
+  getEmojiCategories: () => api.get('/ntfy/emojis/categories'),
+  searchEmojis: (query) => api.get('/ntfy/emojis/search', { params: { q: query } }),
+  // Integrations
+  getExamples: (category) => api.get('/ntfy/integrations/examples', { params: { category } }),
+  getWebhookUrl: (topic) => api.get('/ntfy/integrations/webhook-url', { params: { topic } }),
+}
+
 // Attach APIs to the main instance for api.xxx.method() pattern compatibility
 api.auth = authApi
 api.system = {
@@ -217,3 +254,4 @@ api.settings = {
   ...settingsApi,
   getAll: () => api.get('/settings/'),
 }
+api.ntfy = ntfyApi

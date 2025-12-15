@@ -114,7 +114,7 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         # Import all models to ensure they're registered
-        from api.models import auth, settings as settings_models, notifications, backups, email, audit
+        from api.models import auth, settings as settings_models, notifications, backups, email, audit, ntfy
 
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)

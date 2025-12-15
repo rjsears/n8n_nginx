@@ -8,6 +8,7 @@ from api.models.notifications import NotificationService, NotificationRule, Noti
 from api.models.backups import BackupSchedule, RetentionPolicy, BackupHistory, VerificationSchedule
 from api.models.email import EmailTemplate, EmailTestHistory
 from api.models.audit import AuditLog, ContainerStatusCache, SystemMetricsCache
+from api.models.ntfy import NtfyTemplate, NtfyTopic, NtfySavedMessage, NtfyMessageHistory, NtfyServerConfig
 
 __all__ = [
     # Auth
@@ -35,4 +36,10 @@ __all__ = [
     "AuditLog",
     "ContainerStatusCache",
     "SystemMetricsCache",
+    # NTFY
+    "NtfyTemplate",
+    "NtfyTopic",
+    "NtfySavedMessage",
+    "NtfyMessageHistory",
+    "NtfyServerConfig",
 ]

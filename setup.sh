@@ -633,6 +633,11 @@ restore_optional_services_from_config() {
         INSTALL_DOZZLE="$DOZZLE_ENABLED"
     fi
 
+    # Portainer (full)
+    if [ -n "$PORTAINER_ENABLED" ]; then
+        INSTALL_PORTAINER="$PORTAINER_ENABLED"
+    fi
+
     # Portainer Agent
     if [ -n "$PORTAINER_AGENT_ENABLED" ]; then
         INSTALL_PORTAINER_AGENT="$PORTAINER_AGENT_ENABLED"
@@ -2393,7 +2398,7 @@ EOF
     networks:
       - n8n_network
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1"]
+      test: ["CMD", "wget", "-q", "--tries=1", "http://localhost:80/v1/health", "-O", "-"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -4180,42 +4185,45 @@ main() {
         handle_version_detection
     fi
 
-    # Check if running in LXC container and show warning
-    if is_lxc_container; then
-        echo ""
-        echo -e "  ${RED}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "  ${RED}║${NC}                          ${WHITE}${BOLD}LXC CONTAINER DETECTED${NC}                           ${RED}║${NC}"
-        echo -e "  ${RED}╠═══════════════════════════════════════════════════════════════════════════╣${NC}"
-        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}  ${YELLOW}IMPORTANT:${NC} Docker inside LXC requires special Proxmox configuration.     ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}  On your ${WHITE}Proxmox host${NC}, add this line to the container config:             ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}      ${CYAN}/etc/pve/lxc/<CTID>.conf${NC}                                             ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}      ${WHITE}lxc.apparmor.profile: unconfined${NC}                                     ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}  Then restart this container from Proxmox before continuing.              ${RED}║${NC}"
-        echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
-        echo -e "  ${RED}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
-        echo ""
-        if ! confirm_prompt "Have you added this configuration and restarted the container?"; then
+    # Skip all preliminary checks for reconfigure mode - user already has a working installation
+    if [ "$INSTALL_MODE" != "reconfigure" ]; then
+        # Check if running in LXC container and show warning
+        if is_lxc_container; then
             echo ""
-            print_info "Please configure Proxmox and restart the container, then run this script again."
-            exit 0
+            echo -e "  ${RED}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "  ${RED}║${NC}                          ${WHITE}${BOLD}LXC CONTAINER DETECTED${NC}                           ${RED}║${NC}"
+            echo -e "  ${RED}╠═══════════════════════════════════════════════════════════════════════════╣${NC}"
+            echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}  ${YELLOW}IMPORTANT:${NC} Docker inside LXC requires special Proxmox configuration.     ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}  On your ${WHITE}Proxmox host${NC}, add this line to the container config:             ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}      ${CYAN}/etc/pve/lxc/<CTID>.conf${NC}                                             ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}      ${WHITE}lxc.apparmor.profile: unconfined${NC}                                     ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}  Then restart this container from Proxmox before continuing.              ${RED}║${NC}"
+            echo -e "  ${RED}║${NC}                                                                           ${RED}║${NC}"
+            echo -e "  ${RED}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+            if ! confirm_prompt "Have you added this configuration and restarted the container?"; then
+                echo ""
+                print_info "Please configure Proxmox and restart the container, then run this script again."
+                exit 0
+            fi
         fi
+
+        # Check for resume
+        if check_resume; then
+            print_info "Resuming from saved state..."
+        fi
+
+        # Docker check
+        check_and_install_docker
+
+        # System requirements check
+        perform_system_checks
     fi
-
-    # Check for resume
-    if check_resume; then
-        print_info "Resuming from saved state..."
-    fi
-
-    # Docker check
-    check_and_install_docker
-
-    # System requirements check
-    perform_system_checks
 
     # Note: Version detection already happened at the top of main()
 
@@ -4439,6 +4447,7 @@ NGINX_CONTAINER=${NGINX_CONTAINER}
 CERTBOT_CONTAINER=${CERTBOT_CONTAINER}
 LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
 N8N_TIMEZONE=${N8N_TIMEZONE}
+PORTAINER_ENABLED=${INSTALL_PORTAINER}
 PORTAINER_AGENT_ENABLED=${INSTALL_PORTAINER_AGENT}
 MGMT_PORT=${MGMT_PORT}
 NFS_CONFIGURED=${NFS_CONFIGURED}
