@@ -10,6 +10,30 @@ from api.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Path to the mounted .env file
+HOST_ENV_PATH = "/app/host_env/.env"
+
+
+def _read_env_file_value(key: str) -> Optional[str]:
+    """Read a value directly from the .env file."""
+    try:
+        if os.path.exists(HOST_ENV_PATH):
+            with open(HOST_ENV_PATH, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        if k.strip() == key:
+                            # Remove surrounding quotes if present
+                            v = v.strip()
+                            if (v.startswith('"') and v.endswith('"')) or \
+                               (v.startswith("'") and v.endswith("'")):
+                                v = v[1:-1]
+                            return v
+    except Exception as e:
+        logger.warning(f"Failed to read {key} from .env file: {e}")
+    return None
+
 
 class N8nApiService:
     """Service to interact with n8n's REST API."""
@@ -20,10 +44,22 @@ class N8nApiService:
     @property
     def api_key(self) -> Optional[str]:
         """
-        Get the API key dynamically from environment.
+        Get the API key dynamically, checking multiple sources.
+        Priority: os.environ > .env file > settings (cached at startup)
         This allows the key to be updated at runtime without restart.
         """
-        return os.environ.get("N8N_API_KEY") or settings.n8n_api_key
+        # First check os.environ (updated by settings API)
+        key = os.environ.get("N8N_API_KEY")
+        if key:
+            return key
+
+        # Then read directly from the .env file (most reliable for runtime updates)
+        key = _read_env_file_value("N8N_API_KEY")
+        if key:
+            return key
+
+        # Fall back to settings (cached at startup)
+        return settings.n8n_api_key
 
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for n8n API requests."""
