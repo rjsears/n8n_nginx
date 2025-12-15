@@ -305,23 +305,36 @@ async def get_access_control(
     last_updated = None
     enabled = False
 
+    # Return empty config if nginx config doesn't exist (not mounted or not configured)
+    if not os.path.exists(NGINX_CONFIG_PATH):
+        return AccessControlResponse(
+            enabled=False,
+            ip_ranges=[],
+            nginx_config_path=NGINX_CONFIG_PATH,
+            last_updated=None,
+        )
+
     try:
-        if os.path.exists(NGINX_CONFIG_PATH):
-            with open(NGINX_CONFIG_PATH, 'r') as f:
-                content = f.read()
+        with open(NGINX_CONFIG_PATH, 'r') as f:
+            content = f.read()
 
-            # Check if geo block exists
-            if 'geo $access_level' in content:
-                enabled = True
-                ip_ranges = parse_nginx_geo_block(content)
+        # Check if geo block exists
+        if 'geo $access_level' in content:
+            enabled = True
+            ip_ranges = parse_nginx_geo_block(content)
 
-            # Get last modified time
-            stat = os.stat(NGINX_CONFIG_PATH)
-            last_updated = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+        # Get last modified time
+        stat = os.stat(NGINX_CONFIG_PATH)
+        last_updated = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read nginx config: {str(e)}",
+        # Log error but return empty config instead of 500
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to read nginx config: {e}")
+        return AccessControlResponse(
+            enabled=False,
+            ip_ranges=[],
+            nginx_config_path=NGINX_CONFIG_PATH,
+            last_updated=None,
         )
 
     return AccessControlResponse(
