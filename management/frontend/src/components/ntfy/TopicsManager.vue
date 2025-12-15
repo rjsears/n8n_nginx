@@ -257,7 +257,7 @@ const props = defineProps({
   onCreate: { type: Function, required: true },
   onUpdate: { type: Function, required: true },
   onDelete: { type: Function, required: true },
-  onSync: { type: Function, required: true },
+  onSync: { type: Function, default: null },
 })
 
 // State
@@ -359,6 +359,12 @@ async function deleteTopic(topic) {
 
 // Sync topics to notification channels
 async function syncChannels() {
+  if (typeof props.onSync !== 'function') {
+    syncSuccess.value = false
+    syncMessage.value = 'Sync function not available'
+    return
+  }
+
   syncing.value = true
   syncMessage.value = ''
 
