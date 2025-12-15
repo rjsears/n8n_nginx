@@ -83,6 +83,7 @@ const webhookInfo = ref(null)
 const showApiKey = ref(false)
 const webhookExpanded = ref(false)
 const historyExpanded = ref(false)
+const channelsExpanded = ref(true)
 const expandedHistoryItems = ref(new Set())
 const generatingKey = ref(false)
 
@@ -802,90 +803,113 @@ async function handleNtfyUpdateConfig(config) {
         </Card>
       </div>
 
-      <!-- Notification Channels -->
-      <Card title="Notification Channels" subtitle="Configure where alerts are sent" :neon="true">
-        <EmptyState
-          v-if="channels.length === 0"
-          :icon="BellIcon"
-          title="No channels configured"
-          description="Add a notification channel to start receiving alerts."
-          action-text="Add Channel"
-          @action="openAddDialog"
-        />
+      <!-- Notification Channels (Collapsible) -->
+      <Card :neon="true" :padding="false">
+        <div
+          @click="channelsExpanded = !channelsExpanded"
+          class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+        >
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
+              <BellIcon class="h-5 w-5 text-blue-500" />
+            </div>
+            <div>
+              <h3 class="font-semibold text-primary">Notification Channels</h3>
+              <p class="text-sm text-secondary">Configure where alerts are sent</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">
+              {{ channels.length }} channel{{ channels.length !== 1 ? 's' : '' }}
+            </span>
+            <ChevronDownIcon v-if="channelsExpanded" class="h-5 w-5 text-secondary" />
+            <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+          </div>
+        </div>
 
-        <div v-else class="space-y-3">
-          <div
-            v-for="channel in channels"
-            :key="channel.id"
-            class="flex items-center justify-between p-4 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
-          >
-            <div class="flex items-center gap-4">
+        <Transition name="collapse">
+          <div v-if="channelsExpanded" class="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
+            <EmptyState
+              v-if="channels.length === 0"
+              :icon="BellIcon"
+              title="No channels configured"
+              description="Add a notification channel to start receiving alerts."
+              action-text="Add Channel"
+              @action="openAddDialog"
+              class="pt-4"
+            />
+
+            <div v-else class="space-y-2 pt-2">
               <div
-                :class="[
-                  'p-3 rounded-lg',
-                  channel.enabled
-                    ? 'bg-blue-100 dark:bg-blue-500/20'
-                    : 'bg-gray-100 dark:bg-gray-500/20'
-                ]"
+                v-for="channel in channels"
+                :key="channel.id"
+                class="flex items-center justify-between p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
               >
-                <component
-                  :is="channelIcons[channel.service_type] || BellIcon"
-                  :class="[
-                    'h-6 w-6',
-                    channel.enabled ? 'text-blue-500' : 'text-gray-500'
-                  ]"
-                />
-              </div>
-              <div>
-                <div class="flex items-center gap-2">
-                  <p class="font-medium text-primary">{{ channel.name }}</p>
-                  <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" />
+                <div class="flex items-center gap-3 flex-1 min-w-0">
+                  <div
+                    :class="[
+                      'p-2 rounded-lg flex-shrink-0',
+                      channel.enabled
+                        ? 'bg-blue-100 dark:bg-blue-500/20'
+                        : 'bg-gray-100 dark:bg-gray-500/20'
+                    ]"
+                  >
+                    <component
+                      :is="channelIcons[channel.service_type] || BellIcon"
+                      :class="[
+                        'h-5 w-5',
+                        channel.enabled ? 'text-blue-500' : 'text-gray-500'
+                      ]"
+                    />
+                  </div>
+                  <p class="font-medium text-primary truncate">{{ channel.name }}</p>
+                  <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" class="flex-shrink-0" />
                   <span
                     v-if="channel.webhook_enabled"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 flex-shrink-0"
                   >
                     <LinkIcon class="h-3 w-3" />
                     Webhook
                   </span>
+                  <span class="text-xs text-secondary capitalize flex-shrink-0">{{ channel.service_type }}</span>
                 </div>
-                <p class="text-sm text-secondary mt-0.5 capitalize">{{ channel.service_type }}</p>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    @click.stop="testChannel(channel)"
+                    :disabled="testingChannel === channel.id"
+                    class="btn-secondary p-2"
+                    title="Test"
+                  >
+                    <PaperAirplaneIcon
+                      :class="['h-4 w-4', testingChannel === channel.id && 'animate-pulse']"
+                    />
+                  </button>
+                  <button @click.stop="openEditDialog(channel)" class="btn-secondary p-2" title="Edit">
+                    <PencilSquareIcon class="h-4 w-4" />
+                  </button>
+                  <button
+                    @click.stop="openDeleteDialog(channel)"
+                    class="btn-secondary p-2 text-red-500 hover:text-red-600"
+                    title="Delete"
+                  >
+                    <TrashIcon class="h-4 w-4" />
+                  </button>
+                  <label class="relative inline-flex items-center cursor-pointer ml-1">
+                    <input
+                      type="checkbox"
+                      :checked="channel.enabled"
+                      @change.stop="toggleChannel(channel)"
+                      class="sr-only peer"
+                    />
+                    <div
+                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                    ></div>
+                  </label>
+                </div>
               </div>
             </div>
-            <div class="flex items-center gap-2">
-              <button
-                @click="testChannel(channel)"
-                :disabled="testingChannel === channel.id"
-                class="btn-secondary p-2"
-                title="Test"
-              >
-                <PaperAirplaneIcon
-                  :class="['h-4 w-4', testingChannel === channel.id && 'animate-pulse']"
-                />
-              </button>
-              <button @click="openEditDialog(channel)" class="btn-secondary p-2" title="Edit">
-                <PencilSquareIcon class="h-4 w-4" />
-              </button>
-              <button
-                @click="openDeleteDialog(channel)"
-                class="btn-secondary p-2 text-red-500 hover:text-red-600"
-                title="Delete"
-              >
-                <TrashIcon class="h-4 w-4" />
-              </button>
-              <label class="relative inline-flex items-center cursor-pointer ml-2">
-                <input
-                  type="checkbox"
-                  :checked="channel.enabled"
-                  @change="toggleChannel(channel)"
-                  class="sr-only peer"
-                />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
           </div>
-        </div>
+        </Transition>
       </Card>
 
       <!-- Notification History (Collapsible) -->
