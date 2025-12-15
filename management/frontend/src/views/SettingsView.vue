@@ -115,6 +115,7 @@ const newIpRange = ref({
 const defaultIpRanges = ref([])
 const showDeleteConfirm = ref(false)
 const ipRangeToDelete = ref(null)
+const cloudflareRunning = ref(false)
 
 // Filter out already-configured ranges from the defaults list
 const availableDefaultRanges = computed(() => {
@@ -271,6 +272,14 @@ async function loadAccessControl() {
         nginx_config_path: '',
         last_updated: null,
       }
+    }
+
+    // Check if Cloudflare tunnel is running
+    try {
+      const cfResponse = await api.system.cloudflare()
+      cloudflareRunning.value = cfResponse.data?.running || false
+    } catch (e) {
+      cloudflareRunning.value = false
     }
   } catch (error) {
     console.error('Failed to load access control:', error)
@@ -806,8 +815,8 @@ watch(activeTab, (newTab) => {
         <LoadingSpinner v-if="accessControlLoading" size="lg" text="Loading access control..." class="py-12" />
 
         <template v-else>
-          <!-- External Access Info -->
-          <div class="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-4">
+          <!-- External Access Info (only show if Cloudflare tunnel is running) -->
+          <div v-if="cloudflareRunning" class="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-4">
             <div class="flex gap-3">
               <GlobeAltIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
               <div>
