@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, UTC
 from typing import Optional, List, Dict, Any
 import logging
 import asyncio
+import re
 
 from api.models.notifications import (
     NotificationService as NotificationServiceModel,
@@ -67,32 +68,46 @@ class NotificationDispatcher:
             if not topic:
                 raise ValueError("NTFY topic is required")
 
-            # Map priority
+            # Map priority to numeric values for JSON API
             priority_map = {
-                "low": "low",
-                "normal": "default",
-                "high": "high",
-                "critical": "urgent",
+                "low": 2,
+                "normal": 3,
+                "high": 4,
+                "critical": 5,
             }
 
+            # Use JSON body to properly handle Unicode/emojis
             headers = {
-                "Title": title,
-                "Priority": priority_map.get(priority, "default"),
+                "Content-Type": "application/json",
             }
-
-            if config.get("tags"):
-                headers["Tags"] = ",".join(config["tags"])
 
             if config.get("token"):
                 headers["Authorization"] = f"Bearer {config['token']}"
 
-            url = f"{server}/{topic}"
-            logger.debug(f"Sending NTFY notification to {url}")
+            # Build JSON payload - this properly handles UTF-8 encoding
+            payload = {
+                "topic": topic,
+                "message": body,
+                "title": title,
+                "priority": priority_map.get(priority, 3),
+            }
+
+            if config.get("tags"):
+                # Filter tags to only include valid shortcodes (alphanumeric, underscores)
+                # NTFY uses shortcodes like 'warning', 'dart', 'rocket' - not actual emoji chars
+                valid_tags = [
+                    tag for tag in config["tags"]
+                    if isinstance(tag, str) and re.match(r'^[a-zA-Z0-9_+-]+$', tag)
+                ]
+                if valid_tags:
+                    payload["tags"] = valid_tags
+
+            logger.debug(f"Sending NTFY notification to {server}")
 
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    url,
-                    content=body,
+                    server,
+                    json=payload,
                     headers=headers,
                     timeout=30.0,
                 )
@@ -335,6 +350,7 @@ class NotificationService:
         if not service:
             return {"success": False, "error": "Service not found"}
 
+        error_msg = None
         try:
             if service.service_type == "apprise":
                 success = await self.dispatcher.send_apprise(service.config, title, message, "normal")
@@ -351,17 +367,35 @@ class NotificationService:
             service.last_test = datetime.now(UTC)
             service.last_test_result = "success" if success else "failed"
             service.last_test_error = None if success else "Send returned false"
-            await self.db.commit()
-
-            return {"success": success}
+            if not success:
+                error_msg = "Send returned false"
 
         except Exception as e:
+            success = False
+            error_msg = str(e)
             service.last_test = datetime.now(UTC)
             service.last_test_result = "failed"
             service.last_test_error = str(e)
-            await self.db.commit()
 
-            return {"success": False, "error": str(e)}
+        # Log to notification history
+        now = datetime.now(UTC)
+        history = NotificationHistory(
+            event_type="service.test",
+            event_data={"title": title, "message": message},
+            severity="info",
+            service_id=service.id,
+            service_name=service.name,
+            rule_id=None,
+            status="sent" if success else "failed",
+            sent_at=now if success else None,
+            error_message=error_msg,
+        )
+        self.db.add(history)
+        await self.db.commit()
+
+        if not success:
+            return {"success": False, "error": error_msg}
+        return {"success": True}
 
     # Group management
 
