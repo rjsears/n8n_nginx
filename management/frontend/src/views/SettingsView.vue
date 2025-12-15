@@ -40,6 +40,8 @@ import {
   LinkIcon,
   BeakerIcon,
   ServerIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -142,6 +144,50 @@ const newExternalRoute = ref({
 })
 const showDeleteRouteConfirm = ref(false)
 const routeToDelete = ref(null)
+
+// Collapsible state for routes and IP ranges
+const expandedRoutes = ref(new Set())
+const expandedIpRanges = ref(new Set())
+
+function toggleRouteExpanded(index) {
+  if (expandedRoutes.value.has(index)) {
+    expandedRoutes.value.delete(index)
+  } else {
+    expandedRoutes.value.add(index)
+  }
+  // Force reactivity
+  expandedRoutes.value = new Set(expandedRoutes.value)
+}
+
+function toggleIpRangeExpanded(index) {
+  if (expandedIpRanges.value.has(index)) {
+    expandedIpRanges.value.delete(index)
+  } else {
+    expandedIpRanges.value.add(index)
+  }
+  // Force reactivity
+  expandedIpRanges.value = new Set(expandedIpRanges.value)
+}
+
+function expandAllRoutes() {
+  externalRoutes.value.routes.forEach((_, index) => expandedRoutes.value.add(index))
+  expandedRoutes.value = new Set(expandedRoutes.value)
+}
+
+function collapseAllRoutes() {
+  expandedRoutes.value.clear()
+  expandedRoutes.value = new Set(expandedRoutes.value)
+}
+
+function expandAllIpRanges() {
+  accessControl.value.ip_ranges.forEach((_, index) => expandedIpRanges.value.add(index))
+  expandedIpRanges.value = new Set(expandedIpRanges.value)
+}
+
+function collapseAllIpRanges() {
+  expandedIpRanges.value.clear()
+  expandedIpRanges.value = new Set(expandedIpRanges.value)
+}
 
 // Filter out already-configured ranges from the defaults list
 const availableDefaultRanges = computed(() => {
@@ -1028,13 +1074,32 @@ watch(activeTab, (newTab) => {
                 No routes found in nginx configuration.
               </div>
 
-              <!-- Routes Grid -->
-              <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+              <!-- Routes List with Expand/Collapse -->
+              <div v-else class="space-y-2 mb-4">
+                <!-- Expand/Collapse All buttons -->
+                <div class="flex justify-end gap-2 mb-3">
+                  <button
+                    @click="expandAllRoutes"
+                    class="text-xs text-muted hover:text-primary flex items-center gap-1"
+                  >
+                    <ChevronDownIcon class="h-3 w-3" />
+                    Expand All
+                  </button>
+                  <span class="text-muted">|</span>
+                  <button
+                    @click="collapseAllRoutes"
+                    class="text-xs text-muted hover:text-primary flex items-center gap-1"
+                  >
+                    <ChevronRightIcon class="h-3 w-3" />
+                    Collapse All
+                  </button>
+                </div>
+
                 <div
                   v-for="(route, index) in externalRoutes.routes"
                   :key="index"
                   :class="[
-                    'relative p-4 rounded-xl border transition-all hover:shadow-md',
+                    'rounded-xl border transition-all overflow-hidden',
                     route.is_public
                       ? 'bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 border-green-200 dark:border-green-800'
                       : route.has_auth
@@ -1042,11 +1107,44 @@ watch(activeTab, (newTab) => {
                         : 'bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/10 dark:to-rose-900/10 border-red-200 dark:border-red-800'
                   ]"
                 >
-                  <!-- Access Status Badge -->
-                  <div class="absolute top-3 right-3">
+                  <!-- Collapsed Header (always visible) -->
+                  <div
+                    @click="toggleRouteExpanded(index)"
+                    class="flex items-center gap-3 p-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  >
+                    <!-- Expand/Collapse Arrow -->
+                    <component
+                      :is="expandedRoutes.has(index) ? ChevronDownIcon : ChevronRightIcon"
+                      class="h-4 w-4 text-muted flex-shrink-0 transition-transform"
+                    />
+
+                    <!-- Icon -->
+                    <div
+                      class="flex-shrink-0 p-2 rounded-lg"
+                      :style="{ backgroundColor: getRouteIconBg(route.color) }"
+                    >
+                      <component
+                        :is="getRouteIcon(route.icon)"
+                        class="h-4 w-4"
+                        :style="{ color: getRouteIconColor(route.color) }"
+                      />
+                    </div>
+
+                    <!-- Path and Status -->
+                    <div class="flex-1 min-w-0 flex items-center gap-3">
+                      <p class="font-mono text-primary font-semibold truncate">{{ route.path }}</p>
+                      <span
+                        v-if="route.protected"
+                        class="flex-shrink-0 text-xs px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
+                      >
+                        System
+                      </span>
+                    </div>
+
+                    <!-- Access Status Badge -->
                     <span
                       :class="[
-                        'inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
+                        'flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
                         route.is_public
                           ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
                           : route.has_auth
@@ -1060,80 +1158,51 @@ watch(activeTab, (newTab) => {
                       />
                       {{ route.is_public ? 'Public' : route.has_auth ? 'SSO' : 'Restricted' }}
                     </span>
-                  </div>
 
-                  <div class="flex items-start gap-3">
-                    <!-- Icon -->
-                    <div
-                      :class="[
-                        'flex-shrink-0 p-2.5 rounded-lg',
-                        `bg-${route.color}-100 dark:bg-${route.color}-500/20`
-                      ]"
-                      :style="{
-                        backgroundColor: getRouteIconBg(route.color)
-                      }"
+                    <!-- Delete button (visible in header for manageable routes) -->
+                    <button
+                      v-if="route.manageable && !route.protected"
+                      @click.stop="confirmDeleteRoute(route)"
+                      class="flex-shrink-0 p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg transition-colors"
+                      title="Remove route"
                     >
-                      <component
-                        :is="getRouteIcon(route.icon)"
-                        :class="[
-                          'h-5 w-5',
-                          `text-${route.color}-600 dark:text-${route.color}-400`
-                        ]"
-                        :style="{
-                          color: getRouteIconColor(route.color)
-                        }"
-                      />
-                    </div>
-
-                    <div class="flex-1 min-w-0 pr-16">
-                      <!-- Path -->
-                      <div class="flex items-center gap-2 mb-1">
-                        <p class="font-mono text-primary font-semibold truncate">{{ route.path }}</p>
-                        <span
-                          v-if="route.protected"
-                          class="flex-shrink-0 text-xs px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
-                          title="System route - cannot be removed"
-                        >
-                          System
-                        </span>
-                      </div>
-
-                      <!-- Description -->
-                      <p class="text-sm text-secondary mb-2">{{ route.description }}</p>
-
-                      <!-- Full URL -->
-                      <div v-if="externalRoutes.domain" class="flex items-center gap-2">
-                        <code class="text-xs text-muted bg-black/5 dark:bg-white/5 px-2 py-1 rounded font-mono truncate">
-                          https://{{ externalRoutes.domain }}{{ route.path }}
-                        </code>
-                        <button
-                          @click="copyToClipboard(`https://${externalRoutes.domain}${route.path}`)"
-                          class="flex-shrink-0 p-1 text-muted hover:text-primary rounded"
-                          title="Copy URL"
-                        >
-                          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
-                        </button>
-                      </div>
-
-                      <!-- Proxy Target -->
-                      <p class="text-xs text-muted mt-2">
-                        <ServerIcon class="inline h-3 w-3 mr-1" />
-                        Proxied to: <span class="font-mono">{{ route.proxy_target }}</span>
-                      </p>
-                    </div>
+                      <TrashIcon class="h-4 w-4" />
+                    </button>
                   </div>
 
-                  <!-- Delete button for manageable routes -->
-                  <button
-                    v-if="route.manageable && !route.protected"
-                    @click="confirmDeleteRoute(route)"
-                    class="absolute bottom-3 right-3 p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg transition-colors"
-                    title="Remove route"
-                  >
-                    <TrashIcon class="h-4 w-4" />
-                  </button>
+                  <!-- Expanded Content -->
+                  <Transition name="expand">
+                    <div v-if="expandedRoutes.has(index)" class="px-4 pb-4 pt-1 border-t border-black/10 dark:border-white/10">
+                      <div class="ml-9 space-y-3">
+                        <!-- Description -->
+                        <p class="text-sm text-secondary">{{ route.description }}</p>
+
+                        <!-- Full URL -->
+                        <div v-if="externalRoutes.domain" class="flex items-center gap-2">
+                          <span class="text-xs text-muted">URL:</span>
+                          <code class="text-xs text-primary bg-black/5 dark:bg-white/5 px-2 py-1 rounded font-mono">
+                            https://{{ externalRoutes.domain }}{{ route.path }}
+                          </code>
+                          <button
+                            @click="copyToClipboard(`https://${externalRoutes.domain}${route.path}`)"
+                            class="p-1 text-muted hover:text-primary rounded"
+                            title="Copy URL"
+                          >
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </button>
+                        </div>
+
+                        <!-- Proxy Target -->
+                        <div class="flex items-center gap-2 text-xs text-muted">
+                          <ServerIcon class="h-3 w-3" />
+                          <span>Proxied to:</span>
+                          <span class="font-mono text-primary">{{ route.proxy_target }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
                 </div>
               </div>
 
@@ -1230,19 +1299,98 @@ watch(activeTab, (newTab) => {
             </div>
 
             <div v-else class="space-y-2">
+              <!-- Expand/Collapse All buttons -->
+              <div class="flex justify-end gap-2 mb-3">
+                <button
+                  @click="expandAllIpRanges"
+                  class="text-xs text-muted hover:text-primary flex items-center gap-1"
+                >
+                  <ChevronDownIcon class="h-3 w-3" />
+                  Expand All
+                </button>
+                <span class="text-muted">|</span>
+                <button
+                  @click="collapseAllIpRanges"
+                  class="text-xs text-muted hover:text-primary flex items-center gap-1"
+                >
+                  <ChevronRightIcon class="h-3 w-3" />
+                  Collapse All
+                </button>
+              </div>
+
               <div
                 v-for="(range, index) in accessControl.ip_ranges"
                 :key="index"
-                class="flex items-center justify-between p-3 rounded-lg bg-surface-hover"
+                :class="[
+                  'rounded-xl border transition-all overflow-hidden',
+                  range.protected
+                    ? 'bg-gradient-to-br from-gray-50 to-slate-50 dark:from-gray-900/10 dark:to-slate-900/10 border-gray-200 dark:border-gray-700'
+                    : range.access_level === 'external'
+                      ? 'bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/10 dark:to-indigo-900/10 border-purple-200 dark:border-purple-800'
+                      : 'bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/10 dark:to-cyan-900/10 border-blue-200 dark:border-blue-800'
+                ]"
               >
-                <div class="flex-1">
-                  <p class="font-mono text-primary">{{ range.cidr }}</p>
-                  <p v-if="range.description" class="text-sm text-secondary">{{ range.description }}</p>
-                </div>
-                <div class="flex items-center gap-2">
+                <!-- Collapsed Header (always visible) -->
+                <div
+                  @click="toggleIpRangeExpanded(index)"
+                  class="flex items-center gap-3 p-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                >
+                  <!-- Expand/Collapse Arrow -->
+                  <component
+                    :is="expandedIpRanges.has(index) ? ChevronDownIcon : ChevronRightIcon"
+                    class="h-4 w-4 text-muted flex-shrink-0 transition-transform"
+                  />
+
+                  <!-- Icon -->
+                  <div
+                    :class="[
+                      'flex-shrink-0 p-2 rounded-lg',
+                      range.protected
+                        ? 'bg-gray-100 dark:bg-gray-800'
+                        : range.access_level === 'external'
+                          ? 'bg-purple-100 dark:bg-purple-500/20'
+                          : 'bg-blue-100 dark:bg-blue-500/20'
+                    ]"
+                  >
+                    <GlobeAltIcon
+                      :class="[
+                        'h-4 w-4',
+                        range.protected
+                          ? 'text-gray-500'
+                          : range.access_level === 'external'
+                            ? 'text-purple-500'
+                            : 'text-blue-500'
+                      ]"
+                    />
+                  </div>
+
+                  <!-- CIDR and Status -->
+                  <div class="flex-1 min-w-0 flex items-center gap-3">
+                    <p class="font-mono text-primary font-semibold truncate">{{ range.cidr }}</p>
+                    <span
+                      v-if="range.protected"
+                      class="flex-shrink-0 text-xs px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
+                    >
+                      System
+                    </span>
+                  </div>
+
+                  <!-- Access Level Badge -->
+                  <span
+                    :class="[
+                      'flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
+                      range.access_level === 'external'
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400'
+                        : 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
+                    ]"
+                  >
+                    {{ range.access_level === 'external' ? 'External' : 'Internal' }}
+                  </span>
+
+                  <!-- Delete button -->
                   <button
                     v-if="range.protected"
-                    class="p-1.5 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                    class="flex-shrink-0 p-1.5 text-gray-400 dark:text-gray-500 cursor-not-allowed"
                     title="Protected - required for system functionality"
                     disabled
                   >
@@ -1250,13 +1398,36 @@ watch(activeTab, (newTab) => {
                   </button>
                   <button
                     v-else
-                    @click="confirmDeleteIpRange(range)"
-                    class="p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded"
+                    @click.stop="confirmDeleteIpRange(range)"
+                    class="flex-shrink-0 p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-lg transition-colors"
                     title="Delete IP range"
                   >
                     <TrashIcon class="h-4 w-4" />
                   </button>
                 </div>
+
+                <!-- Expanded Content -->
+                <Transition name="expand">
+                  <div v-if="expandedIpRanges.has(index)" class="px-4 pb-4 pt-1 border-t border-black/10 dark:border-white/10">
+                    <div class="ml-9 space-y-2">
+                      <!-- Description -->
+                      <p v-if="range.description" class="text-sm text-secondary">{{ range.description }}</p>
+                      <p v-else class="text-sm text-muted italic">No description provided</p>
+
+                      <!-- Details -->
+                      <div class="flex items-center gap-4 text-xs text-muted">
+                        <span class="flex items-center gap-1">
+                          <ShieldCheckIcon class="h-3 w-3" />
+                          Access: {{ range.access_level === 'external' ? 'External network' : 'Internal network' }}
+                        </span>
+                        <span v-if="range.protected" class="flex items-center gap-1">
+                          <LockClosedIcon class="h-3 w-3" />
+                          Protected (required for system)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </Transition>
               </div>
             </div>
           </Card>
@@ -1595,3 +1766,26 @@ watch(activeTab, (newTab) => {
     </template>
   </div>
 </template>
+
+<style scoped>
+/* Expand/Collapse transitions */
+.expand-enter-active,
+.expand-leave-active {
+  transition: all 0.2s ease-out;
+  overflow: hidden;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.expand-enter-to,
+.expand-leave-from {
+  opacity: 1;
+  max-height: 200px;
+}
+</style>
