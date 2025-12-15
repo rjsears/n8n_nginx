@@ -411,25 +411,35 @@ onMounted(loadData)
               class="pt-4"
             />
 
-            <div v-else class="space-y-2 pt-2">
-              <div
-                v-for="workflow in filteredWorkflows"
-                :key="workflow.id"
-                class="rounded-lg bg-surface-hover border border-gray-300 dark:border-black overflow-hidden"
-              >
-                <!-- Workflow Header (Clickable to expand) -->
+            <div v-else class="pt-2">
+              <!-- Header Row -->
+              <div class="grid grid-cols-[20px_36px_minmax(200px,1fr)_80px_100px_50px] gap-3 px-3 py-2 text-xs font-medium text-secondary uppercase tracking-wide border-b border-gray-200 dark:border-gray-700">
+                <div></div>
+                <div></div>
+                <div>Name</div>
+                <div class="text-center">Status</div>
+                <div class="text-center">ID</div>
+                <div class="text-center">Toggle</div>
+              </div>
+              <!-- Workflow Rows -->
+              <div class="space-y-1 pt-1">
                 <div
-                  @click="toggleWorkflowExpanded(workflow.id)"
-                  class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+                  v-for="workflow in filteredWorkflows"
+                  :key="workflow.id"
+                  class="rounded-lg bg-surface-hover border border-gray-300 dark:border-black overflow-hidden"
                 >
-                  <div class="flex items-center gap-3 flex-1 min-w-0">
+                  <!-- Workflow Row (Single line, clickable to expand) -->
+                  <div
+                    @click="toggleWorkflowExpanded(workflow.id)"
+                    class="grid grid-cols-[20px_36px_minmax(200px,1fr)_80px_100px_50px] gap-3 px-3 py-2 items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+                  >
                     <component
                       :is="expandedWorkflows.has(workflow.id) ? ChevronDownIcon : ChevronRightIcon"
-                      class="h-4 w-4 text-secondary flex-shrink-0"
+                      class="h-4 w-4 text-secondary"
                     />
                     <div
                       :class="[
-                        'p-2 rounded-lg flex-shrink-0',
+                        'p-1.5 rounded-lg',
                         workflow.active
                           ? 'bg-emerald-100 dark:bg-emerald-500/20'
                           : 'bg-gray-100 dark:bg-gray-500/20'
@@ -437,39 +447,32 @@ onMounted(loadData)
                     >
                       <BoltIcon
                         :class="[
-                          'h-5 w-5',
+                          'h-4 w-4',
                           workflow.active ? 'text-emerald-500' : 'text-gray-500'
                         ]"
                       />
                     </div>
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-2">
-                        <p class="font-medium text-primary truncate">{{ workflow.name }}</p>
-                        <StatusBadge :status="workflow.active ? 'active' : 'inactive'" size="sm" class="flex-shrink-0" />
-                      </div>
-                      <p class="text-xs text-secondary mt-0.5">
-                        ID: {{ workflow.id }}
-                        <span v-if="workflow.triggerCount" class="ml-2">• {{ workflow.triggerCount }} trigger{{ workflow.triggerCount !== 1 ? 's' : '' }}</span>
-                        <span v-if="workflow.nodeCount" class="ml-2">• {{ workflow.nodeCount }} node{{ workflow.nodeCount !== 1 ? 's' : '' }}</span>
-                      </p>
+                    <p class="font-medium text-sm text-primary truncate">{{ workflow.name }}</p>
+                    <div class="flex justify-center">
+                      <StatusBadge :status="workflow.active ? 'active' : 'inactive'" size="sm" />
+                    </div>
+                    <p class="text-xs text-secondary text-center font-mono">{{ workflow.id }}</p>
+                    <!-- Quick toggle -->
+                    <div class="flex justify-center" @click.stop>
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          :checked="workflow.active"
+                          @change="toggleWorkflow(workflow)"
+                          :disabled="actionLoading === workflow.id"
+                          class="sr-only peer"
+                        />
+                        <div
+                          class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"
+                        ></div>
+                      </label>
                     </div>
                   </div>
-                  <!-- Quick toggle on collapsed view -->
-                  <div class="flex items-center gap-1 flex-shrink-0" @click.stop>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        :checked="workflow.active"
-                        @change="toggleWorkflow(workflow)"
-                        :disabled="actionLoading === workflow.id"
-                        class="sr-only peer"
-                      />
-                      <div
-                        class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"
-                      ></div>
-                    </label>
-                  </div>
-                </div>
 
                 <!-- Expanded Workflow Details -->
                 <Transition name="collapse">
