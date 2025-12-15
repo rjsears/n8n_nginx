@@ -350,6 +350,7 @@ class NotificationService:
         if not service:
             return {"success": False, "error": "Service not found"}
 
+        error_msg = None
         try:
             if service.service_type == "apprise":
                 success = await self.dispatcher.send_apprise(service.config, title, message, "normal")
@@ -366,17 +367,35 @@ class NotificationService:
             service.last_test = datetime.now(UTC)
             service.last_test_result = "success" if success else "failed"
             service.last_test_error = None if success else "Send returned false"
-            await self.db.commit()
-
-            return {"success": success}
+            if not success:
+                error_msg = "Send returned false"
 
         except Exception as e:
+            success = False
+            error_msg = str(e)
             service.last_test = datetime.now(UTC)
             service.last_test_result = "failed"
             service.last_test_error = str(e)
-            await self.db.commit()
 
-            return {"success": False, "error": str(e)}
+        # Log to notification history
+        now = datetime.now(UTC)
+        history = NotificationHistory(
+            event_type="service.test",
+            event_data={"title": title, "message": message},
+            severity="info",
+            service_id=service.id,
+            service_name=service.name,
+            rule_id=None,
+            status="sent" if success else "failed",
+            sent_at=now if success else None,
+            error_message=error_msg,
+        )
+        self.db.add(history)
+        await self.db.commit()
+
+        if not success:
+            return {"success": False, "error": error_msg}
+        return {"success": True}
 
     # Group management
 

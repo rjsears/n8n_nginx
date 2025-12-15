@@ -968,7 +968,7 @@ async function handleNtfyUpdateConfig(config) {
                         {{ item.event_data?.title || item.event_type }}
                       </p>
                       <p class="text-xs text-secondary truncate">
-                        {{ item.service_name }} • {{ new Date(item.sent_at).toLocaleString() }}
+                        {{ item.service_name }} • {{ new Date(item.sent_at || item.created_at).toLocaleString() }}
                       </p>
                     </div>
                     <StatusBadge :status="item.status" size="sm" class="flex-shrink-0" />
@@ -1000,7 +1000,7 @@ async function handleNtfyUpdateConfig(config) {
                         </div>
                         <div>
                           <label class="text-xs font-medium text-secondary uppercase tracking-wide">Sent At</label>
-                          <p class="text-sm text-primary mt-1">{{ new Date(item.sent_at).toLocaleString() }}</p>
+                          <p class="text-sm text-primary mt-1">{{ new Date(item.sent_at || item.created_at).toLocaleString() }}</p>
                         </div>
                         <div v-if="item.error_message">
                           <label class="text-xs font-medium text-red-500 uppercase tracking-wide">Error</label>
