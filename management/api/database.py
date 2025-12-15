@@ -114,13 +114,19 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         # Import all models to ensure they're registered
-        from api.models import auth, settings as settings_models, notifications, backups, email, audit, ntfy
+        from api.models import auth, settings as settings_models, notifications, backups, email, audit, ntfy, system_notifications
 
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
 
     # Run schema migrations for any new columns
     await run_schema_migrations()
+
+    # Seed default system notification events
+    await seed_system_notification_events()
+
+    # Ensure global settings singleton exists
+    await seed_system_notification_global_settings()
 
     logger.info("Database initialized successfully")
 
@@ -213,6 +219,62 @@ async def run_schema_migrations() -> None:
 
         # Generate slugs for existing notification services that don't have one
         await _migrate_notification_service_slugs(conn)
+
+
+async def seed_system_notification_events() -> None:
+    """
+    Seed default system notification events if they don't exist.
+    This ensures all default event types are available on first run.
+    """
+    from api.models.system_notifications import SystemNotificationEvent, DEFAULT_SYSTEM_EVENTS
+
+    logger.info("Checking system notification events...")
+
+    async with async_session_maker() as session:
+        try:
+            # Check which events already exist
+            result = await session.execute(text(
+                "SELECT event_type FROM system_notification_events"
+            ))
+            existing_types = {row[0] for row in result.fetchall()}
+
+            events_to_add = []
+            for event_config in DEFAULT_SYSTEM_EVENTS:
+                if event_config["event_type"] not in existing_types:
+                    event = SystemNotificationEvent(**event_config)
+                    events_to_add.append(event)
+
+            if events_to_add:
+                session.add_all(events_to_add)
+                await session.commit()
+                logger.info(f"Seeded {len(events_to_add)} system notification events")
+            else:
+                logger.info("All system notification events already exist")
+
+        except Exception as e:
+            logger.warning(f"Failed to seed system notification events: {e}")
+            await session.rollback()
+
+
+async def seed_system_notification_global_settings() -> None:
+    """
+    Ensure global settings singleton exists.
+    """
+    from api.models.system_notifications import SystemNotificationGlobalSettings
+
+    async with async_session_maker() as session:
+        try:
+            result = await session.execute(text(
+                "SELECT id FROM system_notification_global_settings LIMIT 1"
+            ))
+            if result.fetchone() is None:
+                settings_obj = SystemNotificationGlobalSettings()
+                session.add(settings_obj)
+                await session.commit()
+                logger.info("Created system notification global settings")
+        except Exception as e:
+            logger.warning(f"Failed to seed global settings: {e}")
+            await session.rollback()
 
 
 async def close_db() -> None:
