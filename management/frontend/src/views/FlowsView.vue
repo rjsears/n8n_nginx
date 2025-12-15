@@ -40,6 +40,8 @@ const n8nUrl = ref('/n8n') // Default, will be loaded from API
 const executionsExpanded = ref(false)
 const workflowsExpanded = ref(true)
 const expandedWorkflows = ref(new Set())
+const expandedSuccessExecutions = ref(new Set())
+const expandedFailedExecutions = ref(new Set())
 
 function toggleWorkflowExpanded(workflowId) {
   if (expandedWorkflows.value.has(workflowId)) {
@@ -48,6 +50,36 @@ function toggleWorkflowExpanded(workflowId) {
     expandedWorkflows.value.add(workflowId)
   }
   expandedWorkflows.value = new Set(expandedWorkflows.value)
+}
+
+function toggleSuccessExecutions(workflowId) {
+  if (expandedSuccessExecutions.value.has(workflowId)) {
+    expandedSuccessExecutions.value.delete(workflowId)
+  } else {
+    expandedSuccessExecutions.value.add(workflowId)
+  }
+  expandedSuccessExecutions.value = new Set(expandedSuccessExecutions.value)
+}
+
+function toggleFailedExecutions(workflowId) {
+  if (expandedFailedExecutions.value.has(workflowId)) {
+    expandedFailedExecutions.value.delete(workflowId)
+  } else {
+    expandedFailedExecutions.value.add(workflowId)
+  }
+  expandedFailedExecutions.value = new Set(expandedFailedExecutions.value)
+}
+
+function getWorkflowSuccessExecutions(workflowId) {
+  return executions.value
+    .filter(e => e.workflowId === workflowId && e.status === 'success')
+    .slice(0, 5)
+}
+
+function getWorkflowFailedExecutions(workflowId) {
+  return executions.value
+    .filter(e => e.workflowId === workflowId && e.status === 'error')
+    .slice(0, 5)
 }
 
 // Confirm dialog state
@@ -379,25 +411,35 @@ onMounted(loadData)
               class="pt-4"
             />
 
-            <div v-else class="space-y-2 pt-2">
-              <div
-                v-for="workflow in filteredWorkflows"
-                :key="workflow.id"
-                class="rounded-lg bg-surface-hover border border-gray-300 dark:border-black overflow-hidden"
-              >
-                <!-- Workflow Header (Clickable to expand) -->
+            <div v-else class="pt-2">
+              <!-- Header Row -->
+              <div class="grid grid-cols-[20px_36px_minmax(200px,1fr)_80px_100px_50px] gap-3 px-3 py-2 text-xs font-medium text-secondary uppercase tracking-wide border-b border-gray-200 dark:border-gray-700">
+                <div></div>
+                <div></div>
+                <div>Name</div>
+                <div class="text-center">Status</div>
+                <div class="text-center">ID</div>
+                <div class="text-center">Toggle</div>
+              </div>
+              <!-- Workflow Rows -->
+              <div class="space-y-1 pt-1">
                 <div
-                  @click="toggleWorkflowExpanded(workflow.id)"
-                  class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+                  v-for="workflow in filteredWorkflows"
+                  :key="workflow.id"
+                  class="rounded-lg bg-surface-hover border border-gray-300 dark:border-black overflow-hidden"
                 >
-                  <div class="flex items-center gap-3 flex-1 min-w-0">
+                  <!-- Workflow Row (Single line, clickable to expand) -->
+                  <div
+                    @click="toggleWorkflowExpanded(workflow.id)"
+                    class="grid grid-cols-[20px_36px_minmax(200px,1fr)_80px_100px_50px] gap-3 px-3 py-2 items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+                  >
                     <component
                       :is="expandedWorkflows.has(workflow.id) ? ChevronDownIcon : ChevronRightIcon"
-                      class="h-4 w-4 text-secondary flex-shrink-0"
+                      class="h-4 w-4 text-secondary"
                     />
                     <div
                       :class="[
-                        'p-2 rounded-lg flex-shrink-0',
+                        'p-1.5 rounded-lg',
                         workflow.active
                           ? 'bg-emerald-100 dark:bg-emerald-500/20'
                           : 'bg-gray-100 dark:bg-gray-500/20'
@@ -405,39 +447,32 @@ onMounted(loadData)
                     >
                       <BoltIcon
                         :class="[
-                          'h-5 w-5',
+                          'h-4 w-4',
                           workflow.active ? 'text-emerald-500' : 'text-gray-500'
                         ]"
                       />
                     </div>
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-2">
-                        <p class="font-medium text-primary truncate">{{ workflow.name }}</p>
-                        <StatusBadge :status="workflow.active ? 'active' : 'inactive'" size="sm" class="flex-shrink-0" />
-                      </div>
-                      <p class="text-xs text-secondary mt-0.5">
-                        ID: {{ workflow.id }}
-                        <span v-if="workflow.triggerCount" class="ml-2">• {{ workflow.triggerCount }} trigger{{ workflow.triggerCount !== 1 ? 's' : '' }}</span>
-                        <span v-if="workflow.nodeCount" class="ml-2">• {{ workflow.nodeCount }} node{{ workflow.nodeCount !== 1 ? 's' : '' }}</span>
-                      </p>
+                    <p class="font-medium text-sm text-primary truncate">{{ workflow.name }}</p>
+                    <div class="flex justify-center">
+                      <StatusBadge :status="workflow.active ? 'active' : 'inactive'" size="sm" />
+                    </div>
+                    <p class="text-xs text-secondary text-center font-mono">{{ workflow.id }}</p>
+                    <!-- Quick toggle -->
+                    <div class="flex justify-center" @click.stop>
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          :checked="workflow.active"
+                          @change="toggleWorkflow(workflow)"
+                          :disabled="actionLoading === workflow.id"
+                          class="sr-only peer"
+                        />
+                        <div
+                          class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"
+                        ></div>
+                      </label>
                     </div>
                   </div>
-                  <!-- Quick toggle on collapsed view -->
-                  <div class="flex items-center gap-1 flex-shrink-0" @click.stop>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        :checked="workflow.active"
-                        @change="toggleWorkflow(workflow)"
-                        :disabled="actionLoading === workflow.id"
-                        class="sr-only peer"
-                      />
-                      <div
-                        class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"
-                      ></div>
-                    </label>
-                  </div>
-                </div>
 
                 <!-- Expanded Workflow Details -->
                 <Transition name="collapse">
@@ -504,6 +539,109 @@ onMounted(loadData)
                         <PlayIcon v-else class="h-5 w-5" />
                         <span class="font-medium">{{ workflow.active ? 'Deactivate' : 'Activate' }}</span>
                       </button>
+                    </div>
+
+                    <!-- Workflow Executions -->
+                    <div class="mt-4 space-y-2">
+                      <!-- Last 5 Successful Executions -->
+                      <div class="rounded-lg border border-emerald-200 dark:border-emerald-800 overflow-hidden">
+                        <div
+                          @click.stop="toggleSuccessExecutions(workflow.id)"
+                          class="flex items-center justify-between px-3 py-2 cursor-pointer bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
+                        >
+                          <div class="flex items-center gap-2">
+                            <component
+                              :is="expandedSuccessExecutions.has(workflow.id) ? ChevronDownIcon : ChevronRightIcon"
+                              class="h-4 w-4 text-emerald-600 dark:text-emerald-400"
+                            />
+                            <CheckCircleIcon class="h-4 w-4 text-emerald-500" />
+                            <span class="text-sm font-medium text-emerald-700 dark:text-emerald-300">Last 5 Successful Executions</span>
+                          </div>
+                          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300">
+                            {{ getWorkflowSuccessExecutions(workflow.id).length }}
+                          </span>
+                        </div>
+                        <Transition name="collapse">
+                          <div v-if="expandedSuccessExecutions.has(workflow.id)" class="border-t border-emerald-200 dark:border-emerald-800">
+                            <div v-if="getWorkflowSuccessExecutions(workflow.id).length === 0" class="px-3 py-3 text-sm text-secondary italic">
+                              No successful executions found
+                            </div>
+                            <div v-else class="divide-y divide-emerald-100 dark:divide-emerald-800/50">
+                              <div
+                                v-for="exec in getWorkflowSuccessExecutions(workflow.id)"
+                                :key="exec.id"
+                                class="flex items-center justify-between px-3 py-2 bg-white dark:bg-gray-800/30"
+                              >
+                                <div class="flex-1 min-w-0">
+                                  <p class="text-sm text-primary">
+                                    {{ new Date(exec.startedAt).toLocaleString() }}
+                                  </p>
+                                  <p class="text-xs text-secondary">
+                                    Duration: {{ formatDuration(exec.executionTime) }}
+                                  </p>
+                                </div>
+                                <button
+                                  @click.stop="openExecutionInN8n(exec)"
+                                  class="btn-secondary p-1.5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+                                  title="View in n8n"
+                                >
+                                  <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </Transition>
+                      </div>
+
+                      <!-- Last 5 Failed Executions -->
+                      <div class="rounded-lg border border-red-200 dark:border-red-800 overflow-hidden">
+                        <div
+                          @click.stop="toggleFailedExecutions(workflow.id)"
+                          class="flex items-center justify-between px-3 py-2 cursor-pointer bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                        >
+                          <div class="flex items-center gap-2">
+                            <component
+                              :is="expandedFailedExecutions.has(workflow.id) ? ChevronDownIcon : ChevronRightIcon"
+                              class="h-4 w-4 text-red-600 dark:text-red-400"
+                            />
+                            <XCircleIcon class="h-4 w-4 text-red-500" />
+                            <span class="text-sm font-medium text-red-700 dark:text-red-300">Last 5 Failed Executions</span>
+                          </div>
+                          <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-500/30 text-red-700 dark:text-red-300">
+                            {{ getWorkflowFailedExecutions(workflow.id).length }}
+                          </span>
+                        </div>
+                        <Transition name="collapse">
+                          <div v-if="expandedFailedExecutions.has(workflow.id)" class="border-t border-red-200 dark:border-red-800">
+                            <div v-if="getWorkflowFailedExecutions(workflow.id).length === 0" class="px-3 py-3 text-sm text-secondary italic">
+                              No failed executions found
+                            </div>
+                            <div v-else class="divide-y divide-red-100 dark:divide-red-800/50">
+                              <div
+                                v-for="exec in getWorkflowFailedExecutions(workflow.id)"
+                                :key="exec.id"
+                                class="flex items-center justify-between px-3 py-2 bg-white dark:bg-gray-800/30"
+                              >
+                                <div class="flex-1 min-w-0">
+                                  <p class="text-sm text-primary">
+                                    {{ new Date(exec.startedAt).toLocaleString() }}
+                                  </p>
+                                  <p class="text-xs text-secondary">
+                                    Duration: {{ formatDuration(exec.executionTime) }}
+                                  </p>
+                                </div>
+                                <button
+                                  @click.stop="openExecutionInN8n(exec)"
+                                  class="btn-secondary p-1.5 text-red-600 hover:text-red-700 dark:text-red-400"
+                                  title="View in n8n"
+                                >
+                                  <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </Transition>
+                      </div>
                     </div>
                   </div>
                 </Transition>
