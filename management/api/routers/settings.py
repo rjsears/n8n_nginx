@@ -58,58 +58,6 @@ async def list_categories(
     return [row[0] for row in result.all()]
 
 
-@router.get("/{key}", response_model=SettingValue)
-async def get_setting(
-    key: str,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get a specific setting."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == key)
-    )
-    setting = result.scalar_one_or_none()
-
-    if not setting:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Setting not found",
-        )
-
-    return SettingValue.model_validate(setting)
-
-
-@router.put("/{key}", response_model=SettingValue)
-async def update_setting(
-    key: str,
-    update: SettingUpdate,
-    user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update a setting."""
-    result = await db.execute(
-        select(SettingsModel).where(SettingsModel.key == key)
-    )
-    setting = result.scalar_one_or_none()
-
-    if not setting:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Setting not found",
-        )
-
-    setting.value = update.value
-    if update.description is not None:
-        setting.description = update.description
-    setting.updated_at = datetime.now(UTC)
-    setting.updated_by = user.id
-
-    await db.commit()
-    await db.refresh(setting)
-
-    return SettingValue.model_validate(setting)
-
-
 # System Configuration
 
 @router.get("/config/{config_type}", response_model=SystemConfigResponse)
@@ -577,3 +525,213 @@ async def get_default_ip_ranges(
 ):
     """Get default IP ranges for common networks."""
     return [IPRange(**r) for r in DEFAULT_IP_RANGES]
+
+
+# Environment Variable Management
+@router.get("/env/{key}")
+async def get_env_variable(
+    key: str,
+    _=Depends(get_current_user),
+):
+    """Get environment variable status (masked value)."""
+    import os
+
+    # Only allow specific keys for security
+    allowed_keys = ["N8N_API_KEY", "NTFY_TOKEN"]
+    if key not in allowed_keys:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Key '{key}' is not allowed. Allowed keys: {', '.join(allowed_keys)}",
+        )
+
+    # Try to get from host .env file first, then from environment
+    value = None
+
+    # Check host .env file
+    if os.path.exists(HOST_ENV_PATH):
+        try:
+            with open(HOST_ENV_PATH, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        if k.strip() == key:
+                            value = v.strip().strip('"').strip("'")
+                            break
+        except Exception as e:
+            pass
+
+    # Fall back to environment variable
+    if value is None:
+        value = os.environ.get(key)
+
+    is_set = value is not None and len(value) > 0
+    masked_value = ""
+    if is_set and len(value) > 8:
+        masked_value = f"{value[:4]}...{value[-4:]}"
+    elif is_set:
+        masked_value = "*" * len(value)
+
+    return {
+        "key": key,
+        "is_set": is_set,
+        "masked_value": masked_value,
+    }
+
+
+@router.put("/env/{key}")
+async def update_env_variable(
+    key: str,
+    data: Dict[str, Any],
+    _=Depends(get_current_user),
+):
+    """Update an environment variable in the host .env file."""
+    import os
+
+    # Only allow specific keys for security
+    allowed_keys = ["N8N_API_KEY", "NTFY_TOKEN"]
+    if key not in allowed_keys:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Key '{key}' is not allowed. Allowed keys: {', '.join(allowed_keys)}",
+        )
+
+    value = data.get("value", "")
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Value is required",
+        )
+
+    try:
+        # Read existing .env content
+        env_content = {}
+        if os.path.exists(HOST_ENV_PATH):
+            with open(HOST_ENV_PATH, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        env_content[k.strip()] = v.strip()
+
+        # Update or add the key
+        env_content[key] = value
+
+        # Write back to file
+        with open(HOST_ENV_PATH, 'w') as f:
+            for k, v in env_content.items():
+                # Quote values with spaces or special characters
+                if ' ' in v or '"' in v or "'" in v:
+                    v = f'"{v}"'
+                f.write(f"{k}={v}\n")
+
+        return SuccessResponse(message=f"Environment variable '{key}' updated. Container restart may be required.")
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update environment variable: {str(e)}",
+        )
+
+
+# Debug Mode Management
+@router.get("/debug")
+async def get_debug_mode(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get debug mode status."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == "debug_mode")
+    )
+    setting = result.scalar_one_or_none()
+
+    return {
+        "enabled": setting.value if setting else False,
+    }
+
+
+@router.put("/debug")
+async def set_debug_mode(
+    data: Dict[str, Any],
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set debug mode."""
+    enabled = data.get("enabled", False)
+
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == "debug_mode")
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        setting.value = enabled
+        setting.updated_at = datetime.now(UTC)
+    else:
+        setting = SettingsModel(
+            key="debug_mode",
+            value=enabled,
+            category="debug",
+            description="Enable debug mode for verbose logging",
+        )
+        db.add(setting)
+
+    await db.commit()
+
+    return {"enabled": enabled, "message": f"Debug mode {'enabled' if enabled else 'disabled'}"}
+
+
+# Generic Setting Routes (MUST BE LAST - catch-all routes)
+# These must be at the end to not interfere with specific routes above
+
+@router.get("/{key}", response_model=SettingValue)
+async def get_setting(
+    key: str,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific setting by key."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == key)
+    )
+    setting = result.scalar_one_or_none()
+
+    if not setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Setting not found",
+        )
+
+    return SettingValue.model_validate(setting)
+
+
+@router.put("/{key}", response_model=SettingValue)
+async def update_setting(
+    key: str,
+    update_data: SettingUpdate,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a setting by key."""
+    result = await db.execute(
+        select(SettingsModel).where(SettingsModel.key == key)
+    )
+    setting = result.scalar_one_or_none()
+
+    if not setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Setting not found",
+        )
+
+    setting.value = update_data.value
+    if update_data.description is not None:
+        setting.description = update_data.description
+    setting.updated_at = datetime.now(UTC)
+    setting.updated_by = user.id
+
+    await db.commit()
+    await db.refresh(setting)
+
+    return SettingValue.model_validate(setting)
