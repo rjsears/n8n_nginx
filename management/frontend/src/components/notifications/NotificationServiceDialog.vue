@@ -17,6 +17,7 @@ const loading = ref(false)
 // Form data
 const form = ref({
   name: '',
+  slug: '',
   service_type: 'apprise',
   enabled: true,
   webhook_enabled: false,
@@ -25,6 +26,21 @@ const form = ref({
     url: '',
   },
 })
+
+// Generate slug from name
+function generateSlug(name) {
+  return name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+}
+
+// Auto-generate slug when name changes (only for new services)
+function onNameChange() {
+  if (!props.service && !form.value.slug) {
+    form.value.slug = generateSlug(form.value.name)
+  }
+}
 
 // Service type options
 const serviceTypes = [
@@ -100,6 +116,7 @@ watch(() => props.open, (isOpen) => {
       // Editing existing service
       form.value = {
         name: props.service.name || '',
+        slug: props.service.slug || '',
         service_type: props.service.service_type || 'apprise',
         enabled: props.service.enabled ?? true,
         webhook_enabled: props.service.webhook_enabled ?? false,
@@ -110,6 +127,7 @@ watch(() => props.open, (isOpen) => {
       // New service
       form.value = {
         name: '',
+        slug: '',
         service_type: 'apprise',
         enabled: true,
         webhook_enabled: false,
@@ -239,11 +257,32 @@ const appriseExamples = [
                 </label>
                 <input
                   v-model="form.name"
+                  @input="onNameChange"
                   type="text"
                   class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="e.g., Discord Alerts"
                   required
                 />
+              </div>
+
+              <!-- Slug -->
+              <div>
+                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+                  Slug (for targeting)
+                </label>
+                <div class="flex items-center gap-2">
+                  <span class="text-sm text-gray-500 dark:text-gray-400 font-mono">channel:</span>
+                  <input
+                    v-model="form.slug"
+                    type="text"
+                    class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="discord_alerts"
+                    pattern="^[a-z0-9_]+$"
+                  />
+                </div>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Used in n8n webhooks to target this channel. Lowercase letters, numbers, and underscores only.
+                </p>
               </div>
 
               <!-- Service Type -->
@@ -550,10 +589,15 @@ const appriseExamples = [
               </div>
 
               <!-- Webhook Info -->
-              <div v-if="form.webhook_enabled" class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-xs">
+              <div v-if="form.webhook_enabled" class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-xs space-y-2">
                 <p class="text-green-700 dark:text-green-300">
-                  <strong>Webhook Enabled:</strong> This channel will receive notifications sent via the webhook endpoint.
-                  n8n workflows can send messages here without additional configuration.
+                  <strong>Webhook Enabled:</strong> This channel can receive notifications via the webhook endpoint.
+                </p>
+                <div v-if="form.slug" class="bg-white dark:bg-gray-800 rounded p-2 font-mono text-gray-700 dark:text-gray-300">
+                  Target with: <span class="text-green-600 dark:text-green-400">"channel:{{ form.slug }}"</span>
+                </div>
+                <p class="text-green-600 dark:text-green-400">
+                  Or use <span class="font-mono">"all"</span> to send to all webhook-enabled channels.
                 </p>
               </div>
             </form>

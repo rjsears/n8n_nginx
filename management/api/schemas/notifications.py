@@ -71,6 +71,7 @@ class NotificationPriority(str, Enum):
 class NotificationServiceCreate(BaseModel):
     """Create notification service."""
     name: str = Field(..., min_length=1, max_length=100)
+    slug: Optional[str] = Field(None, min_length=1, max_length=100, pattern=r'^[a-z0-9_]+$')
     service_type: ServiceType
     enabled: bool = True
     webhook_enabled: bool = False
@@ -81,6 +82,7 @@ class NotificationServiceCreate(BaseModel):
 class NotificationServiceUpdate(BaseModel):
     """Update notification service."""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
+    slug: Optional[str] = Field(None, min_length=1, max_length=100, pattern=r'^[a-z0-9_]+$')
     enabled: Optional[bool] = None
     webhook_enabled: Optional[bool] = None
     config: Optional[Dict[str, Any]] = None
@@ -91,6 +93,7 @@ class NotificationServiceResponse(BaseModel):
     """Notification service response."""
     id: int
     name: str
+    slug: str
     service_type: str
     enabled: bool
     webhook_enabled: bool = False
@@ -99,6 +102,43 @@ class NotificationServiceResponse(BaseModel):
     last_test: Optional[datetime] = None
     last_test_result: Optional[str] = None
     last_test_error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    groups: List[str] = []  # Group slugs this channel belongs to
+
+    class Config:
+        from_attributes = True
+
+
+# Notification Groups
+
+class NotificationGroupCreate(BaseModel):
+    """Create notification group."""
+    name: str = Field(..., min_length=1, max_length=100)
+    slug: Optional[str] = Field(None, min_length=1, max_length=100, pattern=r'^[a-z0-9_]+$')
+    description: Optional[str] = None
+    enabled: bool = True
+    channel_ids: List[int] = Field(..., min_length=1)  # Must have at least one channel
+
+
+class NotificationGroupUpdate(BaseModel):
+    """Update notification group."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    slug: Optional[str] = Field(None, min_length=1, max_length=100, pattern=r'^[a-z0-9_]+$')
+    description: Optional[str] = None
+    enabled: Optional[bool] = None
+    channel_ids: Optional[List[int]] = Field(None, min_length=1)
+
+
+class NotificationGroupResponse(BaseModel):
+    """Notification group response."""
+    id: int
+    name: str
+    slug: str
+    description: Optional[str] = None
+    enabled: bool
+    channel_count: int = 0
+    channels: List[NotificationServiceResponse] = []
     created_at: datetime
     updated_at: datetime
 
@@ -195,11 +235,24 @@ class EventTypeInfo(BaseModel):
 
 
 class WebhookNotificationRequest(BaseModel):
-    """Webhook notification request from n8n or external sources."""
+    """
+    Webhook notification request from n8n or external sources.
+
+    Targets determine which channels receive the notification:
+    - "all" - sends to all webhook-enabled channels
+    - "channel:slug" - sends to a specific channel by its slug
+    - "group:slug" - sends to all channels in a group by the group's slug
+
+    Examples:
+        targets: ["all"]  # All webhook-enabled channels
+        targets: ["channel:devops_slack"]  # Single channel
+        targets: ["group:dev_ops"]  # All channels in the dev_ops group
+        targets: ["channel:ceo_phone", "group:management"]  # Multiple targets (deduplicated)
+    """
     title: str = Field(default="Notification", max_length=500)
     message: str = Field(..., min_length=1)
     priority: NotificationPriority = NotificationPriority.NORMAL
-    tags: Optional[List[str]] = None  # Future: route to specific channel groups
+    targets: List[str] = Field(..., min_length=1)  # Required: channel:slug, group:slug, or "all"
 
 
 class WebhookNotificationResponse(BaseModel):
@@ -207,4 +260,5 @@ class WebhookNotificationResponse(BaseModel):
     success: bool
     channels_notified: int
     channels: List[str] = []
+    targets_resolved: Dict[str, List[str]] = {}  # Shows which channels each target resolved to
     errors: List[str] = []
