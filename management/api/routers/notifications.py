@@ -854,19 +854,126 @@ async def get_n8n_api_status(
 
 @router.post("/webhook/create-test-workflow")
 async def create_test_workflow(
+    workflow_type: str = "broadcast",
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Create a test notification workflow in n8n.
 
-    This creates a workflow that:
-    1. Has a Manual Trigger (click to run)
-    2. Sends a test notification to the webhook endpoint
-    3. Shows success/failure result
+    Workflow types:
+    - broadcast: Sends to ALL webhook-enabled channels (targets: ["all"])
+    - channel: Template for targeting a SPECIFIC channel (targets: ["channel:slug"])
+    - group: Template for targeting a notification GROUP (targets: ["group:slug"])
 
-    Note: After creation, you must configure the Header Auth credential
-    in n8n with your webhook API key.
+    Each workflow includes:
+    1. Manual Trigger (click to run)
+    2. HTTP Request to webhook endpoint
+    3. Success/failure result display
+    4. Setup instructions as sticky notes
+
+    Note: After creation, you must:
+    1. Configure the Header Auth credential with your API key
+    2. For channel/group workflows, edit the JSON body to specify the target slug
+    """
+    from api.services.n8n_api_service import n8n_api
+
+    valid_types = ["broadcast", "channel", "group"]
+    if workflow_type not in valid_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid workflow_type. Must be one of: {', '.join(valid_types)}",
+        )
+
+    # Check n8n API is configured
+    if not n8n_api.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="n8n API not configured. Set N8N_API_KEY environment variable.",
+        )
+
+    # Check we have a webhook API key
+    webhook_api_key = await get_webhook_api_key_from_db(db)
+    if not webhook_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Generate a webhook API key first.",
+        )
+
+    # Build webhook URL (use internal Docker network URL for n8n)
+    webhook_url = "http://n8n_management:8000/api/notifications/webhook"
+
+    # Create the appropriate workflow
+    if workflow_type == "broadcast":
+        result = await n8n_api.create_notification_test_workflow(webhook_url, webhook_api_key)
+        workflow_name = "Notification Test - Broadcast to All Channels"
+        next_steps = [
+            "1. Open n8n and find the workflow",
+            "2. Click on the 'Send to All Channels' node",
+            "3. Create a new 'Header Auth' credential:",
+            "   - Name (header name): X-API-Key",
+            "   - Value: paste your webhook API key",
+            "4. Save and click 'Execute Workflow' to test",
+        ]
+    elif workflow_type == "channel":
+        result = await n8n_api.create_channel_test_workflow(webhook_url)
+        workflow_name = "Notification Test - Target Specific Channel"
+        next_steps = [
+            "1. Open n8n and find the workflow",
+            "2. Click on the 'Send to Channel' node",
+            "3. Edit the JSON body: replace YOUR_CHANNEL_SLUG with your actual channel slug",
+            "4. Create a new 'Header Auth' credential:",
+            "   - Name (header name): X-API-Key",
+            "   - Value: paste your webhook API key",
+            "5. Save and click 'Execute Workflow' to test",
+            "",
+            "Find channel slugs in Management Console → Notifications → Channels tab",
+        ]
+    else:  # group
+        result = await n8n_api.create_group_test_workflow(webhook_url)
+        workflow_name = "Notification Test - Target Group"
+        next_steps = [
+            "1. First, create a group in Management Console → Notifications → Groups tab",
+            "2. Add channels to the group",
+            "3. Open n8n and find the workflow",
+            "4. Click on the 'Send to Group' node",
+            "5. Edit the JSON body: replace YOUR_GROUP_SLUG with your actual group slug",
+            "6. Create a new 'Header Auth' credential:",
+            "   - Name (header name): X-API-Key",
+            "   - Value: paste your webhook API key",
+            "7. Save and click 'Execute Workflow' to test",
+        ]
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result.get("error", "Failed to create workflow"),
+        )
+
+    return {
+        "success": True,
+        "message": f"Test workflow '{workflow_name}' created in n8n. See setup instructions in the workflow's sticky notes.",
+        "workflow_id": result.get("workflow_id"),
+        "workflow_name": workflow_name,
+        "workflow_type": workflow_type,
+        "next_steps": next_steps,
+    }
+
+
+@router.post("/webhook/create-all-test-workflows")
+async def create_all_test_workflows(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create ALL three test notification workflows in n8n at once.
+
+    Creates:
+    1. Broadcast workflow - sends to all webhook-enabled channels
+    2. Channel workflow - template for targeting specific channels
+    3. Group workflow - template for targeting notification groups
+
+    Each workflow includes setup instructions as sticky notes.
     """
     from api.services.n8n_api_service import n8n_api
 
@@ -885,30 +992,64 @@ async def create_test_workflow(
             detail="Generate a webhook API key first.",
         )
 
-    # Build webhook URL (use internal Docker network URL for n8n)
-    # n8n will call management container internally
     webhook_url = "http://n8n_management:8000/api/notifications/webhook"
 
-    # Create the workflow
-    result = await n8n_api.create_notification_test_workflow(webhook_url, webhook_api_key)
+    results = []
+    errors = []
 
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=result.get("error", "Failed to create workflow"),
-        )
+    # Create broadcast workflow
+    try:
+        result = await n8n_api.create_notification_test_workflow(webhook_url, webhook_api_key)
+        if result.get("success"):
+            results.append({
+                "type": "broadcast",
+                "name": "Notification Test - Broadcast to All Channels",
+                "workflow_id": result.get("workflow_id"),
+            })
+        else:
+            errors.append(f"Broadcast: {result.get('error')}")
+    except Exception as e:
+        errors.append(f"Broadcast: {str(e)}")
+
+    # Create channel workflow
+    try:
+        result = await n8n_api.create_channel_test_workflow(webhook_url)
+        if result.get("success"):
+            results.append({
+                "type": "channel",
+                "name": "Notification Test - Target Specific Channel",
+                "workflow_id": result.get("workflow_id"),
+            })
+        else:
+            errors.append(f"Channel: {result.get('error')}")
+    except Exception as e:
+        errors.append(f"Channel: {str(e)}")
+
+    # Create group workflow
+    try:
+        result = await n8n_api.create_group_test_workflow(webhook_url)
+        if result.get("success"):
+            results.append({
+                "type": "group",
+                "name": "Notification Test - Target Group",
+                "workflow_id": result.get("workflow_id"),
+            })
+        else:
+            errors.append(f"Group: {result.get('error')}")
+    except Exception as e:
+        errors.append(f"Group: {str(e)}")
 
     return {
-        "success": True,
-        "message": "Test workflow created in n8n. Configure the Header Auth credential with your API key, then click 'Execute Workflow' to test.",
-        "workflow_id": result.get("workflow_id"),
-        "workflow_name": "Management Console - Test Notifications",
+        "success": len(results) > 0,
+        "message": f"Created {len(results)} test workflow(s) in n8n.",
+        "workflows_created": results,
+        "errors": errors if errors else None,
         "next_steps": [
-            "1. Open n8n and find the 'Management Console - Test Notifications' workflow",
-            "2. Click on the 'Send Notification' node",
-            "3. Create a new 'Header Auth' credential:",
+            "1. Open n8n to see the new workflows",
+            "2. Each workflow has setup instructions in sticky notes",
+            "3. Configure the Header Auth credential in each workflow:",
             "   - Name (header name): X-API-Key",
-            "   - Value: paste your webhook API key from the management console",
-            "4. Save and click 'Execute Workflow' to test",
+            "   - Value: your webhook API key from Management Console",
+            "4. For channel/group workflows, edit the target slug in the JSON body",
         ],
     }
