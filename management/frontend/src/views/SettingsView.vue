@@ -115,6 +115,7 @@ const newIpRange = ref({
 const defaultIpRanges = ref([])
 const showDeleteConfirm = ref(false)
 const ipRangeToDelete = ref(null)
+const cloudflareInstalled = ref(false)
 const cloudflareRunning = ref(false)
 
 // Filter out already-configured ranges from the defaults list
@@ -274,11 +275,13 @@ async function loadAccessControl() {
       }
     }
 
-    // Check if Cloudflare tunnel is running
+    // Check if Cloudflare tunnel is installed/running
     try {
       const cfResponse = await api.system.cloudflare()
+      cloudflareInstalled.value = cfResponse.data?.installed || false
       cloudflareRunning.value = cfResponse.data?.running || false
     } catch (e) {
+      cloudflareInstalled.value = false
       cloudflareRunning.value = false
     }
   } catch (error) {
@@ -815,15 +818,32 @@ watch(activeTab, (newTab) => {
         <LoadingSpinner v-if="accessControlLoading" size="lg" text="Loading access control..." class="py-12" />
 
         <template v-else>
-          <!-- External Access Info (only show if Cloudflare tunnel is running) -->
-          <div v-if="cloudflareRunning" class="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-4">
+          <!-- External Access Info (show if Cloudflare tunnel is configured) -->
+          <div
+            v-if="cloudflareInstalled"
+            :class="[
+              'rounded-lg p-4 border',
+              cloudflareRunning
+                ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30'
+                : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
+            ]"
+          >
             <div class="flex gap-3">
-              <GlobeAltIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+              <GlobeAltIcon :class="['h-5 w-5 flex-shrink-0 mt-0.5', cloudflareRunning ? 'text-green-500' : 'text-red-500']" />
               <div>
-                <p class="font-medium text-blue-700 dark:text-blue-400">External Access via Cloudflare Tunnel</p>
-                <p class="text-sm text-blue-600 dark:text-blue-300 mt-1">
+                <p :class="['font-medium', cloudflareRunning ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400']">
+                  External Access via Cloudflare Tunnel
+                  <span v-if="!cloudflareRunning" class="ml-2 text-xs font-normal px-2 py-0.5 bg-red-100 dark:bg-red-500/20 rounded">
+                    DOWN
+                  </span>
+                </p>
+                <p v-if="cloudflareRunning" class="text-sm text-green-600 dark:text-green-300 mt-1">
                   External users access your services through Cloudflare Tunnel. Traffic arrives from the internal Docker network,
                   bypassing IP-based restrictions. The IP ranges below control direct network access only.
+                </p>
+                <p v-else class="text-sm text-red-600 dark:text-red-300 mt-1">
+                  Cloudflare Tunnel is configured but currently not running. External access may be unavailable.
+                  Check the System page for tunnel status.
                 </p>
               </div>
             </div>
