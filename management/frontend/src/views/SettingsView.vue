@@ -116,6 +116,12 @@ const defaultIpRanges = ref([])
 const showDeleteConfirm = ref(false)
 const ipRangeToDelete = ref(null)
 
+// Filter out already-configured ranges from the defaults list
+const availableDefaultRanges = computed(() => {
+  const configuredCidrs = accessControl.value.ip_ranges.map(r => r.cidr)
+  return defaultIpRanges.value.filter(d => !configuredCidrs.includes(d.cidr))
+})
+
 // No longer using theme presets - removed in favor of simpler light/dark toggle
 
 const tabs = [
@@ -940,29 +946,20 @@ watch(activeTab, (newTab) => {
             </div>
           </Card>
 
-          <!-- Default Ranges -->
-          <Card title="Common Networks" subtitle="Quick-add common internal network ranges" :neon="true">
+          <!-- Default Ranges (only show if there are unconfigured defaults) -->
+          <Card v-if="availableDefaultRanges.length > 0" title="Common Networks" subtitle="Quick-add common internal network ranges" :neon="true">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <button
-                v-for="defaultRange in defaultIpRanges"
+                v-for="defaultRange in availableDefaultRanges"
                 :key="defaultRange.cidr"
                 @click="addDefaultRange(defaultRange)"
-                :class="[
-                  'flex items-center justify-between p-3 rounded-lg border text-left transition-colors',
-                  accessControl.ip_ranges.some(r => r.cidr === defaultRange.cidr)
-                    ? 'border-green-500 bg-green-50 dark:bg-green-500/10'
-                    : 'border-[var(--color-border)] hover:border-blue-300 dark:hover:border-blue-700 hover:bg-surface-hover'
-                ]"
+                class="flex items-center justify-between p-3 rounded-lg border text-left transition-colors border-[var(--color-border)] hover:border-blue-300 dark:hover:border-blue-700 hover:bg-surface-hover"
               >
                 <div>
                   <p class="font-mono text-primary text-sm">{{ defaultRange.cidr }}</p>
                   <p class="text-xs text-secondary">{{ defaultRange.description }}</p>
                 </div>
-                <CheckIcon
-                  v-if="accessControl.ip_ranges.some(r => r.cidr === defaultRange.cidr)"
-                  class="h-5 w-5 text-green-500"
-                />
-                <PlusIcon v-else class="h-5 w-5 text-muted" />
+                <PlusIcon class="h-5 w-5 text-muted" />
               </button>
             </div>
           </Card>
