@@ -119,7 +119,43 @@ async def init_db() -> None:
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
 
+    # Run schema migrations for any new columns
+    await run_schema_migrations()
+
     logger.info("Database initialized successfully")
+
+
+async def run_schema_migrations() -> None:
+    """
+    Run schema migrations to add missing columns to existing tables.
+    This handles the case where tables exist but new columns were added to models.
+    """
+    logger.info("Checking for schema migrations...")
+
+    # Define migrations as (table_name, column_name, column_definition)
+    migrations = [
+        # notification_services.webhook_enabled added for webhook routing
+        ("notification_services", "webhook_enabled", "BOOLEAN DEFAULT FALSE"),
+    ]
+
+    async with engine.begin() as conn:
+        for table_name, column_name, column_def in migrations:
+            try:
+                # Check if column exists
+                result = await conn.execute(text(f"""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = :table AND column_name = :column
+                """), {"table": table_name, "column": column_name})
+
+                if result.fetchone() is None:
+                    # Column doesn't exist, add it
+                    logger.info(f"Adding column {table_name}.{column_name}")
+                    await conn.execute(text(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
+                    ))
+                    logger.info(f"Added column {table_name}.{column_name}")
+            except Exception as e:
+                logger.warning(f"Migration check for {table_name}.{column_name} failed: {e}")
 
 
 async def close_db() -> None:
