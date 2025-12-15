@@ -863,6 +863,7 @@ async function handleNtfyUpdateConfig(config) {
                     />
                   </div>
                   <p class="font-medium text-primary truncate">{{ channel.name }}</p>
+                  <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded flex-shrink-0">channel:{{ channel.slug }}</code>
                   <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" class="flex-shrink-0" />
                   <span
                     v-if="channel.webhook_enabled"
