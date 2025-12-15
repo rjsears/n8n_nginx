@@ -800,13 +800,27 @@ watch(activeTab, (newTab) => {
         <LoadingSpinner v-if="accessControlLoading" size="lg" text="Loading access control..." class="py-12" />
 
         <template v-else>
+          <!-- External Access Info -->
+          <div class="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-4">
+            <div class="flex gap-3">
+              <GlobeAltIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p class="font-medium text-blue-700 dark:text-blue-400">External Access via Cloudflare Tunnel</p>
+                <p class="text-sm text-blue-600 dark:text-blue-300 mt-1">
+                  External users access your services through Cloudflare Tunnel. Traffic arrives from the internal Docker network,
+                  bypassing IP-based restrictions. The IP ranges below control direct network access only.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <!-- Status Card -->
-          <Card title="Access Control Status" :neon="true">
+          <Card title="Direct Network Access" subtitle="IP ranges allowed to access services directly (not via tunnel)" :neon="true">
             <div class="space-y-4">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="font-medium text-primary">Status</p>
-                  <p class="text-sm text-secondary">IP-based access control via nginx geo block</p>
+                  <p class="font-medium text-primary">Geo Block Status</p>
+                  <p class="text-sm text-secondary">nginx geo-based IP filtering</p>
                 </div>
                 <span
                   :class="[
