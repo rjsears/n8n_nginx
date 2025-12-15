@@ -175,6 +175,8 @@ services:
       - mgmt_config:/app/config
       # Host .env file for environment variable management (read-write)
       - ./.env:/app/host_env/.env:rw
+      # Nginx config for access control management (read-write)
+      - ./nginx.conf:/app/host_config/nginx.conf:rw
     expose:
       - "80"
     depends_on:
