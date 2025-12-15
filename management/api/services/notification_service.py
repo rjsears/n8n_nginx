@@ -941,6 +941,76 @@ class NotificationService:
 
         return "\n".join(lines)
 
+    # Direct send methods (for system notifications)
+
+    async def send_to_service(
+        self,
+        service_id: int,
+        title: str,
+        message: str,
+        priority: str = "normal",
+    ) -> Dict[str, Any]:
+        """Send notification directly to a specific service."""
+        service = await self.get_service(service_id)
+        if not service:
+            return {"success": False, "error": "Service not found"}
+
+        if not service.enabled:
+            return {"success": False, "error": "Service is disabled"}
+
+        try:
+            if service.service_type == "apprise":
+                success = await self.dispatcher.send_apprise(service.config, title, message, priority)
+            elif service.service_type == "ntfy":
+                success = await self.dispatcher.send_ntfy(service.config, title, message, priority)
+            elif service.service_type == "webhook":
+                success = await self.dispatcher.send_webhook(service.config, title, message, {})
+            elif service.service_type == "email":
+                success = await self.dispatcher.send_email(service.config, title, message, priority)
+            else:
+                return {"success": False, "error": f"Unsupported service type: {service.service_type}"}
+
+            return {"success": success}
+
+        except Exception as e:
+            logger.error(f"Failed to send to service {service_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def send_to_group(
+        self,
+        group_id: int,
+        title: str,
+        message: str,
+        priority: str = "normal",
+    ) -> Dict[str, Any]:
+        """Send notification to all services in a group."""
+        group = await self.get_group(group_id)
+        if not group:
+            return {"success": False, "error": "Group not found", "sent_count": 0}
+
+        if not group.enabled:
+            return {"success": False, "error": "Group is disabled", "sent_count": 0}
+
+        sent_count = 0
+        errors = []
+
+        for membership in group.memberships:
+            service = membership.service
+            if not service or not service.enabled:
+                continue
+
+            result = await self.send_to_service(service.id, title, message, priority)
+            if result.get("success"):
+                sent_count += 1
+            else:
+                errors.append(f"{service.name}: {result.get('error')}")
+
+        return {
+            "success": sent_count > 0,
+            "sent_count": sent_count,
+            "errors": errors if errors else None,
+        }
+
     # History
 
     async def get_history(

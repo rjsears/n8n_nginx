@@ -94,6 +94,24 @@ class Settings(BaseSettings):
         description="API key for webhook notification endpoint. If not set, a random key is generated on startup."
     )
 
+    # Metrics Agent Configuration
+    metrics_agent_url: str = Field(
+        default="http://host.docker.internal:9100",
+        description="URL of the n8n-metrics-agent service running on the host"
+    )
+    metrics_agent_api_key: Optional[str] = Field(
+        default=None,
+        description="API key for authenticating with the metrics agent"
+    )
+    metrics_agent_enabled: bool = Field(
+        default=False,
+        description="Whether the metrics agent is installed and should be polled"
+    )
+    metrics_poll_interval: int = Field(
+        default=60,
+        description="How often to poll the metrics agent (seconds)"
+    )
+
     # Debug
     debug: bool = Field(default=False, description="Enable debug mode")
     log_level: str = Field(default="INFO", description="Logging level")
