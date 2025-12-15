@@ -71,8 +71,8 @@
           <MessageComposer
             :topics="topics"
             :emoji-categories="emojiCategories"
-            @send="handleSendMessage"
-            @save="handleSaveMessage"
+            :on-send="handleSendMessage"
+            :on-save="handleSaveMessage"
           />
         </div>
 

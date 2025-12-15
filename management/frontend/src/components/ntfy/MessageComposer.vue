@@ -334,9 +334,9 @@ import {
 const props = defineProps({
   topics: { type: Array, default: () => [] },
   emojiCategories: { type: Object, default: () => ({}) },
+  onSend: { type: Function, required: true },
+  onSave: { type: Function, required: true },
 })
-
-const emit = defineEmits(['send', 'save'])
 
 // Form state
 const form = ref({
@@ -440,7 +440,7 @@ async function sendMessage() {
       payload.actions = form.value.actions.filter(a => a.label && a.url)
     }
 
-    const result = await emit('send', payload)
+    const result = await props.onSend(payload)
 
     if (result?.success) {
       resultSuccess.value = true
@@ -482,7 +482,7 @@ async function saveMessage() {
     payload.actions = form.value.actions.filter(a => a.label && a.url)
   }
 
-  const result = await emit('save', payload)
+  const result = await props.onSave(payload)
 
   if (result?.success) {
     resultSuccess.value = true
