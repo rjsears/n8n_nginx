@@ -474,12 +474,12 @@ onMounted(loadData)
                     </div>
                   </div>
 
-                <!-- Expanded Workflow Details -->
-                <Transition name="collapse">
-                  <div
-                    v-if="expandedWorkflows.has(workflow.id)"
-                    class="px-4 pb-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
-                  >
+                  <!-- Expanded Workflow Details -->
+                  <Transition name="collapse">
+                    <div
+                      v-if="expandedWorkflows.has(workflow.id)"
+                      class="px-4 pb-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                    >
                     <!-- Workflow Info -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                       <div>
@@ -643,8 +643,9 @@ onMounted(loadData)
                         </Transition>
                       </div>
                     </div>
-                  </div>
-                </Transition>
+                    </div>
+                  </Transition>
+                </div>
               </div>
             </div>
           </div>
