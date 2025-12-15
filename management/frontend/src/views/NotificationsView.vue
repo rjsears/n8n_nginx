@@ -84,7 +84,25 @@ const showApiKey = ref(false)
 const webhookExpanded = ref(false)
 const historyExpanded = ref(false)
 const channelsExpanded = ref(true)
+const groupsExpanded = ref(true)
+const expandedGroups = ref(new Set())
 const expandedHistoryItems = ref(new Set())
+
+function toggleGroupExpanded(groupId) {
+  if (expandedGroups.value.has(groupId)) {
+    expandedGroups.value.delete(groupId)
+  } else {
+    expandedGroups.value.add(groupId)
+  }
+  expandedGroups.value = new Set(expandedGroups.value)
+}
+
+function getGroupMessageCount(group) {
+  // Count messages sent to this group from history
+  return history.value.filter(h =>
+    h.event_data?.targets?.includes(`group:${group.slug}`)
+  ).length
+}
 const generatingKey = ref(false)
 
 // Groups dialog state
@@ -1408,114 +1426,167 @@ async function handleNtfyUpdateConfig(config) {
           </Card>
         </div>
 
-        <!-- Groups List -->
-        <Card title="Notification Groups" subtitle="Group channels together for targeted notifications" :neon="true">
-          <template #actions>
-            <button
-              @click="openAddGroupDialog"
-              :class="[
-                'btn-primary flex items-center gap-2',
-                themeStore.isNeon ? 'neon-btn-cyan' : ''
-              ]"
-            >
-              <PlusIcon class="h-4 w-4" />
-              Add Group
-            </button>
-          </template>
-
-          <EmptyState
-            v-if="groups.length === 0"
-            :icon="HashtagIcon"
-            title="No groups configured"
-            description="Create groups to organize channels and target notifications."
-            action-text="Add Group"
-            @action="openAddGroupDialog"
-          />
-
-          <div v-else class="space-y-4">
-            <div
-              v-for="group in groups"
-              :key="group.id"
-              class="p-4 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
-            >
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-3">
-                  <div
-                    :class="[
-                      'p-2 rounded-lg',
-                      group.enabled
-                        ? 'bg-indigo-100 dark:bg-indigo-500/20'
-                        : 'bg-gray-100 dark:bg-gray-500/20'
-                    ]"
-                  >
-                    <HashtagIcon
-                      :class="[
-                        'h-5 w-5',
-                        group.enabled ? 'text-indigo-500' : 'text-gray-500'
-                      ]"
-                    />
-                  </div>
-                  <div>
-                    <div class="flex items-center gap-2">
-                      <p class="font-medium text-primary">{{ group.name }}</p>
-                      <StatusBadge :status="group.enabled ? 'active' : 'inactive'" size="sm" />
-                    </div>
-                    <p class="text-xs text-secondary mt-0.5">
-                      <span class="font-mono">group:{{ group.slug }}</span>
-                      <span class="mx-2">•</span>
-                      {{ group.channel_count }} channel{{ group.channel_count !== 1 ? 's' : '' }}
-                    </p>
-                  </div>
-                </div>
-                <div class="flex items-center gap-2">
-                  <button @click="openEditGroupDialog(group)" class="btn-secondary p-2" title="Edit">
-                    <PencilSquareIcon class="h-4 w-4" />
-                  </button>
-                  <button
-                    @click="openDeleteGroupDialog(group)"
-                    class="btn-secondary p-2 text-red-500 hover:text-red-600"
-                    title="Delete"
-                  >
-                    <TrashIcon class="h-4 w-4" />
-                  </button>
-                  <label class="relative inline-flex items-center cursor-pointer ml-2">
-                    <input
-                      type="checkbox"
-                      :checked="group.enabled"
-                      @change="toggleGroup(group)"
-                      class="sr-only peer"
-                    />
-                    <div
-                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"
-                    ></div>
-                  </label>
-                </div>
+        <!-- Groups List (Collapsible) -->
+        <Card :neon="true" :padding="false">
+          <div
+            @click="groupsExpanded = !groupsExpanded"
+            class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2 rounded-full bg-indigo-100 dark:bg-indigo-500/20">
+                <HashtagIcon class="h-5 w-5 text-indigo-500" />
               </div>
+              <div>
+                <h3 class="font-semibold text-primary">Notification Groups</h3>
+                <p class="text-sm text-secondary">Group channels together for targeted notifications</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <button
+                @click.stop="openAddGroupDialog"
+                :class="[
+                  'btn-primary flex items-center gap-2',
+                  themeStore.isNeon ? 'neon-btn-cyan' : ''
+                ]"
+              >
+                <PlusIcon class="h-4 w-4" />
+                Add Group
+              </button>
+              <span class="text-sm font-medium text-indigo-500">{{ groups.length }} group{{ groups.length !== 1 ? 's' : '' }}</span>
+              <ChevronDownIcon v-if="groupsExpanded" class="h-5 w-5 text-secondary" />
+              <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+            </div>
+          </div>
+          <Transition name="collapse">
+            <div v-if="groupsExpanded" class="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
+              <EmptyState
+                v-if="groups.length === 0"
+                :icon="HashtagIcon"
+                title="No groups configured"
+                description="Create groups to organize channels and target notifications."
+                action-text="Add Group"
+                @action="openAddGroupDialog"
+                class="pt-4"
+              />
 
-              <!-- Group description if present -->
-              <p v-if="group.description" class="text-sm text-secondary mb-3">{{ group.description }}</p>
-
-              <!-- Channels in group -->
-              <div v-if="group.channels && group.channels.length > 0" class="flex flex-wrap gap-2">
+              <div v-else class="space-y-2 pt-2">
                 <div
-                  v-for="channel in group.channels"
-                  :key="channel.id"
-                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                  v-for="group in groups"
+                  :key="group.id"
+                  class="rounded-lg bg-surface-hover border border-gray-300 dark:border-black overflow-hidden"
                 >
-                  <component
-                    :is="channelIcons[channel.service_type] || BellIcon"
-                    class="h-3.5 w-3.5"
-                  />
-                  {{ channel.name }}
-                  <span
-                    v-if="channel.webhook_enabled"
-                    class="w-1.5 h-1.5 rounded-full bg-green-500"
-                    title="Webhook enabled"
-                  ></span>
+                  <!-- Group Header (Clickable to expand) -->
+                  <div
+                    @click="toggleGroupExpanded(group.id)"
+                    class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+                  >
+                    <div class="flex items-center gap-3 flex-1 min-w-0">
+                      <component
+                        :is="expandedGroups.has(group.id) ? ChevronDownIcon : ChevronRightIcon"
+                        class="h-4 w-4 text-secondary flex-shrink-0"
+                      />
+                      <div
+                        :class="[
+                          'p-2 rounded-lg flex-shrink-0',
+                          group.enabled
+                            ? 'bg-indigo-100 dark:bg-indigo-500/20'
+                            : 'bg-gray-100 dark:bg-gray-500/20'
+                        ]"
+                      >
+                        <HashtagIcon
+                          :class="[
+                            'h-5 w-5',
+                            group.enabled ? 'text-indigo-500' : 'text-gray-500'
+                          ]"
+                        />
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                          <p class="font-medium text-primary truncate">{{ group.name }}</p>
+                          <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded flex-shrink-0">group:{{ group.slug }}</code>
+                          <StatusBadge :status="group.enabled ? 'active' : 'inactive'" size="sm" class="flex-shrink-0" />
+                        </div>
+                        <p class="text-xs text-secondary mt-0.5">
+                          {{ group.channels?.length || 0 }} channel{{ (group.channels?.length || 0) !== 1 ? 's' : '' }}
+                          <span class="mx-1">•</span>
+                          {{ getGroupMessageCount(group) }} message{{ getGroupMessageCount(group) !== 1 ? 's' : '' }} sent
+                        </p>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-1 flex-shrink-0" @click.stop>
+                      <button @click="openEditGroupDialog(group)" class="btn-secondary p-2" title="Edit">
+                        <PencilSquareIcon class="h-4 w-4" />
+                      </button>
+                      <button
+                        @click="openDeleteGroupDialog(group)"
+                        class="btn-secondary p-2 text-red-500 hover:text-red-600"
+                        title="Delete"
+                      >
+                        <TrashIcon class="h-4 w-4" />
+                      </button>
+                      <label class="relative inline-flex items-center cursor-pointer ml-1">
+                        <input
+                          type="checkbox"
+                          :checked="group.enabled"
+                          @change="toggleGroup(group)"
+                          class="sr-only peer"
+                        />
+                        <div
+                          class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"
+                        ></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- Expanded Group Details -->
+                  <Transition name="collapse">
+                    <div
+                      v-if="expandedGroups.has(group.id)"
+                      class="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                    >
+                      <!-- Group description if present -->
+                      <p v-if="group.description" class="text-sm text-secondary mb-3">{{ group.description }}</p>
+
+                      <!-- Channels in group -->
+                      <div v-if="group.channels && group.channels.length > 0">
+                        <p class="text-xs font-medium text-secondary uppercase tracking-wide mb-2">Channels in this group</p>
+                        <div class="space-y-1">
+                          <div
+                            v-for="channel in group.channels"
+                            :key="channel.id"
+                            class="flex items-center gap-3 p-2 rounded-lg bg-white dark:bg-gray-700/50"
+                          >
+                            <component
+                              :is="channelIcons[channel.service_type] || BellIcon"
+                              class="h-4 w-4 text-gray-500 flex-shrink-0"
+                            />
+                            <span class="font-medium text-sm text-primary truncate">{{ channel.name }}</span>
+                            <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded flex-shrink-0">channel:{{ channel.slug }}</code>
+                            <span
+                              v-if="channel.webhook_enabled"
+                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 flex-shrink-0"
+                            >
+                              <LinkIcon class="h-3 w-3" />
+                              Webhook
+                            </span>
+                            <span class="text-xs text-secondary capitalize flex-shrink-0">{{ channel.service_type }}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div v-else class="text-sm text-secondary italic">No channels in this group</div>
+
+                      <!-- Usage example -->
+                      <div class="mt-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg">
+                        <p class="text-xs text-indigo-700 dark:text-indigo-300">
+                          <strong>Target this group:</strong> Use <code class="bg-indigo-100 dark:bg-indigo-800 px-1.5 py-0.5 rounded font-mono">"group:{{ group.slug }}"</code> in your webhook targets.
+                        </p>
+                      </div>
+                    </div>
+                  </Transition>
                 </div>
               </div>
             </div>
-          </div>
+          </Transition>
         </Card>
 
         <!-- How to Use Groups -->
