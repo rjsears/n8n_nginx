@@ -87,6 +87,52 @@ const channelsExpanded = ref(true)
 const groupsExpanded = ref(true)
 const expandedGroups = ref(new Set())
 const expandedHistoryItems = ref(new Set())
+const expandedHistoryGroups = ref(new Set())
+
+// Computed property to group history items by their target group
+const groupedHistory = computed(() => {
+  const grouped = {
+    byGroup: {},  // { groupSlug: { name: string, items: [] } }
+    ungrouped: [] // items not sent to any group
+  }
+
+  // Get the first 20 history items
+  const items = history.value.slice(0, 20)
+
+  for (const item of items) {
+    const targets = item.event_data?.targets || []
+    const groupTarget = targets.find(t => t.startsWith('group:'))
+
+    if (groupTarget) {
+      const groupSlug = groupTarget.replace('group:', '')
+      // Find the group name from our groups list
+      const group = groups.value.find(g => g.slug === groupSlug)
+      const groupName = group?.name || groupSlug
+
+      if (!grouped.byGroup[groupSlug]) {
+        grouped.byGroup[groupSlug] = {
+          name: groupName,
+          slug: groupSlug,
+          items: []
+        }
+      }
+      grouped.byGroup[groupSlug].items.push(item)
+    } else {
+      grouped.ungrouped.push(item)
+    }
+  }
+
+  return grouped
+})
+
+function toggleHistoryGroup(groupSlug) {
+  if (expandedHistoryGroups.value.has(groupSlug)) {
+    expandedHistoryGroups.value.delete(groupSlug)
+  } else {
+    expandedHistoryGroups.value.add(groupSlug)
+  }
+  expandedHistoryGroups.value = new Set(expandedHistoryGroups.value)
+}
 
 function toggleGroupExpanded(groupId) {
   if (expandedGroups.value.has(groupId)) {
@@ -994,9 +1040,108 @@ async function handleNtfyUpdateConfig(config) {
               class="pt-4"
             />
 
-            <div v-else class="space-y-2 pt-2">
+            <div v-else class="space-y-3 pt-2">
+              <!-- Grouped Messages -->
               <div
-                v-for="item in history.slice(0, 20)"
+                v-for="(groupData, groupSlug) in groupedHistory.byGroup"
+                :key="groupSlug"
+                class="border border-indigo-200 dark:border-indigo-800 rounded-lg overflow-hidden"
+              >
+                <!-- Group Header -->
+                <div
+                  @click="toggleHistoryGroup(groupSlug)"
+                  class="flex items-center gap-3 p-3 cursor-pointer bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                >
+                  <component
+                    :is="expandedHistoryGroups.has(groupSlug) ? ChevronDownIcon : ChevronRightIcon"
+                    class="h-4 w-4 text-indigo-500 flex-shrink-0"
+                  />
+                  <div class="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-500/20 flex-shrink-0">
+                    <HashtagIcon class="h-4 w-4 text-indigo-500" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-indigo-700 dark:text-indigo-300">{{ groupData.name }}</p>
+                    <p class="text-xs text-indigo-600/70 dark:text-indigo-400/70">group:{{ groupData.slug }}</p>
+                  </div>
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 flex-shrink-0">
+                    {{ groupData.items.length }} message{{ groupData.items.length !== 1 ? 's' : '' }}
+                  </span>
+                </div>
+
+                <!-- Group Messages (Collapsible) -->
+                <Transition name="collapse">
+                  <div v-if="expandedHistoryGroups.has(groupSlug)" class="border-t border-indigo-200 dark:border-indigo-800">
+                    <div class="space-y-1 p-2 bg-white dark:bg-gray-800/50">
+                      <div
+                        v-for="item in groupData.items"
+                        :key="item.id"
+                        class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+                      >
+                        <!-- Message Header -->
+                        <div
+                          @click="toggleHistoryItem(item.id)"
+                          class="flex items-center gap-3 p-2.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                        >
+                          <component
+                            :is="expandedHistoryItems.has(item.id) ? ChevronDownIcon : ChevronRightIcon"
+                            class="h-3.5 w-3.5 text-secondary flex-shrink-0"
+                          />
+                          <div class="flex-1 min-w-0 flex items-center gap-3">
+                            <div class="flex-1 min-w-0">
+                              <p class="text-sm font-medium text-primary truncate">
+                                {{ item.event_data?.title || item.event_type }}
+                              </p>
+                              <p class="text-xs text-secondary truncate">
+                                {{ item.service_name }} • {{ new Date(item.sent_at || item.created_at).toLocaleString() }}
+                              </p>
+                            </div>
+                            <StatusBadge :status="item.status" size="sm" class="flex-shrink-0" />
+                          </div>
+                        </div>
+
+                        <!-- Message Details (Expanded) -->
+                        <Transition name="collapse">
+                          <div
+                            v-if="expandedHistoryItems.has(item.id)"
+                            class="px-4 pb-3 pt-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                          >
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div class="space-y-2">
+                                <div>
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Channel</label>
+                                  <p class="text-sm text-primary mt-0.5">{{ item.service_name }}</p>
+                                </div>
+                                <div>
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Sent At</label>
+                                  <p class="text-sm text-primary mt-0.5">{{ new Date(item.sent_at || item.created_at).toLocaleString() }}</p>
+                                </div>
+                                <div v-if="item.error_message">
+                                  <label class="text-xs font-medium text-red-500 uppercase tracking-wide">Error</label>
+                                  <p class="text-sm text-red-600 dark:text-red-400 mt-0.5">{{ item.error_message }}</p>
+                                </div>
+                              </div>
+                              <div class="space-y-2">
+                                <div v-if="item.event_data?.message">
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Message</label>
+                                  <p class="text-sm text-primary mt-0.5 whitespace-pre-wrap break-words">{{ item.event_data.message }}</p>
+                                </div>
+                                <div v-if="item.event_data?.priority">
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Priority</label>
+                                  <p class="text-sm text-primary mt-0.5 capitalize">{{ item.event_data.priority }}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </Transition>
+                      </div>
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+
+              <!-- Ungrouped Messages -->
+              <div
+                v-for="item in groupedHistory.ungrouped"
                 :key="item.id"
                 class="border border-gray-300 dark:border-black rounded-lg overflow-hidden"
               >
