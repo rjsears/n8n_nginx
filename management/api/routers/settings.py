@@ -204,6 +204,9 @@ DEFAULT_IP_RANGES = [
     {"cidr": "127.0.0.1/32", "description": "Localhost (required)", "access_level": "internal", "protected": True},
     {"cidr": "172.17.0.0/16", "description": "Docker default bridge", "access_level": "internal", "protected": False},
     {"cidr": "100.64.0.0/10", "description": "Tailscale CGNAT", "access_level": "internal", "protected": False},
+    {"cidr": "10.0.0.0/8", "description": "RFC1918 Class A (10.x.x.x)", "access_level": "internal", "protected": False},
+    {"cidr": "172.16.0.0/12", "description": "RFC1918 Class B (172.16-31.x.x)", "access_level": "internal", "protected": False},
+    {"cidr": "192.168.0.0/16", "description": "RFC1918 Class C (192.168.x.x)", "access_level": "internal", "protected": False},
 ]
 
 # Path to nginx config (mounted from host)
