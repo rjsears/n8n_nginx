@@ -164,6 +164,10 @@ services:
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # PostgreSQL version (for pg_dump compatibility)
       - POSTGRES_VERSION=16
+      # Domain for constructing URLs (used in integration examples)
+      - DOMAIN=${DOMAIN:-}
+      # NTFY public URL (if different from https://ntfy.${DOMAIN})
+      - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
