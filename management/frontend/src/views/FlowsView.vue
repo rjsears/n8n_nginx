@@ -38,6 +38,17 @@ const filterActive = ref('all')
 const actionLoading = ref(null)
 const n8nUrl = ref('/n8n') // Default, will be loaded from API
 const executionsExpanded = ref(false)
+const workflowsExpanded = ref(true)
+const expandedWorkflows = ref(new Set())
+
+function toggleWorkflowExpanded(workflowId) {
+  if (expandedWorkflows.value.has(workflowId)) {
+    expandedWorkflows.value.delete(workflowId)
+  } else {
+    expandedWorkflows.value.add(workflowId)
+  }
+  expandedWorkflows.value = new Set(expandedWorkflows.value)
+}
 
 // Confirm dialog state
 const showActivateConfirm = ref(false)
@@ -327,97 +338,179 @@ onMounted(loadData)
         </div>
       </Card>
 
-      <!-- Workflows List -->
-      <Card title="Workflows" :neon="true">
-        <EmptyState
-          v-if="filteredWorkflows.length === 0"
-          :icon="BoltIcon"
-          title="No workflows found"
-          description="No workflows match your current search or filter criteria."
-        />
-
-        <div v-else class="space-y-3">
-          <div
-            v-for="workflow in filteredWorkflows"
-            :key="workflow.id"
-            class="flex items-center justify-between p-4 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
-          >
-            <div class="flex items-center gap-4">
-              <div
-                :class="[
-                  'p-3 rounded-lg',
-                  workflow.active
-                    ? 'bg-emerald-100 dark:bg-emerald-500/20'
-                    : 'bg-gray-100 dark:bg-gray-500/20'
-                ]"
-              >
-                <BoltIcon
-                  :class="[
-                    'h-6 w-6',
-                    workflow.active ? 'text-emerald-500' : 'text-gray-500'
-                  ]"
-                />
-              </div>
-              <div>
-                <div class="flex items-center gap-2">
-                  <p class="font-medium text-primary">{{ workflow.name }}</p>
-                  <StatusBadge :status="workflow.active ? 'active' : 'inactive'" size="sm" />
-                </div>
-                <p class="text-sm text-secondary mt-0.5">
-                  ID: {{ workflow.id }}
-                </p>
-                <div class="flex items-center gap-4 mt-1 text-xs text-muted">
-                  <span v-if="workflow.triggerCount">
-                    {{ workflow.triggerCount }} trigger{{ workflow.triggerCount !== 1 ? 's' : '' }}
-                  </span>
-                  <span v-if="workflow.nodeCount">
-                    {{ workflow.nodeCount }} node{{ workflow.nodeCount !== 1 ? 's' : '' }}
-                  </span>
-                  <span v-if="workflow.updatedAt">
-                    Updated {{ new Date(workflow.updatedAt).toLocaleDateString() }}
-                  </span>
-                </div>
-              </div>
+      <!-- Workflows List (Collapsible) -->
+      <Card :neon="true" :padding="false">
+        <!-- Collapsible Header -->
+        <div
+          @click="workflowsExpanded = !workflowsExpanded"
+          class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+        >
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
+              <BoltIcon class="h-5 w-5 text-blue-500" />
             </div>
-            <div class="flex items-center gap-2">
-              <button
-                @click="openWorkflowInN8n(workflow)"
-                class="btn-secondary p-2"
-                title="Open in n8n"
-              >
-                <ArrowTopRightOnSquareIcon class="h-4 w-4" />
-              </button>
-              <button
-                @click="downloadWorkflow(workflow)"
-                :disabled="actionLoading === workflow.id"
-                class="btn-secondary p-2"
-                title="Download Workflow"
-              >
-                <ArrowDownTrayIcon class="h-4 w-4" />
-              </button>
-              <button
-                @click="executeWorkflow(workflow)"
-                :disabled="actionLoading === workflow.id"
-                class="btn-secondary p-2"
-                title="Execute Now"
-              >
-                <RocketLaunchIcon class="h-4 w-4" />
-              </button>
-              <button
-                @click="toggleWorkflow(workflow)"
-                :disabled="actionLoading === workflow.id"
-                :class="[
-                  'btn-secondary p-2',
-                  workflow.active ? 'text-amber-500 hover:text-amber-600' : 'text-emerald-500 hover:text-emerald-600'
-                ]"
-                :title="workflow.active ? 'Deactivate' : 'Activate'"
-              >
-                <StopIcon v-if="workflow.active" class="h-4 w-4" />
-                <PlayIcon v-else class="h-4 w-4" />
-              </button>
+            <div>
+              <h3 class="font-semibold text-primary">Workflows</h3>
+              <p class="text-sm text-muted">Manage n8n workflows</p>
             </div>
           </div>
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xs px-2 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                {{ stats.active }} active
+              </span>
+              <span class="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-500/20 text-gray-700 dark:text-gray-300">
+                {{ stats.total }} total
+              </span>
+            </div>
+            <ChevronDownIcon v-if="workflowsExpanded" class="h-5 w-5 text-secondary" />
+            <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+          </div>
         </div>
+
+        <!-- Collapsible Content -->
+        <Transition name="collapse">
+          <div v-if="workflowsExpanded" class="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
+            <EmptyState
+              v-if="filteredWorkflows.length === 0"
+              :icon="BoltIcon"
+              title="No workflows found"
+              description="No workflows match your current search or filter criteria."
+              class="pt-4"
+            />
+
+            <div v-else class="space-y-2 pt-2">
+              <div
+                v-for="workflow in filteredWorkflows"
+                :key="workflow.id"
+                class="rounded-lg bg-surface-hover border border-gray-300 dark:border-black overflow-hidden"
+              >
+                <!-- Workflow Header (Clickable to expand) -->
+                <div
+                  @click="toggleWorkflowExpanded(workflow.id)"
+                  class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+                >
+                  <div class="flex items-center gap-3 flex-1 min-w-0">
+                    <component
+                      :is="expandedWorkflows.has(workflow.id) ? ChevronDownIcon : ChevronRightIcon"
+                      class="h-4 w-4 text-secondary flex-shrink-0"
+                    />
+                    <div
+                      :class="[
+                        'p-2 rounded-lg flex-shrink-0',
+                        workflow.active
+                          ? 'bg-emerald-100 dark:bg-emerald-500/20'
+                          : 'bg-gray-100 dark:bg-gray-500/20'
+                      ]"
+                    >
+                      <BoltIcon
+                        :class="[
+                          'h-5 w-5',
+                          workflow.active ? 'text-emerald-500' : 'text-gray-500'
+                        ]"
+                      />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <p class="font-medium text-primary truncate">{{ workflow.name }}</p>
+                        <StatusBadge :status="workflow.active ? 'active' : 'inactive'" size="sm" class="flex-shrink-0" />
+                      </div>
+                      <p class="text-xs text-secondary mt-0.5">
+                        ID: {{ workflow.id }}
+                        <span v-if="workflow.triggerCount" class="ml-2">• {{ workflow.triggerCount }} trigger{{ workflow.triggerCount !== 1 ? 's' : '' }}</span>
+                        <span v-if="workflow.nodeCount" class="ml-2">• {{ workflow.nodeCount }} node{{ workflow.nodeCount !== 1 ? 's' : '' }}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <!-- Quick toggle on collapsed view -->
+                  <div class="flex items-center gap-1 flex-shrink-0" @click.stop>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        :checked="workflow.active"
+                        @change="toggleWorkflow(workflow)"
+                        :disabled="actionLoading === workflow.id"
+                        class="sr-only peer"
+                      />
+                      <div
+                        class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"
+                      ></div>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Expanded Workflow Details -->
+                <Transition name="collapse">
+                  <div
+                    v-if="expandedWorkflows.has(workflow.id)"
+                    class="px-4 pb-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                  >
+                    <!-- Workflow Info -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div>
+                        <label class="text-xs font-medium text-secondary uppercase tracking-wide">Workflow ID</label>
+                        <p class="text-sm text-primary font-mono mt-1">{{ workflow.id }}</p>
+                      </div>
+                      <div v-if="workflow.triggerCount">
+                        <label class="text-xs font-medium text-secondary uppercase tracking-wide">Triggers</label>
+                        <p class="text-sm text-primary mt-1">{{ workflow.triggerCount }}</p>
+                      </div>
+                      <div v-if="workflow.nodeCount">
+                        <label class="text-xs font-medium text-secondary uppercase tracking-wide">Nodes</label>
+                        <p class="text-sm text-primary mt-1">{{ workflow.nodeCount }}</p>
+                      </div>
+                      <div v-if="workflow.updatedAt">
+                        <label class="text-xs font-medium text-secondary uppercase tracking-wide">Last Updated</label>
+                        <p class="text-sm text-primary mt-1">{{ new Date(workflow.updatedAt).toLocaleString() }}</p>
+                      </div>
+                    </div>
+
+                    <!-- Action Buttons (Bigger) -->
+                    <div class="flex flex-wrap items-center gap-3">
+                      <button
+                        @click="openWorkflowInN8n(workflow)"
+                        class="btn-secondary px-4 py-2.5 flex items-center gap-2"
+                      >
+                        <ArrowTopRightOnSquareIcon class="h-5 w-5" />
+                        <span class="font-medium">Open in n8n</span>
+                      </button>
+                      <button
+                        @click="downloadWorkflow(workflow)"
+                        :disabled="actionLoading === workflow.id"
+                        class="btn-secondary px-4 py-2.5 flex items-center gap-2"
+                      >
+                        <ArrowDownTrayIcon class="h-5 w-5" />
+                        <span class="font-medium">Download</span>
+                      </button>
+                      <button
+                        @click="executeWorkflow(workflow)"
+                        :disabled="actionLoading === workflow.id"
+                        class="btn-secondary px-4 py-2.5 flex items-center gap-2 text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                      >
+                        <RocketLaunchIcon class="h-5 w-5" />
+                        <span class="font-medium">Execute Now</span>
+                      </button>
+                      <button
+                        @click="toggleWorkflow(workflow)"
+                        :disabled="actionLoading === workflow.id"
+                        :class="[
+                          'btn-secondary px-4 py-2.5 flex items-center gap-2',
+                          workflow.active
+                            ? 'text-amber-600 hover:text-amber-700 dark:text-amber-400'
+                            : 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400'
+                        ]"
+                      >
+                        <StopIcon v-if="workflow.active" class="h-5 w-5" />
+                        <PlayIcon v-else class="h-5 w-5" />
+                        <span class="font-medium">{{ workflow.active ? 'Deactivate' : 'Activate' }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+            </div>
+          </div>
+        </Transition>
       </Card>
 
       <!-- Recent Executions (Collapsible) -->
