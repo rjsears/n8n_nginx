@@ -814,6 +814,14 @@ def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
         proxy_target = proxy_match.group(1) if proxy_match else None
         proxy_port = int(proxy_match.group(2)) if proxy_match and proxy_match.group(2) else None
 
+        # Also handle variable-based proxy_pass like: set $var http://upstream:port; proxy_pass $var;
+        if not proxy_target:
+            # Look for set $variable http://upstream:port pattern
+            var_match = re.search(r'set\s+\$\w+\s+http://([a-zA-Z0-9_]+)(?::(\d+))?', block_content)
+            if var_match:
+                proxy_target = var_match.group(1)
+                proxy_port = int(var_match.group(2)) if var_match.group(2) else None
+
         # Skip if no proxy (static content or internal)
         if not proxy_target:
             continue
