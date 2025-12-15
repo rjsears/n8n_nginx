@@ -321,9 +321,8 @@ import {
 
 const props = defineProps({
   config: { type: Object, default: () => ({}) },
+  onUpdate: { type: Function, required: true },
 })
-
-const emit = defineEmits(['update'])
 
 // State
 const saving = ref(false)
@@ -388,7 +387,7 @@ async function saveSettings() {
   resultMessage.value = ''
 
   try {
-    const result = await emit('update', form.value)
+    const result = await props.onUpdate(form.value)
 
     if (result?.success) {
       resultSuccess.value = true

@@ -226,9 +226,10 @@ import {
 
 const props = defineProps({
   topics: { type: Array, default: () => [] },
+  onCreate: { type: Function, required: true },
+  onUpdate: { type: Function, required: true },
+  onDelete: { type: Function, required: true },
 })
-
-const emit = defineEmits(['create', 'update', 'delete'])
 
 // State
 const showEditor = ref(false)
@@ -299,9 +300,9 @@ async function saveTopic() {
 
     let result
     if (editingTopic.value) {
-      result = await emit('update', editingTopic.value.id, data)
+      result = await props.onUpdate(editingTopic.value.id, data)
     } else {
-      result = await emit('create', data)
+      result = await props.onCreate(data)
     }
 
     if (result?.success) {
@@ -318,7 +319,7 @@ async function saveTopic() {
 async function deleteTopic(topic) {
   if (!confirm(`Delete topic "${topic.name}"? This cannot be undone.`)) return
 
-  const result = await emit('delete', topic.id)
+  const result = await props.onDelete(topic.id)
   if (!result?.success) {
     alert(result?.error || 'Failed to delete topic')
   }

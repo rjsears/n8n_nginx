@@ -80,10 +80,10 @@
         <div v-else-if="activeTab === 'templates'" class="space-y-6">
           <TemplateBuilder
             :templates="templates"
-            @create="handleCreateTemplate"
-            @update="handleUpdateTemplate"
-            @delete="handleDeleteTemplate"
-            @preview="handlePreviewTemplate"
+            :on-create="handleCreateTemplate"
+            :on-update="handleUpdateTemplate"
+            :on-delete="handleDeleteTemplate"
+            :on-preview="handlePreviewTemplate"
           />
         </div>
 
@@ -91,9 +91,9 @@
         <div v-else-if="activeTab === 'topics'" class="space-y-6">
           <TopicsManager
             :topics="topics"
-            @create="handleCreateTopic"
-            @update="handleUpdateTopic"
-            @delete="handleDeleteTopic"
+            :on-create="handleCreateTopic"
+            :on-update="handleUpdateTopic"
+            :on-delete="handleDeleteTopic"
           />
         </div>
 
@@ -101,8 +101,8 @@
         <div v-else-if="activeTab === 'saved'" class="space-y-6">
           <SavedMessages
             :messages="savedMessages"
-            @send="handleSendSavedMessage"
-            @delete="handleDeleteSavedMessage"
+            :on-send="handleSendSavedMessage"
+            :on-delete="handleDeleteSavedMessage"
           />
         </div>
 
@@ -113,7 +113,7 @@
 
         <!-- Settings Tab -->
         <div v-else-if="activeTab === 'settings'" class="space-y-6">
-          <ServerSettings :config="serverConfig" @update="handleUpdateConfig" />
+          <ServerSettings :config="serverConfig" :on-update="handleUpdateConfig" />
         </div>
 
         <!-- Integration Hub Tab -->

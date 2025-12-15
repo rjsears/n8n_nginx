@@ -267,9 +267,11 @@ import {
 
 const props = defineProps({
   templates: { type: Array, default: () => [] },
+  onCreate: { type: Function, required: true },
+  onUpdate: { type: Function, required: true },
+  onDelete: { type: Function, required: true },
+  onPreview: { type: Function, required: true },
 })
-
-const emit = defineEmits(['create', 'update', 'delete', 'preview'])
 
 // State
 const showEditor = ref(false)
@@ -359,9 +361,9 @@ async function saveTemplate() {
 
     let result
     if (editingTemplate.value) {
-      result = await emit('update', editingTemplate.value.id, data)
+      result = await props.onUpdate(editingTemplate.value.id, data)
     } else {
-      result = await emit('create', data)
+      result = await props.onCreate(data)
     }
 
     if (result?.success) {
@@ -378,7 +380,7 @@ async function saveTemplate() {
 async function deleteTemplate(template) {
   if (!confirm(`Delete template "${template.name}"?`)) return
 
-  const result = await emit('delete', template.id)
+  const result = await props.onDelete(template.id)
   if (!result?.success) {
     alert(result?.error || 'Failed to delete template')
   }
@@ -402,7 +404,7 @@ async function runPreview() {
     }
   }
 
-  previewResult.value = await emit('preview', {
+  previewResult.value = await props.onPreview({
     title_template: editorForm.value.title_template,
     message_template: editorForm.value.message_template,
     sample_json: sampleJson,
