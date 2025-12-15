@@ -228,18 +228,38 @@ async function checkN8nStatus() {
   }
 }
 
-async function createTestWorkflow() {
-  creatingWorkflow.value = true
+async function createTestWorkflow(workflowType = 'broadcast') {
+  creatingWorkflow.value = workflowType
   try {
-    const response = await notificationsApi.createTestWorkflow()
+    const response = await notificationsApi.createTestWorkflow(workflowType)
     if (response.data.success) {
-      const workflowId = response.data.workflow_id
-      notificationStore.success(`Test workflow created! ID: ${workflowId}. Open n8n to configure the credential and run it.`)
+      const workflowName = response.data.workflow_name
+      notificationStore.success(`${workflowName} created! Open n8n to configure the credential and run it.`)
     } else {
       notificationStore.error('Failed to create workflow: ' + (response.data.error || 'Unknown error'))
     }
   } catch (error) {
     notificationStore.error('Failed to create workflow: ' + (error.response?.data?.detail || 'Unknown error'))
+  } finally {
+    creatingWorkflow.value = false
+  }
+}
+
+async function createAllTestWorkflows() {
+  creatingWorkflow.value = 'all'
+  try {
+    const response = await notificationsApi.createAllTestWorkflows()
+    if (response.data.success) {
+      const count = response.data.workflows_created?.length || 0
+      notificationStore.success(`Created ${count} test workflow(s) in n8n! Open n8n to configure credentials and run them.`)
+      if (response.data.errors?.length > 0) {
+        notificationStore.warning('Some workflows had errors: ' + response.data.errors.join(', '))
+      }
+    } else {
+      notificationStore.error('Failed to create workflows: ' + (response.data.message || 'Unknown error'))
+    }
+  } catch (error) {
+    notificationStore.error('Failed to create workflows: ' + (error.response?.data?.detail || 'Unknown error'))
   } finally {
     creatingWorkflow.value = false
   }
@@ -1152,12 +1172,12 @@ async function handleNtfyUpdateConfig(config) {
               </div>
             </div>
 
-            <!-- Create Test Workflow -->
+            <!-- Create Test Workflows -->
             <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
               <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-2">
                   <Cog6ToothIcon class="h-5 w-5 text-secondary" />
-                  <h4 class="font-medium text-primary">Create Test Workflow</h4>
+                  <h4 class="font-medium text-primary">Create Test Workflows</h4>
                 </div>
                 <button
                   @click.stop="checkN8nStatus"
@@ -1170,7 +1190,7 @@ async function handleNtfyUpdateConfig(config) {
               </div>
 
               <p class="text-sm text-secondary mb-3">
-                Automatically create a test workflow in n8n to verify webhook notifications are working.
+                Create test workflows in n8n to verify targeted notifications are working.
               </p>
 
               <!-- n8n Status -->
@@ -1199,26 +1219,83 @@ async function handleNtfyUpdateConfig(config) {
                 </div>
               </div>
 
-              <button
-                @click.stop="createTestWorkflow"
-                :disabled="creatingWorkflow || !webhookInfo.has_key"
-                :class="[
-                  'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors',
-                  webhookInfo.has_key
-                    ? 'bg-green-600 hover:bg-green-700 text-white disabled:opacity-50'
-                    : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                ]"
-              >
-                <PlayIcon class="h-4 w-4" />
-                {{ creatingWorkflow ? 'Creating...' : 'Create Test Workflow in n8n' }}
-              </button>
-
-              <p v-if="!webhookInfo.has_key" class="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
-                Generate an API key above first before creating the test workflow.
+              <p v-if="!webhookInfo.has_key" class="text-xs text-yellow-600 dark:text-yellow-400 mb-3">
+                Generate an API key above first before creating test workflows.
               </p>
-              <p v-else class="text-xs text-secondary mt-2">
-                This will create a "Management Console - Test Notifications" workflow in n8n.
-                After creation, open n8n to configure the Header Auth credential and run it.
+
+              <!-- Workflow Type Buttons -->
+              <div class="space-y-3">
+                <!-- Create All Button -->
+                <button
+                  @click.stop="createAllTestWorkflows"
+                  :disabled="creatingWorkflow || !webhookInfo.has_key"
+                  :class="[
+                    'w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium rounded-lg transition-colors',
+                    webhookInfo.has_key
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50'
+                      : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  ]"
+                >
+                  <PlayIcon class="h-4 w-4" />
+                  {{ creatingWorkflow === 'all' ? 'Creating All...' : 'Create All Test Workflows' }}
+                </button>
+                <p class="text-xs text-secondary text-center">Creates all three workflow types at once</p>
+
+                <!-- Individual Workflow Buttons -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <!-- Broadcast -->
+                  <button
+                    @click.stop="createTestWorkflow('broadcast')"
+                    :disabled="creatingWorkflow || !webhookInfo.has_key"
+                    :class="[
+                      'flex flex-col items-center gap-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors',
+                      webhookInfo.has_key
+                        ? 'bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 disabled:opacity-50'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                    ]"
+                  >
+                    <span class="text-lg">📢</span>
+                    <span>{{ creatingWorkflow === 'broadcast' ? 'Creating...' : 'Broadcast' }}</span>
+                    <span class="text-[10px] opacity-70">All channels</span>
+                  </button>
+
+                  <!-- Channel -->
+                  <button
+                    @click.stop="createTestWorkflow('channel')"
+                    :disabled="creatingWorkflow || !webhookInfo.has_key"
+                    :class="[
+                      'flex flex-col items-center gap-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors',
+                      webhookInfo.has_key
+                        ? 'bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 disabled:opacity-50'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                    ]"
+                  >
+                    <span class="text-lg">🎯</span>
+                    <span>{{ creatingWorkflow === 'channel' ? 'Creating...' : 'Channel' }}</span>
+                    <span class="text-[10px] opacity-70">Specific channel</span>
+                  </button>
+
+                  <!-- Group -->
+                  <button
+                    @click.stop="createTestWorkflow('group')"
+                    :disabled="creatingWorkflow || !webhookInfo.has_key"
+                    :class="[
+                      'flex flex-col items-center gap-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors',
+                      webhookInfo.has_key
+                        ? 'bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 disabled:opacity-50'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                    ]"
+                  >
+                    <span class="text-lg">👥</span>
+                    <span>{{ creatingWorkflow === 'group' ? 'Creating...' : 'Group' }}</span>
+                    <span class="text-[10px] opacity-70">Channel group</span>
+                  </button>
+                </div>
+              </div>
+
+              <p class="text-xs text-secondary mt-3">
+                After creation, open n8n to configure the Header Auth credential with your API key.
+                For channel/group workflows, edit the JSON body to specify your target slug.
               </p>
             </div>
           </div>
