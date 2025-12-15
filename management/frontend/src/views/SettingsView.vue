@@ -25,6 +25,10 @@ import {
   BugAntIcon,
   Bars3Icon,
   ViewColumnsIcon,
+  GlobeAltIcon,
+  PlusIcon,
+  TrashIcon,
+  ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -92,6 +96,25 @@ const settings = ref({
   },
 })
 
+// Access Control state
+const accessControl = ref({
+  enabled: false,
+  ip_ranges: [],
+  nginx_config_path: '',
+  last_updated: null,
+})
+const accessControlLoading = ref(false)
+const reloadingNginx = ref(false)
+const addingIpRange = ref(false)
+const newIpRange = ref({
+  cidr: '',
+  description: '',
+  access_level: 'internal',
+})
+const defaultIpRanges = ref([])
+const deleteConfirmDialog = ref(null)
+const ipRangeToDelete = ref(null)
+
 // No longer using theme presets - removed in favor of simpler light/dark toggle
 
 const tabs = [
@@ -99,6 +122,7 @@ const tabs = [
   { id: 'backup', name: 'Backup', icon: CircleStackIcon },
   { id: 'notifications', name: 'System Notifications', icon: BellIcon },
   { id: 'security', name: 'Security', icon: ShieldCheckIcon },
+  { id: 'access-control', name: 'Access Control', icon: GlobeAltIcon },
   { id: 'account', name: 'Account', icon: UserIcon },
   { id: 'api-debug', name: 'n8n API / Debug', icon: BugAntIcon },
 ]
@@ -215,8 +239,110 @@ async function saveN8nApiKey() {
   }
 }
 
+// Access Control functions
+async function loadAccessControl() {
+  accessControlLoading.value = true
+  try {
+    // Load defaults first - this should always work
+    try {
+      const defaultsResponse = await api.settings.getDefaultIpRanges()
+      defaultIpRanges.value = defaultsResponse.data
+    } catch (e) {
+      console.error('Failed to load default IP ranges:', e)
+    }
+
+    // Load current config - may fail if nginx config doesn't exist
+    try {
+      const configResponse = await api.settings.getAccessControl()
+      accessControl.value = configResponse.data
+    } catch (e) {
+      console.error('Failed to load access control config:', e)
+      // Set defaults if config load fails
+      accessControl.value = {
+        enabled: false,
+        ip_ranges: [],
+        nginx_config_path: '',
+        last_updated: null,
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load access control:', error)
+  } finally {
+    accessControlLoading.value = false
+  }
+}
+
+async function addIpRange() {
+  if (!newIpRange.value.cidr) {
+    notificationStore.error('Please enter a CIDR address')
+    return
+  }
+
+  addingIpRange.value = true
+  try {
+    await api.settings.addIpRange(newIpRange.value)
+    notificationStore.success(`IP range ${newIpRange.value.cidr} added`)
+    newIpRange.value = { cidr: '', description: '', access_level: 'internal' }
+    await loadAccessControl()
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to add IP range')
+  } finally {
+    addingIpRange.value = false
+  }
+}
+
+function confirmDeleteIpRange(ipRange) {
+  ipRangeToDelete.value = ipRange
+  deleteConfirmDialog.value?.open()
+}
+
+async function deleteIpRange() {
+  if (!ipRangeToDelete.value) return
+
+  try {
+    await api.settings.deleteIpRange(ipRangeToDelete.value.cidr)
+    notificationStore.success(`IP range ${ipRangeToDelete.value.cidr} deleted`)
+    ipRangeToDelete.value = null
+    await loadAccessControl()
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to delete IP range')
+  }
+}
+
+async function reloadNginx() {
+  reloadingNginx.value = true
+  try {
+    await api.settings.reloadNginx()
+    notificationStore.success('Nginx reloaded successfully')
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to reload nginx')
+  } finally {
+    reloadingNginx.value = false
+  }
+}
+
+function addDefaultRange(defaultRange) {
+  const exists = accessControl.value.ip_ranges.some(r => r.cidr === defaultRange.cidr)
+  if (exists) {
+    notificationStore.warning(`${defaultRange.cidr} is already configured`)
+    return
+  }
+  newIpRange.value = {
+    cidr: defaultRange.cidr,
+    description: defaultRange.description,
+    access_level: defaultRange.access_level,
+  }
+}
+
 onMounted(async () => {
   await loadSettings()
+})
+
+// Watch for tab changes to load access control data
+watch(activeTab, (newTab) => {
+  if (newTab === 'access-control' && defaultIpRanges.value.length === 0) {
+    loadAccessControl()
+  }
 })
 </script>
 
@@ -664,6 +790,180 @@ onMounted(async () => {
             </div>
           </template>
         </Card>
+      </div>
+
+      <!-- Access Control Tab -->
+      <div v-if="activeTab === 'access-control'" class="space-y-6">
+        <LoadingSpinner v-if="accessControlLoading" size="lg" text="Loading access control..." class="py-12" />
+
+        <template v-else>
+          <!-- Status Card -->
+          <Card title="Access Control Status" :neon="true">
+            <div class="space-y-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="font-medium text-primary">Status</p>
+                  <p class="text-sm text-secondary">IP-based access control via nginx geo block</p>
+                </div>
+                <span
+                  :class="[
+                    'px-3 py-1 rounded-full text-sm font-medium',
+                    accessControl.enabled
+                      ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+                      : 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400'
+                  ]"
+                >
+                  {{ accessControl.enabled ? 'Enabled' : 'Not Configured' }}
+                </span>
+              </div>
+
+              <div v-if="accessControl.last_updated" class="flex items-center justify-between">
+                <div>
+                  <p class="font-medium text-primary">Last Updated</p>
+                  <p class="text-sm text-secondary">Configuration file modification time</p>
+                </div>
+                <span class="text-secondary text-sm">
+                  {{ new Date(accessControl.last_updated).toLocaleString() }}
+                </span>
+              </div>
+            </div>
+
+            <template #footer>
+              <div class="flex justify-end">
+                <button
+                  @click="reloadNginx"
+                  :disabled="reloadingNginx"
+                  class="btn-primary flex items-center gap-2"
+                >
+                  <ArrowPathIcon :class="['h-4 w-4', reloadingNginx && 'animate-spin']" />
+                  {{ reloadingNginx ? 'Reloading...' : 'Reload Nginx' }}
+                </button>
+              </div>
+            </template>
+          </Card>
+
+          <!-- Current IP Ranges -->
+          <Card title="Configured IP Ranges" subtitle="Internal networks with privileged access" :neon="true">
+            <div v-if="accessControl.ip_ranges.length === 0" class="text-center py-8 text-secondary">
+              No IP ranges configured. Add ranges below or use defaults.
+            </div>
+
+            <div v-else class="space-y-2">
+              <div
+                v-for="(range, index) in accessControl.ip_ranges"
+                :key="index"
+                class="flex items-center justify-between p-3 rounded-lg bg-surface-hover"
+              >
+                <div class="flex-1">
+                  <p class="font-mono text-primary">{{ range.cidr }}</p>
+                  <p v-if="range.description" class="text-sm text-secondary">{{ range.description }}</p>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span
+                    :class="[
+                      'px-2 py-0.5 rounded text-xs font-medium',
+                      range.access_level === 'internal'
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
+                        : 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400'
+                    ]"
+                  >
+                    {{ range.access_level }}
+                  </span>
+                  <button
+                    @click="confirmDeleteIpRange(range)"
+                    class="p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded"
+                    title="Delete IP range"
+                  >
+                    <TrashIcon class="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <!-- Add IP Range -->
+          <Card title="Add IP Range" subtitle="Add a new IP range for internal access" :neon="true">
+            <div class="space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-primary mb-1.5">CIDR Address</label>
+                  <input
+                    type="text"
+                    v-model="newIpRange.cidr"
+                    placeholder="e.g., 192.168.1.0/24"
+                    class="input-field w-full font-mono"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-primary mb-1.5">Description</label>
+                  <input
+                    type="text"
+                    v-model="newIpRange.description"
+                    placeholder="e.g., Home Network"
+                    class="input-field w-full"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-primary mb-1.5">Access Level</label>
+                  <select v-model="newIpRange.access_level" class="select-field w-full">
+                    <option value="internal">Internal</option>
+                    <option value="external">External</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <template #footer>
+              <div class="flex justify-end">
+                <button
+                  @click="addIpRange"
+                  :disabled="addingIpRange || !newIpRange.cidr"
+                  class="btn-primary flex items-center gap-2"
+                >
+                  <PlusIcon class="h-4 w-4" />
+                  {{ addingIpRange ? 'Adding...' : 'Add IP Range' }}
+                </button>
+              </div>
+            </template>
+          </Card>
+
+          <!-- Default Ranges -->
+          <Card title="Common Networks" subtitle="Quick-add common internal network ranges" :neon="true">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                v-for="defaultRange in defaultIpRanges"
+                :key="defaultRange.cidr"
+                @click="addDefaultRange(defaultRange)"
+                :class="[
+                  'flex items-center justify-between p-3 rounded-lg border text-left transition-colors',
+                  accessControl.ip_ranges.some(r => r.cidr === defaultRange.cidr)
+                    ? 'border-green-500 bg-green-50 dark:bg-green-500/10'
+                    : 'border-[var(--color-border)] hover:border-blue-300 dark:hover:border-blue-700 hover:bg-surface-hover'
+                ]"
+              >
+                <div>
+                  <p class="font-mono text-primary text-sm">{{ defaultRange.cidr }}</p>
+                  <p class="text-xs text-secondary">{{ defaultRange.description }}</p>
+                </div>
+                <CheckIcon
+                  v-if="accessControl.ip_ranges.some(r => r.cidr === defaultRange.cidr)"
+                  class="h-5 w-5 text-green-500"
+                />
+                <PlusIcon v-else class="h-5 w-5 text-muted" />
+              </button>
+            </div>
+          </Card>
+        </template>
+
+        <!-- Delete Confirmation Dialog -->
+        <ConfirmDialog
+          ref="deleteConfirmDialog"
+          title="Delete IP Range"
+          :message="`Are you sure you want to delete ${ipRangeToDelete?.cidr}? This will remove access for this network range.`"
+          confirm-text="Delete"
+          confirm-class="btn-danger"
+          @confirm="deleteIpRange"
+        />
       </div>
 
       <!-- Account Tab -->
