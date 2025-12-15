@@ -282,7 +282,9 @@ services:
       - serve
     environment:
       - TZ=${TIMEZONE:-America/Los_Angeles}
-      - NTFY_BASE_URL=https://${DOMAIN}/ntfy
+      # NTFY_BASE_URL: Set to your ntfy subdomain (e.g., https://ntfy.example.com)
+      # This should match the public hostname configured in Cloudflare Tunnel
+      - NTFY_BASE_URL=${NTFY_BASE_URL:-https://ntfy.${DOMAIN}}
       - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
       - NTFY_BEHIND_PROXY=true
       - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
