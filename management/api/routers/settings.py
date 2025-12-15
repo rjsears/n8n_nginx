@@ -23,6 +23,9 @@ from api.schemas.settings import (
     AccessControlConfig,
     AccessControlResponse,
     AddIPRangeRequest,
+    ExternalRoute,
+    ExternalRoutesResponse,
+    AddExternalRouteRequest,
 )
 from api.schemas.common import SuccessResponse
 
@@ -660,6 +663,296 @@ async def update_env_variable(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update environment variable: {str(e)}",
+        )
+
+
+# External Routes Management (Public paths in nginx.conf)
+# Protected routes that cannot be removed
+PROTECTED_EXTERNAL_ROUTES = ["/webhook/", "/webhook-test/"]
+
+
+def parse_nginx_external_routes(config_content: str) -> List[Dict[str, Any]]:
+    """Parse nginx.conf to find public location blocks (those without $is_trusted check)."""
+    import re
+
+    routes = []
+
+    # Find the main server block (port 443)
+    # Look for location blocks that don't have $is_trusted check
+    # Pattern: location /path/ { ... } where the block doesn't contain $is_trusted
+
+    # First, find all location blocks in the 443 server block
+    # We'll look for location blocks followed by their content
+
+    # Extract the HTTPS server block (listen 443 ssl)
+    server_443_match = re.search(
+        r'server\s*\{[^}]*listen\s+443\s+ssl[^}]*\}',
+        config_content,
+        re.DOTALL
+    )
+
+    # If we can't find a clean server block, use a different approach
+    # Look for location blocks with proxy_pass http://n8n that don't have $is_trusted
+    location_pattern = r'location\s+(/[a-zA-Z0-9_/-]*)\s*\{([^}]+)\}'
+
+    for match in re.finditer(location_pattern, config_content, re.DOTALL):
+        path = match.group(1)
+        block_content = match.group(2)
+
+        # Skip internal nginx locations
+        if path in ['/', '/healthz', '/api/', '/api/auth/verify', '/api/ws/', '/api/backups/download/']:
+            continue
+
+        # Check if this is a public route (no $is_trusted check)
+        has_trusted_check = '$is_trusted' in block_content or '$access_level' in block_content
+
+        # Check if it proxies to n8n
+        proxies_to_n8n = 'proxy_pass http://n8n' in block_content
+
+        if proxies_to_n8n and not has_trusted_check:
+            # This is a public route to n8n
+            # Try to extract description from comment before location block
+            description = ""
+            # Look for comment like # PUBLIC: description
+            pre_context = config_content[:match.start()]
+            last_comment = re.search(r'#\s*(?:PUBLIC:?)?\s*([^\n]+)\s*$', pre_context)
+            if last_comment:
+                description = last_comment.group(1).strip()
+
+            # Clean up path (ensure trailing slash consistency)
+            clean_path = path.rstrip('/') + '/' if not path.endswith('/') else path
+
+            routes.append({
+                "path": clean_path,
+                "description": description,
+                "protected": clean_path in PROTECTED_EXTERNAL_ROUTES,
+                "proxy_target": "n8n",
+            })
+
+    return routes
+
+
+def get_domain_from_nginx_config(config_content: str) -> str:
+    """Extract domain from nginx.conf server_name directive."""
+    import re
+
+    # Look for server_name in the 443 server block
+    match = re.search(r'server_name\s+([a-zA-Z0-9.-]+);', config_content)
+    if match and match.group(1) != '_':
+        return match.group(1)
+    return None
+
+
+def generate_external_route_block(path: str, description: str = "") -> str:
+    """Generate nginx location block for an external route."""
+    comment = f"# PUBLIC: {description}\n        " if description else ""
+    return f'''{comment}location {path} {{
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-XSS-Protection "1; mode=block" always;
+
+            proxy_pass http://n8n;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Port $server_port;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_buffering off;
+        }}'''
+
+
+def add_external_route_to_config(config_content: str, path: str, description: str = "") -> str:
+    """Add a new external route to nginx.conf."""
+    import re
+
+    # Find a good insertion point - after the last webhook location block
+    # or before the RESTRICTED section
+
+    # Look for the RESTRICTED comment which marks where restricted routes start
+    restricted_match = re.search(r'(\s*#\s*=+\s*\n\s*#\s*RESTRICTED)', config_content)
+
+    if restricted_match:
+        # Insert before the RESTRICTED section
+        insert_pos = restricted_match.start()
+        new_block = generate_external_route_block(path, description)
+        return config_content[:insert_pos] + "\n\n        " + new_block + "\n" + config_content[insert_pos:]
+
+    # Fallback: look for "location / {" with $is_trusted check
+    main_location_match = re.search(r'(\s*location\s+/\s*\{[^}]*\$is_trusted)', config_content, re.DOTALL)
+    if main_location_match:
+        insert_pos = main_location_match.start()
+        new_block = generate_external_route_block(path, description)
+        return config_content[:insert_pos] + "\n\n        " + new_block + "\n" + config_content[insert_pos:]
+
+    # Last fallback: insert before the last location / block
+    return config_content
+
+
+def remove_external_route_from_config(config_content: str, path: str) -> str:
+    """Remove an external route from nginx.conf."""
+    import re
+
+    # Match the location block with optional preceding comment
+    # Pattern: optional comment line + location /path/ { ... }
+    pattern = rf'(\s*#[^\n]*\n)?\s*location\s+{re.escape(path)}\s*\{{[^}}]+\}}\s*'
+
+    return re.sub(pattern, '\n', config_content)
+
+
+@router.get("/external-routes", response_model=ExternalRoutesResponse)
+async def get_external_routes(
+    _=Depends(get_current_user),
+):
+    """Get all externally accessible routes from nginx.conf."""
+    import os
+
+    routes = []
+    domain = None
+    last_updated = None
+
+    if not os.path.exists(NGINX_CONFIG_PATH):
+        return ExternalRoutesResponse(
+            routes=[],
+            domain=None,
+            last_updated=None,
+        )
+
+    try:
+        with open(NGINX_CONFIG_PATH, 'r') as f:
+            content = f.read()
+
+        routes = parse_nginx_external_routes(content)
+        domain = get_domain_from_nginx_config(content)
+
+        stat = os.stat(NGINX_CONFIG_PATH)
+        last_updated = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to read nginx config for external routes: {e}")
+
+    return ExternalRoutesResponse(
+        routes=[ExternalRoute(**r) for r in routes],
+        domain=domain,
+        last_updated=last_updated,
+    )
+
+
+@router.post("/external-routes", response_model=SuccessResponse)
+async def add_external_route(
+    request: AddExternalRouteRequest,
+    _=Depends(get_current_user),
+):
+    """Add a new externally accessible route."""
+    import os
+
+    # Validate path format
+    path = request.path.strip()
+    if not path.startswith('/'):
+        path = '/' + path
+    if not path.endswith('/'):
+        path = path + '/'
+
+    # Only allow webhook-like paths for security
+    if not path.startswith('/webhook'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="External routes must start with /webhook for security. Use paths like /webhook-custom/ or /webhook-myapp/",
+        )
+
+    try:
+        if not os.path.exists(NGINX_CONFIG_PATH):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nginx configuration not found",
+            )
+
+        with open(NGINX_CONFIG_PATH, 'r') as f:
+            content = f.read()
+
+        # Check if route already exists
+        existing_routes = parse_nginx_external_routes(content)
+        for route in existing_routes:
+            if route["path"] == path:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Route {path} already exists",
+                )
+
+        # Add the route
+        new_content = add_external_route_to_config(content, path, request.description)
+
+        with open(NGINX_CONFIG_PATH, 'w') as f:
+            f.write(new_content)
+
+        return SuccessResponse(message=f"External route {path} added. Reload nginx to apply changes.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add external route: {str(e)}",
+        )
+
+
+@router.delete("/external-routes/{path:path}", response_model=SuccessResponse)
+async def delete_external_route(
+    path: str,
+    _=Depends(get_current_user),
+):
+    """Remove an externally accessible route."""
+    import os
+
+    # Normalize path
+    if not path.startswith('/'):
+        path = '/' + path
+    if not path.endswith('/'):
+        path = path + '/'
+
+    # Check if protected
+    if path in PROTECTED_EXTERNAL_ROUTES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Route {path} is protected and cannot be removed",
+        )
+
+    try:
+        if not os.path.exists(NGINX_CONFIG_PATH):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nginx configuration not found",
+            )
+
+        with open(NGINX_CONFIG_PATH, 'r') as f:
+            content = f.read()
+
+        # Verify route exists
+        existing_routes = parse_nginx_external_routes(content)
+        route_exists = any(r["path"] == path for r in existing_routes)
+        if not route_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Route {path} not found",
+            )
+
+        # Remove the route
+        new_content = remove_external_route_from_config(content, path)
+
+        with open(NGINX_CONFIG_PATH, 'w') as f:
+            f.write(new_content)
+
+        return SuccessResponse(message=f"External route {path} removed. Reload nginx to apply changes.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to remove external route: {str(e)}",
         )
 
 

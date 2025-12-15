@@ -179,6 +179,10 @@ export const settingsApi = {
   deleteIpRange: (cidr) => api.delete(`/settings/access-control/ip/${encodeURIComponent(cidr)}`),
   reloadNginx: () => api.post('/settings/access-control/reload-nginx'),
   getDefaultIpRanges: () => api.get('/settings/access-control/defaults'),
+  // External Routes
+  getExternalRoutes: () => api.get('/settings/external-routes'),
+  addExternalRoute: (data) => api.post('/settings/external-routes', data),
+  deleteExternalRoute: (path) => api.delete(`/settings/external-routes/${path.replace(/^\//, '')}`),
   // Aliases for view compatibility
   getAll: () => api.get('/settings/'),
 }

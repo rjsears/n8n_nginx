@@ -112,3 +112,25 @@ class AddIPRangeRequest(BaseModel):
     cidr: str = Field(..., min_length=1, description="CIDR notation (e.g., 192.168.1.0/24)")
     description: str = Field(default="", description="Description of the IP range")
     access_level: str = Field(default="internal", pattern="^(internal|external)$")
+
+
+# External Routes schemas
+class ExternalRoute(BaseModel):
+    """A publicly accessible route in nginx (no IP restriction)."""
+    path: str = Field(..., min_length=1, description="URL path (e.g., /webhook/)")
+    description: str = Field(default="", description="Description of what this route is for")
+    protected: bool = Field(default=False, description="If true, this route cannot be removed (e.g., /webhook/)")
+    proxy_target: str = Field(default="n8n", description="Upstream target (e.g., n8n, management)")
+
+
+class ExternalRoutesResponse(BaseModel):
+    """Response containing all external routes."""
+    routes: List[ExternalRoute]
+    domain: Optional[str] = None
+    last_updated: Optional[datetime] = None
+
+
+class AddExternalRouteRequest(BaseModel):
+    """Request to add a new external route."""
+    path: str = Field(..., min_length=1, description="URL path (e.g., /webhook-test/)")
+    description: str = Field(default="", description="Description of what this route is for")

@@ -118,6 +118,21 @@ const ipRangeToDelete = ref(null)
 const cloudflareInstalled = ref(false)
 const cloudflareRunning = ref(false)
 
+// External Routes state
+const externalRoutes = ref({
+  routes: [],
+  domain: null,
+  last_updated: null,
+})
+const externalRoutesLoading = ref(false)
+const addingExternalRoute = ref(false)
+const newExternalRoute = ref({
+  path: '',
+  description: '',
+})
+const showDeleteRouteConfirm = ref(false)
+const routeToDelete = ref(null)
+
 // Filter out already-configured ranges from the defaults list
 const availableDefaultRanges = computed(() => {
   const configuredCidrs = accessControl.value.ip_ranges.map(r => r.cidr)
@@ -284,6 +299,9 @@ async function loadAccessControl() {
       cloudflareInstalled.value = false
       cloudflareRunning.value = false
     }
+
+    // Also load external routes
+    loadExternalRoutes()
   } catch (error) {
     console.error('Failed to load access control:', error)
   } finally {
@@ -352,6 +370,59 @@ function addDefaultRange(defaultRange) {
     cidr: defaultRange.cidr,
     description: defaultRange.description,
     access_level: defaultRange.access_level,
+  }
+}
+
+// External Routes functions
+async function loadExternalRoutes() {
+  externalRoutesLoading.value = true
+  try {
+    const response = await api.settings.getExternalRoutes()
+    externalRoutes.value = response.data
+  } catch (error) {
+    console.error('Failed to load external routes:', error)
+    externalRoutes.value = { routes: [], domain: null, last_updated: null }
+  } finally {
+    externalRoutesLoading.value = false
+  }
+}
+
+async function addExternalRoute() {
+  if (!newExternalRoute.value.path) {
+    notificationStore.error('Please enter a path')
+    return
+  }
+
+  addingExternalRoute.value = true
+  try {
+    await api.settings.addExternalRoute(newExternalRoute.value)
+    notificationStore.success(`External route ${newExternalRoute.value.path} added. Reload nginx to apply.`)
+    newExternalRoute.value = { path: '', description: '' }
+    await loadExternalRoutes()
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to add external route')
+  } finally {
+    addingExternalRoute.value = false
+  }
+}
+
+function confirmDeleteRoute(route) {
+  routeToDelete.value = route
+  showDeleteRouteConfirm.value = true
+}
+
+async function deleteExternalRoute() {
+  if (!routeToDelete.value) return
+
+  try {
+    await api.settings.deleteExternalRoute(routeToDelete.value.path)
+    notificationStore.success(`External route ${routeToDelete.value.path} removed. Reload nginx to apply.`)
+    routeToDelete.value = null
+    showDeleteRouteConfirm.value = false
+    await loadExternalRoutes()
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to delete external route')
+    showDeleteRouteConfirm.value = false
   }
 }
 
@@ -849,6 +920,101 @@ watch(activeTab, (newTab) => {
             </div>
           </div>
 
+          <!-- External Routes Section -->
+          <Card title="Publicly Accessible Routes" subtitle="URL paths accessible without IP restrictions (webhooks)" :neon="true">
+            <LoadingSpinner v-if="externalRoutesLoading" size="sm" text="Loading routes..." class="py-4" />
+
+            <template v-else>
+              <div v-if="externalRoutes.domain" class="mb-4 p-3 rounded-lg bg-surface-hover">
+                <p class="text-sm text-secondary">
+                  Domain: <span class="font-mono text-primary">{{ externalRoutes.domain }}</span>
+                </p>
+              </div>
+
+              <div v-if="externalRoutes.routes.length === 0" class="text-center py-6 text-secondary">
+                No public routes configured. Add webhook paths below.
+              </div>
+
+              <div v-else class="space-y-2 mb-4">
+                <div
+                  v-for="(route, index) in externalRoutes.routes"
+                  :key="index"
+                  class="flex items-center justify-between p-3 rounded-lg bg-surface-hover"
+                >
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <p class="font-mono text-primary">{{ route.path }}</p>
+                      <span
+                        v-if="route.protected"
+                        class="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
+                      >
+                        Protected
+                      </span>
+                    </div>
+                    <p v-if="route.description" class="text-sm text-secondary">{{ route.description }}</p>
+                    <p v-if="externalRoutes.domain" class="text-xs text-muted mt-1 font-mono">
+                      https://{{ externalRoutes.domain }}{{ route.path }}
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      v-if="route.protected"
+                      class="p-1.5 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                      title="Protected - cannot be removed"
+                      disabled
+                    >
+                      <LockClosedIcon class="h-4 w-4" />
+                    </button>
+                    <button
+                      v-else
+                      @click="confirmDeleteRoute(route)"
+                      class="p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 rounded"
+                      title="Remove route"
+                    >
+                      <TrashIcon class="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Add Route Form -->
+              <div class="border-t border-[var(--color-border)] pt-4 mt-4">
+                <p class="text-sm font-medium text-primary mb-3">Add New Webhook Path</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm text-secondary mb-1.5">Path</label>
+                    <input
+                      type="text"
+                      v-model="newExternalRoute.path"
+                      placeholder="/webhook-custom/"
+                      class="input-field w-full font-mono"
+                    />
+                    <p class="text-xs text-muted mt-1">Must start with /webhook</p>
+                  </div>
+                  <div>
+                    <label class="block text-sm text-secondary mb-1.5">Description</label>
+                    <input
+                      type="text"
+                      v-model="newExternalRoute.description"
+                      placeholder="Custom webhook endpoint"
+                      class="input-field w-full"
+                    />
+                  </div>
+                </div>
+                <div class="flex justify-end mt-4">
+                  <button
+                    @click="addExternalRoute"
+                    :disabled="addingExternalRoute || !newExternalRoute.path"
+                    class="btn-primary flex items-center gap-2"
+                  >
+                    <PlusIcon class="h-4 w-4" />
+                    {{ addingExternalRoute ? 'Adding...' : 'Add Route' }}
+                  </button>
+                </div>
+              </div>
+            </template>
+          </Card>
+
           <!-- Status Card -->
           <Card title="Direct Network Access" subtitle="IP ranges allowed to access services directly (not via tunnel)" :neon="true">
             <div class="space-y-4">
@@ -994,7 +1160,7 @@ watch(activeTab, (newTab) => {
           </Card>
         </template>
 
-        <!-- Delete Confirmation Dialog -->
+        <!-- Delete IP Range Confirmation Dialog -->
         <ConfirmDialog
           v-model:open="showDeleteConfirm"
           title="Delete IP Range"
@@ -1002,6 +1168,16 @@ watch(activeTab, (newTab) => {
           confirm-text="Delete"
           :danger="true"
           @confirm="deleteIpRange"
+        />
+
+        <!-- Delete External Route Confirmation Dialog -->
+        <ConfirmDialog
+          v-model:open="showDeleteRouteConfirm"
+          title="Remove External Route"
+          :message="`Are you sure you want to remove ${routeToDelete?.path}? This path will no longer be publicly accessible.`"
+          confirm-text="Remove"
+          :danger="true"
+          @confirm="deleteExternalRoute"
         />
       </div>
 
