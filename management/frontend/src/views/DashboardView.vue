@@ -346,7 +346,7 @@ const networkChartOptions = computed(() => ({
           <p class="font-medium">Metrics Unavailable</p>
           <p class="text-sm text-secondary">{{ error }}</p>
           <p class="text-xs text-muted mt-1">
-            Metrics are collected every minute. Please ensure the metrics-agent is running and METRICS_AGENT_ENABLED=true.
+            Metrics are collected every minute by the scheduler. Please wait for the first collection cycle.
           </p>
         </div>
       </div>

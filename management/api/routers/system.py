@@ -1881,6 +1881,13 @@ async def get_host_metrics_cached(
     from api.models.audit import HostMetricsSnapshot
     from sqlalchemy import select, desc
     from datetime import timedelta
+    import zoneinfo
+
+    # Get the configured timezone for displaying timestamps
+    try:
+        local_tz = zoneinfo.ZoneInfo(settings.timezone)
+    except Exception:
+        local_tz = UTC  # Fallback to UTC if invalid timezone
 
     # Get the latest snapshot
     result = await db.execute(
@@ -1956,8 +1963,15 @@ async def get_host_metrics_cached(
     # Calculate network I/O rates (bytes/second) from consecutive readings
     history = []
     for i, s in enumerate(history_rows):
+        # Convert UTC timestamp to local timezone for display
+        local_time = ""
+        if s.collected_at:
+            # Ensure the timestamp has UTC timezone info
+            utc_time = s.collected_at.replace(tzinfo=UTC) if s.collected_at.tzinfo is None else s.collected_at
+            local_time = utc_time.astimezone(local_tz).strftime("%H:%M")
+
         entry = {
-            "time": s.collected_at.strftime("%H:%M") if s.collected_at else "",
+            "time": local_time,
             "cpu": s.cpu_percent,
             "memory": s.memory_percent,
             "disk": s.disk_percent,

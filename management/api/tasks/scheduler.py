@@ -455,15 +455,41 @@ async def _collect_host_metrics() -> None:
         hostname = socket.gethostname()
         platform_name = platform.system().lower()
 
-        # Get uptime - use /proc/uptime directly for accuracy
+        # Get uptime from this Docker container's start time (not host uptime)
+        # /proc/uptime shows the LXC/Proxmox host uptime which is incorrect
+        uptime_seconds = 0
         try:
-            with open('/proc/uptime', 'r') as f:
-                uptime_seconds = int(float(f.read().split()[0]))
-        except Exception:
-            # Fallback to psutil
-            from datetime import datetime, timezone
-            boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
-            uptime_seconds = int((datetime.now(timezone.utc) - boot_time).total_seconds())
+            docker_client = docker.from_env()
+            # Find our own container by hostname (container ID) or name
+            this_container = None
+            for container in docker_client.containers.list():
+                if container.name == "n8n_management" or container.id.startswith(hostname):
+                    this_container = container
+                    break
+
+            if this_container:
+                # Get container start time from Docker
+                started_at = this_container.attrs.get("State", {}).get("StartedAt")
+                if started_at:
+                    from datetime import datetime, timezone
+                    # Parse ISO format: "2024-01-15T10:30:00.123456789Z"
+                    start_time = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                    uptime_seconds = int((datetime.now(timezone.utc) - start_time).total_seconds())
+        except Exception as e:
+            logger.debug(f"Could not get container uptime from Docker: {e}")
+
+        # Fallback to process start time if Docker method failed
+        if uptime_seconds <= 0:
+            try:
+                import os
+                # Get this process's start time as fallback
+                pid = os.getpid()
+                proc = psutil.Process(pid)
+                from datetime import datetime, timezone
+                start_time = datetime.fromtimestamp(proc.create_time(), tz=timezone.utc)
+                uptime_seconds = int((datetime.now(timezone.utc) - start_time).total_seconds())
+            except Exception:
+                uptime_seconds = 0
 
         # ========================================
         # CPU Metrics
