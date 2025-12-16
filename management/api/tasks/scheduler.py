@@ -455,39 +455,55 @@ async def _collect_host_metrics() -> None:
         hostname = socket.gethostname()
         platform_name = platform.system().lower()
 
-        # Get uptime from this Docker container's start time (not host uptime)
-        # /proc/uptime shows the LXC/Proxmox host uptime which is incorrect
+        # Get Docker HOST uptime (the LXC/VM running Docker, not the Proxmox hypervisor)
+        # In LXC, /proc/uptime shows the Proxmox host uptime since LXC shares the kernel.
+        # To get LXC container uptime, we check when PID 1 (init/systemd) started on the host.
         uptime_seconds = 0
+        docker_client = docker.from_env()
+
         try:
-            docker_client = docker.from_env()
-            # Find our own container by hostname (container ID) or name
-            this_container = None
-            for container in docker_client.containers.list():
-                if container.name == "n8n_management" or container.id.startswith(hostname):
-                    this_container = container
-                    break
-
-            if this_container:
-                # Get container start time from Docker
-                started_at = this_container.attrs.get("State", {}).get("StartedAt")
-                if started_at:
-                    from datetime import datetime, timezone
-                    # Parse ISO format: "2024-01-15T10:30:00.123456789Z"
-                    start_time = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                    uptime_seconds = int((datetime.now(timezone.utc) - start_time).total_seconds())
+            # Run alpine with host PID namespace to check when host's PID 1 started
+            # This gives us the LXC container's actual boot time
+            result = docker_client.containers.run(
+                "alpine:latest",
+                command=["stat", "-c", "%Y", "/proc/1"],
+                pid_mode="host",
+                remove=True,
+                stdout=True,
+                stderr=False,
+            )
+            pid1_start_epoch = int(result.decode("utf-8").strip())
+            import time
+            uptime_seconds = int(time.time() - pid1_start_epoch)
         except Exception as e:
-            logger.debug(f"Could not get container uptime from Docker: {e}")
+            logger.debug(f"Could not get host PID 1 start time: {e}")
 
-        # Fallback to process start time if Docker method failed
+        # Fallback: check Docker daemon info for system time hints
         if uptime_seconds <= 0:
             try:
-                import os
-                # Get this process's start time as fallback
-                pid = os.getpid()
-                proc = psutil.Process(pid)
-                from datetime import datetime, timezone
-                start_time = datetime.fromtimestamp(proc.create_time(), tz=timezone.utc)
-                uptime_seconds = int((datetime.now(timezone.utc) - start_time).total_seconds())
+                # Try getting when oldest container started as rough approximation
+                containers = docker_client.containers.list(all=True)
+                oldest_start = None
+                for c in containers:
+                    started_at = c.attrs.get("State", {}).get("StartedAt")
+                    if started_at:
+                        from datetime import datetime, timezone
+                        try:
+                            start_time = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                            if oldest_start is None or start_time < oldest_start:
+                                oldest_start = start_time
+                        except Exception:
+                            pass
+                if oldest_start:
+                    uptime_seconds = int((datetime.now(timezone.utc) - oldest_start).total_seconds())
+            except Exception:
+                pass
+
+        # Final fallback (will show Proxmox uptime in LXC - not ideal but better than 0)
+        if uptime_seconds <= 0:
+            try:
+                with open('/proc/uptime', 'r') as f:
+                    uptime_seconds = int(float(f.read().split()[0]))
             except Exception:
                 uptime_seconds = 0
 
@@ -546,14 +562,46 @@ async def _collect_host_metrics() -> None:
         primary_disk = next((d for d in real_disks if d.get("mount_point") == "/"), real_disks[0] if real_disks else {})
 
         # ========================================
-        # Network Metrics
+        # Network Metrics (Docker HOST network, not container)
         # ========================================
+        network_rx = 0
+        network_tx = 0
         try:
-            net_io = psutil.net_io_counters()
-            network_rx = net_io.bytes_recv
-            network_tx = net_io.bytes_sent
-        except Exception:
-            network_rx = network_tx = 0
+            # Get host network stats by running alpine with host network namespace
+            # This gives us the actual Docker host's network I/O, not the container's
+            result = docker_client.containers.run(
+                "alpine:latest",
+                command=["cat", "/proc/net/dev"],
+                network_mode="host",
+                remove=True,
+                stdout=True,
+                stderr=False,
+            )
+            net_dev = result.decode("utf-8")
+            # Parse /proc/net/dev - format:
+            # Inter-|   Receive                                                |  Transmit
+            # face |bytes    packets errs drop fifo frame compressed multicast|bytes ...
+            #  eth0: 123456  789 0 0 0 0 0 0   654321 ...
+            for line in net_dev.split("\n"):
+                line = line.strip()
+                if ":" in line and not line.startswith("lo:"):
+                    # Skip loopback, docker0, veth interfaces
+                    iface = line.split(":")[0].strip()
+                    if iface.startswith("veth") or iface.startswith("docker") or iface.startswith("br-"):
+                        continue
+                    parts = line.split(":")[1].split()
+                    if len(parts) >= 9:
+                        network_rx += int(parts[0])  # bytes received
+                        network_tx += int(parts[8])  # bytes transmitted
+        except Exception as e:
+            logger.debug(f"Could not get host network stats: {e}")
+            # Fallback to container's own network stats
+            try:
+                net_io = psutil.net_io_counters()
+                network_rx = net_io.bytes_recv
+                network_tx = net_io.bytes_sent
+            except Exception:
+                pass
 
         # ========================================
         # Container Metrics (via Docker API)

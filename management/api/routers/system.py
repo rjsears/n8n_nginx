@@ -1998,13 +1998,19 @@ async def get_host_metrics_cached(
 
         history.append(entry)
 
-    # Calculate current network rate for latest snapshot (last minute average)
+    # Calculate current network rate (average of last 5 readings for smoother display)
     current_rx_rate = 0
     current_tx_rate = 0
     if len(history) >= 2:
-        last = history[-1]
-        current_rx_rate = last.get("network_rx_rate", 0)
-        current_tx_rate = last.get("network_tx_rate", 0)
+        # Take up to last 5 readings for averaging
+        recent = history[-5:] if len(history) >= 5 else history
+        rx_rates = [h.get("network_rx_rate", 0) for h in recent if h.get("network_rx_rate", 0) > 0]
+        tx_rates = [h.get("network_tx_rate", 0) for h in recent if h.get("network_tx_rate", 0) > 0]
+
+        if rx_rates:
+            current_rx_rate = int(sum(rx_rates) / len(rx_rates))
+        if tx_rates:
+            current_tx_rate = int(sum(tx_rates) / len(tx_rates))
 
     return {
         "available": True,
