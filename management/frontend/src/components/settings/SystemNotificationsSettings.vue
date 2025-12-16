@@ -214,7 +214,7 @@ async function updateEvent(event, field, value) {
       events.value[idx] = { ...events.value[idx], [field]: value }
     }
 
-    notificationStore.success(`Updated ${event.display_name}`)
+    notificationStore.success(`${event.display_name} settings saved`)
   } catch (error) {
     console.error('Failed to update event:', error)
     notificationStore.error('Failed to update event')
