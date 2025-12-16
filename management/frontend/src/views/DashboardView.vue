@@ -203,7 +203,7 @@ const memoryChartData = computed(() => {
   }
 })
 
-// Network RX chart data (teal) - showing rate in KB/s or MB/s
+// Network RX chart data (teal) - showing rate in MB/s
 const networkRxChartData = computed(() => {
   const hist = history.value
   if (!hist.length) {
@@ -222,12 +222,12 @@ const networkRxChartData = computed(() => {
     }
   }
 
-  // Convert to KB/s for display (more readable scale)
+  // Convert to MB/s for display (matches the current rate display)
   return {
     labels: hist.map(h => h.time),
     datasets: [{
-      label: 'Download (KB/s)',
-      data: hist.map(h => ((h.network_rx_rate || 0) / 1024).toFixed(1)),
+      label: 'Download (MB/s)',
+      data: hist.map(h => ((h.network_rx_rate || 0) / (1024 * 1024)).toFixed(2)),
       borderColor: 'rgb(20, 184, 166)',
       backgroundColor: 'rgba(20, 184, 166, 0.1)',
       fill: true,
@@ -238,7 +238,7 @@ const networkRxChartData = computed(() => {
   }
 })
 
-// Network TX chart data (rose) - showing rate in KB/s or MB/s
+// Network TX chart data (rose) - showing rate in MB/s
 const networkTxChartData = computed(() => {
   const hist = history.value
   if (!hist.length) {
@@ -257,11 +257,12 @@ const networkTxChartData = computed(() => {
     }
   }
 
+  // Convert to MB/s for display (matches the current rate display)
   return {
     labels: hist.map(h => h.time),
     datasets: [{
-      label: 'Upload (KB/s)',
-      data: hist.map(h => ((h.network_tx_rate || 0) / 1024).toFixed(1)),
+      label: 'Upload (MB/s)',
+      data: hist.map(h => ((h.network_tx_rate || 0) / (1024 * 1024)).toFixed(2)),
       borderColor: 'rgb(244, 63, 94)',
       backgroundColor: 'rgba(244, 63, 94, 0.1)',
       fill: true,
