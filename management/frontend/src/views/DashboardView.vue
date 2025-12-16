@@ -10,7 +10,6 @@ import {
   CpuChipIcon,
   CircleStackIcon,
   ExclamationTriangleIcon,
-  ComputerDesktopIcon,
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
   ChartBarIcon,
@@ -71,28 +70,14 @@ function formatUptime(seconds) {
   return `${minutes}m`
 }
 
-// Get status color based on percentage
-function getStatusColor(percent, warning = 70, critical = 90) {
-  if (percent >= critical) return 'red'
-  if (percent >= warning) return 'amber'
-  return 'emerald'
+// Check if value is in warning/critical range
+function isWarning(percent) {
+  return percent >= 70 && percent < 90
 }
 
-// Chart colors
-const chartColors = computed(() => {
-  if (themeStore.isNeon) {
-    return {
-      cpu: 'rgb(34, 211, 238)',
-      memory: 'rgb(168, 85, 247)',
-      grid: 'rgba(34, 211, 238, 0.1)',
-    }
-  }
-  return {
-    cpu: 'rgb(59, 130, 246)',
-    memory: 'rgb(168, 85, 247)',
-    grid: 'rgba(107, 114, 128, 0.1)',
-  }
-})
+function isCritical(percent) {
+  return percent >= 90
+}
 
 // Fetch metrics from the cached SQL endpoint
 async function fetchMetrics() {
@@ -143,15 +128,15 @@ const disksDetail = computed(() => latest.value.disks || [])
 const networkMetrics = computed(() => latest.value.network || {})
 const containerHealth = computed(() => latest.value.containers || {})
 
-// Chart data from SQL history
+// Chart data from SQL history with distinct colors
 const resourceChartData = computed(() => {
   const hist = history.value
   if (!hist.length) {
     return {
       labels: ['--:--'],
       datasets: [
-        { label: 'CPU %', data: [0], borderColor: chartColors.value.cpu, backgroundColor: 'transparent', tension: 0.4, pointRadius: 0 },
-        { label: 'Memory %', data: [0], borderColor: chartColors.value.memory, backgroundColor: 'transparent', tension: 0.4, pointRadius: 0 },
+        { label: 'CPU %', data: [0], borderColor: 'rgb(59, 130, 246)', backgroundColor: 'transparent', tension: 0.4, pointRadius: 0 },
+        { label: 'Memory %', data: [0], borderColor: 'rgb(168, 85, 247)', backgroundColor: 'transparent', tension: 0.4, pointRadius: 0 },
       ],
     }
   }
@@ -162,20 +147,22 @@ const resourceChartData = computed(() => {
       {
         label: 'CPU %',
         data: hist.map(h => h.cpu || 0),
-        borderColor: chartColors.value.cpu,
-        backgroundColor: chartColors.value.cpu.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+        borderColor: 'rgb(59, 130, 246)',  // Blue
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
         fill: true,
         tension: 0.4,
         pointRadius: 0,
+        borderWidth: 2,
       },
       {
         label: 'Memory %',
         data: hist.map(h => h.memory || 0),
-        borderColor: chartColors.value.memory,
-        backgroundColor: chartColors.value.memory.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+        borderColor: 'rgb(168, 85, 247)',  // Purple
+        backgroundColor: 'rgba(168, 85, 247, 0.1)',
         fill: true,
         tension: 0.4,
         pointRadius: 0,
+        borderWidth: 2,
       },
     ],
   }
@@ -190,11 +177,11 @@ const resourceChartOptions = computed(() => ({
   },
   scales: {
     x: {
-      grid: { color: chartColors.value.grid },
+      grid: { color: themeStore.colorMode === 'dark' ? 'rgba(75, 85, 99, 0.3)' : 'rgba(107, 114, 128, 0.1)' },
       ticks: { color: themeStore.colorMode === 'dark' ? '#9ca3af' : '#6b7280', maxTicksLimit: 10 },
     },
     y: {
-      grid: { color: chartColors.value.grid },
+      grid: { color: themeStore.colorMode === 'dark' ? 'rgba(75, 85, 99, 0.3)' : 'rgba(107, 114, 128, 0.1)' },
       ticks: { color: themeStore.colorMode === 'dark' ? '#9ca3af' : '#6b7280' },
       min: 0,
       max: 100,
@@ -243,24 +230,24 @@ const resourceChartOptions = computed(() => ({
     <template v-else>
       <!-- Large Tile Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- CPU Tile -->
+        <!-- CPU Tile - Blue -->
         <Card :neon="true" :padding="false">
           <div class="p-6">
             <div class="flex items-start justify-between">
               <div>
                 <p class="text-sm font-medium text-secondary uppercase tracking-wider">CPU Usage</p>
-                <p :class="['text-5xl font-black mt-2', `text-${getStatusColor(cpuMetrics.percent || 0)}-500`]">
+                <p :class="['text-5xl font-black mt-2', isCritical(cpuMetrics.percent || 0) ? 'text-red-500' : isWarning(cpuMetrics.percent || 0) ? 'text-amber-500' : 'text-blue-500']">
                   {{ Math.round(cpuMetrics.percent || 0) }}<span class="text-2xl">%</span>
                 </p>
                 <p class="text-sm text-muted mt-2">{{ cpuMetrics.core_count || 0 }} cores</p>
               </div>
-              <div :class="['p-4 rounded-2xl', `bg-${getStatusColor(cpuMetrics.percent || 0)}-100 dark:bg-${getStatusColor(cpuMetrics.percent || 0)}-500/20`]">
-                <CpuChipIcon :class="['h-10 w-10', `text-${getStatusColor(cpuMetrics.percent || 0)}-500`]" />
+              <div class="p-4 rounded-2xl bg-blue-100 dark:bg-blue-500/20">
+                <CpuChipIcon class="h-10 w-10 text-blue-500" />
               </div>
             </div>
             <div class="mt-6 h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
-                :class="['h-full rounded-full transition-all duration-700', `bg-${getStatusColor(cpuMetrics.percent || 0)}-500`]"
+                :class="['h-full rounded-full transition-all duration-700', isCritical(cpuMetrics.percent || 0) ? 'bg-red-500' : isWarning(cpuMetrics.percent || 0) ? 'bg-amber-500' : 'bg-blue-500']"
                 :style="{ width: `${cpuMetrics.percent || 0}%` }"
               />
             </div>
@@ -270,24 +257,24 @@ const resourceChartOptions = computed(() => ({
           </div>
         </Card>
 
-        <!-- Memory Tile -->
+        <!-- Memory Tile - Purple -->
         <Card :neon="true" :padding="false">
           <div class="p-6">
             <div class="flex items-start justify-between">
               <div>
                 <p class="text-sm font-medium text-secondary uppercase tracking-wider">Memory Usage</p>
-                <p :class="['text-5xl font-black mt-2', `text-${getStatusColor(memoryMetrics.percent || 0)}-500`]">
+                <p :class="['text-5xl font-black mt-2', isCritical(memoryMetrics.percent || 0) ? 'text-red-500' : isWarning(memoryMetrics.percent || 0) ? 'text-amber-500' : 'text-purple-500']">
                   {{ Math.round(memoryMetrics.percent || 0) }}<span class="text-2xl">%</span>
                 </p>
                 <p class="text-sm text-muted mt-2">{{ formatBytes(memoryMetrics.used_bytes || 0) }} / {{ formatBytes(memoryMetrics.total_bytes || 0) }}</p>
               </div>
-              <div :class="['p-4 rounded-2xl', `bg-${getStatusColor(memoryMetrics.percent || 0)}-100 dark:bg-${getStatusColor(memoryMetrics.percent || 0)}-500/20`]">
-                <CircleStackIcon :class="['h-10 w-10', `text-${getStatusColor(memoryMetrics.percent || 0)}-500`]" />
+              <div class="p-4 rounded-2xl bg-purple-100 dark:bg-purple-500/20">
+                <CircleStackIcon class="h-10 w-10 text-purple-500" />
               </div>
             </div>
             <div class="mt-6 h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
-                :class="['h-full rounded-full transition-all duration-700', `bg-${getStatusColor(memoryMetrics.percent || 0)}-500`]"
+                :class="['h-full rounded-full transition-all duration-700', isCritical(memoryMetrics.percent || 0) ? 'bg-red-500' : isWarning(memoryMetrics.percent || 0) ? 'bg-amber-500' : 'bg-purple-500']"
                 :style="{ width: `${memoryMetrics.percent || 0}%` }"
               />
             </div>
@@ -298,30 +285,30 @@ const resourceChartOptions = computed(() => ({
           </div>
         </Card>
 
-        <!-- Disk Tile -->
+        <!-- Disk Tile - Amber/Orange -->
         <Card :neon="true" :padding="false">
           <div class="p-6">
             <div class="flex items-start justify-between">
               <div>
                 <p class="text-sm font-medium text-secondary uppercase tracking-wider">Disk Usage</p>
-                <p :class="['text-5xl font-black mt-2', `text-${getStatusColor(diskMetrics.percent || 0)}-500`]">
+                <p :class="['text-5xl font-black mt-2', isCritical(diskMetrics.percent || 0) ? 'text-red-500' : isWarning(diskMetrics.percent || 0) ? 'text-red-400' : 'text-amber-500']">
                   {{ Math.round(diskMetrics.percent || 0) }}<span class="text-2xl">%</span>
                 </p>
                 <p class="text-sm text-muted mt-2">{{ formatBytes(diskMetrics.free_bytes || 0) }} free</p>
               </div>
-              <div :class="['p-4 rounded-2xl', `bg-${getStatusColor(diskMetrics.percent || 0)}-100 dark:bg-${getStatusColor(diskMetrics.percent || 0)}-500/20`]">
-                <ChartBarIcon :class="['h-10 w-10', `text-${getStatusColor(diskMetrics.percent || 0)}-500`]" />
+              <div class="p-4 rounded-2xl bg-amber-100 dark:bg-amber-500/20">
+                <ChartBarIcon class="h-10 w-10 text-amber-500" />
               </div>
             </div>
             <div class="mt-6 space-y-2">
               <div v-for="disk in disksDetail.slice(0, 3)" :key="disk.mount_point">
                 <div class="flex justify-between text-xs mb-1">
                   <span class="text-muted">{{ disk.mount_point }}</span>
-                  <span :class="`text-${getStatusColor(disk.percent || 0)}-500`">{{ (disk.percent || 0).toFixed(0) }}%</span>
+                  <span :class="isCritical(disk.percent || 0) ? 'text-red-500' : isWarning(disk.percent || 0) ? 'text-red-400' : 'text-amber-500'">{{ (disk.percent || 0).toFixed(0) }}%</span>
                 </div>
                 <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full">
                   <div
-                    :class="['h-full rounded-full', `bg-${getStatusColor(disk.percent || 0)}-500`]"
+                    :class="['h-full rounded-full', isCritical(disk.percent || 0) ? 'bg-red-500' : isWarning(disk.percent || 0) ? 'bg-red-400' : 'bg-amber-500']"
                     :style="{ width: `${disk.percent || 0}%` }"
                   />
                 </div>
@@ -330,19 +317,19 @@ const resourceChartOptions = computed(() => ({
           </div>
         </Card>
 
-        <!-- Containers Tile -->
+        <!-- Containers Tile - Indigo -->
         <Card :neon="true" :padding="false">
           <div class="p-6">
             <div class="flex items-start justify-between">
               <div>
                 <p class="text-sm font-medium text-secondary uppercase tracking-wider">Containers</p>
-                <p class="text-5xl font-black mt-2 text-blue-500">
+                <p class="text-5xl font-black mt-2 text-indigo-500">
                   {{ containerHealth.total || 0 }}
                 </p>
                 <p class="text-sm text-muted mt-2">{{ containerHealth.running || 0 }} running</p>
               </div>
-              <div class="p-4 rounded-2xl bg-blue-100 dark:bg-blue-500/20">
-                <ServerIcon class="h-10 w-10 text-blue-500" />
+              <div class="p-4 rounded-2xl bg-indigo-100 dark:bg-indigo-500/20">
+                <ServerIcon class="h-10 w-10 text-indigo-500" />
               </div>
             </div>
             <div class="mt-6 grid grid-cols-4 gap-2">
@@ -351,11 +338,11 @@ const resourceChartOptions = computed(() => ({
                 <p class="text-xs text-muted">Running</p>
               </button>
               <button @click="navigateToContainers('stopped')" class="text-center p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                <p class="text-lg font-bold text-gray-500">{{ containerHealth.stopped || 0 }}</p>
+                <p class="text-lg font-bold text-slate-500">{{ containerHealth.stopped || 0 }}</p>
                 <p class="text-xs text-muted">Stopped</p>
               </button>
               <button @click="navigateToContainers('healthy')" class="text-center p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                <p class="text-lg font-bold text-blue-500">{{ containerHealth.healthy || 0 }}</p>
+                <p class="text-lg font-bold text-teal-500">{{ containerHealth.healthy || 0 }}</p>
                 <p class="text-xs text-muted">Healthy</p>
               </button>
               <button
@@ -374,26 +361,26 @@ const resourceChartOptions = computed(() => ({
 
       <!-- Network + System Info Row -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- Network Tile -->
+        <!-- Network Tile - Teal/Rose -->
         <Card :neon="true" :padding="false">
           <div class="p-6">
             <p class="text-sm font-medium text-secondary uppercase tracking-wider mb-4">Network I/O</p>
             <div class="grid grid-cols-2 gap-4">
-              <div class="text-center p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl">
-                <ArrowTrendingDownIcon class="h-6 w-6 text-emerald-500 mx-auto mb-2" />
-                <p class="text-2xl font-bold text-emerald-500">{{ formatBytes(networkMetrics.rx_bytes || 0) }}</p>
+              <div class="text-center p-4 bg-teal-50 dark:bg-teal-900/20 rounded-xl">
+                <ArrowTrendingDownIcon class="h-6 w-6 text-teal-500 mx-auto mb-2" />
+                <p class="text-2xl font-bold text-teal-500">{{ formatBytes(networkMetrics.rx_bytes || 0) }}</p>
                 <p class="text-xs text-muted">Received</p>
               </div>
-              <div class="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-                <ArrowTrendingUpIcon class="h-6 w-6 text-blue-500 mx-auto mb-2" />
-                <p class="text-2xl font-bold text-blue-500">{{ formatBytes(networkMetrics.tx_bytes || 0) }}</p>
+              <div class="text-center p-4 bg-rose-50 dark:bg-rose-900/20 rounded-xl">
+                <ArrowTrendingUpIcon class="h-6 w-6 text-rose-500 mx-auto mb-2" />
+                <p class="text-2xl font-bold text-rose-500">{{ formatBytes(networkMetrics.tx_bytes || 0) }}</p>
                 <p class="text-xs text-muted">Transmitted</p>
               </div>
             </div>
           </div>
         </Card>
 
-        <!-- System Info Tile -->
+        <!-- System Info Tile - Slate -->
         <Card :neon="true" :padding="false">
           <div class="p-6">
             <p class="text-sm font-medium text-secondary uppercase tracking-wider mb-4">System Info</p>
@@ -415,7 +402,7 @@ const resourceChartOptions = computed(() => ({
         </Card>
       </div>
 
-      <!-- Chart -->
+      <!-- Chart - Blue/Purple to match CPU/Memory -->
       <Card title="Resource History (Last Hour)" :neon="true">
         <div class="h-64">
           <Line
