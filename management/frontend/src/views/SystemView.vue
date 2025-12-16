@@ -74,12 +74,11 @@ const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
 
 const loading = ref(true)
-const activeTab = ref('overview')
+const activeTab = ref('health')
 
-// Tab definitions
+// Tab definitions - Overview tab moved to Dashboard
 const tabs = [
   { id: 'health', name: 'Health', icon: SignalIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
-  { id: 'overview', name: 'Overview', icon: CpuChipIcon, iconColor: 'text-blue-500', bgActive: 'bg-blue-500/15 dark:bg-blue-500/20', textActive: 'text-blue-700 dark:text-blue-400', borderActive: 'border-blue-500/30' },
   { id: 'network', name: 'Network', icon: GlobeAltIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
   { id: 'terminal', name: 'Terminal', icon: CommandLineIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
 ]
@@ -1566,154 +1565,6 @@ onUnmounted(() => {
         </div>
 
       </template>
-    </template>
-
-    <!-- Overview Tab -->
-    <template v-if="activeTab === 'overview' && !loading">
-      <!-- Quick Stats -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card :neon="true" :padding="false">
-          <div class="p-4">
-            <div class="flex items-center gap-3">
-              <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
-                <CpuChipIcon class="h-5 w-5 text-blue-500" />
-              </div>
-              <div>
-                <p class="text-sm text-secondary">CPU Usage</p>
-                <p class="text-xl font-bold text-primary">{{ systemInfo.cpu?.usage?.toFixed(1) || 0 }}%</p>
-              </div>
-            </div>
-            <div class="mt-3 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-              <div
-                :class="['h-full rounded-full transition-all', getProgressColor(systemInfo.cpu?.usage || 0)]"
-                :style="{ width: `${systemInfo.cpu?.usage || 0}%` }"
-              ></div>
-            </div>
-          </div>
-        </Card>
-
-        <Card :neon="true" :padding="false">
-          <div class="p-4">
-            <div class="flex items-center gap-3">
-              <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
-                <CircleStackIcon class="h-5 w-5 text-purple-500" />
-              </div>
-              <div>
-                <p class="text-sm text-secondary">Memory Usage</p>
-                <p class="text-xl font-bold text-primary">{{ systemInfo.memory?.percent?.toFixed(1) || 0 }}%</p>
-              </div>
-            </div>
-            <div class="mt-3 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-              <div
-                :class="['h-full rounded-full transition-all', getProgressColor(systemInfo.memory?.percent || 0)]"
-                :style="{ width: `${systemInfo.memory?.percent || 0}%` }"
-              ></div>
-            </div>
-          </div>
-        </Card>
-
-        <Card :neon="true" :padding="false">
-          <div class="p-4">
-            <div class="flex items-center gap-3">
-              <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
-                <ServerStackIcon class="h-5 w-5 text-emerald-500" />
-              </div>
-              <div>
-                <p class="text-sm text-secondary">Disk Usage</p>
-                <p class="text-xl font-bold text-primary">{{ systemInfo.disk?.percent?.toFixed(1) || 0 }}%</p>
-              </div>
-            </div>
-            <div class="mt-3 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-              <div
-                :class="['h-full rounded-full transition-all', getProgressColor(systemInfo.disk?.percent || 0)]"
-                :style="{ width: `${systemInfo.disk?.percent || 0}%` }"
-              ></div>
-            </div>
-          </div>
-        </Card>
-
-        <Card :neon="true" :padding="false">
-          <div class="p-4">
-            <div class="flex items-center gap-3">
-              <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
-                <ClockIcon class="h-5 w-5 text-amber-500" />
-              </div>
-              <div>
-                <p class="text-sm text-secondary">Uptime</p>
-                <p class="text-xl font-bold text-primary">{{ systemInfo.uptime || 'N/A' }}</p>
-              </div>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <!-- Charts -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="CPU History" subtitle="Last 7 minutes" :neon="true">
-          <div class="h-48">
-            <Line :data="cpuChartData" :options="chartOptions" />
-          </div>
-        </Card>
-
-        <Card title="Memory History" subtitle="Last 7 minutes" :neon="true">
-          <div class="h-48">
-            <Line :data="memoryChartData" :options="chartOptions" />
-          </div>
-        </Card>
-      </div>
-
-      <!-- System Details -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Server Info -->
-        <Card title="Server Information" :neon="true">
-          <div class="space-y-3">
-            <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
-              <span class="text-secondary">Hostname</span>
-              <span class="font-medium text-primary">{{ systemInfo.hostname || 'N/A' }}</span>
-            </div>
-            <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
-              <span class="text-secondary">Platform</span>
-              <span class="font-medium text-primary">{{ systemInfo.platform || 'N/A' }}</span>
-            </div>
-            <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
-              <span class="text-secondary">Architecture</span>
-              <span class="font-medium text-primary">{{ systemInfo.architecture || 'N/A' }}</span>
-            </div>
-            <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
-              <span class="text-secondary">Kernel</span>
-              <span class="font-medium text-primary">{{ systemInfo.kernel || 'N/A' }}</span>
-            </div>
-            <div class="flex justify-between py-2">
-              <span class="text-secondary">CPU Model</span>
-              <span class="font-medium text-primary text-right max-w-[200px] truncate">
-                {{ systemInfo.cpu?.model || 'N/A' }}
-              </span>
-            </div>
-          </div>
-        </Card>
-
-        <!-- Docker Info -->
-        <Card title="Docker Information" :neon="true">
-          <div class="space-y-3">
-            <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
-              <span class="text-secondary">Docker Version</span>
-              <span class="font-medium text-primary">{{ systemInfo.docker?.version || 'N/A' }}</span>
-            </div>
-            <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
-              <span class="text-secondary">Running Containers</span>
-              <span class="font-medium text-primary">{{ systemInfo.docker?.containers_running || 0 }}</span>
-            </div>
-            <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
-              <span class="text-secondary">Total Containers</span>
-              <span class="font-medium text-primary">{{ systemInfo.docker?.containers_total || 0 }}</span>
-            </div>
-            <div class="flex justify-between py-2">
-              <span class="text-secondary">Images</span>
-              <span class="font-medium text-primary">{{ systemInfo.docker?.images || 0 }}</span>
-            </div>
-          </div>
-        </Card>
-      </div>
     </template>
 
     <!-- Network Tab -->

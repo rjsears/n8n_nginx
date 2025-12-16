@@ -2055,14 +2055,44 @@ async def get_host_metrics_cached(
         }
 
     # Build history array optimized for charting (just key values)
-    history = [{
-        "time": s.collected_at.strftime("%H:%M") if s.collected_at else "",
-        "cpu": s.cpu_percent,
-        "memory": s.memory_percent,
-        "disk": s.disk_percent,
-        "network_rx": s.network_rx_bytes,
-        "network_tx": s.network_tx_bytes,
-    } for s in history_rows]
+    # Calculate network I/O rates (bytes/second) from consecutive readings
+    history = []
+    for i, s in enumerate(history_rows):
+        entry = {
+            "time": s.collected_at.strftime("%H:%M") if s.collected_at else "",
+            "cpu": s.cpu_percent,
+            "memory": s.memory_percent,
+            "disk": s.disk_percent,
+            "network_rx": s.network_rx_bytes,
+            "network_tx": s.network_tx_bytes,
+            "network_rx_rate": 0,  # bytes/second
+            "network_tx_rate": 0,  # bytes/second
+        }
+
+        # Calculate rate from previous reading
+        if i > 0:
+            prev = history_rows[i - 1]
+            if prev.collected_at and s.collected_at:
+                time_diff = (s.collected_at - prev.collected_at).total_seconds()
+                if time_diff > 0:
+                    # Calculate bytes/second
+                    rx_diff = (s.network_rx_bytes or 0) - (prev.network_rx_bytes or 0)
+                    tx_diff = (s.network_tx_bytes or 0) - (prev.network_tx_bytes or 0)
+                    # Handle counter resets (can happen on system restart)
+                    if rx_diff >= 0:
+                        entry["network_rx_rate"] = round(rx_diff / time_diff)
+                    if tx_diff >= 0:
+                        entry["network_tx_rate"] = round(tx_diff / time_diff)
+
+        history.append(entry)
+
+    # Calculate current network rate for latest snapshot (last minute average)
+    current_rx_rate = 0
+    current_tx_rate = 0
+    if len(history) >= 2:
+        last = history[-1]
+        current_rx_rate = last.get("network_rx_rate", 0)
+        current_tx_rate = last.get("network_tx_rate", 0)
 
     return {
         "available": True,
@@ -2070,4 +2100,8 @@ async def get_host_metrics_cached(
         "latest": format_snapshot(latest),
         "history": history,
         "history_count": len(history),
+        "network_rates": {
+            "rx_bytes_per_sec": current_rx_rate,
+            "tx_bytes_per_sec": current_tx_rate,
+        },
     }
