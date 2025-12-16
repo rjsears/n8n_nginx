@@ -139,7 +139,7 @@ async function loadData() {
 
 async function loadEvents() {
   try {
-    const response = await api.get('/api/system-notifications/events')
+    const response = await api.get('/system-notifications/events')
     events.value = response.data
   } catch (error) {
     console.error('Failed to load events:', error)
@@ -149,7 +149,7 @@ async function loadEvents() {
 
 async function loadGlobalSettings() {
   try {
-    const response = await api.get('/api/system-notifications/global-settings')
+    const response = await api.get('/system-notifications/global-settings')
     globalSettings.value = response.data
   } catch (error) {
     console.error('Failed to load global settings:', error)
@@ -159,7 +159,7 @@ async function loadGlobalSettings() {
 
 async function loadContainerConfigs() {
   try {
-    const response = await api.get('/api/system-notifications/container-configs')
+    const response = await api.get('/system-notifications/container-configs')
     containerConfigs.value = response.data
   } catch (error) {
     console.error('Failed to load container configs:', error)
@@ -170,8 +170,8 @@ async function loadContainerConfigs() {
 async function loadChannelsAndGroups() {
   try {
     const [channelsRes, groupsRes] = await Promise.all([
-      api.get('/api/notifications/services'),
-      api.get('/api/notifications/groups'),
+      api.get('/notifications/services'),
+      api.get('/notifications/groups'),
     ])
     channels.value = channelsRes.data
     groups.value = groupsRes.data
@@ -184,7 +184,7 @@ async function loadChannelsAndGroups() {
 
 async function loadHistory() {
   try {
-    const response = await api.get('/api/system-notifications/history', {
+    const response = await api.get('/system-notifications/history', {
       params: { limit: 100 }
     })
     history.value = response.data.items || []
@@ -206,7 +206,7 @@ function toggleEvent(eventId) {
 async function updateEvent(event, field, value) {
   try {
     const updateData = { [field]: value }
-    await api.put(`/api/system-notifications/events/${event.id}`, updateData)
+    await api.put(`/system-notifications/events/${event.id}`, updateData)
 
     // Update local state
     const idx = events.value.findIndex(e => e.id === event.id)
@@ -224,7 +224,7 @@ async function updateEvent(event, field, value) {
 async function updateGlobalSettings(updates) {
   saving.value = true
   try {
-    const response = await api.put('/api/system-notifications/global-settings', updates)
+    const response = await api.put('/system-notifications/global-settings', updates)
     globalSettings.value = response.data
     notificationStore.success('Global settings updated')
   } catch (error) {
@@ -271,7 +271,7 @@ async function addTarget(eventId, targetType, targetId, level) {
       data.group_id = targetId
     }
 
-    await api.post(`/api/system-notifications/events/${eventId}/targets`, data)
+    await api.post(`/system-notifications/events/${eventId}/targets`, data)
     await loadEvents()
     notificationStore.success('Target added')
     showAddTargetModal.value = false
@@ -283,7 +283,7 @@ async function addTarget(eventId, targetType, targetId, level) {
 
 async function removeTarget(eventId, targetId) {
   try {
-    await api.delete(`/api/system-notifications/events/${eventId}/targets/${targetId}`)
+    await api.delete(`/system-notifications/events/${eventId}/targets/${targetId}`)
     await loadEvents()
     notificationStore.success('Target removed')
   } catch (error) {
