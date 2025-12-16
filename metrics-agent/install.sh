@@ -60,6 +60,28 @@ if [[ $PYTHON_MAJOR -lt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -lt 9 ]]
 fi
 print_success "Python $PYTHON_VERSION found"
 
+# Check if python3-venv is installed
+print_status "Checking for python3-venv..."
+if ! python3 -m venv --help &> /dev/null; then
+    print_warning "python3-venv not found, installing..."
+
+    # Detect package manager and install
+    if command -v apt-get &> /dev/null; then
+        apt-get update -qq
+        apt-get install -y python${PYTHON_VERSION}-venv || apt-get install -y python3-venv
+    elif command -v dnf &> /dev/null; then
+        dnf install -y python3-virtualenv
+    elif command -v yum &> /dev/null; then
+        yum install -y python3-virtualenv
+    else
+        print_error "Could not install python3-venv. Please install it manually."
+        exit 1
+    fi
+    print_success "python3-venv installed"
+else
+    print_success "python3-venv is available"
+fi
+
 # Check if Docker is available
 print_status "Checking Docker..."
 if ! command -v docker &> /dev/null; then
