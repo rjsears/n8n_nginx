@@ -59,8 +59,17 @@ const expandedCategories = ref(new Set())
 const expandedEvents = ref(new Set())
 const expandedContainers = ref(new Set())
 const showMaintenanceModal = ref(false)
+const showQuietHoursModal = ref(false)
 const showAddTargetModal = ref(false)
 const selectedEventForTarget = ref(null)
+
+// Maintenance mode form state
+const maintenanceDuration = ref('1h')
+const maintenanceReason = ref('')
+
+// Quiet hours form state
+const quietHoursStart = ref('22:00')
+const quietHoursEnd = ref('07:00')
 
 // Icon mapping
 const iconMap = {
@@ -131,6 +140,44 @@ const hasNoTargets = computed(() => {
   return (event) => !eventHasTargets(event)
 })
 
+// Check if we're currently in quiet hours
+const isInQuietHours = computed(() => {
+  if (!globalSettings.value?.quiet_hours_enabled) return false
+
+  const now = new Date()
+  const currentTime = now.getHours() * 60 + now.getMinutes()
+
+  const [startHour, startMin] = (globalSettings.value.quiet_hours_start || '22:00').split(':').map(Number)
+  const [endHour, endMin] = (globalSettings.value.quiet_hours_end || '07:00').split(':').map(Number)
+
+  const startMinutes = startHour * 60 + startMin
+  const endMinutes = endHour * 60 + endMin
+
+  // Handle overnight quiet hours (e.g., 22:00 - 07:00)
+  if (startMinutes > endMinutes) {
+    return currentTime >= startMinutes || currentTime < endMinutes
+  }
+  return currentTime >= startMinutes && currentTime < endMinutes
+})
+
+// Format maintenance end time for display
+function formatMaintenanceTime(dateStr) {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = date - now
+
+  if (diffMs <= 0) return 'Expired'
+
+  const hours = Math.floor(diffMs / (1000 * 60 * 60))
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m remaining`
+  }
+  return `${minutes}m remaining`
+}
+
 // Methods
 async function loadData() {
   loading.value = true
@@ -163,6 +210,11 @@ async function loadGlobalSettings() {
   try {
     const response = await api.get('/system-notifications/global-settings')
     globalSettings.value = response.data
+    // Initialize quiet hours form with current values
+    if (response.data) {
+      quietHoursStart.value = response.data.quiet_hours_start || '22:00'
+      quietHoursEnd.value = response.data.quiet_hours_end || '07:00'
+    }
   } catch (error) {
     console.error('Failed to load global settings:', error)
     globalSettings.value = null
@@ -281,13 +333,49 @@ async function toggleMaintenanceMode() {
   }
 }
 
-async function enableMaintenanceMode(until, reason) {
+async function enableMaintenanceMode() {
+  // Calculate the end time based on duration
+  let until = null
+  if (maintenanceDuration.value !== 'indefinite') {
+    const now = new Date()
+    const durationMap = {
+      '1h': 60,
+      '2h': 120,
+      '4h': 240,
+      '8h': 480,
+      '12h': 720,
+      '24h': 1440,
+    }
+    const minutes = durationMap[maintenanceDuration.value] || 60
+    until = new Date(now.getTime() + minutes * 60 * 1000).toISOString()
+  }
+
   await updateGlobalSettings({
     maintenance_mode: true,
     maintenance_until: until,
-    maintenance_reason: reason,
+    maintenance_reason: maintenanceReason.value || null,
   })
+
+  // Reset form
+  maintenanceDuration.value = '1h'
+  maintenanceReason.value = ''
   showMaintenanceModal.value = false
+}
+
+async function saveQuietHours() {
+  await updateGlobalSettings({
+    quiet_hours_enabled: true,
+    quiet_hours_start: quietHoursStart.value,
+    quiet_hours_end: quietHoursEnd.value,
+  })
+  showQuietHoursModal.value = false
+}
+
+async function disableQuietHours() {
+  await updateGlobalSettings({
+    quiet_hours_enabled: false,
+  })
+  showQuietHoursModal.value = false
 }
 
 function openAddTargetModal(event) {
@@ -371,9 +459,75 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <!-- Quick Stats / Status Bar - Simple style -->
+    <!-- Quick Stats / Status Bar - Buttons on left, info on right -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <!-- Events Enabled -->
+      <!-- Maintenance Mode Button -->
+      <div
+        :class="[
+          'rounded-lg p-4 border cursor-pointer transition-all',
+          globalSettings?.maintenance_mode
+            ? 'bg-green-50 dark:bg-green-500/10 border-green-400 dark:border-green-500/40 ring-2 ring-green-400/50'
+            : 'bg-surface border-[var(--color-border)] hover:border-amber-300 dark:hover:border-amber-500/50 hover:bg-amber-50/50 dark:hover:bg-amber-500/5'
+        ]"
+        @click="toggleMaintenanceMode"
+      >
+        <div class="flex items-center gap-3">
+          <div :class="[
+            'p-2 rounded-lg',
+            globalSettings?.maintenance_mode ? 'bg-green-200 dark:bg-green-500/30' : 'bg-amber-100 dark:bg-amber-500/20'
+          ]">
+            <PauseCircleIcon :class="['h-5 w-5', globalSettings?.maintenance_mode ? 'text-green-600' : 'text-amber-500']" />
+          </div>
+          <div>
+            <p :class="['font-semibold', globalSettings?.maintenance_mode ? 'text-green-700 dark:text-green-400' : 'text-primary']">
+              {{ globalSettings?.maintenance_mode ? 'ACTIVE' : 'Maintenance' }}
+            </p>
+            <p v-if="globalSettings?.maintenance_mode && globalSettings.maintenance_until" class="text-xs text-green-600 dark:text-green-400">
+              Until {{ formatMaintenanceTime(globalSettings.maintenance_until) }}
+            </p>
+            <p v-else class="text-xs text-secondary">Click to enable</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quiet Hours Button -->
+      <div
+        :class="[
+          'rounded-lg p-4 border cursor-pointer transition-all',
+          isInQuietHours
+            ? 'bg-indigo-900 dark:bg-indigo-950 border-indigo-500 dark:border-indigo-400/50 ring-2 ring-indigo-400/50'
+            : globalSettings?.quiet_hours_enabled
+              ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30'
+              : 'bg-surface border-[var(--color-border)] hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/5'
+        ]"
+        @click="showQuietHoursModal = true"
+      >
+        <div class="flex items-center gap-3">
+          <div :class="[
+            'p-2 rounded-lg relative',
+            isInQuietHours ? 'bg-indigo-800 dark:bg-indigo-800' : globalSettings?.quiet_hours_enabled ? 'bg-indigo-200 dark:bg-indigo-500/30' : 'bg-indigo-100 dark:bg-indigo-500/20'
+          ]">
+            <MoonIcon :class="['h-5 w-5', isInQuietHours ? 'text-yellow-300' : globalSettings?.quiet_hours_enabled ? 'text-indigo-600' : 'text-indigo-400']" />
+            <!-- Stars decoration when in quiet hours -->
+            <span v-if="isInQuietHours" class="absolute -top-1 -right-1 text-yellow-300 text-xs">✦</span>
+            <span v-if="isInQuietHours" class="absolute -bottom-0.5 -left-0.5 text-yellow-200 text-[10px]">✧</span>
+          </div>
+          <div>
+            <p v-if="isInQuietHours" class="font-semibold text-indigo-100">
+              Quiet Mode Active
+            </p>
+            <p v-else-if="globalSettings?.quiet_hours_enabled" class="font-semibold text-indigo-700 dark:text-indigo-400">
+              {{ globalSettings.quiet_hours_start }} - {{ globalSettings.quiet_hours_end }}
+            </p>
+            <p v-else class="font-semibold text-primary">Quiet Hours</p>
+            <p :class="['text-xs', isInQuietHours ? 'text-indigo-300' : 'text-secondary']">
+              {{ isInQuietHours ? 'Non-critical muted' : globalSettings?.quiet_hours_enabled ? 'Scheduled' : 'Click to configure' }}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Events Enabled Info -->
       <div class="bg-surface rounded-lg p-4 border border-[var(--color-border)]">
         <div class="flex items-center gap-3">
           <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
@@ -386,59 +540,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Maintenance Mode -->
-      <div
-        :class="[
-          'rounded-lg p-4 border cursor-pointer transition-all',
-          globalSettings?.maintenance_mode
-            ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/30'
-            : 'bg-surface border-[var(--color-border)] hover:border-gray-300 dark:hover:border-gray-600'
-        ]"
-        @click="toggleMaintenanceMode"
-      >
-        <div class="flex items-center gap-3">
-          <div :class="[
-            'p-2 rounded-lg',
-            globalSettings?.maintenance_mode ? 'bg-amber-200 dark:bg-amber-500/30' : 'bg-gray-100 dark:bg-gray-700'
-          ]">
-            <PauseCircleIcon :class="['h-5 w-5', globalSettings?.maintenance_mode ? 'text-amber-600' : 'text-gray-500']" />
-          </div>
-          <div>
-            <p :class="['font-semibold', globalSettings?.maintenance_mode ? 'text-amber-700 dark:text-amber-400' : 'text-primary']">
-              {{ globalSettings?.maintenance_mode ? 'ON' : 'OFF' }}
-            </p>
-            <p class="text-xs text-secondary">Maintenance Mode</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quiet Hours -->
-      <div
-        :class="[
-          'rounded-lg p-4 border',
-          globalSettings?.quiet_hours_enabled
-            ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30'
-            : 'bg-surface border-[var(--color-border)]'
-        ]"
-      >
-        <div class="flex items-center gap-3">
-          <div :class="[
-            'p-2 rounded-lg',
-            globalSettings?.quiet_hours_enabled ? 'bg-indigo-200 dark:bg-indigo-500/30' : 'bg-gray-100 dark:bg-gray-700'
-          ]">
-            <MoonIcon :class="['h-5 w-5', globalSettings?.quiet_hours_enabled ? 'text-indigo-600' : 'text-gray-500']" />
-          </div>
-          <div>
-            <p v-if="globalSettings?.quiet_hours_enabled" class="font-semibold text-indigo-700 dark:text-indigo-400">
-              {{ globalSettings.quiet_hours_start }} - {{ globalSettings.quiet_hours_end }}
-            </p>
-            <p v-else class="font-semibold text-primary">Disabled</p>
-            <p class="text-xs text-secondary">Quiet Hours</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Rate Limit Status -->
+      <!-- Rate Limit Status Info -->
       <div class="bg-surface rounded-lg p-4 border border-[var(--color-border)]">
         <div class="flex items-center gap-3">
           <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
@@ -735,8 +837,7 @@ onMounted(() => {
 
                                 <!-- Cooldown (if applicable) -->
                                 <div v-if="event.frequency === 'every_time'">
-                                  <label class="block text-sm font-semibold text-primary mb-1">Cooldown Period</label>
-                                  <p class="text-xs text-secondary mb-3">Minimum time between duplicate notifications. Prevents alert fatigue from repeated events.</p>
+                                  <label class="block text-sm font-semibold text-primary mb-2">Cooldown Period</label>
                                   <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 border border-gray-200 dark:border-gray-600">
                                     <input
                                       type="range"
@@ -765,6 +866,7 @@ onMounted(() => {
                                       <span class="text-xs text-secondary">120 min</span>
                                     </div>
                                   </div>
+                                  <p class="text-xs text-secondary mt-2">Minimum time between duplicate notifications. Prevents alert fatigue from repeated events.</p>
                                 </div>
                               </div>
 
@@ -1144,6 +1246,199 @@ onMounted(() => {
               >
                 Add Target
               </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Maintenance Mode Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showMaintenanceModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5 border border-gray-200 dark:border-gray-700">
+            <div class="flex items-center gap-3">
+              <div class="p-3 rounded-xl bg-amber-100 dark:bg-amber-500/20">
+                <PauseCircleIcon class="h-6 w-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 class="text-lg font-semibold text-primary">Enable Maintenance Mode</h3>
+                <p class="text-sm text-secondary">All system notifications will be paused</p>
+              </div>
+            </div>
+
+            <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg p-4">
+              <p class="text-sm text-amber-800 dark:text-amber-300">
+                <strong>Warning:</strong> While maintenance mode is active, no system notifications will be sent. Critical alerts will be queued and may be lost if not reviewed.
+              </p>
+            </div>
+
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-primary mb-2">Duration</label>
+                <div class="grid grid-cols-4 gap-2">
+                  <button
+                    v-for="opt in [
+                      { value: '1h', label: '1 Hour' },
+                      { value: '2h', label: '2 Hours' },
+                      { value: '4h', label: '4 Hours' },
+                      { value: '8h', label: '8 Hours' },
+                    ]"
+                    :key="opt.value"
+                    @click="maintenanceDuration = opt.value"
+                    :class="[
+                      'px-3 py-2 rounded-lg text-sm font-medium border transition-all',
+                      maintenanceDuration === opt.value
+                        ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-400 text-amber-700 dark:text-amber-300'
+                        : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-100 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+                <div class="grid grid-cols-3 gap-2 mt-2">
+                  <button
+                    v-for="opt in [
+                      { value: '12h', label: '12 Hours' },
+                      { value: '24h', label: '24 Hours' },
+                      { value: 'indefinite', label: 'Until I disable' },
+                    ]"
+                    :key="opt.value"
+                    @click="maintenanceDuration = opt.value"
+                    :class="[
+                      'px-3 py-2 rounded-lg text-sm font-medium border transition-all',
+                      maintenanceDuration === opt.value
+                        ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-400 text-amber-700 dark:text-amber-300'
+                        : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-100 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-primary mb-1">Reason (optional)</label>
+                <input
+                  v-model="maintenanceReason"
+                  type="text"
+                  placeholder="e.g., Server maintenance, Upgrade in progress..."
+                  class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-2">
+              <button @click="showMaintenanceModal = false" class="btn-secondary">
+                Cancel
+              </button>
+              <button @click="enableMaintenanceMode" class="px-4 py-2 rounded-lg font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors">
+                Enable Maintenance Mode
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Quiet Hours Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showQuietHoursModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div class="bg-gradient-to-b from-indigo-950 to-slate-900 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5 border border-indigo-500/30">
+            <!-- Starry header -->
+            <div class="relative">
+              <div class="flex items-center gap-3">
+                <div class="p-3 rounded-xl bg-indigo-800/50 relative">
+                  <MoonIcon class="h-6 w-6 text-yellow-300" />
+                  <span class="absolute -top-1 -right-1 text-yellow-300 text-sm animate-pulse">✦</span>
+                </div>
+                <div>
+                  <h3 class="text-lg font-semibold text-indigo-100">Quiet Hours</h3>
+                  <p class="text-sm text-indigo-300">Schedule a time for reduced notifications</p>
+                </div>
+              </div>
+              <!-- Decorative stars -->
+              <span class="absolute top-0 right-4 text-indigo-400/50 text-xs">✧</span>
+              <span class="absolute top-2 right-12 text-indigo-300/40 text-[10px]">✦</span>
+              <span class="absolute -top-1 right-20 text-indigo-400/30 text-sm">✧</span>
+            </div>
+
+            <div class="bg-indigo-800/30 border border-indigo-500/30 rounded-lg p-4">
+              <p class="text-sm text-indigo-200">
+                During quiet hours, <strong class="text-indigo-100">non-critical notifications</strong> will be suppressed. Critical alerts will still come through.
+              </p>
+            </div>
+
+            <div class="space-y-4">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-indigo-200 mb-2">
+                    <SunIcon class="h-4 w-4 inline mr-1 text-orange-400" />
+                    Start Time
+                  </label>
+                  <input
+                    v-model="quietHoursStart"
+                    type="time"
+                    class="w-full px-3 py-2.5 rounded-lg border border-indigo-500/50 bg-indigo-900/50 text-indigo-100 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-indigo-200 mb-2">
+                    <MoonIcon class="h-4 w-4 inline mr-1 text-yellow-300" />
+                    End Time
+                  </label>
+                  <input
+                    v-model="quietHoursEnd"
+                    type="time"
+                    class="w-full px-3 py-2.5 rounded-lg border border-indigo-500/50 bg-indigo-900/50 text-indigo-100 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+
+              <!-- Quick presets -->
+              <div>
+                <label class="block text-xs font-medium text-indigo-400 mb-2">Quick Presets</label>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    @click="quietHoursStart = '22:00'; quietHoursEnd = '07:00'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-800/50 border border-indigo-500/30 text-indigo-200 hover:bg-indigo-700/50 transition-colors"
+                  >
+                    Night (10pm - 7am)
+                  </button>
+                  <button
+                    @click="quietHoursStart = '23:00'; quietHoursEnd = '06:00'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-800/50 border border-indigo-500/30 text-indigo-200 hover:bg-indigo-700/50 transition-colors"
+                  >
+                    Late Night (11pm - 6am)
+                  </button>
+                  <button
+                    @click="quietHoursStart = '00:00'; quietHoursEnd = '08:00'"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-800/50 border border-indigo-500/30 text-indigo-200 hover:bg-indigo-700/50 transition-colors"
+                  >
+                    Midnight (12am - 8am)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex justify-between items-center pt-2">
+              <button
+                v-if="globalSettings?.quiet_hours_enabled"
+                @click="disableQuietHours"
+                class="px-4 py-2 rounded-lg font-medium text-red-400 hover:bg-red-500/20 transition-colors"
+              >
+                Disable Quiet Hours
+              </button>
+              <div v-else></div>
+              <div class="flex gap-3">
+                <button @click="showQuietHoursModal = false" class="px-4 py-2 rounded-lg font-medium text-indigo-300 hover:bg-indigo-800/50 transition-colors">
+                  Cancel
+                </button>
+                <button @click="saveQuietHours" class="px-4 py-2 rounded-lg font-medium bg-indigo-500 hover:bg-indigo-400 text-white transition-colors">
+                  {{ globalSettings?.quiet_hours_enabled ? 'Update' : 'Enable' }} Quiet Hours
+                </button>
+              </div>
             </div>
           </div>
         </div>

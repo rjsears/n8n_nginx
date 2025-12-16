@@ -123,6 +123,7 @@ class SystemNotificationContainerConfig(Base):
     # Which events to monitor for this container
     monitor_unhealthy = Column(Boolean, default=True)
     monitor_restart = Column(Boolean, default=True)
+    monitor_stopped = Column(Boolean, default=True)
 
     # Custom targets override (optional, JSON array of {type, id} objects)
     # If null, uses default targets from the event configuration
@@ -134,7 +135,7 @@ class SystemNotificationContainerConfig(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     def __repr__(self):
-        return f"<SystemNotificationContainerConfig(container='{self.container_name}', unhealthy={self.monitor_unhealthy}, restart={self.monitor_restart})>"
+        return f"<SystemNotificationContainerConfig(container='{self.container_name}', unhealthy={self.monitor_unhealthy}, restart={self.monitor_restart}, stopped={self.monitor_stopped})>"
 
 
 class SystemNotificationState(Base):
@@ -335,6 +336,19 @@ DEFAULT_SYSTEM_EVENTS = [
         "flapping_threshold_count": 3,
         "flapping_threshold_minutes": 10,
         "flapping_summary_interval": 15,
+    },
+    {
+        "event_type": "container_stopped",
+        "display_name": "Container Stopped",
+        "description": "Notification when a container stops or exits unexpectedly",
+        "icon": "XCircleIcon",
+        "category": "container",
+        "severity": "critical",
+        "frequency": "every_time",
+        "cooldown_minutes": 5,
+        "flapping_enabled": True,
+        "flapping_threshold_count": 2,
+        "flapping_threshold_minutes": 15,
     },
     {
         "event_type": "high_memory",
