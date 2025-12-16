@@ -288,7 +288,10 @@ const percentChartOptions = computed(() => ({
     },
     y: {
       grid: { color: themeStore.colorMode === 'dark' ? 'rgba(75, 85, 99, 0.3)' : 'rgba(107, 114, 128, 0.1)' },
-      ticks: { color: themeStore.colorMode === 'dark' ? '#9ca3af' : '#6b7280' },
+      ticks: {
+        color: themeStore.colorMode === 'dark' ? '#9ca3af' : '#6b7280',
+        callback: (value) => value + '%',
+      },
       min: 0,
       max: 100,
     },
@@ -310,7 +313,10 @@ const networkChartOptions = computed(() => ({
     },
     y: {
       grid: { color: themeStore.colorMode === 'dark' ? 'rgba(75, 85, 99, 0.3)' : 'rgba(107, 114, 128, 0.1)' },
-      ticks: { color: themeStore.colorMode === 'dark' ? '#9ca3af' : '#6b7280' },
+      ticks: {
+        color: themeStore.colorMode === 'dark' ? '#9ca3af' : '#6b7280',
+        callback: (value) => value + ' MB/s',
+      },
       min: 0,
     },
   },
