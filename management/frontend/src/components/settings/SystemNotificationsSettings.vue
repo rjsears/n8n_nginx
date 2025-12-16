@@ -71,6 +71,9 @@ const maintenanceReason = ref('')
 const quietHoursStart = ref('22:00')
 const quietHoursEnd = ref('07:00')
 
+// Add target form state
+const newTargetEscalationTimeout = ref(30)
+
 // Icon mapping
 const iconMap = {
   CheckCircleIcon,
@@ -138,6 +141,24 @@ const totalEventsCount = computed(() => events.value.length)
 
 const hasNoTargets = computed(() => {
   return (event) => !eventHasTargets(event)
+})
+
+// Get channels available for adding (excluding already assigned to this event)
+const availableChannelsForTarget = computed(() => {
+  if (!selectedEventForTarget.value) return channels.value
+  const usedChannelIds = (selectedEventForTarget.value.targets || [])
+    .filter(t => t.target_type === 'channel')
+    .map(t => t.channel_id)
+  return channels.value.filter(c => !usedChannelIds.includes(c.id))
+})
+
+// Get groups available for adding (excluding already assigned to this event)
+const availableGroupsForTarget = computed(() => {
+  if (!selectedEventForTarget.value) return groups.value
+  const usedGroupIds = (selectedEventForTarget.value.targets || [])
+    .filter(t => t.target_type === 'group')
+    .map(t => t.group_id)
+  return groups.value.filter(g => !usedGroupIds.includes(g.id))
 })
 
 // Check if we're currently in quiet hours
@@ -383,7 +404,7 @@ function openAddTargetModal(event) {
   showAddTargetModal.value = true
 }
 
-async function addTarget(eventId, targetType, targetId, level) {
+async function addTarget(eventId, targetType, targetId, level, escalationTimeout = 30) {
   try {
     const data = {
       target_type: targetType,
@@ -395,10 +416,18 @@ async function addTarget(eventId, targetType, targetId, level) {
       data.group_id = targetId
     }
 
+    // Include escalation timeout for L2 targets
+    if (level === 2) {
+      data.escalation_timeout_minutes = escalationTimeout
+    }
+
     await api.post(`/system-notifications/events/${eventId}/targets`, data)
     await loadEvents()
     notificationStore.success('Notification target added successfully')
     showAddTargetModal.value = false
+
+    // Reset form
+    newTargetEscalationTimeout.value = 30
   } catch (error) {
     console.error('Failed to add target:', error)
     notificationStore.error(error.response?.data?.detail || 'Failed to add notification target')
@@ -1210,28 +1239,74 @@ onMounted(() => {
                 <label class="block text-sm font-medium text-primary mb-1">Select Channel</label>
                 <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="">Choose a channel...</option>
-                  <option v-for="channel in channels" :key="channel.id" :value="channel.id">
+                  <option v-for="channel in availableChannelsForTarget" :key="channel.id" :value="channel.id">
                     {{ channel.name }} ({{ channel.service_type }})
                   </option>
                 </select>
+                <p v-if="availableChannelsForTarget.length === 0" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  All channels are already assigned to this event
+                </p>
               </div>
 
               <div v-if="newTargetType === 'group'">
                 <label class="block text-sm font-medium text-primary mb-1">Select Group</label>
                 <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="">Choose a group...</option>
-                  <option v-for="group in groups" :key="group.id" :value="group.id">
+                  <option v-for="group in availableGroupsForTarget" :key="group.id" :value="group.id">
                     {{ group.name }} ({{ group.channel_count }} channels)
                   </option>
                 </select>
+                <p v-if="availableGroupsForTarget.length === 0" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  All groups are already assigned to this event
+                </p>
               </div>
 
               <div>
                 <label class="block text-sm font-medium text-primary mb-1">Escalation Level</label>
                 <select v-model="newTargetLevel" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option :value="1">L1 - Primary (receives immediately)</option>
-                  <option :value="2">L2 - Escalation (receives if L1 unacknowledged)</option>
+                  <option :value="2">L2 - Escalation (receives after timeout)</option>
                 </select>
+              </div>
+
+              <!-- Escalation Timeout (only shown for L2) -->
+              <div v-if="newTargetLevel === 2" class="bg-blue-50 dark:bg-blue-500/10 rounded-lg p-4 border border-blue-200 dark:border-blue-500/30">
+                <label class="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">
+                  Escalation Timeout
+                </label>
+                <p class="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                  Time to wait before escalating to L2 if L1 hasn't acknowledged
+                </p>
+                <div class="grid grid-cols-4 gap-2">
+                  <button
+                    v-for="mins in [15, 30, 45, 60]"
+                    :key="mins"
+                    @click="newTargetEscalationTimeout = mins"
+                    :class="[
+                      'px-2 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                      newTargetEscalationTimeout === mins
+                        ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
+                        : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    {{ mins }}m
+                  </button>
+                </div>
+                <div class="grid grid-cols-3 gap-2 mt-2">
+                  <button
+                    v-for="mins in [90, 120, 180]"
+                    :key="mins"
+                    @click="newTargetEscalationTimeout = mins"
+                    :class="[
+                      'px-2 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                      newTargetEscalationTimeout === mins
+                        ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
+                        : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    {{ mins >= 60 ? `${mins/60}h` : `${mins}m` }}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1240,7 +1315,7 @@ onMounted(() => {
                 Cancel
               </button>
               <button
-                @click="addTarget(selectedEventForTarget.id, newTargetType, newTargetId, newTargetLevel)"
+                @click="addTarget(selectedEventForTarget.id, newTargetType, newTargetId, newTargetLevel, newTargetEscalationTimeout)"
                 :disabled="!newTargetId"
                 class="btn-primary"
               >

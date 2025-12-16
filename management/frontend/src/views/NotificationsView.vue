@@ -710,6 +710,20 @@ async function handleNtfyDeleteTopic(id) {
   }
 }
 
+// NTFY Sync topics to channels
+async function handleNtfySyncTopics() {
+  try {
+    const res = await api.ntfy.syncTopicsToChannels()
+    if (res.data.success) {
+      // Refresh channels list to show newly synced topics
+      await loadData()
+    }
+    return res.data
+  } catch (error) {
+    return { success: false, error: error.response?.data?.detail || error.message }
+  }
+}
+
 // NTFY Saved message handlers
 async function handleNtfySendSavedMessage(id) {
   try {
@@ -911,7 +925,7 @@ async function handleNtfyUpdateConfig(config) {
 
             <div v-else class="space-y-2 pt-2">
               <!-- Header row -->
-              <div class="grid grid-cols-[44px_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
+              <div class="grid grid-cols-[44px_1fr_1fr_80px_90px_70px_140px] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
                 <div>Channel Slug</div>
@@ -923,7 +937,7 @@ async function handleNtfyUpdateConfig(config) {
               <div
                 v-for="channel in channels"
                 :key="channel.id"
-                class="grid grid-cols-[44px_minmax(180px,2fr)_minmax(180px,2fr)_80px_90px_70px_auto] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
+                class="grid grid-cols-[44px_1fr_1fr_80px_90px_70px_140px] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
               >
                 <!-- Icon -->
                 <div
@@ -1870,9 +1884,10 @@ async function handleNtfyUpdateConfig(config) {
             <div v-else-if="ntfyActiveTab === 'topics'" class="space-y-6">
               <TopicsManager
                 :topics="ntfyTopics"
-                @create="handleNtfyCreateTopic"
-                @update="handleNtfyUpdateTopic"
-                @delete="handleNtfyDeleteTopic"
+                :on-create="handleNtfyCreateTopic"
+                :on-update="handleNtfyUpdateTopic"
+                :on-delete="handleNtfyDeleteTopic"
+                :on-sync="handleNtfySyncTopics"
               />
             </div>
 
