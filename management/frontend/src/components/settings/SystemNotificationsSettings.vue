@@ -71,6 +71,9 @@ const maintenanceReason = ref('')
 const quietHoursStart = ref('22:00')
 const quietHoursEnd = ref('07:00')
 
+// Add target form state
+const newTargetEscalationTimeout = ref(30)
+
 // Icon mapping
 const iconMap = {
   CheckCircleIcon,
@@ -138,6 +141,24 @@ const totalEventsCount = computed(() => events.value.length)
 
 const hasNoTargets = computed(() => {
   return (event) => !eventHasTargets(event)
+})
+
+// Get channels available for adding (excluding already assigned to this event)
+const availableChannelsForTarget = computed(() => {
+  if (!selectedEventForTarget.value) return channels.value
+  const usedChannelIds = (selectedEventForTarget.value.targets || [])
+    .filter(t => t.target_type === 'channel')
+    .map(t => t.channel_id)
+  return channels.value.filter(c => !usedChannelIds.includes(c.id))
+})
+
+// Get groups available for adding (excluding already assigned to this event)
+const availableGroupsForTarget = computed(() => {
+  if (!selectedEventForTarget.value) return groups.value
+  const usedGroupIds = (selectedEventForTarget.value.targets || [])
+    .filter(t => t.target_type === 'group')
+    .map(t => t.group_id)
+  return groups.value.filter(g => !usedGroupIds.includes(g.id))
 })
 
 // Check if we're currently in quiet hours
@@ -383,7 +404,7 @@ function openAddTargetModal(event) {
   showAddTargetModal.value = true
 }
 
-async function addTarget(eventId, targetType, targetId, level) {
+async function addTarget(eventId, targetType, targetId, level, escalationTimeout = 30) {
   try {
     const data = {
       target_type: targetType,
@@ -395,10 +416,18 @@ async function addTarget(eventId, targetType, targetId, level) {
       data.group_id = targetId
     }
 
+    // Include escalation timeout for L2 targets
+    if (level === 2) {
+      data.escalation_timeout_minutes = escalationTimeout
+    }
+
     await api.post(`/system-notifications/events/${eventId}/targets`, data)
     await loadEvents()
     notificationStore.success('Notification target added successfully')
     showAddTargetModal.value = false
+
+    // Reset form
+    newTargetEscalationTimeout.value = 30
   } catch (error) {
     console.error('Failed to add target:', error)
     notificationStore.error(error.response?.data?.detail || 'Failed to add notification target')
@@ -584,23 +613,55 @@ onMounted(() => {
     <template v-else>
       <!-- Events Section -->
       <div v-if="activeSection === 'events'" class="space-y-4">
+        <!-- Maintenance Mode Banner -->
+        <div v-if="globalSettings?.maintenance_mode" class="bg-green-50 dark:bg-green-500/10 border-2 border-green-400 dark:border-green-500/50 rounded-xl p-4 flex items-center gap-4">
+          <div class="p-3 rounded-xl bg-green-200 dark:bg-green-500/30">
+            <PauseCircleIcon class="h-8 w-8 text-green-600 dark:text-green-400" />
+          </div>
+          <div class="flex-1">
+            <h3 class="font-bold text-green-700 dark:text-green-400 text-lg">Maintenance Mode Active</h3>
+            <p class="text-sm text-green-600 dark:text-green-300">
+              All system notifications are completely disabled. No alerts will be sent or stored.
+              <span v-if="globalSettings.maintenance_until" class="font-medium">
+                ({{ formatMaintenanceTime(globalSettings.maintenance_until) }})
+              </span>
+            </p>
+          </div>
+          <button
+            @click="toggleMaintenanceMode"
+            class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+          >
+            End Maintenance
+          </button>
+        </div>
+
         <!-- Collapsible Category Cards -->
         <div
           v-for="(categoryEvents, category) in eventsByCategory"
           :key="category"
-          class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden"
+          :class="[
+            'rounded-2xl shadow-lg overflow-hidden transition-all',
+            globalSettings?.maintenance_mode
+              ? 'bg-gray-100 dark:bg-gray-800/50 opacity-60 pointer-events-none'
+              : 'bg-white dark:bg-gray-800'
+          ]"
         >
           <!-- Category Header (Clickable) - Lighter, more translucent -->
           <div
-            @click="toggleCategory(category)"
+            @click="!globalSettings?.maintenance_mode && toggleCategory(category)"
             :class="[
-              'flex items-center justify-between p-5 cursor-pointer transition-all',
-              expandedCategories.has(category)
-                ? category === 'backup' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-b border-emerald-200 dark:border-emerald-500/20'
-                  : category === 'container' ? 'bg-blue-50 dark:bg-blue-500/10 border-b border-blue-200 dark:border-blue-500/20'
-                  : category === 'security' ? 'bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/20'
-                  : 'bg-purple-50 dark:bg-purple-500/10 border-b border-purple-200 dark:border-purple-500/20'
-                : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+              'flex items-center justify-between p-5 transition-all',
+              globalSettings?.maintenance_mode
+                ? 'cursor-not-allowed'
+                : 'cursor-pointer',
+              globalSettings?.maintenance_mode
+                ? ''
+                : expandedCategories.has(category)
+                    ? (category === 'backup' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-b border-emerald-200 dark:border-emerald-500/20'
+                        : category === 'container' ? 'bg-blue-50 dark:bg-blue-500/10 border-b border-blue-200 dark:border-blue-500/20'
+                        : category === 'security' ? 'bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/20'
+                        : 'bg-purple-50 dark:bg-purple-500/10 border-b border-purple-200 dark:border-purple-500/20')
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
             ]"
           >
             <div class="flex items-center gap-4">
@@ -1210,28 +1271,74 @@ onMounted(() => {
                 <label class="block text-sm font-medium text-primary mb-1">Select Channel</label>
                 <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="">Choose a channel...</option>
-                  <option v-for="channel in channels" :key="channel.id" :value="channel.id">
+                  <option v-for="channel in availableChannelsForTarget" :key="channel.id" :value="channel.id">
                     {{ channel.name }} ({{ channel.service_type }})
                   </option>
                 </select>
+                <p v-if="availableChannelsForTarget.length === 0" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  All channels are already assigned to this event
+                </p>
               </div>
 
               <div v-if="newTargetType === 'group'">
                 <label class="block text-sm font-medium text-primary mb-1">Select Group</label>
                 <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="">Choose a group...</option>
-                  <option v-for="group in groups" :key="group.id" :value="group.id">
+                  <option v-for="group in availableGroupsForTarget" :key="group.id" :value="group.id">
                     {{ group.name }} ({{ group.channel_count }} channels)
                   </option>
                 </select>
+                <p v-if="availableGroupsForTarget.length === 0" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  All groups are already assigned to this event
+                </p>
               </div>
 
               <div>
                 <label class="block text-sm font-medium text-primary mb-1">Escalation Level</label>
                 <select v-model="newTargetLevel" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option :value="1">L1 - Primary (receives immediately)</option>
-                  <option :value="2">L2 - Escalation (receives if L1 unacknowledged)</option>
+                  <option :value="2">L2 - Escalation (receives after timeout)</option>
                 </select>
+              </div>
+
+              <!-- Escalation Timeout (only shown for L2) -->
+              <div v-if="newTargetLevel === 2" class="bg-blue-50 dark:bg-blue-500/10 rounded-lg p-4 border border-blue-200 dark:border-blue-500/30">
+                <label class="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">
+                  Escalation Timeout
+                </label>
+                <p class="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                  Time to wait before escalating to L2 if L1 hasn't acknowledged
+                </p>
+                <div class="grid grid-cols-4 gap-2">
+                  <button
+                    v-for="mins in [15, 30, 45, 60]"
+                    :key="mins"
+                    @click="newTargetEscalationTimeout = mins"
+                    :class="[
+                      'px-2 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                      newTargetEscalationTimeout === mins
+                        ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
+                        : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    {{ mins }}m
+                  </button>
+                </div>
+                <div class="grid grid-cols-3 gap-2 mt-2">
+                  <button
+                    v-for="mins in [90, 120, 180]"
+                    :key="mins"
+                    @click="newTargetEscalationTimeout = mins"
+                    :class="[
+                      'px-2 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                      newTargetEscalationTimeout === mins
+                        ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
+                        : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    {{ mins >= 60 ? `${mins/60}h` : `${mins}m` }}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1240,7 +1347,7 @@ onMounted(() => {
                 Cancel
               </button>
               <button
-                @click="addTarget(selectedEventForTarget.id, newTargetType, newTargetId, newTargetLevel)"
+                @click="addTarget(selectedEventForTarget.id, newTargetType, newTargetId, newTargetLevel, newTargetEscalationTimeout)"
                 :disabled="!newTargetId"
                 class="btn-primary"
               >
@@ -1269,7 +1376,7 @@ onMounted(() => {
 
             <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg p-4">
               <p class="text-sm text-amber-800 dark:text-amber-300">
-                <strong>Warning:</strong> While maintenance mode is active, no system notifications will be sent. Critical alerts will be queued and may be lost if not reviewed.
+                <strong>All notifications disabled:</strong> While maintenance mode is active, ALL system notifications are completely stopped. No alerts will be sent, queued, or stored. Use this when performing intentional maintenance that may generate unwanted alerts. This will not affect any n8n webhook generated notifications.
               </p>
             </div>
 

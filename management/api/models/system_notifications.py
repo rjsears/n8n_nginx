@@ -92,6 +92,10 @@ class SystemNotificationTarget(Base):
     # Escalation level: 1 = primary (L1), 2 = escalation (L2)
     escalation_level = Column(Integer, default=1)
 
+    # Per-target escalation timeout (for L2 targets)
+    # If set, overrides the event's default escalation_timeout_minutes
+    escalation_timeout_minutes = Column(Integer, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
