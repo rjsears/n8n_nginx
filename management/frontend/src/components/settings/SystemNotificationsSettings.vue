@@ -645,338 +645,39 @@ onMounted(() => {
                     </div>
                   </div>
 
-                  <!-- Expanded Settings Panel - Different layout per category -->
+                  <!-- Expanded Settings Panel - Unified layout for all categories -->
                   <Transition name="collapse">
                     <div v-if="expandedEvents.has(event.id)" class="border-t border-gray-200 dark:border-gray-700">
-
-                      <!-- ==================== BACKUP LAYOUT (Style 1: Gradient Cards) ==================== -->
-                      <div v-if="event.category === 'backup'" class="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 p-6">
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                          <!-- Frequency Card -->
-                          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
-                            <div class="bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-3">
-                              <h4 class="text-white font-semibold flex items-center gap-2">
-                                <ClockIcon class="h-5 w-5" />
-                                Frequency
-                              </h4>
-                            </div>
-                            <div class="p-4 space-y-4">
-                              <p class="text-xs text-secondary">How often should we notify you?</p>
-                              <div class="space-y-2">
-                                <label
-                                  v-for="opt in frequencyOptions.slice(0, 4)"
-                                  :key="opt.value"
-                                  class="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all"
-                                  :class="event.frequency === opt.value ? 'bg-emerald-100 dark:bg-emerald-500/20 ring-2 ring-emerald-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700'"
-                                >
-                                  <input
-                                    type="radio"
-                                    :checked="event.frequency === opt.value"
-                                    @change="updateEvent(event, 'frequency', opt.value)"
-                                    class="w-4 h-4 text-emerald-500 focus:ring-emerald-500"
-                                  />
-                                  <span class="text-sm font-medium text-primary">{{ opt.label }}</span>
-                                </label>
-                              </div>
-                              <select
-                                v-if="!['every_time', 'once_per_15m', 'once_per_30m', 'once_per_hour'].includes(event.frequency)"
-                                :value="event.frequency"
-                                @change="updateEvent(event, 'frequency', $event.target.value)"
-                                class="select-field w-full text-sm mt-2"
-                              >
-                                <option v-for="opt in frequencyOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <!-- Severity Card -->
-                          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
-                            <div class="bg-gradient-to-r from-teal-500 to-cyan-500 px-4 py-3">
-                              <h4 class="text-white font-semibold flex items-center gap-2">
-                                <ExclamationTriangleIcon class="h-5 w-5" />
-                                Priority Level
-                              </h4>
-                            </div>
-                            <div class="p-4 space-y-3">
-                              <p class="text-xs text-secondary">Set the urgency of this alert</p>
-                              <div class="flex gap-2">
-                                <button
-                                  v-for="sev in severityOptions"
-                                  :key="sev.value"
-                                  @click="updateEvent(event, 'severity', sev.value)"
-                                  :class="[
-                                    'flex-1 py-3 px-4 rounded-xl font-medium text-sm transition-all',
-                                    event.severity === sev.value
-                                      ? sev.value === 'critical' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30'
-                                        : sev.value === 'warning' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30'
-                                        : 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
-                                      : 'bg-gray-100 dark:bg-gray-700 text-secondary hover:bg-gray-200 dark:hover:bg-gray-600'
-                                  ]"
-                                >
-                                  {{ sev.label }}
-                                </button>
-                              </div>
-                              <p class="text-xs text-center text-secondary mt-2">
-                                {{ severityOptions.find(s => s.value === event.severity)?.description }}
-                              </p>
-                            </div>
-                          </div>
-
-                          <!-- Targets Card -->
-                          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
-                            <div class="bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-3 flex items-center justify-between">
-                              <h4 class="text-white font-semibold flex items-center gap-2">
-                                <BellIcon class="h-5 w-5" />
-                                Send To
-                              </h4>
-                              <button
-                                @click="openAddTargetModal(event)"
-                                class="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-                              >
-                                <PlusIcon class="h-4 w-4 text-white" />
-                              </button>
-                            </div>
-                            <div class="p-4">
-                              <div v-if="hasNoTargets(event)" class="text-center py-6">
-                                <div class="w-12 h-12 mx-auto rounded-full bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center mb-3">
-                                  <ExclamationTriangleIcon class="h-6 w-6 text-amber-500" />
-                                </div>
-                                <p class="text-sm font-medium text-primary">No targets yet</p>
-                                <p class="text-xs text-secondary mt-1">Add a channel or group to enable</p>
-                              </div>
-                              <div v-else class="space-y-2">
-                                <div
-                                  v-for="target in event.targets"
-                                  :key="target.id"
-                                  class="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-700/50"
-                                >
-                                  <div class="flex items-center gap-2">
-                                    <div :class="['w-8 h-8 rounded-full flex items-center justify-center', target.target_type === 'channel' ? 'bg-blue-100 dark:bg-blue-500/20' : 'bg-purple-100 dark:bg-purple-500/20']">
-                                      <BellIcon :class="['h-4 w-4', target.target_type === 'channel' ? 'text-blue-500' : 'text-purple-500']" />
-                                    </div>
-                                    <div>
-                                      <p class="text-sm font-medium text-primary">{{ target.channel_name || target.group_name }}</p>
-                                      <p class="text-xs text-secondary">L{{ target.escalation_level }} · {{ target.target_type }}</p>
-                                    </div>
-                                  </div>
-                                  <button @click="removeTarget(event.id, target.id)" class="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10">
-                                    <TrashIcon class="h-4 w-4" />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- ==================== CONTAINER LAYOUT (Style 2: Horizontal Compact) ==================== -->
-                      <div v-else-if="event.category === 'container'" class="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-900/10 dark:via-indigo-900/10 dark:to-purple-900/10 p-6">
-                        <!-- Top Row: Main Controls -->
-                        <div class="flex flex-wrap items-center gap-4 mb-6">
-                          <!-- Severity Pills -->
-                          <div class="flex items-center gap-2">
-                            <span class="text-xs font-semibold text-secondary uppercase">Severity:</span>
-                            <div class="inline-flex rounded-full p-1 bg-white dark:bg-gray-800 shadow-sm">
-                              <button
-                                v-for="sev in severityOptions"
-                                :key="sev.value"
-                                @click="updateEvent(event, 'severity', sev.value)"
-                                :class="[
-                                  'px-4 py-1.5 rounded-full text-xs font-semibold transition-all',
-                                  event.severity === sev.value
-                                    ? sev.value === 'critical' ? 'bg-red-500 text-white'
-                                      : sev.value === 'warning' ? 'bg-amber-500 text-white'
-                                      : 'bg-blue-500 text-white'
-                                    : 'text-secondary hover:bg-gray-100 dark:hover:bg-gray-700'
-                                ]"
-                              >
-                                {{ sev.label }}
-                              </button>
-                            </div>
-                          </div>
-
-                          <!-- Frequency Dropdown -->
-                          <div class="flex items-center gap-2">
-                            <span class="text-xs font-semibold text-secondary uppercase">Frequency:</span>
-                            <div class="relative">
-                              <select
-                                :value="event.frequency"
-                                @change="updateEvent(event, 'frequency', $event.target.value)"
-                                class="appearance-none bg-white dark:bg-gray-800 border-0 rounded-full px-4 py-2 pr-8 text-sm font-medium shadow-sm focus:ring-2 focus:ring-blue-500"
-                              >
-                                <option v-for="opt in frequencyOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                              </select>
-                              <ChevronDownIcon class="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-                            </div>
-                          </div>
-
-                          <!-- Cooldown Slider (if every_time) -->
-                          <div v-if="event.frequency === 'every_time'" class="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-full px-4 py-2 shadow-sm">
-                            <span class="text-xs font-semibold text-secondary uppercase whitespace-nowrap">Cooldown:</span>
-                            <input
-                              type="range"
-                              :value="event.cooldown_minutes"
-                              @input="updateEvent(event, 'cooldown_minutes', parseInt($event.target.value))"
-                              min="0"
-                              max="120"
-                              step="5"
-                              class="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                            />
-                            <span class="text-sm font-bold text-blue-600 w-12">{{ event.cooldown_minutes }}m</span>
-                          </div>
-                        </div>
-
-                        <!-- Bottom Row: Targets -->
-                        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4">
-                          <div class="flex items-center justify-between mb-4">
-                            <h4 class="font-semibold text-primary flex items-center gap-2">
-                              <BellIcon class="h-5 w-5 text-blue-500" />
-                              Notification Targets
-                            </h4>
-                            <button
-                              @click="openAddTargetModal(event)"
-                              class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm font-medium rounded-xl hover:shadow-lg hover:shadow-blue-500/30 transition-all"
-                            >
-                              <PlusIcon class="h-4 w-4" />
-                              Add Target
-                            </button>
-                          </div>
-
-                          <div v-if="hasNoTargets(event)" class="flex items-center gap-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20">
-                            <ExclamationTriangleIcon class="h-8 w-8 text-amber-500" />
-                            <div>
-                              <p class="font-medium text-amber-700 dark:text-amber-400">No notification targets configured</p>
-                              <p class="text-sm text-amber-600 dark:text-amber-500">Add at least one channel or group to receive alerts</p>
-                            </div>
-                          </div>
-
-                          <div v-else class="flex flex-wrap gap-3">
-                            <div
-                              v-for="target in event.targets"
-                              :key="target.id"
-                              class="group flex items-center gap-2 pl-4 pr-2 py-2 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border border-blue-200 dark:border-blue-500/20"
-                            >
-                              <span :class="['px-2 py-0.5 rounded-full text-xs font-bold', target.escalation_level === 1 ? 'bg-blue-500 text-white' : 'bg-purple-500 text-white']">
-                                L{{ target.escalation_level }}
-                              </span>
-                              <span class="font-medium text-primary">{{ target.channel_name || target.group_name }}</span>
-                              <button @click="removeTarget(event.id, target.id)" class="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-all">
-                                <XCircleIcon class="h-5 w-5" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- ==================== SECURITY LAYOUT (Style 3: Dark/Serious) ==================== -->
-                      <div v-else-if="event.category === 'security'" class="bg-gradient-to-br from-gray-900 to-red-900/80 dark:from-gray-900 dark:to-red-950 p-6">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <!-- Left: Settings -->
-                          <div class="space-y-4">
-                            <!-- Severity - Prominent -->
-                            <div class="bg-black/30 backdrop-blur rounded-xl p-4 border border-red-500/30">
-                              <h4 class="text-red-400 font-semibold text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
-                                <ShieldExclamationIcon class="h-5 w-5" />
-                                Alert Severity
-                              </h4>
-                              <div class="grid grid-cols-3 gap-3">
-                                <button
-                                  v-for="sev in severityOptions"
-                                  :key="sev.value"
-                                  @click="updateEvent(event, 'severity', sev.value)"
-                                  :class="[
-                                    'p-4 rounded-xl border-2 transition-all text-center',
-                                    event.severity === sev.value
-                                      ? sev.value === 'critical' ? 'border-red-500 bg-red-500/20 shadow-lg shadow-red-500/20'
-                                        : sev.value === 'warning' ? 'border-amber-500 bg-amber-500/20 shadow-lg shadow-amber-500/20'
-                                        : 'border-blue-500 bg-blue-500/20 shadow-lg shadow-blue-500/20'
-                                      : 'border-gray-600 bg-gray-800/50 hover:border-gray-500'
-                                  ]"
-                                >
-                                  <div :class="[
-                                    'text-2xl font-bold mb-1',
-                                    event.severity === sev.value
-                                      ? sev.value === 'critical' ? 'text-red-400' : sev.value === 'warning' ? 'text-amber-400' : 'text-blue-400'
-                                      : 'text-gray-400'
-                                  ]">
-                                    {{ sev.value === 'critical' ? '!' : sev.value === 'warning' ? '⚠' : 'i' }}
-                                  </div>
-                                  <p :class="['text-sm font-semibold', event.severity === sev.value ? 'text-white' : 'text-gray-400']">{{ sev.label }}</p>
-                                </button>
-                              </div>
-                            </div>
-
-                            <!-- Frequency -->
-                            <div class="bg-black/30 backdrop-blur rounded-xl p-4 border border-gray-700">
-                              <h4 class="text-gray-300 font-semibold text-sm uppercase tracking-wider mb-3 flex items-center gap-2">
-                                <ClockIcon class="h-5 w-5 text-gray-500" />
-                                Notification Frequency
-                              </h4>
-                              <select
-                                :value="event.frequency"
-                                @change="updateEvent(event, 'frequency', $event.target.value)"
-                                class="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-4 py-3 focus:border-red-500 focus:ring-red-500"
-                              >
-                                <option v-for="opt in frequencyOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <!-- Right: Targets -->
-                          <div class="bg-black/30 backdrop-blur rounded-xl p-4 border border-gray-700">
-                            <div class="flex items-center justify-between mb-4">
-                              <h4 class="text-gray-300 font-semibold text-sm uppercase tracking-wider flex items-center gap-2">
-                                <BellIcon class="h-5 w-5 text-red-400" />
-                                Alert Recipients
-                              </h4>
-                              <button
-                                @click="openAddTargetModal(event)"
-                                class="flex items-center gap-2 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
-                              >
-                                <PlusIcon class="h-4 w-4" />
-                                Add
-                              </button>
-                            </div>
-
-                            <div v-if="hasNoTargets(event)" class="text-center py-8">
-                              <ShieldExclamationIcon class="h-12 w-12 mx-auto text-red-500/50 mb-3" />
-                              <p class="text-gray-400 font-medium">No recipients configured</p>
-                              <p class="text-gray-500 text-sm">Security alerts need at least one target</p>
-                            </div>
-
-                            <div v-else class="space-y-2">
-                              <div
-                                v-for="target in event.targets"
-                                :key="target.id"
-                                class="flex items-center justify-between p-3 rounded-lg bg-gray-800/50 border border-gray-700 hover:border-red-500/50 transition-colors"
-                              >
-                                <div class="flex items-center gap-3">
-                                  <span :class="['w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold', target.escalation_level === 1 ? 'bg-red-500' : 'bg-orange-500']">
-                                    L{{ target.escalation_level }}
-                                  </span>
-                                  <div>
-                                    <p class="font-medium text-white">{{ target.channel_name || target.group_name }}</p>
-                                    <p class="text-xs text-gray-500">{{ target.target_type }}</p>
-                                  </div>
-                                </div>
-                                <button @click="removeTarget(event.id, target.id)" class="p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
-                                  <TrashIcon class="h-5 w-5" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- ==================== SYSTEM LAYOUT (Style 4: Clean Minimal) ==================== -->
-                      <div v-else class="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/10 dark:to-pink-900/10 p-6">
+                      <!-- Unified Clean Layout - Color varies by category -->
+                      <div :class="[
+                        'p-6',
+                        event.category === 'backup' ? 'bg-emerald-50/50 dark:bg-emerald-500/5'
+                          : event.category === 'container' ? 'bg-blue-50/50 dark:bg-blue-500/5'
+                          : event.category === 'security' ? 'bg-red-50/50 dark:bg-red-500/5'
+                          : 'bg-purple-50/50 dark:bg-purple-500/5'
+                      ]">
                         <div class="max-w-4xl mx-auto">
-                          <!-- Single Row Settings -->
-                          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
-                            <!-- Header -->
-                            <div class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
-                              <h4 class="text-white font-semibold flex items-center gap-2">
-                                <CpuChipIcon class="h-5 w-5" />
+                          <!-- Settings Card -->
+                          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
+                            <!-- Header - Flat, translucent color -->
+                            <div :class="[
+                              'px-6 py-4 border-b',
+                              event.category === 'backup' ? 'bg-emerald-100/70 dark:bg-emerald-500/15 border-emerald-200 dark:border-emerald-500/20'
+                                : event.category === 'container' ? 'bg-blue-100/70 dark:bg-blue-500/15 border-blue-200 dark:border-blue-500/20'
+                                : event.category === 'security' ? 'bg-red-100/70 dark:bg-red-500/15 border-red-200 dark:border-red-500/20'
+                                : 'bg-purple-100/70 dark:bg-purple-500/15 border-purple-200 dark:border-purple-500/20'
+                            ]">
+                              <h4 :class="[
+                                'font-semibold flex items-center gap-2',
+                                event.category === 'backup' ? 'text-emerald-700 dark:text-emerald-400'
+                                  : event.category === 'container' ? 'text-blue-700 dark:text-blue-400'
+                                  : event.category === 'security' ? 'text-red-700 dark:text-red-400'
+                                  : 'text-purple-700 dark:text-purple-400'
+                              ]">
+                                <component
+                                  :is="categoryInfo[event.category]?.icon || BellIcon"
+                                  class="h-5 w-5"
+                                />
                                 {{ event.display_name }} Configuration
                               </h4>
                             </div>
@@ -994,9 +695,9 @@ onMounted(() => {
                                       :class="[
                                         'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all',
                                         event.severity === sev.value
-                                          ? sev.value === 'critical' ? 'border-red-500 bg-red-50 dark:bg-red-500/10'
-                                            : sev.value === 'warning' ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10'
-                                            : 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
+                                          ? sev.value === 'critical' ? 'border-red-400 bg-red-50 dark:bg-red-500/10'
+                                            : sev.value === 'warning' ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10'
+                                            : 'border-blue-400 bg-blue-50 dark:bg-blue-500/10'
                                           : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                                       ]"
                                     >
@@ -1025,7 +726,13 @@ onMounted(() => {
                                   <select
                                     :value="event.frequency"
                                     @change="updateEvent(event, 'frequency', $event.target.value)"
-                                    class="w-full bg-gray-50 dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 text-primary focus:border-purple-500 focus:ring-purple-500"
+                                    :class="[
+                                      'w-full bg-gray-50 dark:bg-gray-700 border-2 rounded-xl px-4 py-3 text-primary',
+                                      event.category === 'backup' ? 'border-gray-200 dark:border-gray-600 focus:border-emerald-400 focus:ring-emerald-400'
+                                        : event.category === 'container' ? 'border-gray-200 dark:border-gray-600 focus:border-blue-400 focus:ring-blue-400'
+                                        : event.category === 'security' ? 'border-gray-200 dark:border-gray-600 focus:border-red-400 focus:ring-red-400'
+                                        : 'border-gray-200 dark:border-gray-600 focus:border-purple-400 focus:ring-purple-400'
+                                    ]"
                                   >
                                     <option v-for="opt in frequencyOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                                   </select>
@@ -1043,11 +750,23 @@ onMounted(() => {
                                       min="0"
                                       max="120"
                                       step="5"
-                                      class="w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                      :class="[
+                                        'w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer',
+                                        event.category === 'backup' ? 'accent-emerald-500'
+                                          : event.category === 'container' ? 'accent-blue-500'
+                                          : event.category === 'security' ? 'accent-red-500'
+                                          : 'accent-purple-500'
+                                      ]"
                                     />
                                     <div class="flex justify-between mt-2">
                                       <span class="text-xs text-secondary">0 min</span>
-                                      <span class="text-lg font-bold text-purple-600">{{ event.cooldown_minutes }} min</span>
+                                      <span :class="[
+                                        'text-lg font-bold',
+                                        event.category === 'backup' ? 'text-emerald-600 dark:text-emerald-400'
+                                          : event.category === 'container' ? 'text-blue-600 dark:text-blue-400'
+                                          : event.category === 'security' ? 'text-red-600 dark:text-red-400'
+                                          : 'text-purple-600 dark:text-purple-400'
+                                      ]">{{ event.cooldown_minutes }} min</span>
                                       <span class="text-xs text-secondary">120 min</span>
                                     </div>
                                   </div>
@@ -1063,14 +782,20 @@ onMounted(() => {
                                   </div>
                                   <button
                                     @click="openAddTargetModal(event)"
-                                    class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-medium rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all"
+                                    :class="[
+                                      'flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-xl transition-all',
+                                      event.category === 'backup' ? 'bg-emerald-500 hover:bg-emerald-600'
+                                        : event.category === 'container' ? 'bg-blue-500 hover:bg-blue-600'
+                                        : event.category === 'security' ? 'bg-red-500 hover:bg-red-600'
+                                        : 'bg-purple-500 hover:bg-purple-600'
+                                    ]"
                                   >
                                     <PlusIcon class="h-4 w-4" />
                                     Add Target
                                   </button>
                                 </div>
 
-                                <div v-if="hasNoTargets(event)" class="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 rounded-xl p-6 border border-amber-200 dark:border-amber-500/20">
+                                <div v-if="hasNoTargets(event)" class="bg-amber-50 dark:bg-amber-500/10 rounded-xl p-6 border border-amber-200 dark:border-amber-500/20">
                                   <div class="flex items-center gap-4">
                                     <div class="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
                                       <ExclamationTriangleIcon class="h-6 w-6 text-amber-500" />
@@ -1086,12 +811,23 @@ onMounted(() => {
                                   <div
                                     v-for="target in event.targets"
                                     :key="target.id"
-                                    class="flex items-center justify-between p-4 rounded-xl bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-500/50 transition-colors"
+                                    :class="[
+                                      'flex items-center justify-between p-4 rounded-xl border transition-colors',
+                                      event.category === 'backup' ? 'bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-300 dark:hover:border-emerald-500/40'
+                                        : event.category === 'container' ? 'bg-blue-50/50 dark:bg-blue-500/5 border-blue-200 dark:border-blue-500/20 hover:border-blue-300 dark:hover:border-blue-500/40'
+                                        : event.category === 'security' ? 'bg-red-50/50 dark:bg-red-500/5 border-red-200 dark:border-red-500/20 hover:border-red-300 dark:hover:border-red-500/40'
+                                        : 'bg-purple-50/50 dark:bg-purple-500/5 border-purple-200 dark:border-purple-500/20 hover:border-purple-300 dark:hover:border-purple-500/40'
+                                    ]"
                                   >
                                     <div class="flex items-center gap-3">
                                       <div :class="[
                                         'w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white',
-                                        target.escalation_level === 1 ? 'bg-gradient-to-br from-purple-500 to-pink-500' : 'bg-gradient-to-br from-orange-500 to-red-500'
+                                        target.escalation_level === 1
+                                          ? event.category === 'backup' ? 'bg-emerald-500'
+                                            : event.category === 'container' ? 'bg-blue-500'
+                                            : event.category === 'security' ? 'bg-red-500'
+                                            : 'bg-purple-500'
+                                          : 'bg-orange-500'
                                       ]">
                                         L{{ target.escalation_level }}
                                       </div>
