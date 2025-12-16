@@ -614,34 +614,37 @@ onUnmounted(() => {
               <button
                 @click="openNotifySettings(container)"
                 :class="[
-                  'btn-secondary p-2',
+                  'btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3',
                   hasNotificationConfig(container.name)
-                    ? 'text-amber-500 hover:text-amber-600'
-                    : 'text-gray-400 hover:text-gray-600'
+                    ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10'
+                    : 'text-gray-500 hover:text-gray-700'
                 ]"
                 :title="hasNotificationConfig(container.name) ? 'Notifications enabled - Click to configure' : 'Configure notifications'"
               >
                 <BellIcon v-if="hasNotificationConfig(container.name)" class="h-4 w-4" />
                 <BellSlashIcon v-else class="h-4 w-4" />
+                Alerts
               </button>
 
               <!-- Logs Button -->
               <button
                 @click="viewLogs(container)"
-                class="btn-secondary p-2"
+                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-500/10"
                 title="View Logs"
               >
                 <DocumentTextIcon class="h-4 w-4" />
+                Logs
               </button>
 
               <!-- Terminal Button (only when running) -->
               <button
                 v-if="container.status === 'running'"
                 @click="openTerminal(container)"
-                class="btn-secondary p-2 text-blue-500 hover:text-blue-600"
+                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10"
                 title="Open Terminal"
               >
                 <CommandLineIcon class="h-4 w-4" />
+                Terminal
               </button>
             </div>
           </div>
