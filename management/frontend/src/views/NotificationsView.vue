@@ -59,9 +59,9 @@ const mainTab = ref('channels')
 
 // Main tabs configuration
 const mainTabs = [
-  { id: 'channels', name: 'Channels', icon: BellIcon },
-  { id: 'groups', name: 'Groups', icon: HashtagIcon },
-  { id: 'ntfy', name: 'NTFY Push', icon: MegaphoneIcon },
+  { id: 'channels', name: 'Channels', icon: BellIcon, iconColor: 'text-blue-500', bgActive: 'bg-blue-500/15 dark:bg-blue-500/20', textActive: 'text-blue-700 dark:text-blue-400', borderActive: 'border-blue-500/30' },
+  { id: 'groups', name: 'Groups', icon: HashtagIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
+  { id: 'ntfy', name: 'NTFY Push', icon: MegaphoneIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
 ]
 
 // Watch for query param to switch tabs
@@ -792,23 +792,21 @@ async function handleNtfyUpdateConfig(config) {
     </div>
 
     <!-- Main Tab Navigation -->
-    <div class="border-b border-gray-200 dark:border-gray-700">
-      <nav class="flex -mb-px space-x-4">
-        <button
-          v-for="tab in mainTabs"
-          :key="tab.id"
-          @click="mainTab = tab.id"
-          :class="[
-            'flex items-center px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-            mainTab === tab.id
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-          ]"
-        >
-          <component :is="tab.icon" class="w-5 h-5 mr-2" />
-          {{ tab.name }}
-        </button>
-      </nav>
+    <div class="flex flex-wrap gap-2 pb-4 border-b border-gray-200 dark:border-gray-700">
+      <button
+        v-for="tab in mainTabs"
+        :key="tab.id"
+        @click="mainTab = tab.id"
+        :class="[
+          'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap border',
+          mainTab === tab.id
+            ? `${tab.bgActive} ${tab.textActive} ${tab.borderActive}`
+            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-transparent'
+        ]"
+      >
+        <component :is="tab.icon" :class="['h-4 w-4', mainTab === tab.id ? '' : tab.iconColor]" />
+        {{ tab.name }}
+      </button>
     </div>
 
     <!-- Channels Tab Content -->
