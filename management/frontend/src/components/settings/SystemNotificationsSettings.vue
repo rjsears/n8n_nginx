@@ -367,14 +367,17 @@ onMounted(() => {
     <!-- Quick Stats / Status Bar -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <!-- Events Enabled -->
-      <div class="bg-surface rounded-lg p-4 border border-[var(--color-border)]">
-        <div class="flex items-center gap-3">
-          <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
-            <BellIcon class="h-5 w-5 text-emerald-500" />
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-primary">{{ enabledEventsCount }}/{{ totalEventsCount }}</p>
-            <p class="text-xs text-secondary">Events Enabled</p>
+      <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-5 shadow-lg shadow-emerald-500/20">
+        <div class="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-white/10"></div>
+        <div class="relative">
+          <div class="flex items-center gap-3">
+            <div class="p-2 rounded-xl bg-white/20 backdrop-blur">
+              <BellIcon class="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <p class="text-3xl font-bold text-white">{{ enabledEventsCount }}<span class="text-lg text-white/70">/{{ totalEventsCount }}</span></p>
+              <p class="text-sm text-white/80 font-medium">Events Enabled</p>
+            </div>
           </div>
         </div>
       </div>
@@ -382,25 +385,21 @@ onMounted(() => {
       <!-- Maintenance Mode -->
       <div
         :class="[
-          'rounded-lg p-4 border cursor-pointer transition-all',
+          'relative overflow-hidden rounded-2xl p-5 cursor-pointer transition-all shadow-lg',
           globalSettings?.maintenance_mode
-            ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/30'
-            : 'bg-surface border-[var(--color-border)] hover:border-gray-300 dark:hover:border-gray-600'
+            ? 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/20'
+            : 'bg-gradient-to-br from-gray-400 to-gray-500 dark:from-gray-600 dark:to-gray-700 shadow-gray-500/20 hover:from-gray-500 hover:to-gray-600'
         ]"
         @click="toggleMaintenanceMode"
       >
-        <div class="flex items-center gap-3">
-          <div :class="[
-            'p-2 rounded-lg',
-            globalSettings?.maintenance_mode ? 'bg-amber-200 dark:bg-amber-500/30' : 'bg-gray-100 dark:bg-gray-700'
-          ]">
-            <PauseCircleIcon :class="['h-5 w-5', globalSettings?.maintenance_mode ? 'text-amber-600' : 'text-gray-500']" />
+        <div class="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-white/10"></div>
+        <div class="relative flex items-center gap-3">
+          <div class="p-2 rounded-xl bg-white/20 backdrop-blur">
+            <PauseCircleIcon class="h-6 w-6 text-white" />
           </div>
           <div>
-            <p :class="['font-semibold', globalSettings?.maintenance_mode ? 'text-amber-700 dark:text-amber-400' : 'text-primary']">
-              {{ globalSettings?.maintenance_mode ? 'ON' : 'OFF' }}
-            </p>
-            <p class="text-xs text-secondary">Maintenance Mode</p>
+            <p class="text-2xl font-bold text-white">{{ globalSettings?.maintenance_mode ? 'ACTIVE' : 'OFF' }}</p>
+            <p class="text-sm text-white/80 font-medium">Maintenance Mode</p>
           </div>
         </div>
       </div>
@@ -408,64 +407,63 @@ onMounted(() => {
       <!-- Quiet Hours -->
       <div
         :class="[
-          'rounded-lg p-4 border',
+          'relative overflow-hidden rounded-2xl p-5 shadow-lg',
           globalSettings?.quiet_hours_enabled
-            ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30'
-            : 'bg-surface border-[var(--color-border)]'
+            ? 'bg-gradient-to-br from-indigo-500 to-purple-600 shadow-indigo-500/20'
+            : 'bg-gradient-to-br from-slate-400 to-slate-500 dark:from-slate-600 dark:to-slate-700 shadow-slate-500/20'
         ]"
       >
-        <div class="flex items-center gap-3">
-          <div :class="[
-            'p-2 rounded-lg',
-            globalSettings?.quiet_hours_enabled ? 'bg-indigo-200 dark:bg-indigo-500/30' : 'bg-gray-100 dark:bg-gray-700'
-          ]">
-            <MoonIcon :class="['h-5 w-5', globalSettings?.quiet_hours_enabled ? 'text-indigo-600' : 'text-gray-500']" />
+        <div class="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-white/10"></div>
+        <div class="relative flex items-center gap-3">
+          <div class="p-2 rounded-xl bg-white/20 backdrop-blur">
+            <MoonIcon class="h-6 w-6 text-white" />
           </div>
           <div>
-            <p v-if="globalSettings?.quiet_hours_enabled" class="font-semibold text-indigo-700 dark:text-indigo-400">
+            <p v-if="globalSettings?.quiet_hours_enabled" class="text-xl font-bold text-white">
               {{ globalSettings.quiet_hours_start }} - {{ globalSettings.quiet_hours_end }}
             </p>
-            <p v-else class="font-semibold text-primary">Disabled</p>
-            <p class="text-xs text-secondary">Quiet Hours</p>
+            <p v-else class="text-2xl font-bold text-white">OFF</p>
+            <p class="text-sm text-white/80 font-medium">Quiet Hours</p>
           </div>
         </div>
       </div>
 
       <!-- Rate Limit Status -->
-      <div class="bg-surface rounded-lg p-4 border border-[var(--color-border)]">
-        <div class="flex items-center gap-3">
-          <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
-            <ClockIcon class="h-5 w-5 text-blue-500" />
+      <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-600 p-5 shadow-lg shadow-blue-500/20">
+        <div class="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-white/10"></div>
+        <div class="relative flex items-center gap-3">
+          <div class="p-2 rounded-xl bg-white/20 backdrop-blur">
+            <ClockIcon class="h-6 w-6 text-white" />
           </div>
           <div>
-            <p class="text-2xl font-bold text-primary">
-              {{ globalSettings?.notifications_this_hour || 0 }}/{{ globalSettings?.max_notifications_per_hour || 50 }}
+            <p class="text-3xl font-bold text-white">
+              {{ globalSettings?.notifications_this_hour || 0 }}<span class="text-lg text-white/70">/{{ globalSettings?.max_notifications_per_hour || 50 }}</span>
             </p>
-            <p class="text-xs text-secondary">This Hour</p>
+            <p class="text-sm text-white/80 font-medium">This Hour</p>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Section Tabs -->
-    <div class="flex gap-1 p-1 bg-surface-hover rounded-lg overflow-x-auto">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-2 flex gap-2 overflow-x-auto">
       <button
-        v-for="section in [
-          { id: 'events', label: 'Notification Events', icon: BellAlertIcon },
-          { id: 'global', label: 'Global Settings', icon: Cog6ToothIcon },
-          { id: 'containers', label: 'Container Config', icon: CubeIcon },
-          { id: 'history', label: 'History', icon: DocumentTextIcon },
+        v-for="(section, idx) in [
+          { id: 'events', label: 'Notification Events', icon: BellAlertIcon, color: 'from-emerald-500 to-teal-500' },
+          { id: 'global', label: 'Global Settings', icon: Cog6ToothIcon, color: 'from-blue-500 to-indigo-500' },
+          { id: 'containers', label: 'Container Config', icon: CubeIcon, color: 'from-purple-500 to-pink-500' },
+          { id: 'history', label: 'History', icon: DocumentTextIcon, color: 'from-amber-500 to-orange-500' },
         ]"
         :key="section.id"
         @click="activeSection = section.id"
         :class="[
-          'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap',
+          'flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap',
           activeSection === section.id
-            ? 'bg-surface text-primary shadow-sm'
-            : 'text-secondary hover:text-primary'
+            ? `bg-gradient-to-r ${section.color} text-white shadow-lg`
+            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
         ]"
       >
-        <component :is="section.icon" class="h-4 w-4" />
+        <component :is="section.icon" class="h-5 w-5" />
         {{ section.label }}
       </button>
     </div>
@@ -476,42 +474,70 @@ onMounted(() => {
       <!-- Events Section -->
       <div v-if="activeSection === 'events'" class="space-y-4">
         <!-- Collapsible Category Cards -->
-        <Card
+        <div
           v-for="(categoryEvents, category) in eventsByCategory"
           :key="category"
-          :neon="true"
-          :padding="false"
+          class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden"
         >
-          <!-- Category Header (Clickable) -->
+          <!-- Category Header (Clickable) - Gradient based on category -->
           <div
             @click="toggleCategory(category)"
-            class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+            :class="[
+              'flex items-center justify-between p-5 cursor-pointer transition-all',
+              expandedCategories.has(category)
+                ? category === 'backup' ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                  : category === 'container' ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                  : category === 'security' ? 'bg-gradient-to-r from-red-500 to-rose-600'
+                  : 'bg-gradient-to-r from-purple-500 to-pink-500'
+                : 'bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 hover:from-gray-200 hover:to-gray-100 dark:hover:from-gray-600 dark:hover:to-gray-700'
+            ]"
           >
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-4">
               <div :class="[
-                'p-2 rounded-lg',
-                `bg-${categoryInfo[category]?.color || 'gray'}-100 dark:bg-${categoryInfo[category]?.color || 'gray'}-500/20`
+                'p-3 rounded-xl',
+                expandedCategories.has(category) ? 'bg-white/20' : 'bg-white dark:bg-gray-600 shadow-sm'
               ]">
                 <component
                   :is="categoryInfo[category]?.icon || BellIcon"
-                  :class="['h-5 w-5', `text-${categoryInfo[category]?.color || 'gray'}-500`]"
+                  :class="[
+                    'h-6 w-6',
+                    expandedCategories.has(category)
+                      ? 'text-white'
+                      : category === 'backup' ? 'text-emerald-500'
+                        : category === 'container' ? 'text-blue-500'
+                        : category === 'security' ? 'text-red-500'
+                        : 'text-purple-500'
+                  ]"
                 />
               </div>
               <div>
-                <h3 class="font-semibold text-primary">{{ categoryInfo[category]?.label || category }}</h3>
-                <p class="text-sm text-secondary">{{ categoryInfo[category]?.description }}</p>
+                <h3 :class="['font-bold text-lg', expandedCategories.has(category) ? 'text-white' : 'text-primary']">
+                  {{ categoryInfo[category]?.label || category }}
+                </h3>
+                <p :class="['text-sm', expandedCategories.has(category) ? 'text-white/80' : 'text-secondary']">
+                  {{ categoryInfo[category]?.description }}
+                </p>
               </div>
             </div>
-            <div class="flex items-center gap-3">
-              <span :class="[
-                'text-xs px-2 py-1 rounded-full',
-                `bg-${categoryInfo[category]?.color || 'gray'}-100 dark:bg-${categoryInfo[category]?.color || 'gray'}-500/20`,
-                `text-${categoryInfo[category]?.color || 'gray'}-700 dark:text-${categoryInfo[category]?.color || 'gray'}-300`
+            <div class="flex items-center gap-4">
+              <div :class="[
+                'px-4 py-2 rounded-full font-semibold text-sm',
+                expandedCategories.has(category)
+                  ? 'bg-white/20 text-white'
+                  : category === 'backup' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                    : category === 'container' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
+                    : category === 'security' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                    : 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400'
               ]">
                 {{ getCategoryEventCounts(category).enabled }}/{{ getCategoryEventCounts(category).total }} enabled
-              </span>
-              <ChevronDownIcon v-if="expandedCategories.has(category)" class="h-5 w-5 text-secondary" />
-              <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+              </div>
+              <div :class="[
+                'p-2 rounded-lg',
+                expandedCategories.has(category) ? 'bg-white/20' : 'bg-gray-100 dark:bg-gray-600'
+              ]">
+                <ChevronDownIcon v-if="expandedCategories.has(category)" :class="['h-5 w-5', expandedCategories.has(category) ? 'text-white' : 'text-secondary']" />
+                <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+              </div>
             </div>
           </div>
 
@@ -1076,7 +1102,7 @@ onMounted(() => {
               </div>
             </div>
           </Transition>
-        </Card>
+        </div>
       </div>
 
       <!-- Global Settings Section -->
