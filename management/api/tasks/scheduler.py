@@ -471,8 +471,19 @@ async def _collect_host_metrics() -> None:
         network = data.get("network", [])
         containers = data.get("containers", [])
 
+        # Filter out virtual/temporary filesystems - only show real disk partitions
+        excluded_mounts = {'/tmp', '/var/tmp', '/dev', '/dev/shm', '/run', '/sys', '/proc'}
+        excluded_fs_types = {'tmpfs', 'devtmpfs', 'sysfs', 'proc', 'devpts', 'cgroup', 'cgroup2', 'overlay'}
+        real_disks = [
+            d for d in disks
+            if d.get("mount_point") not in excluded_mounts
+            and d.get("fs_type") not in excluded_fs_types
+            and not d.get("mount_point", "").startswith("/snap")
+            and not d.get("mount_point", "").startswith("/boot/efi")
+        ]
+
         # Find primary disk (/)
-        primary_disk = next((d for d in disks if d.get("mount_point") == "/"), disks[0] if disks else {})
+        primary_disk = next((d for d in real_disks if d.get("mount_point") == "/"), real_disks[0] if real_disks else {})
 
         # Calculate network totals
         network_rx = sum(iface.get("bytes_recv", 0) for iface in network)
@@ -517,14 +528,14 @@ async def _collect_host_metrics() -> None:
             containers_stopped=containers_stopped,
             containers_healthy=containers_healthy,
             containers_unhealthy=containers_unhealthy,
-            # Additional disk details as JSON
+            # Additional disk details as JSON (only real disks, not tmpfs)
             disks_detail=[{
                 "mount_point": d.get("mount_point"),
                 "percent": d.get("percent"),
                 "total_bytes": d.get("total_bytes"),
                 "used_bytes": d.get("used_bytes"),
                 "free_bytes": d.get("free_bytes"),
-            } for d in disks],
+            } for d in real_disks],
         )
 
         async with async_session_maker() as db:
