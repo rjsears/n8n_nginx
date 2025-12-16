@@ -1856,3 +1856,104 @@ async def test_error_handling(
             }
         }
     )
+
+
+@router.get("/host-metrics")
+async def get_host_metrics(
+    include_container_stats: bool = False,
+    _=Depends(get_current_user),
+):
+    """
+    Get host-level metrics from the n8n-metrics-agent.
+
+    This fetches real-time metrics directly from the Docker host via the
+    metrics agent running on port 9100. Returns CPU, memory, disk, network,
+    and container metrics.
+
+    Args:
+        include_container_stats: If True, include detailed per-container resource stats (slower)
+    """
+    import httpx
+
+    if not settings.metrics_agent_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Metrics agent is not enabled in configuration",
+        )
+
+    try:
+        headers = {}
+        if settings.metrics_agent_api_key:
+            headers["X-API-Key"] = settings.metrics_agent_api_key
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{settings.metrics_agent_url}/metrics",
+                headers=headers,
+                params={"include_container_stats": include_container_stats},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout connecting to metrics agent",
+        )
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail="Cannot connect to metrics agent - is it running on the host?",
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Metrics agent error: {e.response.text}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch host metrics: {str(e)}",
+        )
+
+
+@router.get("/host-metrics/health")
+async def get_host_metrics_health(
+    _=Depends(get_current_user),
+):
+    """
+    Check if the metrics agent is available and get its health status.
+    """
+    import httpx
+
+    if not settings.metrics_agent_enabled:
+        return {
+            "available": False,
+            "enabled": False,
+            "error": "Metrics agent is not enabled in configuration",
+        }
+
+    try:
+        headers = {}
+        if settings.metrics_agent_api_key:
+            headers["X-API-Key"] = settings.metrics_agent_api_key
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{settings.metrics_agent_url}/health",
+                headers=headers,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return {
+                "available": True,
+                "enabled": True,
+                **data,
+            }
+
+    except Exception as e:
+        return {
+            "available": False,
+            "enabled": True,
+            "error": str(e),
+        }
