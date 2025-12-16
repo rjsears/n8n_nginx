@@ -613,23 +613,55 @@ onMounted(() => {
     <template v-else>
       <!-- Events Section -->
       <div v-if="activeSection === 'events'" class="space-y-4">
+        <!-- Maintenance Mode Banner -->
+        <div v-if="globalSettings?.maintenance_mode" class="bg-green-50 dark:bg-green-500/10 border-2 border-green-400 dark:border-green-500/50 rounded-xl p-4 flex items-center gap-4">
+          <div class="p-3 rounded-xl bg-green-200 dark:bg-green-500/30">
+            <PauseCircleIcon class="h-8 w-8 text-green-600 dark:text-green-400" />
+          </div>
+          <div class="flex-1">
+            <h3 class="font-bold text-green-700 dark:text-green-400 text-lg">Maintenance Mode Active</h3>
+            <p class="text-sm text-green-600 dark:text-green-300">
+              All system notifications are completely disabled. No alerts will be sent or stored.
+              <span v-if="globalSettings.maintenance_until" class="font-medium">
+                ({{ formatMaintenanceTime(globalSettings.maintenance_until) }})
+              </span>
+            </p>
+          </div>
+          <button
+            @click="toggleMaintenanceMode"
+            class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+          >
+            End Maintenance
+          </button>
+        </div>
+
         <!-- Collapsible Category Cards -->
         <div
           v-for="(categoryEvents, category) in eventsByCategory"
           :key="category"
-          class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden"
+          :class="[
+            'rounded-2xl shadow-lg overflow-hidden transition-all',
+            globalSettings?.maintenance_mode
+              ? 'bg-gray-100 dark:bg-gray-800/50 opacity-60 pointer-events-none'
+              : 'bg-white dark:bg-gray-800'
+          ]"
         >
           <!-- Category Header (Clickable) - Lighter, more translucent -->
           <div
-            @click="toggleCategory(category)"
+            @click="!globalSettings?.maintenance_mode && toggleCategory(category)"
             :class="[
-              'flex items-center justify-between p-5 cursor-pointer transition-all',
-              expandedCategories.has(category)
-                ? category === 'backup' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-b border-emerald-200 dark:border-emerald-500/20'
-                  : category === 'container' ? 'bg-blue-50 dark:bg-blue-500/10 border-b border-blue-200 dark:border-blue-500/20'
-                  : category === 'security' ? 'bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/20'
-                  : 'bg-purple-50 dark:bg-purple-500/10 border-b border-purple-200 dark:border-purple-500/20'
-                : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+              'flex items-center justify-between p-5 transition-all',
+              globalSettings?.maintenance_mode
+                ? 'cursor-not-allowed'
+                : 'cursor-pointer',
+              globalSettings?.maintenance_mode
+                ? ''
+                : expandedCategories.has(category)
+                    ? (category === 'backup' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-b border-emerald-200 dark:border-emerald-500/20'
+                        : category === 'container' ? 'bg-blue-50 dark:bg-blue-500/10 border-b border-blue-200 dark:border-blue-500/20'
+                        : category === 'security' ? 'bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/20'
+                        : 'bg-purple-50 dark:bg-purple-500/10 border-b border-purple-200 dark:border-purple-500/20')
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
             ]"
           >
             <div class="flex items-center gap-4">
@@ -1344,7 +1376,7 @@ onMounted(() => {
 
             <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg p-4">
               <p class="text-sm text-amber-800 dark:text-amber-300">
-                <strong>Warning:</strong> While maintenance mode is active, no system notifications will be sent. Critical alerts will be queued and may be lost if not reviewed.
+                <strong>All notifications disabled:</strong> While maintenance mode is active, ALL system notifications are completely stopped. No alerts will be sent, queued, or stored. Use this when performing intentional maintenance that may generate unwanted alerts.
               </p>
             </div>
 
