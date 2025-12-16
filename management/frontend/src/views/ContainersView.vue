@@ -58,6 +58,7 @@ const notifyDialog = ref({
   }
 })
 const containerConfigs = ref({})  // Cache of container notification configs
+const hasContainerEventTargets = ref(false)  // Track if any container events have targets configured
 
 let statsInterval = null
 
@@ -308,6 +309,18 @@ async function loadContainerConfigs() {
   }
 }
 
+async function checkContainerEventTargets() {
+  try {
+    // Check if any container events have notification targets configured
+    const response = await api.get('/system-notifications/events')
+    const containerEvents = response.data.filter(e => e.category === 'container')
+    hasContainerEventTargets.value = containerEvents.some(e => e.targets && e.targets.length > 0)
+  } catch (error) {
+    console.error('Failed to check container event targets:', error)
+    hasContainerEventTargets.value = false
+  }
+}
+
 async function fetchStats() {
   try {
     const response = await api.get('/containers/stats')
@@ -336,6 +349,7 @@ async function loadData() {
       containerStore.fetchContainers(),
       fetchStats(),
       loadContainerConfigs(),
+      checkContainerEventTargets(),
     ])
   } catch (error) {
     notificationStore.error('Failed to load containers')
@@ -573,14 +587,14 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Actions Footer -->
-          <div class="p-4 border-t border-gray-300 dark:border-black flex items-center justify-between">
-            <div class="flex items-center gap-2">
+          <!-- Actions Footer - Evenly distributed buttons -->
+          <div class="p-4 border-t border-gray-300 dark:border-black">
+            <div class="flex items-center justify-center gap-3 flex-wrap">
               <!-- Start Button (when stopped) -->
               <button
                 v-if="container.status !== 'running'"
                 @click="performAction(container, 'start')"
-                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+                class="flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30"
                 title="Start Container"
               >
                 <PlayIcon class="h-4 w-4" />
@@ -591,7 +605,7 @@ onUnmounted(() => {
               <button
                 v-if="container.status === 'running'"
                 @click="performAction(container, 'stop')"
-                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                class="flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 border border-red-200 dark:border-red-500/30"
                 title="Stop Container"
               >
                 <StopIcon class="h-4 w-4" />
@@ -601,23 +615,21 @@ onUnmounted(() => {
               <!-- Restart Button -->
               <button
                 @click="performAction(container, 'restart')"
-                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3"
+                class="flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30"
                 title="Restart Container"
               >
                 <ArrowPathIcon class="h-4 w-4" />
                 Restart
               </button>
-            </div>
 
-            <div class="flex items-center gap-2">
               <!-- Notification Settings Button -->
               <button
                 @click="openNotifySettings(container)"
                 :class="[
-                  'btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3',
+                  'flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 border',
                   hasNotificationConfig(container.name)
-                    ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 border-amber-200 dark:border-amber-500/30'
+                    : 'text-gray-500 hover:text-gray-700 border-gray-200 dark:border-gray-600'
                 ]"
                 :title="hasNotificationConfig(container.name) ? 'Notifications enabled - Click to configure' : 'Configure notifications'"
               >
@@ -629,7 +641,7 @@ onUnmounted(() => {
               <!-- Logs Button -->
               <button
                 @click="viewLogs(container)"
-                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-500/10"
+                class="flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30"
                 title="View Logs"
               >
                 <DocumentTextIcon class="h-4 w-4" />
@@ -640,7 +652,7 @@ onUnmounted(() => {
               <button
                 v-if="container.status === 'running'"
                 @click="openTerminal(container)"
-                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10"
+                class="flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-500/10 border border-cyan-200 dark:border-cyan-500/30"
                 title="Open Terminal"
               >
                 <CommandLineIcon class="h-4 w-4" />
@@ -733,14 +745,43 @@ onUnmounted(() => {
               <LoadingSpinner v-if="notifyDialog.loading" text="Loading settings..." />
 
               <div v-else class="space-y-6">
+                <!-- Warning: No targets configured -->
+                <div v-if="!hasContainerEventTargets" class="p-4 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                  <div class="flex gap-3">
+                    <ExclamationTriangleIcon class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p class="font-medium text-amber-700 dark:text-amber-400">No notification targets configured</p>
+                      <p class="text-sm text-amber-600 dark:text-amber-500 mt-1">
+                        Container events won't be sent until you configure notification targets.
+                      </p>
+                      <router-link
+                        to="/settings?section=notifications&tab=events"
+                        class="inline-flex items-center gap-1 text-sm font-medium text-amber-700 dark:text-amber-400 hover:underline mt-2"
+                        @click="notifyDialog.open = false"
+                      >
+                        Configure in Settings → Notifications
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </router-link>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- Enable/Disable Toggle -->
                 <div class="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
                   <div>
                     <p class="font-medium text-gray-900 dark:text-white">Enable Notifications</p>
                     <p class="text-sm text-gray-500 dark:text-gray-400">Receive alerts for this container</p>
                   </div>
-                  <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" v-model="notifyDialog.config.enabled" class="sr-only peer">
+                  <label :class="['relative inline-flex items-center', !hasContainerEventTargets ? 'cursor-not-allowed opacity-50' : 'cursor-pointer']">
+                    <input
+                      type="checkbox"
+                      v-model="notifyDialog.config.enabled"
+                      :disabled="!hasContainerEventTargets && !notifyDialog.config.enabled"
+                      class="sr-only peer"
+                      @change="!hasContainerEventTargets && notifyDialog.config.enabled && notificationStore.warning('Configure notification targets first in Settings → Notifications')"
+                    >
                     <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-500 peer-checked:bg-blue-600"></div>
                   </label>
                 </div>
@@ -832,21 +873,29 @@ onUnmounted(() => {
             </div>
 
             <!-- Footer -->
-            <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-              <button
-                @click="notifyDialog.open = false"
-                class="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                @click="saveNotifySettings"
-                :disabled="notifyDialog.saving"
-                class="btn-primary flex items-center gap-2"
-              >
-                <span v-if="notifyDialog.saving">Saving...</span>
-                <span v-else>Save Settings</span>
-              </button>
+            <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
+              <!-- Info about targets -->
+              <div v-if="hasContainerEventTargets" class="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                <p class="font-medium mb-1">ℹ️ These settings control which events to monitor for this container.</p>
+                <p>Notification targets (where alerts are sent) are configured in Settings → Notifications → Container Events.</p>
+              </div>
+
+              <div class="flex items-center justify-end gap-3">
+                <button
+                  @click="notifyDialog.open = false"
+                  class="btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  @click="saveNotifySettings"
+                  :disabled="notifyDialog.saving"
+                  class="btn-primary flex items-center gap-2"
+                >
+                  <span v-if="notifyDialog.saving">Saving...</span>
+                  <span v-else>Save Settings</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
