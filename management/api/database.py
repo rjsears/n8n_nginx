@@ -196,6 +196,10 @@ async def run_schema_migrations() -> None:
         ("notification_services", "webhook_enabled", "BOOLEAN DEFAULT FALSE"),
         # notification_services.slug added for targeted webhook routing
         ("notification_services", "slug", "VARCHAR(100)"),
+        # system_notification_container_configs.monitor_stopped for container stopped events
+        ("system_notification_container_configs", "monitor_stopped", "BOOLEAN DEFAULT TRUE"),
+        # system_notification_targets.escalation_timeout_minutes for per-target L2 timeout
+        ("system_notification_targets", "escalation_timeout_minutes", "INTEGER"),
     ]
 
     async with engine.begin() as conn:
