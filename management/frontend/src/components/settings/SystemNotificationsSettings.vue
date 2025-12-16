@@ -1376,7 +1376,7 @@ onMounted(() => {
 
             <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg p-4">
               <p class="text-sm text-amber-800 dark:text-amber-300">
-                <strong>All notifications disabled:</strong> While maintenance mode is active, ALL system notifications are completely stopped. No alerts will be sent, queued, or stored. Use this when performing intentional maintenance that may generate unwanted alerts.
+                <strong>All notifications disabled:</strong> While maintenance mode is active, ALL system notifications are completely stopped. No alerts will be sent, queued, or stored. Use this when performing intentional maintenance that may generate unwanted alerts. This will not affect any n8n webhook generated notifications.
               </p>
             </div>
 
