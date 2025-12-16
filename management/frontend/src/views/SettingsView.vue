@@ -220,13 +220,13 @@ const availableDefaultRanges = computed(() => {
 // No longer using theme presets - removed in favor of simpler light/dark toggle
 
 const tabs = [
-  { id: 'appearance', name: 'Appearance', icon: PaintBrushIcon },
-  { id: 'backup', name: 'Backup', icon: CircleStackIcon },
-  { id: 'notifications', name: 'System Notifications', icon: BellIcon },
-  { id: 'security', name: 'Security', icon: ShieldCheckIcon },
-  { id: 'access-control', name: 'Access Control', icon: GlobeAltIcon },
-  { id: 'account', name: 'Account', icon: UserIcon },
-  { id: 'api-debug', name: 'n8n API / Debug', icon: BugAntIcon },
+  { id: 'appearance', name: 'Appearance', icon: PaintBrushIcon, iconColor: 'text-pink-500', bgActive: 'bg-pink-500/15 dark:bg-pink-500/20', textActive: 'text-pink-700 dark:text-pink-400', borderActive: 'border-pink-500/30' },
+  { id: 'backup', name: 'Backup', icon: CircleStackIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
+  { id: 'notifications', name: 'System Notifications', icon: BellIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
+  { id: 'security', name: 'Security', icon: ShieldCheckIcon, iconColor: 'text-red-500', bgActive: 'bg-red-500/15 dark:bg-red-500/20', textActive: 'text-red-700 dark:text-red-400', borderActive: 'border-red-500/30' },
+  { id: 'access-control', name: 'Access Control', icon: GlobeAltIcon, iconColor: 'text-blue-500', bgActive: 'bg-blue-500/15 dark:bg-blue-500/20', textActive: 'text-blue-700 dark:text-blue-400', borderActive: 'border-blue-500/30' },
+  { id: 'account', name: 'Account', icon: UserIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
+  { id: 'api-debug', name: 'n8n API / Debug', icon: BugAntIcon, iconColor: 'text-cyan-500', bgActive: 'bg-cyan-500/15 dark:bg-cyan-500/20', textActive: 'text-cyan-700 dark:text-cyan-400', borderActive: 'border-cyan-500/30' },
 ]
 
 async function loadSettings() {
@@ -631,22 +631,20 @@ watch(activeTab, (newTab) => {
     <LoadingSpinner v-if="loading" size="lg" text="Loading settings..." class="py-12" />
 
     <template v-else>
-      <!-- Tabs -->
-      <div class="flex gap-1 p-1 bg-surface-hover rounded-lg overflow-x-auto">
+      <!-- Tabs - Matching style with colored icons -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           @click="activeTab = tab.id"
           :class="[
-            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap',
+            'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap border',
             activeTab === tab.id
-              ? themeStore.isNeon
-                ? 'bg-cyan-500/20 text-cyan-400'
-                : 'bg-surface text-primary shadow-sm'
-              : 'text-secondary hover:text-primary'
+              ? `${tab.bgActive} ${tab.textActive} ${tab.borderActive}`
+              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-transparent'
           ]"
         >
-          <component :is="tab.icon" class="h-4 w-4" />
+          <component :is="tab.icon" :class="['h-4 w-4', activeTab === tab.id ? '' : tab.iconColor]" />
           {{ tab.name }}
         </button>
       </div>
