@@ -93,6 +93,8 @@ export const systemApi = {
   // Host metrics from metrics-agent
   hostMetrics: (includeContainerStats = false) => api.get('/system/host-metrics', { params: { include_container_stats: includeContainerStats } }),
   hostMetricsHealth: () => api.get('/system/host-metrics/health'),
+  // Host metrics from database cache (instant, preferred for dashboard)
+  hostMetricsCached: (historyMinutes = 60) => api.get('/system/host-metrics/cached', { params: { history_minutes: historyMinutes } }),
 }
 
 export const backupsApi = {

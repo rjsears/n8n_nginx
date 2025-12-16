@@ -82,3 +82,62 @@ class SystemMetricsCache(Base):
 
     def __repr__(self):
         return f"<SystemMetricsCache(id={self.id}, type='{self.metric_type}')>"
+
+
+class HostMetricsSnapshot(Base):
+    """
+    Stores periodic snapshots of host system metrics from the metrics-agent.
+    Used by the dashboard for instant data retrieval without querying the metrics-agent.
+    """
+
+    __tablename__ = "host_metrics_snapshot"
+
+    id = Column(Integer, primary_key=True)
+    collected_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True)
+
+    # System info
+    hostname = Column(String(255), nullable=True)
+    platform = Column(String(50), nullable=True)
+    uptime_seconds = Column(BigInteger, nullable=True)
+
+    # CPU metrics
+    cpu_percent = Column(Float, nullable=True)
+    cpu_core_count = Column(Integer, nullable=True)
+    load_avg_1m = Column(Float, nullable=True)
+    load_avg_5m = Column(Float, nullable=True)
+    load_avg_15m = Column(Float, nullable=True)
+
+    # Memory metrics
+    memory_percent = Column(Float, nullable=True)
+    memory_used_bytes = Column(BigInteger, nullable=True)
+    memory_total_bytes = Column(BigInteger, nullable=True)
+    swap_percent = Column(Float, nullable=True)
+    swap_used_bytes = Column(BigInteger, nullable=True)
+    swap_total_bytes = Column(BigInteger, nullable=True)
+
+    # Primary disk metrics (/)
+    disk_percent = Column(Float, nullable=True)
+    disk_used_bytes = Column(BigInteger, nullable=True)
+    disk_total_bytes = Column(BigInteger, nullable=True)
+    disk_free_bytes = Column(BigInteger, nullable=True)
+
+    # Network totals (sum of all interfaces)
+    network_rx_bytes = Column(BigInteger, nullable=True)
+    network_tx_bytes = Column(BigInteger, nullable=True)
+
+    # Container summary
+    containers_total = Column(Integer, default=0)
+    containers_running = Column(Integer, default=0)
+    containers_stopped = Column(Integer, default=0)
+    containers_healthy = Column(Integer, default=0)
+    containers_unhealthy = Column(Integer, default=0)
+
+    # Additional disk info stored as JSON for multiple mount points
+    disks_detail = Column(JSONB, nullable=True)
+
+    __table_args__ = (
+        Index("idx_host_metrics_collected_at", "collected_at"),
+    )
+
+    def __repr__(self):
+        return f"<HostMetricsSnapshot(id={self.id}, collected_at='{self.collected_at}')>"

@@ -1957,3 +1957,117 @@ async def get_host_metrics_health(
             "enabled": True,
             "error": str(e),
         }
+
+
+@router.get("/host-metrics/cached")
+async def get_host_metrics_cached(
+    history_minutes: int = 60,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """
+    Get host metrics from the database cache (instant, no network latency).
+
+    The metrics are collected every minute by the scheduler from the metrics-agent
+    and stored in PostgreSQL. This endpoint reads from the database, making it
+    much faster than the live /host-metrics endpoint.
+
+    Args:
+        history_minutes: Number of minutes of history to return for charts (default 60)
+
+    Returns:
+        - latest: The most recent metrics snapshot
+        - history: Array of historical data points for charting
+        - available: Whether metrics data is available
+    """
+    from api.models.audit import HostMetricsSnapshot
+    from sqlalchemy import select, desc
+    from datetime import timedelta
+
+    # Get the latest snapshot
+    result = await db.execute(
+        select(HostMetricsSnapshot)
+        .order_by(desc(HostMetricsSnapshot.collected_at))
+        .limit(1)
+    )
+    latest = result.scalar_one_or_none()
+
+    if not latest:
+        return {
+            "available": False,
+            "enabled": settings.metrics_agent_enabled,
+            "error": "No metrics data available yet. Please wait for the collector to run.",
+            "latest": None,
+            "history": [],
+        }
+
+    # Get historical data for charts (last N minutes)
+    cutoff = datetime.now(UTC) - timedelta(minutes=history_minutes)
+    result = await db.execute(
+        select(HostMetricsSnapshot)
+        .where(HostMetricsSnapshot.collected_at >= cutoff)
+        .order_by(HostMetricsSnapshot.collected_at)
+    )
+    history_rows = result.scalars().all()
+
+    # Format the response
+    def format_snapshot(s):
+        return {
+            "collected_at": s.collected_at.isoformat() if s.collected_at else None,
+            "system": {
+                "hostname": s.hostname,
+                "platform": s.platform,
+                "uptime_seconds": s.uptime_seconds,
+            },
+            "cpu": {
+                "percent": s.cpu_percent,
+                "core_count": s.cpu_core_count,
+                "load_avg_1m": s.load_avg_1m,
+                "load_avg_5m": s.load_avg_5m,
+                "load_avg_15m": s.load_avg_15m,
+            },
+            "memory": {
+                "percent": s.memory_percent,
+                "used_bytes": s.memory_used_bytes,
+                "total_bytes": s.memory_total_bytes,
+                "swap_percent": s.swap_percent,
+                "swap_used_bytes": s.swap_used_bytes,
+                "swap_total_bytes": s.swap_total_bytes,
+            },
+            "disk": {
+                "percent": s.disk_percent,
+                "used_bytes": s.disk_used_bytes,
+                "total_bytes": s.disk_total_bytes,
+                "free_bytes": s.disk_free_bytes,
+            },
+            "disks": s.disks_detail or [],
+            "network": {
+                "rx_bytes": s.network_rx_bytes,
+                "tx_bytes": s.network_tx_bytes,
+            },
+            "containers": {
+                "total": s.containers_total,
+                "running": s.containers_running,
+                "stopped": s.containers_stopped,
+                "healthy": s.containers_healthy,
+                "unhealthy": s.containers_unhealthy,
+            },
+        }
+
+    # Build history array optimized for charting (just key values)
+    history = [{
+        "time": s.collected_at.strftime("%H:%M") if s.collected_at else "",
+        "cpu": s.cpu_percent,
+        "memory": s.memory_percent,
+        "disk": s.disk_percent,
+        "network_rx": s.network_rx_bytes,
+        "network_tx": s.network_tx_bytes,
+    } for s in history_rows]
+
+    return {
+        "available": True,
+        "enabled": True,
+        "latest": format_snapshot(latest),
+        "history": history,
+        "history_count": len(history),
+    }

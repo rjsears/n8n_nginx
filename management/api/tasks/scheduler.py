@@ -88,12 +88,30 @@ async def _add_maintenance_jobs() -> None:
         replace_existing=True,
     )
 
-    # Metrics collection - run every 5 minutes
+    # Metrics collection (container-local) - run every 5 minutes
     scheduler.add_job(
         _collect_metrics,
         CronTrigger(minute="*/5"),
         id="maintenance_metrics_collection",
         name="Metrics Collection",
+        replace_existing=True,
+    )
+
+    # Host metrics collection (from metrics-agent) - run every minute
+    scheduler.add_job(
+        _collect_host_metrics,
+        CronTrigger(minute="*"),
+        id="maintenance_host_metrics_collection",
+        name="Host Metrics Collection",
+        replace_existing=True,
+    )
+
+    # Host metrics cleanup - run daily at 4 AM
+    scheduler.add_job(
+        _cleanup_host_metrics,
+        CronTrigger(hour=4, minute=0),
+        id="maintenance_host_metrics_cleanup",
+        name="Host Metrics Cleanup",
         replace_existing=True,
     )
 
@@ -416,3 +434,131 @@ async def _cleanup_notification_history() -> None:
 
         if result.rowcount > 0:
             logger.info(f"Cleaned up {result.rowcount} old notification records")
+
+
+async def _collect_host_metrics() -> None:
+    """
+    Collect metrics from the metrics-agent and store in HostMetricsSnapshot table.
+    This runs every minute and provides instant data for the dashboard.
+    """
+    import httpx
+    from api.database import async_session_maker
+    from api.models.audit import HostMetricsSnapshot
+
+    # Check if metrics agent is enabled
+    if not settings.metrics_agent_enabled:
+        return
+
+    try:
+        # Fetch metrics from the metrics-agent
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = {}
+            if settings.metrics_agent_api_key:
+                headers["X-API-Key"] = settings.metrics_agent_api_key
+
+            response = await client.get(
+                f"{settings.metrics_agent_url}/metrics",
+                headers=headers,
+                params={"include_container_stats": True},
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        # Extract and flatten metrics for database storage
+        system = data.get("system", {})
+        cpu = data.get("cpu", {})
+        memory = data.get("memory", {})
+        disks = data.get("disks", [])
+        network = data.get("network", [])
+        containers = data.get("containers", [])
+
+        # Find primary disk (/)
+        primary_disk = next((d for d in disks if d.get("mount_point") == "/"), disks[0] if disks else {})
+
+        # Calculate network totals
+        network_rx = sum(iface.get("bytes_recv", 0) for iface in network)
+        network_tx = sum(iface.get("bytes_sent", 0) for iface in network)
+
+        # Calculate container health summary
+        containers_running = sum(1 for c in containers if c.get("status") == "running")
+        containers_stopped = sum(1 for c in containers if c.get("status") != "running")
+        containers_healthy = sum(1 for c in containers if c.get("health") == "healthy")
+        containers_unhealthy = sum(1 for c in containers if c.get("health") == "unhealthy")
+
+        # Create snapshot
+        snapshot = HostMetricsSnapshot(
+            # System info
+            hostname=system.get("hostname"),
+            platform=system.get("platform"),
+            uptime_seconds=int(system.get("uptime_seconds", 0)),
+            # CPU
+            cpu_percent=cpu.get("percent"),
+            cpu_core_count=cpu.get("core_count"),
+            load_avg_1m=cpu.get("load_avg_1m"),
+            load_avg_5m=cpu.get("load_avg_5m"),
+            load_avg_15m=cpu.get("load_avg_15m"),
+            # Memory
+            memory_percent=memory.get("percent"),
+            memory_used_bytes=memory.get("used_bytes"),
+            memory_total_bytes=memory.get("total_bytes"),
+            swap_percent=memory.get("swap_percent"),
+            swap_used_bytes=memory.get("swap_used_bytes"),
+            swap_total_bytes=memory.get("swap_total_bytes"),
+            # Primary disk
+            disk_percent=primary_disk.get("percent"),
+            disk_used_bytes=primary_disk.get("used_bytes"),
+            disk_total_bytes=primary_disk.get("total_bytes"),
+            disk_free_bytes=primary_disk.get("free_bytes"),
+            # Network
+            network_rx_bytes=network_rx,
+            network_tx_bytes=network_tx,
+            # Containers
+            containers_total=len(containers),
+            containers_running=containers_running,
+            containers_stopped=containers_stopped,
+            containers_healthy=containers_healthy,
+            containers_unhealthy=containers_unhealthy,
+            # Additional disk details as JSON
+            disks_detail=[{
+                "mount_point": d.get("mount_point"),
+                "percent": d.get("percent"),
+                "total_bytes": d.get("total_bytes"),
+                "used_bytes": d.get("used_bytes"),
+                "free_bytes": d.get("free_bytes"),
+            } for d in disks],
+        )
+
+        async with async_session_maker() as db:
+            db.add(snapshot)
+            await db.commit()
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"Host metrics collection failed (HTTP {e.response.status_code}): {e}")
+    except httpx.RequestError as e:
+        logger.warning(f"Host metrics collection failed (connection error): {e}")
+    except Exception as e:
+        logger.error(f"Host metrics collection failed: {e}")
+
+
+async def _cleanup_host_metrics() -> None:
+    """
+    Clean up old host metrics snapshots.
+    Default retention: 24 hours (1440 records at 1/minute collection rate).
+    """
+    from api.database import async_session_maker
+    from api.models.audit import HostMetricsSnapshot
+    from sqlalchemy import delete
+    from datetime import timedelta
+
+    # Keep 24 hours of data by default
+    retention_hours = getattr(settings, "host_metrics_retention_hours", 24)
+
+    async with async_session_maker() as db:
+        cutoff = datetime.now(UTC) - timedelta(hours=retention_hours)
+        result = await db.execute(
+            delete(HostMetricsSnapshot).where(HostMetricsSnapshot.collected_at < cutoff)
+        )
+        await db.commit()
+
+        if result.rowcount > 0:
+            logger.info(f"Cleaned up {result.rowcount} old host metrics records")
