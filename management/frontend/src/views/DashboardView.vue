@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, shallowRef, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useContainerStore } from '@/stores/containers'
@@ -66,7 +66,8 @@ const error = ref(null)
 const hostMetrics = ref(null)
 
 // Metrics history for charts (last 30 data points)
-const metricsHistory = ref({
+// Using shallowRef to prevent deep reactivity tracking which causes infinite loops with Chart.js
+const metricsHistory = shallowRef({
   labels: [],
   cpu: [],
   memory: [],
@@ -74,6 +75,19 @@ const metricsHistory = ref({
   networkTx: [],
 })
 const MAX_HISTORY_POINTS = 30
+
+// Helper to update metrics history without triggering infinite reactivity loops
+function updateMetricsHistory(newData) {
+  const current = metricsHistory.value
+  const labels = [...current.labels, newData.label].slice(-MAX_HISTORY_POINTS)
+  const cpu = [...current.cpu, newData.cpu].slice(-MAX_HISTORY_POINTS)
+  const memory = [...current.memory, newData.memory].slice(-MAX_HISTORY_POINTS)
+  const networkRx = [...current.networkRx, newData.networkRx].slice(-MAX_HISTORY_POINTS)
+  const networkTx = [...current.networkTx, newData.networkTx].slice(-MAX_HISTORY_POINTS)
+
+  // Replace the entire object to trigger shallow reactivity
+  metricsHistory.value = { labels, cpu, memory, networkRx, networkTx }
+}
 
 // Container health summary
 const containerHealth = ref({
@@ -151,7 +165,7 @@ async function fetchHostMetrics() {
     const metricsRes = await systemApi.hostMetrics(true)
     hostMetrics.value = metricsRes.data
 
-    // Update metrics history
+    // Update metrics history using helper to avoid reactivity loops
     const now = new Date()
     const timeLabel = now.toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -167,20 +181,13 @@ async function fetchHostMetrics() {
     const totalRx = network.reduce((sum, iface) => sum + (iface.bytes_recv || 0), 0)
     const totalTx = network.reduce((sum, iface) => sum + (iface.bytes_sent || 0), 0)
 
-    metricsHistory.value.labels.push(timeLabel)
-    metricsHistory.value.cpu.push(Math.round(cpu.percent || 0))
-    metricsHistory.value.memory.push(Math.round(memory.percent || 0))
-    metricsHistory.value.networkRx.push(totalRx)
-    metricsHistory.value.networkTx.push(totalTx)
-
-    // Keep only last MAX_HISTORY_POINTS
-    if (metricsHistory.value.labels.length > MAX_HISTORY_POINTS) {
-      metricsHistory.value.labels.shift()
-      metricsHistory.value.cpu.shift()
-      metricsHistory.value.memory.shift()
-      metricsHistory.value.networkRx.shift()
-      metricsHistory.value.networkTx.shift()
-    }
+    updateMetricsHistory({
+      label: timeLabel,
+      cpu: Math.round(cpu.percent || 0),
+      memory: Math.round(memory.percent || 0),
+      networkRx: totalRx,
+      networkTx: totalTx,
+    })
 
     // Update container health from host metrics
     const containers = hostMetrics.value.containers || []
@@ -263,23 +270,17 @@ async function fetchContainerMetrics() {
       healthy: containerStore.containers.filter(c => c.health_status === 'healthy').length,
     }
 
-    // Update history
+    // Update history using helper to avoid reactivity loops
     const now = new Date()
     const timeLabel = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
 
-    metricsHistory.value.labels.push(timeLabel)
-    metricsHistory.value.cpu.push(Math.round(metricsRes.data.cpu.percent))
-    metricsHistory.value.memory.push(Math.round(metricsRes.data.memory.percent))
-    metricsHistory.value.networkRx.push(metricsRes.data.network?.bytes_recv || 0)
-    metricsHistory.value.networkTx.push(metricsRes.data.network?.bytes_sent || 0)
-
-    if (metricsHistory.value.labels.length > MAX_HISTORY_POINTS) {
-      metricsHistory.value.labels.shift()
-      metricsHistory.value.cpu.shift()
-      metricsHistory.value.memory.shift()
-      metricsHistory.value.networkRx.shift()
-      metricsHistory.value.networkTx.shift()
-    }
+    updateMetricsHistory({
+      label: timeLabel,
+      cpu: Math.round(metricsRes.data.cpu.percent),
+      memory: Math.round(metricsRes.data.memory.percent),
+      networkRx: metricsRes.data.network?.bytes_recv || 0,
+      networkTx: metricsRes.data.network?.bytes_sent || 0,
+    })
   } catch (err) {
     console.error('Failed to fetch container metrics:', err)
     error.value = err.response?.data?.detail || err.message
