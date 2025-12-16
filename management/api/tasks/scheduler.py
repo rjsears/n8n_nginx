@@ -457,16 +457,25 @@ async def _collect_host_metrics() -> None:
 
         # Get Docker HOST uptime (the LXC/VM running Docker, not the Proxmox hypervisor)
         # In LXC, /proc/uptime shows the Proxmox host uptime since LXC shares the kernel.
-        # To get LXC container uptime, we check when PID 1 (init/systemd) started on the host.
+        # To get LXC container uptime, we calculate from PID 1's actual start time.
         uptime_seconds = 0
         docker_client = docker.from_env()
 
         try:
-            # Run alpine with host PID namespace to check when host's PID 1 started
-            # This gives us the LXC container's actual boot time
+            # Method 1: Calculate PID 1 start time from /proc/1/stat and /proc/stat
+            # This works in LXC because it measures when the LXC's init process started
             result = docker_client.containers.run(
                 "alpine:latest",
-                command=["stat", "-c", "%Y", "/proc/1"],
+                command=["sh", "-c", """
+                    # Get boot time (btime) from /proc/stat
+                    btime=$(grep -m1 '^btime ' /proc/stat | awk '{print $2}')
+                    # Get PID 1 start time (field 22) from /proc/1/stat - in clock ticks since boot
+                    starttime=$(cat /proc/1/stat | awk '{print $22}')
+                    # Get clock ticks per second
+                    clk_tck=$(getconf CLK_TCK)
+                    # Calculate PID 1 start time as epoch seconds
+                    echo $(( btime + starttime / clk_tck ))
+                """],
                 pid_mode="host",
                 remove=True,
                 stdout=True,
@@ -476,28 +485,32 @@ async def _collect_host_metrics() -> None:
             import time
             uptime_seconds = int(time.time() - pid1_start_epoch)
         except Exception as e:
-            logger.debug(f"Could not get host PID 1 start time: {e}")
+            logger.debug(f"Could not calculate host PID 1 start time: {e}")
 
-        # Fallback: check Docker daemon info for system time hints
-        if uptime_seconds <= 0:
+        # Fallback: try to get uptime from systemd if available
+        if uptime_seconds <= 0 or uptime_seconds > 86400 * 365:  # Sanity check: > 1 year is suspicious
             try:
-                # Try getting when oldest container started as rough approximation
-                containers = docker_client.containers.list(all=True)
-                oldest_start = None
-                for c in containers:
-                    started_at = c.attrs.get("State", {}).get("StartedAt")
-                    if started_at:
-                        from datetime import datetime, timezone
-                        try:
-                            start_time = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                            if oldest_start is None or start_time < oldest_start:
-                                oldest_start = start_time
-                        except Exception:
-                            pass
-                if oldest_start:
-                    uptime_seconds = int((datetime.now(timezone.utc) - oldest_start).total_seconds())
-            except Exception:
-                pass
+                result = docker_client.containers.run(
+                    "alpine:latest",
+                    command=["cat", "/proc/1/stat"],
+                    pid_mode="host",
+                    remove=True,
+                    stdout=True,
+                    stderr=False,
+                )
+                # Parse field 22 (starttime) - if we can at least get relative time
+                stat_parts = result.decode("utf-8").strip().split()
+                if len(stat_parts) >= 22:
+                    # Field 22 is start time in jiffies since boot
+                    # We can approximate using current /proc/uptime minus relative start
+                    with open('/proc/uptime', 'r') as f:
+                        kernel_uptime = float(f.read().split()[0])
+                    start_jiffies = int(stat_parts[21])  # 0-indexed, so field 22 is index 21
+                    # Assume 100 Hz (common value)
+                    pid1_relative_start = start_jiffies / 100.0
+                    uptime_seconds = int(kernel_uptime - pid1_relative_start)
+            except Exception as e:
+                logger.debug(f"Fallback PID 1 calculation failed: {e}")
 
         # Final fallback (will show Proxmox uptime in LXC - not ideal but better than 0)
         if uptime_seconds <= 0:
