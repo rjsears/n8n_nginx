@@ -168,13 +168,6 @@ services:
       - DOMAIN=${DOMAIN:-}
       # NTFY public URL (if different from https://ntfy.${DOMAIN})
       - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
-      # Metrics Agent (host-level system monitoring)
-      - METRICS_AGENT_ENABLED=${METRICS_AGENT_ENABLED:-false}
-      - METRICS_AGENT_URL=${METRICS_AGENT_URL:-http://host.docker.internal:9100}
-      - METRICS_AGENT_API_KEY=${METRICS_AGENT_API_KEY:-}
-    extra_hosts:
-      # Required for Linux to resolve host.docker.internal
-      - "host.docker.internal:host-gateway"
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
