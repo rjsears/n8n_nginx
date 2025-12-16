@@ -11,6 +11,7 @@ from api.routers import system
 from api.routers import email
 from api.routers import flows
 from api.routers import ntfy
+from api.routers import system_notifications
 
 __all__ = [
     "auth",
@@ -22,4 +23,5 @@ __all__ = [
     "email",
     "flows",
     "ntfy",
+    "system_notifications",
 ]

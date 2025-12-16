@@ -9,6 +9,7 @@ import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import SystemNotificationsSettings from '@/components/settings/SystemNotificationsSettings.vue'
 import {
   Cog6ToothIcon,
   PaintBrushIcon,
@@ -901,91 +902,8 @@ watch(activeTab, (newTab) => {
       </div>
 
       <!-- Notifications Tab -->
-      <div v-if="activeTab === 'notifications'" class="space-y-6">
-        <Card title="Notification Events" subtitle="Choose which events trigger notifications" :neon="true">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Backup Success</p>
-                <p class="text-sm text-secondary">Notify when backups complete successfully</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="settings.notifications.backup_success" class="sr-only peer" />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Backup Failure</p>
-                <p class="text-sm text-secondary">Notify when backups fail</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="settings.notifications.backup_failure" class="sr-only peer" />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Container Unhealthy</p>
-                <p class="text-sm text-secondary">Notify when a container becomes unhealthy</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="settings.notifications.container_unhealthy" class="sr-only peer" />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Disk Space Warning</p>
-                <p class="text-sm text-secondary">Notify when disk space is low</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="settings.notifications.disk_space_warning" class="sr-only peer" />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
-
-            <div v-if="settings.notifications.disk_space_warning" class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Disk Space Threshold</p>
-                <p class="text-sm text-secondary">Warning at this usage percentage</p>
-              </div>
-              <div class="flex items-center gap-2">
-                <input
-                  type="number"
-                  v-model="settings.notifications.disk_space_threshold"
-                  min="50"
-                  max="99"
-                  class="input-field w-20"
-                />
-                <span class="text-secondary">%</span>
-              </div>
-            </div>
-          </div>
-
-          <template #footer>
-            <div class="flex justify-end">
-              <button
-                @click="saveSettings('notifications')"
-                :disabled="saving"
-                class="btn-primary"
-              >
-                {{ saving ? 'Saving...' : 'Save Changes' }}
-              </button>
-            </div>
-          </template>
-        </Card>
+      <div v-if="activeTab === 'notifications'">
+        <SystemNotificationsSettings />
       </div>
 
       <!-- Security Tab -->

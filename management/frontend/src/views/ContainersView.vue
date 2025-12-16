@@ -28,6 +28,8 @@ import {
   ArrowUpTrayIcon,
   Square3Stack3DIcon,
   HeartIcon,
+  BellIcon,
+  BellSlashIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -39,6 +41,23 @@ const loading = ref(true)
 const containerStats = ref({})
 const actionDialog = ref({ open: false, container: null, action: '', loading: false })
 const logsDialog = ref({ open: false, container: null, logs: '', loading: false })
+const notifyDialog = ref({
+  open: false,
+  container: null,
+  loading: false,
+  saving: false,
+  config: {
+    enabled: true,
+    notify_on_stop: true,
+    notify_on_unhealthy: true,
+    notify_on_restart: true,
+    notify_on_high_cpu: false,
+    cpu_threshold: 80,
+    notify_on_high_memory: false,
+    memory_threshold: 80,
+  }
+})
+const containerConfigs = ref({})  // Cache of container notification configs
 
 let statsInterval = null
 
@@ -211,6 +230,84 @@ function openTerminal(container) {
   })
 }
 
+async function openNotifySettings(container) {
+  notifyDialog.value = {
+    open: true,
+    container,
+    loading: true,
+    saving: false,
+    config: {
+      enabled: true,
+      notify_on_stop: true,
+      notify_on_unhealthy: true,
+      notify_on_restart: true,
+      notify_on_high_cpu: false,
+      cpu_threshold: 80,
+      notify_on_high_memory: false,
+      memory_threshold: 80,
+    }
+  }
+
+  try {
+    // Try to load existing config for this container
+    const response = await api.get(`/system-notifications/container-configs/${container.name}`)
+    if (response.data) {
+      notifyDialog.value.config = {
+        enabled: response.data.enabled ?? true,
+        notify_on_stop: response.data.notify_on_stop ?? true,
+        notify_on_unhealthy: response.data.notify_on_unhealthy ?? true,
+        notify_on_restart: response.data.notify_on_restart ?? true,
+        notify_on_high_cpu: response.data.notify_on_high_cpu ?? false,
+        cpu_threshold: response.data.cpu_threshold ?? 80,
+        notify_on_high_memory: response.data.notify_on_high_memory ?? false,
+        memory_threshold: response.data.memory_threshold ?? 80,
+      }
+    }
+  } catch (error) {
+    // No existing config, use defaults
+    console.log('No existing notification config for container:', container.name)
+  } finally {
+    notifyDialog.value.loading = false
+  }
+}
+
+async function saveNotifySettings() {
+  if (!notifyDialog.value.container) return
+
+  notifyDialog.value.saving = true
+  try {
+    await api.put(`/system-notifications/container-configs/${notifyDialog.value.container.name}`, {
+      container_name: notifyDialog.value.container.name,
+      ...notifyDialog.value.config
+    })
+    notificationStore.success(`Notification settings saved for ${notifyDialog.value.container.name}`)
+    // Cache the config
+    containerConfigs.value[notifyDialog.value.container.name] = { ...notifyDialog.value.config }
+    notifyDialog.value.open = false
+  } catch (error) {
+    notificationStore.error('Failed to save notification settings')
+  } finally {
+    notifyDialog.value.saving = false
+  }
+}
+
+function hasNotificationConfig(containerName) {
+  return containerConfigs.value[containerName]?.enabled ?? false
+}
+
+async function loadContainerConfigs() {
+  try {
+    const response = await api.get('/system-notifications/container-configs')
+    if (response.data) {
+      for (const config of response.data) {
+        containerConfigs.value[config.container_name] = config
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load container notification configs:', error)
+  }
+}
+
 async function fetchStats() {
   try {
     const response = await api.get('/containers/stats')
@@ -238,6 +335,7 @@ async function loadData() {
     await Promise.all([
       containerStore.fetchContainers(),
       fetchStats(),
+      loadContainerConfigs(),
     ])
   } catch (error) {
     notificationStore.error('Failed to load containers')
@@ -512,6 +610,21 @@ onUnmounted(() => {
             </div>
 
             <div class="flex items-center gap-2">
+              <!-- Notification Settings Button -->
+              <button
+                @click="openNotifySettings(container)"
+                :class="[
+                  'btn-secondary p-2',
+                  hasNotificationConfig(container.name)
+                    ? 'text-amber-500 hover:text-amber-600'
+                    : 'text-gray-400 hover:text-gray-600'
+                ]"
+                :title="hasNotificationConfig(container.name) ? 'Notifications enabled - Click to configure' : 'Configure notifications'"
+              >
+                <BellIcon v-if="hasNotificationConfig(container.name)" class="h-4 w-4" />
+                <BellSlashIcon v-else class="h-4 w-4" />
+              </button>
+
               <!-- Logs Button -->
               <button
                 @click="viewLogs(container)"
@@ -574,6 +687,163 @@ onUnmounted(() => {
                 v-else
                 class="text-xs font-mono text-gray-200 whitespace-pre-wrap bg-gray-900 dark:bg-black p-4 rounded-lg overflow-auto"
               >{{ logsDialog.logs || 'No logs available' }}</pre>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Notification Settings Dialog -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="notifyDialog.open"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/50" @click="notifyDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col border border-gray-200 dark:border-gray-700">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
+                  <BellIcon class="h-5 w-5 text-amber-500" />
+                </div>
+                <div>
+                  <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                    Notification Settings
+                  </h3>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ notifyDialog.container?.name }}
+                  </p>
+                </div>
+              </div>
+              <button
+                @click="notifyDialog.open = false"
+                class="p-1 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                ×
+              </button>
+            </div>
+
+            <!-- Content -->
+            <div class="flex-1 overflow-auto p-6">
+              <LoadingSpinner v-if="notifyDialog.loading" text="Loading settings..." />
+
+              <div v-else class="space-y-6">
+                <!-- Enable/Disable Toggle -->
+                <div class="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                  <div>
+                    <p class="font-medium text-gray-900 dark:text-white">Enable Notifications</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Receive alerts for this container</p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" v-model="notifyDialog.config.enabled" class="sr-only peer">
+                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-500 peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                <!-- Status Events -->
+                <div :class="['space-y-3', !notifyDialog.config.enabled && 'opacity-50 pointer-events-none']">
+                  <h4 class="font-medium text-gray-900 dark:text-white text-sm">Status Events</h4>
+
+                  <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
+                    <input type="checkbox" v-model="notifyDialog.config.notify_on_stop" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                    <div>
+                      <p class="text-sm font-medium text-gray-900 dark:text-white">Container Stopped</p>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container stops unexpectedly</p>
+                    </div>
+                  </label>
+
+                  <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
+                    <input type="checkbox" v-model="notifyDialog.config.notify_on_unhealthy" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                    <div>
+                      <p class="text-sm font-medium text-gray-900 dark:text-white">Health Check Failed</p>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container becomes unhealthy</p>
+                    </div>
+                  </label>
+
+                  <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
+                    <input type="checkbox" v-model="notifyDialog.config.notify_on_restart" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                    <div>
+                      <p class="text-sm font-medium text-gray-900 dark:text-white">Container Restarted</p>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container restarts automatically</p>
+                    </div>
+                  </label>
+                </div>
+
+                <!-- Resource Thresholds -->
+                <div :class="['space-y-3', !notifyDialog.config.enabled && 'opacity-50 pointer-events-none']">
+                  <h4 class="font-medium text-gray-900 dark:text-white text-sm">Resource Thresholds</h4>
+
+                  <div class="p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" v-model="notifyDialog.config.notify_on_high_cpu" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                      <div class="flex-1">
+                        <p class="text-sm font-medium text-gray-900 dark:text-white">High CPU Usage</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Alert when CPU exceeds threshold</p>
+                      </div>
+                    </label>
+                    <div v-if="notifyDialog.config.notify_on_high_cpu" class="mt-3 ml-7">
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="range"
+                          v-model.number="notifyDialog.config.cpu_threshold"
+                          min="50"
+                          max="100"
+                          step="5"
+                          class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        >
+                        <span class="text-sm font-medium text-gray-900 dark:text-white w-12 text-right">
+                          {{ notifyDialog.config.cpu_threshold }}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" v-model="notifyDialog.config.notify_on_high_memory" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                      <div class="flex-1">
+                        <p class="text-sm font-medium text-gray-900 dark:text-white">High Memory Usage</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Alert when memory exceeds threshold</p>
+                      </div>
+                    </label>
+                    <div v-if="notifyDialog.config.notify_on_high_memory" class="mt-3 ml-7">
+                      <div class="flex items-center gap-2">
+                        <input
+                          type="range"
+                          v-model.number="notifyDialog.config.memory_threshold"
+                          min="50"
+                          max="100"
+                          step="5"
+                          class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        >
+                        <span class="text-sm font-medium text-gray-900 dark:text-white w-12 text-right">
+                          {{ notifyDialog.config.memory_threshold }}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+              <button
+                @click="notifyDialog.open = false"
+                class="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="saveNotifySettings"
+                :disabled="notifyDialog.saving"
+                class="btn-primary flex items-center gap-2"
+              >
+                <span v-if="notifyDialog.saving">Saving...</span>
+                <span v-else>Save Settings</span>
+              </button>
             </div>
           </div>
         </div>

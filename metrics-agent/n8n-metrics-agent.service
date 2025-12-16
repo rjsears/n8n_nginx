@@ -1,0 +1,44 @@
+[Unit]
+Description=n8n Metrics Agent - Host-level system metrics collector
+Documentation=https://github.com/your-repo/n8n-management
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=docker
+
+# Environment configuration
+Environment="METRICS_AGENT_HOST=127.0.0.1"
+Environment="METRICS_AGENT_PORT=9100"
+# Uncomment and set an API key for security:
+# Environment="METRICS_AGENT_API_KEY=your-secure-api-key-here"
+Environment="METRICS_LOG_LEVEL=INFO"
+
+# Working directory (adjust to your installation path)
+WorkingDirectory=/opt/n8n-metrics-agent
+
+# Start command
+ExecStart=/opt/n8n-metrics-agent/venv/bin/n8n-metrics-agent
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+# Allow access to Docker socket
+ReadWritePaths=/var/run/docker.sock
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=n8n-metrics-agent
+
+[Install]
+WantedBy=multi-user.target

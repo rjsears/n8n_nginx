@@ -52,6 +52,22 @@ from api.schemas.email import (
     EmailTestRequest,
     EmailTestResponse,
 )
+from api.schemas.system_notifications import (
+    EventResponse,
+    EventUpdate,
+    TargetCreate,
+    TargetResponse,
+    ContainerConfigCreate,
+    ContainerConfigUpdate,
+    ContainerConfigResponse,
+    GlobalSettingsResponse,
+    GlobalSettingsUpdate,
+    HistoryResponse as SystemNotificationHistoryResponse,
+    HistoryListResponse,
+    StateResponse,
+    MaintenanceModeRequest,
+    TestEventRequest,
+)
 
 __all__ = [
     # Common
@@ -98,4 +114,19 @@ __all__ = [
     "EmailTemplateResponse",
     "EmailTestRequest",
     "EmailTestResponse",
+    # System Notifications
+    "EventResponse",
+    "EventUpdate",
+    "TargetCreate",
+    "TargetResponse",
+    "ContainerConfigCreate",
+    "ContainerConfigUpdate",
+    "ContainerConfigResponse",
+    "GlobalSettingsResponse",
+    "GlobalSettingsUpdate",
+    "SystemNotificationHistoryResponse",
+    "HistoryListResponse",
+    "StateResponse",
+    "MaintenanceModeRequest",
+    "TestEventRequest",
 ]
