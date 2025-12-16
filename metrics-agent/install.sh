@@ -60,6 +60,57 @@ if [[ $PYTHON_MAJOR -lt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -lt 9 ]]
 fi
 print_success "Python $PYTHON_VERSION found"
 
+# Check if python3-venv is installed
+print_status "Checking for python3-venv..."
+if ! python3 -m venv --help &> /dev/null; then
+    print_warning "python3-venv is not installed"
+    echo ""
+
+    # Determine the package name based on distro
+    if command -v apt-get &> /dev/null; then
+        VENV_PACKAGE="python${PYTHON_VERSION}-venv (or python3-venv)"
+        INSTALL_CMD="apt-get install -y python${PYTHON_VERSION}-venv || apt-get install -y python3-venv"
+    elif command -v dnf &> /dev/null; then
+        VENV_PACKAGE="python3-virtualenv"
+        INSTALL_CMD="dnf install -y python3-virtualenv"
+    elif command -v yum &> /dev/null; then
+        VENV_PACKAGE="python3-virtualenv"
+        INSTALL_CMD="yum install -y python3-virtualenv"
+    else
+        print_error "Could not determine package manager."
+        print_error "Please install python3-venv manually and re-run this script."
+        exit 1
+    fi
+
+    echo -e "  The metrics agent requires ${BLUE}${VENV_PACKAGE}${NC} to create a virtual environment."
+    echo ""
+    read -p "  Would you like to install it now? [y/N]: " INSTALL_VENV
+
+    if [[ "$INSTALL_VENV" =~ ^[Yy]$ ]]; then
+        print_status "Installing python3-venv..."
+        if command -v apt-get &> /dev/null; then
+            apt-get update -qq
+        fi
+        eval $INSTALL_CMD
+        if ! python3 -m venv --help &> /dev/null; then
+            print_error "Failed to install python3-venv"
+            exit 1
+        fi
+        print_success "python3-venv installed"
+    else
+        print_warning "python3-venv is required for the metrics agent"
+        print_warning "The metrics agent will NOT be installed"
+        echo ""
+        echo "  To install manually, run:"
+        echo "    sudo $INSTALL_CMD"
+        echo ""
+        echo "  Then re-run this installer."
+        exit 1
+    fi
+else
+    print_success "python3-venv is available"
+fi
+
 # Check if Docker is available
 print_status "Checking Docker..."
 if ! command -v docker &> /dev/null; then
@@ -133,7 +184,8 @@ User=root
 Group=docker
 
 # Environment configuration
-Environment="METRICS_AGENT_HOST=127.0.0.1"
+# Listen on 0.0.0.0 to allow connections from Docker containers via host.docker.internal
+Environment="METRICS_AGENT_HOST=0.0.0.0"
 Environment="METRICS_AGENT_PORT=9100"
 Environment="METRICS_AGENT_API_KEY=$API_KEY"
 Environment="METRICS_LOG_LEVEL=INFO"
