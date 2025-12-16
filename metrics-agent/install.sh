@@ -184,7 +184,8 @@ User=root
 Group=docker
 
 # Environment configuration
-Environment="METRICS_AGENT_HOST=127.0.0.1"
+# Listen on 0.0.0.0 to allow connections from Docker containers via host.docker.internal
+Environment="METRICS_AGENT_HOST=0.0.0.0"
 Environment="METRICS_AGENT_PORT=9100"
 Environment="METRICS_AGENT_API_KEY=$API_KEY"
 Environment="METRICS_LOG_LEVEL=INFO"
