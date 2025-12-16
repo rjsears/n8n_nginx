@@ -36,6 +36,7 @@ import {
   SunIcon,
   EnvelopeIcon,
   DocumentTextIcon,
+  QuestionMarkCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const notificationStore = useNotificationStore()
@@ -54,6 +55,7 @@ const groups = ref([])
 
 // UI State
 const activeSection = ref('events') // 'events', 'containers', 'history', 'global'
+const expandedCategories = ref(new Set())
 const expandedEvents = ref(new Set())
 const expandedContainers = ref(new Set())
 const showMaintenanceModal = ref(false)
@@ -74,31 +76,31 @@ const iconMap = {
   ArrowDownTrayIcon,
 }
 
-// Frequency options
+// Frequency options with descriptions
 const frequencyOptions = [
-  { value: 'every_time', label: 'Every Time' },
-  { value: 'once_per_15m', label: 'Once per 15 minutes' },
-  { value: 'once_per_30m', label: 'Once per 30 minutes' },
-  { value: 'once_per_hour', label: 'Once per hour' },
-  { value: 'once_per_4h', label: 'Once per 4 hours' },
-  { value: 'once_per_12h', label: 'Once per 12 hours' },
-  { value: 'once_per_day', label: 'Once per day' },
-  { value: 'once_per_week', label: 'Once per week' },
+  { value: 'every_time', label: 'Every Time', description: 'Send notification each time this event occurs' },
+  { value: 'once_per_15m', label: 'Once per 15 minutes', description: 'Maximum one notification per 15 minute window' },
+  { value: 'once_per_30m', label: 'Once per 30 minutes', description: 'Maximum one notification per 30 minute window' },
+  { value: 'once_per_hour', label: 'Once per hour', description: 'Maximum one notification per hour' },
+  { value: 'once_per_4h', label: 'Once per 4 hours', description: 'Maximum one notification every 4 hours' },
+  { value: 'once_per_12h', label: 'Once per 12 hours', description: 'Maximum one notification every 12 hours' },
+  { value: 'once_per_day', label: 'Once per day', description: 'Maximum one notification per day' },
+  { value: 'once_per_week', label: 'Once per week', description: 'Maximum one notification per week' },
 ]
 
-// Severity options
+// Severity options with descriptions
 const severityOptions = [
-  { value: 'info', label: 'Info', color: 'blue' },
-  { value: 'warning', label: 'Warning', color: 'amber' },
-  { value: 'critical', label: 'Critical', color: 'red' },
+  { value: 'info', label: 'Info', color: 'blue', description: 'Informational - no action required' },
+  { value: 'warning', label: 'Warning', color: 'amber', description: 'Attention needed - not critical' },
+  { value: 'critical', label: 'Critical', color: 'red', description: 'Immediate action required' },
 ]
 
 // Category grouping
 const categoryInfo = {
-  backup: { label: 'Backup Events', icon: CircleStackIcon, color: 'emerald' },
-  container: { label: 'Container Events', icon: CubeIcon, color: 'blue' },
-  system: { label: 'System Events', icon: CpuChipIcon, color: 'purple' },
-  security: { label: 'Security Events', icon: ShieldCheckIcon, color: 'red' },
+  backup: { label: 'Backup Events', icon: CircleStackIcon, color: 'emerald', description: 'Notifications for backup operations' },
+  container: { label: 'Container Events', icon: CubeIcon, color: 'blue', description: 'Docker container health and status alerts' },
+  system: { label: 'System Events', icon: CpuChipIcon, color: 'purple', description: 'Host system resource monitoring' },
+  security: { label: 'Security Events', icon: ShieldCheckIcon, color: 'red', description: 'Security and access notifications' },
 }
 
 // Computed
@@ -119,6 +121,10 @@ const enabledEventsCount = computed(() => {
 
 const totalEventsCount = computed(() => events.value.length)
 
+const hasNoTargets = computed(() => {
+  return (event) => !event.targets || event.targets.length === 0
+})
+
 // Methods
 async function loadData() {
   loading.value = true
@@ -131,7 +137,7 @@ async function loadData() {
     ])
   } catch (error) {
     console.error('Failed to load system notifications data:', error)
-    notificationStore.error('Failed to load system notifications')
+    notificationStore.error('Failed to load notification settings')
   } finally {
     loading.value = false
   }
@@ -194,6 +200,15 @@ async function loadHistory() {
   }
 }
 
+function toggleCategory(category) {
+  if (expandedCategories.value.has(category)) {
+    expandedCategories.value.delete(category)
+  } else {
+    expandedCategories.value.add(category)
+  }
+  expandedCategories.value = new Set(expandedCategories.value)
+}
+
 function toggleEvent(eventId) {
   if (expandedEvents.value.has(eventId)) {
     expandedEvents.value.delete(eventId)
@@ -204,6 +219,12 @@ function toggleEvent(eventId) {
 }
 
 async function updateEvent(event, field, value) {
+  // Prevent enabling if no targets
+  if (field === 'enabled' && value === true && hasNoTargets.value(event)) {
+    notificationStore.warning('Add at least one notification target before enabling')
+    return
+  }
+
   try {
     const updateData = { [field]: value }
     await api.put(`/system-notifications/events/${event.id}`, updateData)
@@ -214,10 +235,19 @@ async function updateEvent(event, field, value) {
       events.value[idx] = { ...events.value[idx], [field]: value }
     }
 
-    notificationStore.success(`${event.display_name} settings saved`)
+    // Better toast messages based on field
+    const fieldMessages = {
+      enabled: value ? `Enabled notifications for "${event.display_name}"` : `Disabled notifications for "${event.display_name}"`,
+      frequency: `Frequency updated for "${event.display_name}"`,
+      severity: `Severity changed to ${value} for "${event.display_name}"`,
+      cooldown_minutes: `Cooldown updated for "${event.display_name}"`,
+      flapping_enabled: value ? `Flapping detection enabled for "${event.display_name}"` : `Flapping detection disabled for "${event.display_name}"`,
+      escalation_enabled: value ? `Escalation enabled for "${event.display_name}"` : `Escalation disabled for "${event.display_name}"`,
+    }
+    notificationStore.success(fieldMessages[field] || `Settings saved for "${event.display_name}"`)
   } catch (error) {
     console.error('Failed to update event:', error)
-    notificationStore.error('Failed to update event')
+    notificationStore.error(`Failed to save changes for "${event.display_name}"`)
   }
 }
 
@@ -226,10 +256,10 @@ async function updateGlobalSettings(updates) {
   try {
     const response = await api.put('/system-notifications/global-settings', updates)
     globalSettings.value = response.data
-    notificationStore.success('Global settings updated')
+    notificationStore.success('Global settings saved successfully')
   } catch (error) {
     console.error('Failed to update global settings:', error)
-    notificationStore.error('Failed to update settings')
+    notificationStore.error('Failed to save global settings')
   } finally {
     saving.value = false
   }
@@ -273,11 +303,11 @@ async function addTarget(eventId, targetType, targetId, level) {
 
     await api.post(`/system-notifications/events/${eventId}/targets`, data)
     await loadEvents()
-    notificationStore.success('Target added')
+    notificationStore.success('Notification target added successfully')
     showAddTargetModal.value = false
   } catch (error) {
     console.error('Failed to add target:', error)
-    notificationStore.error(error.response?.data?.detail || 'Failed to add target')
+    notificationStore.error(error.response?.data?.detail || 'Failed to add notification target')
   }
 }
 
@@ -285,10 +315,10 @@ async function removeTarget(eventId, targetId) {
   try {
     await api.delete(`/system-notifications/events/${eventId}/targets/${targetId}`)
     await loadEvents()
-    notificationStore.success('Target removed')
+    notificationStore.success('Notification target removed')
   } catch (error) {
     console.error('Failed to remove target:', error)
-    notificationStore.error('Failed to remove target')
+    notificationStore.error('Failed to remove notification target')
   }
 }
 
@@ -312,6 +342,12 @@ function getIcon(iconName) {
 function formatDate(dateStr) {
   if (!dateStr) return 'Never'
   return new Date(dateStr).toLocaleString()
+}
+
+function getCategoryEventCounts(category) {
+  const categoryEvents = eventsByCategory.value[category] || []
+  const enabled = categoryEvents.filter(e => e.enabled).length
+  return { enabled, total: categoryEvents.length }
 }
 
 // Watch for section changes to load data
@@ -439,295 +475,393 @@ onMounted(() => {
     <template v-else>
       <!-- Events Section -->
       <div v-if="activeSection === 'events'" class="space-y-4">
-        <div v-for="(categoryEvents, category) in eventsByCategory" :key="category" class="space-y-2">
-          <!-- Category Header -->
-          <div class="flex items-center gap-2 px-2 py-1">
-            <component
-              :is="categoryInfo[category]?.icon || BellIcon"
-              :class="['h-5 w-5', `text-${categoryInfo[category]?.color || 'gray'}-500`]"
-            />
-            <h3 class="font-semibold text-primary">{{ categoryInfo[category]?.label || category }}</h3>
-            <span class="text-xs text-secondary">({{ categoryEvents.length }})</span>
+        <!-- Collapsible Category Cards -->
+        <Card
+          v-for="(categoryEvents, category) in eventsByCategory"
+          :key="category"
+          :neon="true"
+          :padding="false"
+        >
+          <!-- Category Header (Clickable) -->
+          <div
+            @click="toggleCategory(category)"
+            class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div :class="[
+                'p-2 rounded-lg',
+                `bg-${categoryInfo[category]?.color || 'gray'}-100 dark:bg-${categoryInfo[category]?.color || 'gray'}-500/20`
+              ]">
+                <component
+                  :is="categoryInfo[category]?.icon || BellIcon"
+                  :class="['h-5 w-5', `text-${categoryInfo[category]?.color || 'gray'}-500`]"
+                />
+              </div>
+              <div>
+                <h3 class="font-semibold text-primary">{{ categoryInfo[category]?.label || category }}</h3>
+                <p class="text-sm text-secondary">{{ categoryInfo[category]?.description }}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <span :class="[
+                'text-xs px-2 py-1 rounded-full',
+                `bg-${categoryInfo[category]?.color || 'gray'}-100 dark:bg-${categoryInfo[category]?.color || 'gray'}-500/20`,
+                `text-${categoryInfo[category]?.color || 'gray'}-700 dark:text-${categoryInfo[category]?.color || 'gray'}-300`
+              ]">
+                {{ getCategoryEventCounts(category).enabled }}/{{ getCategoryEventCounts(category).total }} enabled
+              </span>
+              <ChevronDownIcon v-if="expandedCategories.has(category)" class="h-5 w-5 text-secondary" />
+              <ChevronRightIcon v-else class="h-5 w-5 text-secondary" />
+            </div>
           </div>
 
-          <!-- Event Cards -->
-          <div class="space-y-2">
-            <div
-              v-for="event in categoryEvents"
-              :key="event.id"
-              class="bg-surface rounded-lg border border-[var(--color-border)] overflow-hidden"
-            >
-              <!-- Event Header -->
-              <div
-                @click="toggleEvent(event.id)"
-                class="flex items-center gap-3 p-4 cursor-pointer hover:bg-surface-hover transition-colors"
-              >
-                <!-- Icon -->
+          <!-- Category Content (Collapsible) -->
+          <Transition name="collapse">
+            <div v-if="expandedCategories.has(category)" class="border-t border-gray-200 dark:border-gray-700">
+              <div class="p-4 space-y-3">
+                <!-- Event Rows -->
                 <div
-                  :class="[
-                    'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center',
-                    event.enabled ? `bg-${getSeverityColor(event.severity)}-100 dark:bg-${getSeverityColor(event.severity)}-500/20` : 'bg-gray-100 dark:bg-gray-700'
-                  ]"
+                  v-for="event in categoryEvents"
+                  :key="event.id"
+                  class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
                 >
-                  <component
-                    :is="getIcon(event.icon)"
-                    :class="[
-                      'h-5 w-5',
-                      event.enabled ? `text-${getSeverityColor(event.severity)}-500` : 'text-gray-400'
-                    ]"
-                  />
-                </div>
-
-                <!-- Event Info -->
-                <div class="flex-1 min-w-0">
-                  <p :class="['font-medium', event.enabled ? 'text-primary' : 'text-secondary']">
-                    {{ event.display_name }}
-                  </p>
-                  <p class="text-xs text-secondary truncate">{{ event.description }}</p>
-                </div>
-
-                <!-- Quick Stats -->
-                <div class="flex items-center gap-3">
-                  <!-- Targets Count -->
-                  <span class="text-xs text-secondary">
-                    {{ event.targets?.length || 0 }} target{{ event.targets?.length !== 1 ? 's' : '' }}
-                  </span>
-
-                  <!-- Severity Badge -->
-                  <span
-                    :class="[
-                      'px-2 py-0.5 rounded-full text-xs font-medium',
-                      event.severity === 'critical' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
-                      event.severity === 'warning' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
-                      'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
-                    ]"
+                  <!-- Event Header Row -->
+                  <div
+                    @click="toggleEvent(event.id)"
+                    class="flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
                   >
-                    {{ event.severity }}
-                  </span>
-
-                  <!-- Enable Toggle -->
-                  <label class="relative inline-flex items-center cursor-pointer" @click.stop>
-                    <input
-                      type="checkbox"
-                      :checked="event.enabled"
-                      @change="updateEvent(event, 'enabled', $event.target.checked)"
-                      class="sr-only peer"
+                    <component
+                      :is="expandedEvents.has(event.id) ? ChevronDownIcon : ChevronRightIcon"
+                      class="h-4 w-4 text-secondary flex-shrink-0"
                     />
-                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"></div>
-                  </label>
 
-                  <!-- Chevron -->
-                  <ChevronRightIcon
-                    :class="[
-                      'h-5 w-5 text-gray-400 transition-transform duration-200',
-                      expandedEvents.has(event.id) ? 'rotate-90' : ''
-                    ]"
-                  />
-                </div>
-              </div>
-
-              <!-- Expanded Content -->
-              <Transition name="expand">
-                <div v-if="expandedEvents.has(event.id)" class="border-t border-[var(--color-border)] bg-surface-hover">
-                  <div class="p-4 space-y-4">
-                    <!-- Frequency & Rate Limiting -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <label class="block text-xs font-medium text-secondary mb-1">Frequency</label>
-                        <select
-                          :value="event.frequency"
-                          @change="updateEvent(event, 'frequency', $event.target.value)"
-                          class="select-field w-full text-sm"
-                        >
-                          <option v-for="opt in frequencyOptions" :key="opt.value" :value="opt.value">
-                            {{ opt.label }}
-                          </option>
-                        </select>
-                      </div>
-                      <div>
-                        <label class="block text-xs font-medium text-secondary mb-1">Severity</label>
-                        <select
-                          :value="event.severity"
-                          @change="updateEvent(event, 'severity', $event.target.value)"
-                          class="select-field w-full text-sm"
-                        >
-                          <option v-for="opt in severityOptions" :key="opt.value" :value="opt.value">
-                            {{ opt.label }}
-                          </option>
-                        </select>
-                      </div>
-                      <div v-if="event.frequency === 'every_time'">
-                        <label class="block text-xs font-medium text-secondary mb-1">Cooldown (minutes)</label>
-                        <input
-                          type="number"
-                          :value="event.cooldown_minutes"
-                          @change="updateEvent(event, 'cooldown_minutes', parseInt($event.target.value))"
-                          min="0"
-                          class="input-field w-full text-sm"
-                        />
-                      </div>
+                    <!-- Icon -->
+                    <div
+                      :class="[
+                        'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
+                        event.enabled ? `bg-${getSeverityColor(event.severity)}-100 dark:bg-${getSeverityColor(event.severity)}-500/20` : 'bg-gray-100 dark:bg-gray-700'
+                      ]"
+                    >
+                      <component
+                        :is="getIcon(event.icon)"
+                        :class="[
+                          'h-4 w-4',
+                          event.enabled ? `text-${getSeverityColor(event.severity)}-500` : 'text-gray-400'
+                        ]"
+                      />
                     </div>
 
-                    <!-- Flapping Detection (for every_time events) -->
-                    <div v-if="event.frequency === 'every_time'" class="p-3 rounded-lg bg-surface border border-[var(--color-border)]">
-                      <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                          <ArrowPathIcon class="h-4 w-4 text-amber-500" />
-                          <span class="text-sm font-medium text-primary">Flapping Detection</span>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
+                    <!-- Event Info -->
+                    <div class="flex-1 min-w-0">
+                      <p :class="['font-medium text-sm', event.enabled ? 'text-primary' : 'text-secondary']">
+                        {{ event.display_name }}
+                      </p>
+                      <p class="text-xs text-secondary truncate">{{ event.description }}</p>
+                    </div>
+
+                    <!-- Quick Info -->
+                    <div class="flex items-center gap-3" @click.stop>
+                      <!-- Targets Warning -->
+                      <span v-if="hasNoTargets(event)" class="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        <ExclamationTriangleIcon class="h-3.5 w-3.5" />
+                        No targets
+                      </span>
+                      <span v-else class="text-xs text-secondary">
+                        {{ event.targets?.length || 0 }} target{{ event.targets?.length !== 1 ? 's' : '' }}
+                      </span>
+
+                      <!-- Severity Badge -->
+                      <span
+                        :class="[
+                          'px-2 py-0.5 rounded-full text-xs font-medium',
+                          event.severity === 'critical' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
+                          event.severity === 'warning' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
+                          'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
+                        ]"
+                      >
+                        {{ event.severity }}
+                      </span>
+
+                      <!-- Enable Toggle -->
+                      <div class="relative group">
+                        <label
+                          :class="[
+                            'relative inline-flex items-center',
+                            hasNoTargets(event) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                          ]"
+                          :title="hasNoTargets(event) ? 'Add notification targets first' : (event.enabled ? 'Disable notifications' : 'Enable notifications')"
+                        >
                           <input
                             type="checkbox"
-                            :checked="event.flapping_enabled"
-                            @change="updateEvent(event, 'flapping_enabled', $event.target.checked)"
+                            :checked="event.enabled"
+                            @change="updateEvent(event, 'enabled', $event.target.checked)"
+                            :disabled="hasNoTargets(event) && !event.enabled"
                             class="sr-only peer"
                           />
-                          <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-amber-500"></div>
+                          <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500 peer-disabled:cursor-not-allowed"></div>
                         </label>
-                      </div>
-                      <div v-if="event.flapping_enabled" class="grid grid-cols-3 gap-3 text-xs">
-                        <div>
-                          <label class="block text-secondary mb-1">Threshold Count</label>
-                          <input
-                            type="number"
-                            :value="event.flapping_threshold_count"
-                            @change="updateEvent(event, 'flapping_threshold_count', parseInt($event.target.value))"
-                            min="2"
-                            class="input-field w-full text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label class="block text-secondary mb-1">Window (minutes)</label>
-                          <input
-                            type="number"
-                            :value="event.flapping_threshold_minutes"
-                            @change="updateEvent(event, 'flapping_threshold_minutes', parseInt($event.target.value))"
-                            min="1"
-                            class="input-field w-full text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label class="block text-secondary mb-1">Summary Interval</label>
-                          <input
-                            type="number"
-                            :value="event.flapping_summary_interval"
-                            @change="updateEvent(event, 'flapping_summary_interval', parseInt($event.target.value))"
-                            min="1"
-                            class="input-field w-full text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Targets -->
-                    <div class="space-y-2">
-                      <div class="flex items-center justify-between">
-                        <span class="text-sm font-medium text-primary">Notification Targets</span>
-                        <button
-                          @click="openAddTargetModal(event)"
-                          class="flex items-center gap-1 px-2 py-1 text-xs text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded transition-colors"
-                        >
-                          <PlusIcon class="h-4 w-4" />
-                          Add Target
-                        </button>
-                      </div>
-
-                      <div v-if="!event.targets || event.targets.length === 0" class="text-sm text-secondary italic p-2">
-                        No targets configured. Add channels or groups to receive notifications.
-                      </div>
-
-                      <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <!-- L1 Targets -->
-                        <div class="space-y-1">
-                          <p class="text-xs font-medium text-secondary uppercase tracking-wide">L1 (Primary)</p>
-                          <div v-for="target in event.targets.filter(t => t.escalation_level === 1)" :key="target.id"
-                            class="flex items-center justify-between p-2 rounded bg-surface border border-[var(--color-border)]"
-                          >
-                            <div class="flex items-center gap-2">
-                              <span :class="[
-                                'w-2 h-2 rounded-full',
-                                target.target_type === 'channel' ? 'bg-blue-500' : 'bg-purple-500'
-                              ]"></span>
-                              <span class="text-sm text-primary">
-                                {{ target.target_type === 'channel' ? target.channel_name : target.group_name }}
-                              </span>
-                              <span class="text-xs text-secondary">
-                                ({{ target.target_type }})
-                              </span>
-                            </div>
-                            <button
-                              @click="removeTarget(event.id, target.id)"
-                              class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors"
-                            >
-                              <TrashIcon class="h-4 w-4" />
-                            </button>
-                          </div>
-                          <div v-if="!event.targets.some(t => t.escalation_level === 1)" class="text-xs text-secondary italic p-2">
-                            No L1 targets
-                          </div>
-                        </div>
-
-                        <!-- L2 Targets -->
-                        <div class="space-y-1">
-                          <p class="text-xs font-medium text-secondary uppercase tracking-wide">L2 (Escalation)</p>
-                          <div v-for="target in event.targets.filter(t => t.escalation_level === 2)" :key="target.id"
-                            class="flex items-center justify-between p-2 rounded bg-surface border border-[var(--color-border)]"
-                          >
-                            <div class="flex items-center gap-2">
-                              <span :class="[
-                                'w-2 h-2 rounded-full',
-                                target.target_type === 'channel' ? 'bg-blue-500' : 'bg-purple-500'
-                              ]"></span>
-                              <span class="text-sm text-primary">
-                                {{ target.target_type === 'channel' ? target.channel_name : target.group_name }}
-                              </span>
-                              <span class="text-xs text-secondary">
-                                ({{ target.target_type }})
-                              </span>
-                            </div>
-                            <button
-                              @click="removeTarget(event.id, target.id)"
-                              class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors"
-                            >
-                              <TrashIcon class="h-4 w-4" />
-                            </button>
-                          </div>
-                          <div v-if="!event.targets.some(t => t.escalation_level === 2)" class="text-xs text-secondary italic p-2">
-                            No L2 targets
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Escalation Settings -->
-                      <div v-if="event.targets?.some(t => t.escalation_level === 2)" class="flex items-center gap-4 pt-2 border-t border-[var(--color-border)]">
-                        <label class="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            :checked="event.escalation_enabled"
-                            @change="updateEvent(event, 'escalation_enabled', $event.target.checked)"
-                            class="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-                          />
-                          <span class="text-sm text-primary">Enable L2 Escalation</span>
-                        </label>
-                        <div v-if="event.escalation_enabled" class="flex items-center gap-2">
-                          <span class="text-sm text-secondary">after</span>
-                          <input
-                            type="number"
-                            :value="event.escalation_timeout_minutes"
-                            @change="updateEvent(event, 'escalation_timeout_minutes', parseInt($event.target.value))"
-                            min="1"
-                            class="input-field w-16 text-sm"
-                          />
-                          <span class="text-sm text-secondary">minutes</span>
-                        </div>
                       </div>
                     </div>
                   </div>
+
+                  <!-- Expanded Settings Panel -->
+                  <Transition name="collapse">
+                    <div v-if="expandedEvents.has(event.id)" class="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                      <div class="p-4 space-y-5">
+                        <!-- Settings Grid -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          <!-- Left Column: Frequency & Severity -->
+                          <div class="space-y-4">
+                            <h4 class="text-xs font-semibold text-secondary uppercase tracking-wider flex items-center gap-2">
+                              <AdjustmentsHorizontalIcon class="h-4 w-4" />
+                              Notification Settings
+                            </h4>
+
+                            <!-- Frequency -->
+                            <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                              <div class="flex items-start justify-between gap-4">
+                                <div class="flex-1">
+                                  <label class="block text-sm font-medium text-primary mb-1">Frequency</label>
+                                  <p class="text-xs text-secondary mb-2">How often to send notifications for this event</p>
+                                  <select
+                                    :value="event.frequency"
+                                    @change="updateEvent(event, 'frequency', $event.target.value)"
+                                    class="select-field w-full text-sm"
+                                  >
+                                    <option v-for="opt in frequencyOptions" :key="opt.value" :value="opt.value">
+                                      {{ opt.label }}
+                                    </option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <!-- Cooldown (only for every_time) -->
+                              <div v-if="event.frequency === 'every_time'" class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                <label class="block text-sm font-medium text-primary mb-1">Cooldown Period</label>
+                                <p class="text-xs text-secondary mb-2">Minimum minutes between notifications (0 = no cooldown)</p>
+                                <div class="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    :value="event.cooldown_minutes"
+                                    @change="updateEvent(event, 'cooldown_minutes', parseInt($event.target.value))"
+                                    min="0"
+                                    class="input-field w-24 text-sm"
+                                  />
+                                  <span class="text-sm text-secondary">minutes</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <!-- Severity -->
+                            <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                              <label class="block text-sm font-medium text-primary mb-1">Severity Level</label>
+                              <p class="text-xs text-secondary mb-2">Affects notification priority and appearance</p>
+                              <select
+                                :value="event.severity"
+                                @change="updateEvent(event, 'severity', $event.target.value)"
+                                class="select-field w-full text-sm"
+                              >
+                                <option v-for="opt in severityOptions" :key="opt.value" :value="opt.value">
+                                  {{ opt.label }} - {{ opt.description }}
+                                </option>
+                              </select>
+                            </div>
+
+                            <!-- Flapping Detection -->
+                            <div v-if="event.frequency === 'every_time'" class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                              <div class="flex items-center justify-between mb-3">
+                                <div>
+                                  <div class="flex items-center gap-2">
+                                    <ArrowPathIcon class="h-4 w-4 text-amber-500" />
+                                    <span class="text-sm font-medium text-primary">Flapping Detection</span>
+                                  </div>
+                                  <p class="text-xs text-secondary mt-1">Suppress rapid state changes and send a summary instead</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    :checked="event.flapping_enabled"
+                                    @change="updateEvent(event, 'flapping_enabled', $event.target.checked)"
+                                    class="sr-only peer"
+                                  />
+                                  <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-amber-500"></div>
+                                </label>
+                              </div>
+
+                              <Transition name="collapse">
+                                <div v-if="event.flapping_enabled" class="grid grid-cols-3 gap-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                                  <div>
+                                    <label class="block text-xs font-medium text-secondary mb-1">Threshold</label>
+                                    <input
+                                      type="number"
+                                      :value="event.flapping_threshold_count"
+                                      @change="updateEvent(event, 'flapping_threshold_count', parseInt($event.target.value))"
+                                      min="2"
+                                      class="input-field w-full text-sm"
+                                    />
+                                    <p class="text-xs text-secondary mt-1">events</p>
+                                  </div>
+                                  <div>
+                                    <label class="block text-xs font-medium text-secondary mb-1">Window</label>
+                                    <input
+                                      type="number"
+                                      :value="event.flapping_threshold_minutes"
+                                      @change="updateEvent(event, 'flapping_threshold_minutes', parseInt($event.target.value))"
+                                      min="1"
+                                      class="input-field w-full text-sm"
+                                    />
+                                    <p class="text-xs text-secondary mt-1">minutes</p>
+                                  </div>
+                                  <div>
+                                    <label class="block text-xs font-medium text-secondary mb-1">Summary</label>
+                                    <input
+                                      type="number"
+                                      :value="event.flapping_summary_interval"
+                                      @change="updateEvent(event, 'flapping_summary_interval', parseInt($event.target.value))"
+                                      min="1"
+                                      class="input-field w-full text-sm"
+                                    />
+                                    <p class="text-xs text-secondary mt-1">min interval</p>
+                                  </div>
+                                </div>
+                              </Transition>
+                            </div>
+                          </div>
+
+                          <!-- Right Column: Targets -->
+                          <div class="space-y-4">
+                            <div class="flex items-center justify-between">
+                              <h4 class="text-xs font-semibold text-secondary uppercase tracking-wider flex items-center gap-2">
+                                <BellIcon class="h-4 w-4" />
+                                Notification Targets
+                              </h4>
+                              <button
+                                @click="openAddTargetModal(event)"
+                                class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 dark:text-blue-400 rounded-lg transition-colors"
+                              >
+                                <PlusIcon class="h-4 w-4" />
+                                Add Target
+                              </button>
+                            </div>
+
+                            <!-- No Targets Warning -->
+                            <div v-if="hasNoTargets(event)" class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg p-4">
+                              <div class="flex items-start gap-3">
+                                <ExclamationTriangleIcon class="h-5 w-5 text-amber-500 flex-shrink-0" />
+                                <div>
+                                  <p class="text-sm font-medium text-amber-700 dark:text-amber-400">No notification targets configured</p>
+                                  <p class="text-xs text-amber-600 dark:text-amber-500 mt-1">Add at least one channel or group to receive notifications for this event.</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <!-- L1 Targets -->
+                            <div v-else class="space-y-3">
+                              <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                                <p class="text-xs font-semibold text-secondary uppercase tracking-wider mb-3">L1 - Primary Targets</p>
+                                <p class="text-xs text-secondary mb-3">These targets receive notifications immediately</p>
+
+                                <div v-if="event.targets?.filter(t => t.escalation_level === 1).length" class="space-y-2">
+                                  <div
+                                    v-for="target in event.targets.filter(t => t.escalation_level === 1)"
+                                    :key="target.id"
+                                    class="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50"
+                                  >
+                                    <div class="flex items-center gap-2">
+                                      <span :class="[
+                                        'w-2 h-2 rounded-full',
+                                        target.target_type === 'channel' ? 'bg-blue-500' : 'bg-purple-500'
+                                      ]"></span>
+                                      <span class="text-sm text-primary">
+                                        {{ target.target_type === 'channel' ? target.channel_name : target.group_name }}
+                                      </span>
+                                      <span class="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-secondary">
+                                        {{ target.target_type }}
+                                      </span>
+                                    </div>
+                                    <button
+                                      @click="removeTarget(event.id, target.id)"
+                                      class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors"
+                                      title="Remove target"
+                                    >
+                                      <TrashIcon class="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                                <p v-else class="text-xs text-secondary italic">No primary targets configured</p>
+                              </div>
+
+                              <!-- L2 Targets -->
+                              <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                                <p class="text-xs font-semibold text-secondary uppercase tracking-wider mb-3">L2 - Escalation Targets</p>
+                                <p class="text-xs text-secondary mb-3">These targets are notified if L1 doesn't acknowledge</p>
+
+                                <div v-if="event.targets?.filter(t => t.escalation_level === 2).length" class="space-y-2">
+                                  <div
+                                    v-for="target in event.targets.filter(t => t.escalation_level === 2)"
+                                    :key="target.id"
+                                    class="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50"
+                                  >
+                                    <div class="flex items-center gap-2">
+                                      <span :class="[
+                                        'w-2 h-2 rounded-full',
+                                        target.target_type === 'channel' ? 'bg-blue-500' : 'bg-purple-500'
+                                      ]"></span>
+                                      <span class="text-sm text-primary">
+                                        {{ target.target_type === 'channel' ? target.channel_name : target.group_name }}
+                                      </span>
+                                      <span class="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-secondary">
+                                        {{ target.target_type }}
+                                      </span>
+                                    </div>
+                                    <button
+                                      @click="removeTarget(event.id, target.id)"
+                                      class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors"
+                                      title="Remove target"
+                                    >
+                                      <TrashIcon class="h-4 w-4" />
+                                    </button>
+                                  </div>
+
+                                  <!-- Escalation Settings -->
+                                  <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                                    <div class="flex items-center gap-4">
+                                      <label class="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          :checked="event.escalation_enabled"
+                                          @change="updateEvent(event, 'escalation_enabled', $event.target.checked)"
+                                          class="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                                        />
+                                        <span class="text-sm text-primary">Enable escalation</span>
+                                      </label>
+                                      <div v-if="event.escalation_enabled" class="flex items-center gap-2">
+                                        <span class="text-sm text-secondary">after</span>
+                                        <input
+                                          type="number"
+                                          :value="event.escalation_timeout_minutes"
+                                          @change="updateEvent(event, 'escalation_timeout_minutes', parseInt($event.target.value))"
+                                          min="1"
+                                          class="input-field w-16 text-sm"
+                                        />
+                                        <span class="text-sm text-secondary">minutes</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                <p v-else class="text-xs text-secondary italic">No escalation targets configured</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
                 </div>
-              </Transition>
+              </div>
             </div>
-          </div>
-        </div>
+          </Transition>
+        </Card>
       </div>
 
       <!-- Global Settings Section -->
@@ -971,7 +1105,7 @@ onMounted(() => {
           <div class="bg-surface rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
             <h3 class="text-lg font-semibold text-primary">Add Notification Target</h3>
             <p class="text-sm text-secondary">
-              Add a channel or group to receive notifications for "{{ selectedEventForTarget?.display_name }}"
+              Choose where to send notifications for "{{ selectedEventForTarget?.display_name }}"
             </p>
 
             <div class="space-y-4">
@@ -1012,8 +1146,8 @@ onMounted(() => {
               <div>
                 <label class="block text-sm font-medium text-primary mb-1">Escalation Level</label>
                 <select v-model="newTargetLevel" class="select-field w-full">
-                  <option :value="1">L1 - Primary</option>
-                  <option :value="2">L2 - Escalation</option>
+                  <option :value="1">L1 - Primary (receives immediately)</option>
+                  <option :value="2">L2 - Escalation (receives if L1 unacknowledged)</option>
                 </select>
               </div>
             </div>
@@ -1060,22 +1194,20 @@ export default {
 </script>
 
 <style scoped>
-.expand-enter-active,
-.expand-leave-active {
-  transition: all 0.2s ease-out;
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: all 0.2s ease;
   overflow: hidden;
 }
-
-.expand-enter-from,
-.expand-leave-to {
+.collapse-enter-from,
+.collapse-leave-to {
   opacity: 0;
   max-height: 0;
 }
-
-.expand-enter-to,
-.expand-leave-from {
+.collapse-enter-to,
+.collapse-leave-from {
   opacity: 1;
-  max-height: 1000px;
+  max-height: 2000px;
 }
 
 .fade-enter-active,

@@ -1219,7 +1219,7 @@ onUnmounted(() => {
             </div>
           </Card>
 
-          <!-- System Resources -->
+          <!-- Host System Resources -->
           <Card :neon="true" :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
@@ -1227,7 +1227,7 @@ onUnmounted(() => {
                   <CpuChipIcon class="h-5 w-5 text-cyan-500" />
                 </div>
                 <div class="flex-1">
-                  <h3 class="font-semibold text-primary">System Resources</h3>
+                  <h3 class="font-semibold text-primary">Host System Resources</h3>
                   <p class="text-xs text-muted">CPU, Memory, Disk</p>
                 </div>
                 <span
