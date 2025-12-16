@@ -3,7 +3,7 @@ APScheduler setup and management.
 """
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, UTC
@@ -26,11 +26,10 @@ async def init_scheduler() -> None:
         logger.warning("Scheduler already initialized")
         return
 
-    # Convert async database URL to sync for SQLAlchemy job store
-    sync_db_url = settings.database_url.replace("+asyncpg", "")
-
+    # Use MemoryJobStore - jobs are re-added on startup anyway
+    # This avoids compatibility issues with SQLAlchemy async drivers
     jobstores = {
-        "default": SQLAlchemyJobStore(url=sync_db_url, tablename="apscheduler_jobs")
+        "default": MemoryJobStore()
     }
 
     executors = {
