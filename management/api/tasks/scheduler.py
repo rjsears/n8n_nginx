@@ -96,7 +96,7 @@ async def _add_maintenance_jobs() -> None:
         replace_existing=True,
     )
 
-    # Host metrics collection (from metrics-agent) - run every minute
+    # Host metrics collection (psutil + Docker API) - run every minute
     scheduler.add_job(
         _collect_host_metrics,
         CronTrigger(minute="*"),
@@ -437,83 +437,148 @@ async def _cleanup_notification_history() -> None:
 
 async def _collect_host_metrics() -> None:
     """
-    Collect metrics from the metrics-agent and store in HostMetricsSnapshot table.
+    Collect system metrics directly using psutil and Docker API.
     This runs every minute and provides instant data for the dashboard.
+    Stores snapshots in PostgreSQL for historical charting.
     """
-    import httpx
+    import psutil
+    import platform
+    import socket
+    import docker
     from api.database import async_session_maker
     from api.models.audit import HostMetricsSnapshot
 
-    # Check if metrics agent is enabled
-    if not settings.metrics_agent_enabled:
-        return
-
     try:
-        # Fetch metrics from the metrics-agent
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            headers = {}
-            if settings.metrics_agent_api_key:
-                headers["X-API-Key"] = settings.metrics_agent_api_key
+        # ========================================
+        # System Info
+        # ========================================
+        hostname = socket.gethostname()
+        platform_name = platform.system().lower()
 
-            response = await client.get(
-                f"{settings.metrics_agent_url}/metrics",
-                headers=headers,
-                params={"include_container_stats": True},
-            )
-            response.raise_for_status()
-            data = response.json()
+        # Get uptime - use /proc/uptime directly for accuracy
+        try:
+            with open('/proc/uptime', 'r') as f:
+                uptime_seconds = int(float(f.read().split()[0]))
+        except Exception:
+            # Fallback to psutil
+            from datetime import datetime, timezone
+            boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
+            uptime_seconds = int((datetime.now(timezone.utc) - boot_time).total_seconds())
 
-        # Extract and flatten metrics for database storage
-        system = data.get("system", {})
-        cpu = data.get("cpu", {})
-        memory = data.get("memory", {})
-        disks = data.get("disks", [])
-        network = data.get("network", [])
-        containers = data.get("containers", [])
+        # ========================================
+        # CPU Metrics
+        # ========================================
+        cpu_percent = psutil.cpu_percent(interval=None)  # Non-blocking
+        cpu_core_count = psutil.cpu_count() or 1
+        try:
+            load_avg = psutil.getloadavg()
+            load_avg_1m, load_avg_5m, load_avg_15m = load_avg
+        except (AttributeError, OSError):
+            load_avg_1m = load_avg_5m = load_avg_15m = 0.0
 
-        # Filter out virtual/temporary filesystems - only show real disk partitions
+        # ========================================
+        # Memory Metrics
+        # ========================================
+        mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+
+        # ========================================
+        # Disk Metrics
+        # ========================================
         excluded_mounts = {'/tmp', '/var/tmp', '/dev', '/dev/shm', '/run', '/sys', '/proc'}
-        excluded_fs_types = {'tmpfs', 'devtmpfs', 'sysfs', 'proc', 'devpts', 'cgroup', 'cgroup2', 'overlay'}
-        real_disks = [
-            d for d in disks
-            if d.get("mount_point") not in excluded_mounts
-            and d.get("fs_type") not in excluded_fs_types
-            and not d.get("mount_point", "").startswith("/snap")
-            and not d.get("mount_point", "").startswith("/boot/efi")
-        ]
+        excluded_fs_types = {'tmpfs', 'devtmpfs', 'sysfs', 'proc', 'devpts', 'cgroup', 'cgroup2', 'overlay', 'squashfs'}
+
+        real_disks = []
+        try:
+            partitions = psutil.disk_partitions(all=False)
+            for partition in partitions:
+                # Skip virtual filesystems
+                if partition.mountpoint in excluded_mounts:
+                    continue
+                if partition.fstype in excluded_fs_types:
+                    continue
+                if partition.mountpoint.startswith('/snap'):
+                    continue
+                if partition.mountpoint.startswith('/boot/efi'):
+                    continue
+
+                try:
+                    usage = psutil.disk_usage(partition.mountpoint)
+                    real_disks.append({
+                        "mount_point": partition.mountpoint,
+                        "percent": usage.percent,
+                        "total_bytes": usage.total,
+                        "used_bytes": usage.used,
+                        "free_bytes": usage.free,
+                    })
+                except PermissionError:
+                    pass
+        except Exception as e:
+            logger.debug(f"Error getting disk partitions: {e}")
 
         # Find primary disk (/)
         primary_disk = next((d for d in real_disks if d.get("mount_point") == "/"), real_disks[0] if real_disks else {})
 
-        # Calculate network totals
-        network_rx = sum(iface.get("bytes_recv", 0) for iface in network)
-        network_tx = sum(iface.get("bytes_sent", 0) for iface in network)
+        # ========================================
+        # Network Metrics
+        # ========================================
+        try:
+            net_io = psutil.net_io_counters()
+            network_rx = net_io.bytes_recv
+            network_tx = net_io.bytes_sent
+        except Exception:
+            network_rx = network_tx = 0
 
-        # Calculate container health summary
-        containers_running = sum(1 for c in containers if c.get("status") == "running")
-        containers_stopped = sum(1 for c in containers if c.get("status") != "running")
-        containers_healthy = sum(1 for c in containers if c.get("health") == "healthy")
-        containers_unhealthy = sum(1 for c in containers if c.get("health") == "unhealthy")
+        # ========================================
+        # Container Metrics (via Docker API)
+        # ========================================
+        containers_total = 0
+        containers_running = 0
+        containers_stopped = 0
+        containers_healthy = 0
+        containers_unhealthy = 0
 
-        # Create snapshot
+        try:
+            docker_client = docker.from_env()
+            all_containers = docker_client.containers.list(all=True)
+            containers_total = len(all_containers)
+
+            for container in all_containers:
+                if container.status == "running":
+                    containers_running += 1
+                    # Check health status
+                    health = container.attrs.get("State", {}).get("Health", {})
+                    health_status = health.get("Status", "none")
+                    if health_status == "healthy":
+                        containers_healthy += 1
+                    elif health_status == "unhealthy":
+                        containers_unhealthy += 1
+                else:
+                    containers_stopped += 1
+        except Exception as e:
+            logger.debug(f"Error getting container stats: {e}")
+
+        # ========================================
+        # Create and Store Snapshot
+        # ========================================
         snapshot = HostMetricsSnapshot(
             # System info
-            hostname=system.get("hostname"),
-            platform=system.get("platform"),
-            uptime_seconds=int(system.get("uptime_seconds", 0)),
+            hostname=hostname,
+            platform=platform_name,
+            uptime_seconds=uptime_seconds,
             # CPU
-            cpu_percent=cpu.get("percent"),
-            cpu_core_count=cpu.get("core_count"),
-            load_avg_1m=cpu.get("load_avg_1m"),
-            load_avg_5m=cpu.get("load_avg_5m"),
-            load_avg_15m=cpu.get("load_avg_15m"),
+            cpu_percent=cpu_percent,
+            cpu_core_count=cpu_core_count,
+            load_avg_1m=load_avg_1m,
+            load_avg_5m=load_avg_5m,
+            load_avg_15m=load_avg_15m,
             # Memory
-            memory_percent=memory.get("percent"),
-            memory_used_bytes=memory.get("used_bytes"),
-            memory_total_bytes=memory.get("total_bytes"),
-            swap_percent=memory.get("swap_percent"),
-            swap_used_bytes=memory.get("swap_used_bytes"),
-            swap_total_bytes=memory.get("swap_total_bytes"),
+            memory_percent=mem.percent,
+            memory_used_bytes=mem.used,
+            memory_total_bytes=mem.total,
+            swap_percent=swap.percent,
+            swap_used_bytes=swap.used,
+            swap_total_bytes=swap.total,
             # Primary disk
             disk_percent=primary_disk.get("percent"),
             disk_used_bytes=primary_disk.get("used_bytes"),
@@ -523,29 +588,19 @@ async def _collect_host_metrics() -> None:
             network_rx_bytes=network_rx,
             network_tx_bytes=network_tx,
             # Containers
-            containers_total=len(containers),
+            containers_total=containers_total,
             containers_running=containers_running,
             containers_stopped=containers_stopped,
             containers_healthy=containers_healthy,
             containers_unhealthy=containers_unhealthy,
-            # Additional disk details as JSON (only real disks, not tmpfs)
-            disks_detail=[{
-                "mount_point": d.get("mount_point"),
-                "percent": d.get("percent"),
-                "total_bytes": d.get("total_bytes"),
-                "used_bytes": d.get("used_bytes"),
-                "free_bytes": d.get("free_bytes"),
-            } for d in real_disks],
+            # Additional disk details as JSON
+            disks_detail=real_disks,
         )
 
         async with async_session_maker() as db:
             db.add(snapshot)
             await db.commit()
 
-    except httpx.HTTPStatusError as e:
-        logger.warning(f"Host metrics collection failed (HTTP {e.response.status_code}): {e}")
-    except httpx.RequestError as e:
-        logger.warning(f"Host metrics collection failed (connection error): {e}")
     except Exception as e:
         logger.error(f"Host metrics collection failed: {e}")
 

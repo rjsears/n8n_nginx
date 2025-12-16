@@ -67,10 +67,6 @@ NTFY_BASE_URL=""
 NTFY_PUBLIC_URL=""
 NTFY_INTERNAL_URL=""
 
-# Metrics Agent (host-level system monitoring)
-INSTALL_METRICS_AGENT=false
-METRICS_AGENT_API_KEY=""
-
 # Internal IP ranges that get full access (space-separated CIDR blocks)
 DEFAULT_INTERNAL_IP_RANGES="100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
 INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
@@ -473,8 +469,6 @@ SAVED_INSTALL_NTFY="$INSTALL_NTFY"
 SAVED_NTFY_BASE_URL="$NTFY_BASE_URL"
 SAVED_NTFY_PUBLIC_URL="$NTFY_PUBLIC_URL"
 SAVED_NTFY_INTERNAL_URL="$NTFY_INTERNAL_URL"
-SAVED_INSTALL_METRICS_AGENT="$INSTALL_METRICS_AGENT"
-SAVED_METRICS_AGENT_API_KEY="$METRICS_AGENT_API_KEY"
 
 # Access Control
 SAVED_INTERNAL_IP_RANGES="$INTERNAL_IP_RANGES"
@@ -533,8 +527,6 @@ load_state() {
         NTFY_BASE_URL="${SAVED_NTFY_BASE_URL:-}"
         NTFY_PUBLIC_URL="${SAVED_NTFY_PUBLIC_URL:-}"
         NTFY_INTERNAL_URL="${SAVED_NTFY_INTERNAL_URL:-}"
-        INSTALL_METRICS_AGENT="${SAVED_INSTALL_METRICS_AGENT:-false}"
-        METRICS_AGENT_API_KEY="${SAVED_METRICS_AGENT_API_KEY:-}"
 
         # Access Control
         INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
@@ -662,10 +654,6 @@ restore_optional_services_from_config() {
         INSTALL_NTFY="$NTFY_ENABLED"
     fi
 
-    # Metrics Agent
-    if [ -n "$METRICS_AGENT_ENABLED" ]; then
-        INSTALL_METRICS_AGENT="$METRICS_AGENT_ENABLED"
-    fi
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3336,11 +3324,6 @@ configure_optional_services() {
             configure_dozzle
         fi
 
-        # Metrics Agent
-        if confirm_prompt "  Install Metrics Agent for host system monitoring?" "n"; then
-            configure_metrics_agent
-        fi
-
         # NTFY
         if confirm_prompt "  Install NTFY for push notifications?" "n"; then
             configure_ntfy
@@ -3442,46 +3425,6 @@ configure_dozzle() {
 
     print_success "Dozzle will be available at https://\${DOMAIN}/dozzle/"
     echo -e "  ${CYAN}ℹ${NC}  ${GRAY}Login credentials will be the same as the Management Console${NC}"
-}
-
-configure_metrics_agent() {
-    print_subsection
-    echo -e "${WHITE}  Metrics Agent Configuration${NC}"
-    echo ""
-    echo -e "  ${GRAY}The Metrics Agent runs on the host system to collect accurate${NC}"
-    echo -e "  ${GRAY}system metrics (CPU, memory, disk, uptime) that cannot be${NC}"
-    echo -e "  ${GRAY}obtained from within Docker containers.${NC}"
-    echo ""
-    echo -e "  ${WHITE}${BOLD}Features:${NC}"
-    echo -e "    ${CYAN}•${NC} Host-level CPU, memory, and disk monitoring"
-    echo -e "    ${CYAN}•${NC} Docker container health and status tracking"
-    echo -e "    ${CYAN}•${NC} Network interface statistics"
-    echo -e "    ${CYAN}•${NC} Automatic alerting via the Management Console"
-    echo ""
-    echo -e "  ${YELLOW}Note:${NC} ${GRAY}The agent runs as a systemd service on the host (not in Docker).${NC}"
-    echo -e "  ${GRAY}Python 3.9+ is required on the host system.${NC}"
-    echo ""
-
-    # Check if Python 3.9+ is available
-    if command_exists python3; then
-        local py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-        local py_major=$(echo $py_version | cut -d. -f1)
-        local py_minor=$(echo $py_version | cut -d. -f2)
-        if [[ $py_major -ge 3 ]] && [[ $py_minor -ge 9 ]]; then
-            print_success "Python $py_version found - compatible"
-        else
-            print_warning "Python $py_version found - version 3.9+ recommended"
-        fi
-    else
-        print_warning "Python 3 not found - will need to install before deploying"
-    fi
-
-    INSTALL_METRICS_AGENT=true
-
-    print_success "Metrics Agent will be installed after Docker deployment"
-    echo ""
-    echo -e "  ${CYAN}ℹ${NC}  ${GRAY}An API key will be generated automatically during installation${NC}"
-    echo -e "  ${CYAN}ℹ${NC}  ${GRAY}The Management Console will be configured to poll the agent${NC}"
 }
 
 configure_ntfy() {
@@ -3636,8 +3579,7 @@ show_configuration_summary() {
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] || [ "$INSTALL_TAILSCALE" = true ] || \
        [ "$INSTALL_ADMINER" = true ] || [ "$INSTALL_DOZZLE" = true ] || \
        [ "$INSTALL_PORTAINER" = true ] || [ "$INSTALL_PORTAINER_AGENT" = true ] || \
-       [ "$INSTALL_NTFY" = true ] || [ -n "$NTFY_BASE_URL" ] || \
-       [ "$INSTALL_METRICS_AGENT" = true ]; then
+       [ "$INSTALL_NTFY" = true ] || [ -n "$NTFY_BASE_URL" ]; then
         echo -e "  ${WHITE}${BOLD}Optional Services:${NC}"
         if [ "$INSTALL_PORTAINER" = true ]; then
             echo -e "    Portainer:           ${GREEN}enabled${NC} (/portainer/)"
@@ -3661,124 +3603,12 @@ show_configuration_summary() {
         elif [ -n "$NTFY_BASE_URL" ]; then
             echo -e "    NTFY:                ${CYAN}external${NC} (${NTFY_PUBLIC_URL:-$NTFY_BASE_URL})"
         fi
-        if [ "$INSTALL_METRICS_AGENT" = true ]; then
-            echo -e "    Metrics Agent:       ${GREEN}enabled${NC} (host systemd service)"
-        fi
         echo ""
     fi
 
     if ! confirm_prompt "Is this configuration correct?"; then
         return 1
     fi
-
-    return 0
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# METRICS AGENT INSTALLATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-install_metrics_agent() {
-    if [ "$INSTALL_METRICS_AGENT" != true ]; then
-        return 0
-    fi
-
-    print_section "Installing Metrics Agent"
-
-    local metrics_agent_dir="${SCRIPT_DIR}/metrics-agent"
-
-    # Check if metrics-agent directory exists
-    if [ ! -d "$metrics_agent_dir" ]; then
-        print_error "Metrics agent source not found at $metrics_agent_dir"
-        print_warning "Skipping metrics agent installation"
-        return 1
-    fi
-
-    # Check Python version
-    if ! command_exists python3; then
-        print_error "Python 3 is required for the metrics agent"
-        print_warning "Skipping metrics agent installation"
-        return 1
-    fi
-
-    local py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-    local py_major=$(echo $py_version | cut -d. -f1)
-    local py_minor=$(echo $py_version | cut -d. -f2)
-
-    if [[ $py_major -lt 3 ]] || [[ $py_major -eq 3 && $py_minor -lt 9 ]]; then
-        print_warning "Python 3.9+ is recommended (found $py_version)"
-        if ! confirm_prompt "Continue with Python $py_version anyway?" "y"; then
-            print_info "Skipping metrics agent installation"
-            return 1
-        fi
-    fi
-
-    print_step "1" "3" "Installing metrics agent service"
-
-    # Run the installer
-    if [ -f "${metrics_agent_dir}/install.sh" ]; then
-        chmod +x "${metrics_agent_dir}/install.sh"
-        if bash "${metrics_agent_dir}/install.sh"; then
-            print_success "Metrics agent installed successfully"
-        else
-            print_error "Metrics agent installation failed"
-            return 1
-        fi
-    else
-        print_error "Metrics agent installer not found"
-        return 1
-    fi
-
-    print_step "2" "3" "Retrieving API key"
-
-    # Get the generated API key
-    local api_key_file="/opt/n8n-metrics-agent/.api_key"
-    if [ -f "$api_key_file" ]; then
-        METRICS_AGENT_API_KEY=$(cat "$api_key_file")
-        print_success "API key retrieved"
-    else
-        print_warning "Could not retrieve API key - manual configuration required"
-    fi
-
-    print_step "3" "3" "Configuring management console"
-
-    # Update the .env file with metrics agent settings
-    if [ -f "${SCRIPT_DIR}/.env" ]; then
-        # Remove existing metrics agent settings if present
-        sed -i '/^METRICS_AGENT_/d' "${SCRIPT_DIR}/.env"
-
-        # Add new settings
-        cat >> "${SCRIPT_DIR}/.env" << EOF
-
-# Metrics Agent Configuration
-METRICS_AGENT_URL=http://host.docker.internal:9100
-METRICS_AGENT_API_KEY=${METRICS_AGENT_API_KEY}
-METRICS_AGENT_ENABLED=true
-METRICS_POLL_INTERVAL=60
-EOF
-        print_success "Management console configured for metrics agent"
-    else
-        print_warning ".env file not found - manual configuration required"
-    fi
-
-    # Restart management container to pick up new settings
-    local docker_compose_cmd="docker compose"
-    if [ "$USE_STANDALONE_COMPOSE" = true ]; then
-        docker_compose_cmd="docker-compose"
-    fi
-    if [ -n "$DOCKER_SUDO" ]; then
-        docker_compose_cmd="$DOCKER_SUDO $docker_compose_cmd"
-    fi
-
-    cd "$SCRIPT_DIR"
-    $docker_compose_cmd restart management 2>/dev/null || true
-
-    print_success "Metrics Agent installation complete!"
-    echo ""
-    echo -e "  ${CYAN}ℹ${NC}  ${GRAY}The agent is running on port 9100 (localhost only)${NC}"
-    echo -e "  ${CYAN}ℹ${NC}  ${GRAY}View status: systemctl status n8n-metrics-agent${NC}"
-    echo -e "  ${CYAN}ℹ${NC}  ${GRAY}View logs: journalctl -u n8n-metrics-agent -f${NC}"
-    echo ""
 
     return 0
 }
@@ -3845,11 +3675,6 @@ deploy_stack() {
     # Verify
     print_step "4" "4" "Verifying services"
     verify_services_v3
-
-    # Install metrics agent if configured (runs on host, not in Docker)
-    if [ "$INSTALL_METRICS_AGENT" = true ]; then
-        install_metrics_agent
-    fi
 
     # Create backup of working configuration after successful deployment
     print_info "Creating backup of working configuration..."
@@ -4100,9 +3925,6 @@ show_final_summary_v3() {
     if [ "$INSTALL_NTFY" = true ]; then
         echo -e "    NTFY (Push):         ${CYAN}${NTFY_PUBLIC_URL:-https://ntfy.${N8N_DOMAIN}}${NC}"
         echo -e "                         ${GRAY}(Configure in Cloudflare Tunnel)${NC}"
-    fi
-    if [ "$INSTALL_METRICS_AGENT" = true ]; then
-        echo -e "    Metrics Agent:       ${GREEN}Running${NC} (systemd service on host)"
     fi
     echo ""
     echo -e "  ${WHITE}${BOLD}Management Login:${NC}"
@@ -4671,9 +4493,6 @@ NTFY_ENABLED=${INSTALL_NTFY}
 NTFY_BASE_URL=${NTFY_BASE_URL}
 NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL}
 NTFY_INTERNAL_URL=${NTFY_INTERNAL_URL:-http://n8n_ntfy:80}
-# Metrics Agent
-METRICS_AGENT_ENABLED=${INSTALL_METRICS_AGENT}
-METRICS_AGENT_API_KEY=${METRICS_AGENT_API_KEY}
 EOF
         chmod 600 "${CONFIG_FILE}"
 

@@ -1858,107 +1858,6 @@ async def test_error_handling(
     )
 
 
-@router.get("/host-metrics")
-async def get_host_metrics(
-    include_container_stats: bool = False,
-    _=Depends(get_current_user),
-):
-    """
-    Get host-level metrics from the n8n-metrics-agent.
-
-    This fetches real-time metrics directly from the Docker host via the
-    metrics agent running on port 9100. Returns CPU, memory, disk, network,
-    and container metrics.
-
-    Args:
-        include_container_stats: If True, include detailed per-container resource stats (slower)
-    """
-    import httpx
-
-    if not settings.metrics_agent_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="Metrics agent is not enabled in configuration",
-        )
-
-    try:
-        headers = {}
-        if settings.metrics_agent_api_key:
-            headers["X-API-Key"] = settings.metrics_agent_api_key
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{settings.metrics_agent_url}/metrics",
-                headers=headers,
-                params={"include_container_stats": include_container_stats},
-            )
-            response.raise_for_status()
-            return response.json()
-
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=504,
-            detail="Timeout connecting to metrics agent",
-        )
-    except httpx.ConnectError:
-        raise HTTPException(
-            status_code=503,
-            detail="Cannot connect to metrics agent - is it running on the host?",
-        )
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=e.response.status_code,
-            detail=f"Metrics agent error: {e.response.text}",
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch host metrics: {str(e)}",
-        )
-
-
-@router.get("/host-metrics/health")
-async def get_host_metrics_health(
-    _=Depends(get_current_user),
-):
-    """
-    Check if the metrics agent is available and get its health status.
-    """
-    import httpx
-
-    if not settings.metrics_agent_enabled:
-        return {
-            "available": False,
-            "enabled": False,
-            "error": "Metrics agent is not enabled in configuration",
-        }
-
-    try:
-        headers = {}
-        if settings.metrics_agent_api_key:
-            headers["X-API-Key"] = settings.metrics_agent_api_key
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"{settings.metrics_agent_url}/health",
-                headers=headers,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return {
-                "available": True,
-                "enabled": True,
-                **data,
-            }
-
-    except Exception as e:
-        return {
-            "available": False,
-            "enabled": True,
-            "error": str(e),
-        }
-
-
 @router.get("/host-metrics/cached")
 async def get_host_metrics_cached(
     history_minutes: int = 60,
@@ -1968,9 +1867,8 @@ async def get_host_metrics_cached(
     """
     Get host metrics from the database cache (instant, no network latency).
 
-    The metrics are collected every minute by the scheduler from the metrics-agent
-    and stored in PostgreSQL. This endpoint reads from the database, making it
-    much faster than the live /host-metrics endpoint.
+    Metrics are collected every minute by the scheduler using psutil and the Docker API,
+    then stored in PostgreSQL. This endpoint reads from the database for instant access.
 
     Args:
         history_minutes: Number of minutes of history to return for charts (default 60)
@@ -1995,8 +1893,8 @@ async def get_host_metrics_cached(
     if not latest:
         return {
             "available": False,
-            "enabled": settings.metrics_agent_enabled,
-            "error": "No metrics data available yet. Please wait for the collector to run.",
+            "enabled": True,
+            "error": "No metrics data available yet. Please wait for the collector to run (runs every minute).",
             "latest": None,
             "history": [],
         }
