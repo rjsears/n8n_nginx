@@ -64,6 +64,7 @@ const showAddTargetModal = ref(false)
 const selectedEventForTarget = ref(null)
 const expandedRateLimiting = ref(false)
 const expandedDailyDigest = ref(false)
+const expandedHistoryItems = ref(new Set())
 
 // Maintenance mode form state
 const maintenanceDuration = ref('1h')
@@ -429,6 +430,15 @@ function toggleEvent(eventId) {
     expandedEvents.value.add(eventId)
   }
   expandedEvents.value = new Set(expandedEvents.value)
+}
+
+function toggleHistoryItem(entryId) {
+  if (expandedHistoryItems.value.has(entryId)) {
+    expandedHistoryItems.value.delete(entryId)
+  } else {
+    expandedHistoryItems.value.add(entryId)
+  }
+  expandedHistoryItems.value = new Set(expandedHistoryItems.value)
 }
 
 async function updateEvent(event, field, value) {
@@ -1359,15 +1369,18 @@ onMounted(() => {
           <p>No notification history yet.</p>
         </div>
 
-        <div v-else class="space-y-3">
+        <div v-else class="space-y-2">
           <div v-for="entry in history" :key="entry.id"
             class="bg-surface rounded-xl border border-[var(--color-border)] overflow-hidden"
           >
-            <!-- Header row -->
-            <div class="flex items-center justify-between p-4 border-b border-[var(--color-border)] bg-gray-50/50 dark:bg-gray-800/30">
+            <!-- Collapsed header row - clickable -->
+            <button
+              @click="toggleHistoryItem(entry.id)"
+              class="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+            >
               <div class="flex items-center gap-3">
                 <div :class="[
-                  'p-2 rounded-lg',
+                  'p-1.5 rounded-lg',
                   entry.status === 'sent' ? 'bg-green-100 dark:bg-green-500/20' :
                   entry.status === 'suppressed' ? 'bg-amber-100 dark:bg-amber-500/20' :
                   entry.status === 'failed' ? 'bg-red-100 dark:bg-red-500/20' : 'bg-gray-100 dark:bg-gray-700'
@@ -1375,24 +1388,24 @@ onMounted(() => {
                   <component
                     :is="getEventIcon(entry.event_type)"
                     :class="[
-                      'h-5 w-5',
+                      'h-4 w-4',
                       entry.status === 'sent' ? 'text-green-600 dark:text-green-400' :
                       entry.status === 'suppressed' ? 'text-amber-600 dark:text-amber-400' :
                       entry.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'
                     ]"
                   />
                 </div>
-                <div>
-                  <div class="font-semibold text-primary">{{ formatEventType(entry.event_type) }}</div>
-                  <div v-if="entry.container_name" class="text-xs text-secondary flex items-center gap-1">
-                    <CubeIcon class="h-3 w-3" />
-                    {{ entry.container_name }}
-                  </div>
+                <div class="text-left">
+                  <span class="font-medium text-primary">{{ formatEventType(entry.event_type) }}</span>
+                  <span v-if="entry.container_name" class="text-sm text-secondary ml-2">
+                    <CubeIcon class="h-3 w-3 inline" /> {{ entry.container_name }}
+                  </span>
                 </div>
               </div>
               <div class="flex items-center gap-3">
+                <span class="text-xs text-secondary hidden sm:inline">{{ entry.target_label }}</span>
                 <span :class="[
-                  'px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wide',
+                  'px-2 py-0.5 rounded-full text-xs font-medium',
                   entry.status === 'sent' ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400' :
                   entry.status === 'suppressed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
                   entry.status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
@@ -1400,44 +1413,52 @@ onMounted(() => {
                 ]">
                   {{ entry.status }}
                 </span>
+                <span class="text-xs text-secondary">{{ formatRelativeTime(entry.triggered_at) }}</span>
+                <ChevronDownIcon
+                  :class="['h-4 w-4 text-gray-400 transition-transform duration-200', expandedHistoryItems.has(entry.id) ? 'rotate-180' : '']"
+                />
               </div>
-            </div>
+            </button>
 
-            <!-- Details row -->
-            <div class="p-4 space-y-3">
-              <!-- Target and Time -->
-              <div class="flex items-center justify-between text-sm">
-                <div v-if="entry.target_label" class="flex items-center gap-2 text-secondary">
-                  <BellIcon class="h-4 w-4" />
-                  <span>{{ entry.target_label }}</span>
-                </div>
-                <div class="flex items-center gap-1 text-secondary">
-                  <ClockIcon class="h-4 w-4" />
-                  <span>{{ formatRelativeTime(entry.triggered_at) }}</span>
-                </div>
-              </div>
+            <!-- Expanded details -->
+            <Transition name="collapse">
+              <div v-if="expandedHistoryItems.has(entry.id)" class="border-t border-[var(--color-border)]">
+                <div class="p-4 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
+                  <!-- Target and Time -->
+                  <div class="flex items-center justify-between text-sm">
+                    <div v-if="entry.target_label" class="flex items-center gap-2 text-secondary">
+                      <BellIcon class="h-4 w-4" />
+                      <span>Sent to: {{ entry.target_label }}</span>
+                    </div>
+                    <div class="flex items-center gap-1 text-secondary">
+                      <ClockIcon class="h-4 w-4" />
+                      <span>{{ formatDate(entry.triggered_at) }}</span>
+                    </div>
+                  </div>
 
-              <!-- Event details -->
-              <div v-if="entry.details" class="text-sm text-primary bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
-                {{ entry.details }}
-              </div>
+                  <!-- Event details -->
+                  <div v-if="entry.details" class="text-sm text-primary bg-white dark:bg-gray-800 rounded-lg p-3 border border-[var(--color-border)]">
+                    {{ entry.details }}
+                  </div>
 
-              <!-- Suppression reason -->
-              <div v-if="entry.suppression_reason" class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-                <ExclamationTriangleIcon class="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                <div class="text-sm text-amber-700 dark:text-amber-400">
-                  <span class="font-medium">Suppressed:</span> {{ entry.suppression_reason }}
+                  <!-- Suppression reason -->
+                  <div v-if="entry.suppression_reason" class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                    <ExclamationTriangleIcon class="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div class="text-sm text-amber-700 dark:text-amber-400">
+                      <span class="font-medium">Suppressed:</span> {{ entry.suppression_reason }}
+                    </div>
+                  </div>
+
+                  <!-- Error message -->
+                  <div v-if="entry.error_message" class="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30">
+                    <XCircleIcon class="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <div class="text-sm text-red-700 dark:text-red-400">
+                      <span class="font-medium">Error:</span> {{ entry.error_message }}
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              <!-- Error message -->
-              <div v-if="entry.error_message" class="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30">
-                <XCircleIcon class="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <div class="text-sm text-red-700 dark:text-red-400">
-                  <span class="font-medium">Error:</span> {{ entry.error_message }}
-                </div>
-              </div>
-            </div>
+            </Transition>
           </div>
         </div>
       </div>
