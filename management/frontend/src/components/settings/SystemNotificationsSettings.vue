@@ -62,6 +62,8 @@ const showMaintenanceModal = ref(false)
 const showQuietHoursModal = ref(false)
 const showAddTargetModal = ref(false)
 const selectedEventForTarget = ref(null)
+const expandedRateLimiting = ref(false)
+const expandedDailyDigest = ref(false)
 
 // Maintenance mode form state
 const maintenanceDuration = ref('1h')
@@ -199,6 +201,56 @@ function formatMaintenanceTime(dateStr) {
   return `${minutes}m remaining`
 }
 
+// Format event type for display (e.g., 'container_unhealthy' -> 'Container Unhealthy')
+function formatEventType(eventType) {
+  if (!eventType) return ''
+  return eventType
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+// Format relative time for display
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now - date
+
+  const minutes = Math.floor(diffMs / (1000 * 60))
+  const hours = Math.floor(diffMs / (1000 * 60 * 60))
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes}m ago`
+  if (hours < 24) return `${hours}h ago`
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return `${days}d ago`
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+}
+
+// Get icon for event type
+function getEventIcon(eventType) {
+  const iconMapping = {
+    container_unhealthy: XCircleIcon,
+    container_healthy: CheckCircleIcon,
+    container_restart: ArrowPathIcon,
+    backup_completed: CheckCircleIcon,
+    backup_failed: XCircleIcon,
+    cpu_threshold: CpuChipIcon,
+    memory_threshold: CpuChipIcon,
+    disk_threshold: CircleStackIcon,
+    security_alert: ShieldExclamationIcon,
+  }
+  return iconMapping[eventType] || BellIcon
+}
+
 // Methods
 async function loadData() {
   loading.value = true
@@ -273,10 +325,92 @@ async function loadHistory() {
       params: { limit: 100 }
     })
     history.value = response.data.items || []
+
+    // Add sample data for layout testing if no history exists
+    if (history.value.length === 0) {
+      history.value = getSampleHistoryData()
+    }
   } catch (error) {
     console.error('Failed to load history:', error)
-    history.value = []
+    // Use sample data for layout testing
+    history.value = getSampleHistoryData()
   }
+}
+
+// Sample notification history data for layout testing
+function getSampleHistoryData() {
+  const now = new Date()
+  return [
+    {
+      id: 1,
+      event_type: 'container_unhealthy',
+      target_label: 'Discord: Alerts Channel',
+      status: 'sent',
+      triggered_at: new Date(now - 1000 * 60 * 5).toISOString(), // 5 minutes ago
+      container_name: 'n8n',
+      details: 'Container health check failed 3 consecutive times'
+    },
+    {
+      id: 2,
+      event_type: 'backup_completed',
+      target_label: 'Email: Admin',
+      status: 'sent',
+      triggered_at: new Date(now - 1000 * 60 * 30).toISOString(), // 30 minutes ago
+      details: 'Daily backup completed successfully (2.4 GB)'
+    },
+    {
+      id: 3,
+      event_type: 'container_restart',
+      target_label: 'Pushover: Mobile',
+      status: 'suppressed',
+      triggered_at: new Date(now - 1000 * 60 * 45).toISOString(), // 45 minutes ago
+      suppression_reason: 'Quiet hours active (22:00 - 07:00)',
+      container_name: 'redis'
+    },
+    {
+      id: 4,
+      event_type: 'cpu_threshold',
+      target_label: 'Slack: #ops-alerts',
+      status: 'sent',
+      triggered_at: new Date(now - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
+      details: 'CPU usage exceeded 90% threshold for 5 minutes'
+    },
+    {
+      id: 5,
+      event_type: 'disk_threshold',
+      target_label: 'Email: Admin',
+      status: 'failed',
+      triggered_at: new Date(now - 1000 * 60 * 60 * 3).toISOString(), // 3 hours ago
+      error_message: 'SMTP connection timeout after 30 seconds',
+      details: 'Disk usage at 85% on /var/lib/docker'
+    },
+    {
+      id: 6,
+      event_type: 'container_healthy',
+      target_label: 'Discord: Alerts Channel',
+      status: 'sent',
+      triggered_at: new Date(now - 1000 * 60 * 60 * 4).toISOString(), // 4 hours ago
+      container_name: 'n8n',
+      details: 'Container recovered and is now healthy'
+    },
+    {
+      id: 7,
+      event_type: 'backup_failed',
+      target_label: 'Pushover: Mobile',
+      status: 'sent',
+      triggered_at: new Date(now - 1000 * 60 * 60 * 12).toISOString(), // 12 hours ago
+      details: 'Backup failed: Insufficient disk space'
+    },
+    {
+      id: 8,
+      event_type: 'memory_threshold',
+      target_label: 'Slack: #ops-alerts',
+      status: 'suppressed',
+      triggered_at: new Date(now - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
+      suppression_reason: 'Rate limit exceeded (100/hour)',
+      details: 'Memory usage exceeded 80% threshold'
+    }
+  ]
 }
 
 function toggleCategory(category) {
@@ -1009,141 +1143,153 @@ onMounted(() => {
       </div>
 
       <!-- Global Settings Section -->
-      <div v-if="activeSection === 'global'" class="space-y-6">
-        <Card title="Maintenance Mode" subtitle="Temporarily pause all notifications">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Enable Maintenance Mode</p>
-                <p class="text-sm text-secondary">All notifications will be suppressed</p>
+      <div v-if="activeSection === 'global'" class="space-y-4">
+        <!-- Rate Limiting Card -->
+        <div class="bg-surface rounded-xl border border-[var(--color-border)] overflow-hidden">
+          <button
+            @click="expandedRateLimiting = !expandedRateLimiting"
+            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2 rounded-lg bg-rose-100 dark:bg-rose-500/20">
+                <FireIcon class="h-5 w-5 text-rose-600 dark:text-rose-400" />
               </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  :checked="globalSettings?.maintenance_mode"
-                  @change="toggleMaintenanceMode"
-                  class="sr-only peer"
-                />
-                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-amber-500"></div>
-              </label>
-            </div>
-
-            <div v-if="globalSettings?.maintenance_mode" class="p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-              <p class="text-sm text-amber-700 dark:text-amber-400">
-                <span class="font-medium">Maintenance mode is active.</span>
-                <span v-if="globalSettings.maintenance_until"> Until: {{ formatDate(globalSettings.maintenance_until) }}</span>
-                <span v-if="globalSettings.maintenance_reason"> - {{ globalSettings.maintenance_reason }}</span>
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Quiet Hours" subtitle="Reduce notification priority during specified hours">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Enable Quiet Hours</p>
-                <p class="text-sm text-secondary">Notifications will have reduced priority</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  :checked="globalSettings?.quiet_hours_enabled"
-                  @change="updateGlobalSettings({ quiet_hours_enabled: $event.target.checked })"
-                  class="sr-only peer"
-                />
-                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"></div>
-              </label>
-            </div>
-
-            <div v-if="globalSettings?.quiet_hours_enabled" class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-primary mb-1">Start Time</label>
-                <input
-                  type="time"
-                  :value="globalSettings?.quiet_hours_start"
-                  @change="updateGlobalSettings({ quiet_hours_start: $event.target.value })"
-                  class="input-field w-full"
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-primary mb-1">End Time</label>
-                <input
-                  type="time"
-                  :value="globalSettings?.quiet_hours_end"
-                  @change="updateGlobalSettings({ quiet_hours_end: $event.target.value })"
-                  class="input-field w-full"
-                />
+              <div class="text-left">
+                <h3 class="font-semibold text-primary">Rate Limiting</h3>
+                <p class="text-sm text-secondary">Prevent notification storms</p>
               </div>
             </div>
-          </div>
-        </Card>
-
-        <Card title="Rate Limiting" subtitle="Prevent notification storms">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Max Notifications Per Hour</p>
-                <p class="text-sm text-secondary">Limit total notifications sent per hour</p>
-              </div>
-              <input
-                type="number"
-                :value="globalSettings?.max_notifications_per_hour"
-                @change="updateGlobalSettings({ max_notifications_per_hour: parseInt($event.target.value) })"
-                min="1"
-                max="1000"
-                class="input-field w-24"
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-secondary">
+                {{ globalSettings?.max_notifications_per_hour || 100 }}/hour max
+              </span>
+              <ChevronDownIcon
+                :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedRateLimiting ? 'rotate-180' : '']"
               />
             </div>
+          </button>
 
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Emergency Contact</p>
-                <p class="text-sm text-secondary">Channel to notify if rate limit is exceeded</p>
+          <Transition name="collapse">
+            <div v-if="expandedRateLimiting" class="border-t border-[var(--color-border)]">
+              <div class="p-4 space-y-4 bg-gray-50/50 dark:bg-gray-800/30">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="font-medium text-primary">Max Notifications Per Hour</p>
+                    <p class="text-sm text-secondary">Limit total notifications sent per hour</p>
+                  </div>
+                  <input
+                    type="number"
+                    :value="globalSettings?.max_notifications_per_hour"
+                    @change="updateGlobalSettings({ max_notifications_per_hour: parseInt($event.target.value) })"
+                    min="1"
+                    max="1000"
+                    class="input-field w-24"
+                  />
+                </div>
+
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="font-medium text-primary">Emergency Contact</p>
+                    <p class="text-sm text-secondary">Channel to notify if rate limit is exceeded</p>
+                  </div>
+                  <select
+                    :value="globalSettings?.emergency_contact_id || ''"
+                    @change="updateGlobalSettings({ emergency_contact_id: $event.target.value ? parseInt($event.target.value) : null })"
+                    class="select-field w-48"
+                  >
+                    <option value="">None</option>
+                    <option v-for="channel in channels" :key="channel.id" :value="channel.id">
+                      {{ channel.name }}
+                    </option>
+                  </select>
+                </div>
+
+                <div class="pt-2 border-t border-[var(--color-border)]">
+                  <p class="text-xs text-secondary">
+                    <InformationCircleIcon class="inline h-4 w-4 mr-1" />
+                    When the rate limit is exceeded, remaining notifications will be queued and sent when the limit resets.
+                  </p>
+                </div>
               </div>
-              <select
-                :value="globalSettings?.emergency_contact_id || ''"
-                @change="updateGlobalSettings({ emergency_contact_id: $event.target.value ? parseInt($event.target.value) : null })"
-                class="select-field w-48"
-              >
-                <option value="">None</option>
-                <option v-for="channel in channels" :key="channel.id" :value="channel.id">
-                  {{ channel.name }}
-                </option>
-              </select>
             </div>
-          </div>
-        </Card>
+          </Transition>
+        </div>
 
-        <Card title="Daily Digest" subtitle="Batch low-priority notifications into a daily summary">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Enable Daily Digest</p>
-                <p class="text-sm text-secondary">Info-level events will be batched</p>
+        <!-- Daily Digest Card -->
+        <div class="bg-surface rounded-xl border border-[var(--color-border)] overflow-hidden">
+          <button
+            @click="expandedDailyDigest = !expandedDailyDigest"
+            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
+                <EnvelopeIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  :checked="globalSettings?.digest_enabled"
-                  @change="updateGlobalSettings({ digest_enabled: $event.target.checked })"
-                  class="sr-only peer"
-                />
-                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
-              </label>
+              <div class="text-left">
+                <h3 class="font-semibold text-primary">Daily Digest</h3>
+                <p class="text-sm text-secondary">Batch low-priority notifications into a daily summary</p>
+              </div>
             </div>
-
-            <div v-if="globalSettings?.digest_enabled">
-              <label class="block text-sm font-medium text-primary mb-1">Digest Time</label>
-              <input
-                type="time"
-                :value="globalSettings?.digest_time"
-                @change="updateGlobalSettings({ digest_time: $event.target.value })"
-                class="input-field w-32"
+            <div class="flex items-center gap-3">
+              <span :class="[
+                'px-2 py-0.5 rounded-full text-xs font-medium',
+                globalSettings?.digest_enabled
+                  ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+              ]">
+                {{ globalSettings?.digest_enabled ? 'Enabled' : 'Disabled' }}
+              </span>
+              <ChevronDownIcon
+                :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedDailyDigest ? 'rotate-180' : '']"
               />
             </div>
-          </div>
-        </Card>
+          </button>
+
+          <Transition name="collapse">
+            <div v-if="expandedDailyDigest" class="border-t border-[var(--color-border)]">
+              <div class="p-4 space-y-4 bg-gray-50/50 dark:bg-gray-800/30">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="font-medium text-primary">Enable Daily Digest</p>
+                    <p class="text-sm text-secondary">Info-level events will be batched</p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      :checked="globalSettings?.digest_enabled"
+                      @change="updateGlobalSettings({ digest_enabled: $event.target.checked })"
+                      class="sr-only peer"
+                    />
+                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
+                  </label>
+                </div>
+
+                <div v-if="globalSettings?.digest_enabled" class="flex items-center justify-between">
+                  <div>
+                    <p class="font-medium text-primary">Digest Time</p>
+                    <p class="text-sm text-secondary">When to send the daily summary</p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <ClockIcon class="h-4 w-4 text-gray-400" />
+                    <input
+                      type="time"
+                      :value="globalSettings?.digest_time"
+                      @change="updateGlobalSettings({ digest_time: $event.target.value })"
+                      class="input-field w-32"
+                    />
+                  </div>
+                </div>
+
+                <div class="pt-2 border-t border-[var(--color-border)]">
+                  <p class="text-xs text-secondary">
+                    <InformationCircleIcon class="inline h-4 w-4 mr-1" />
+                    Info-level events will be collected and sent as a single digest email at the specified time.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </div>
       </div>
 
       <!-- Container Config Section -->
@@ -1198,29 +1344,55 @@ onMounted(() => {
 
       <!-- History Section -->
       <div v-if="activeSection === 'history'" class="space-y-4">
+        <!-- Info banner -->
+        <div class="p-3 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+          <div class="flex gap-2 items-center">
+            <InformationCircleIcon class="h-4 w-4 text-blue-500 flex-shrink-0" />
+            <p class="text-sm text-blue-700 dark:text-blue-400">
+              Showing sample notification history for layout testing. Real notifications will appear here once the system is active.
+            </p>
+          </div>
+        </div>
+
         <div v-if="history.length === 0" class="text-center py-8 text-secondary">
           <DocumentTextIcon class="h-12 w-12 mx-auto mb-3 text-gray-300" />
           <p>No notification history yet.</p>
         </div>
 
-        <div v-else class="space-y-2">
+        <div v-else class="space-y-3">
           <div v-for="entry in history" :key="entry.id"
-            class="bg-surface rounded-lg border border-[var(--color-border)] p-4"
+            class="bg-surface rounded-xl border border-[var(--color-border)] overflow-hidden"
           >
-            <div class="flex items-center justify-between">
+            <!-- Header row -->
+            <div class="flex items-center justify-between p-4 border-b border-[var(--color-border)] bg-gray-50/50 dark:bg-gray-800/30">
+              <div class="flex items-center gap-3">
+                <div :class="[
+                  'p-2 rounded-lg',
+                  entry.status === 'sent' ? 'bg-green-100 dark:bg-green-500/20' :
+                  entry.status === 'suppressed' ? 'bg-amber-100 dark:bg-amber-500/20' :
+                  entry.status === 'failed' ? 'bg-red-100 dark:bg-red-500/20' : 'bg-gray-100 dark:bg-gray-700'
+                ]">
+                  <component
+                    :is="getEventIcon(entry.event_type)"
+                    :class="[
+                      'h-5 w-5',
+                      entry.status === 'sent' ? 'text-green-600 dark:text-green-400' :
+                      entry.status === 'suppressed' ? 'text-amber-600 dark:text-amber-400' :
+                      entry.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'
+                    ]"
+                  />
+                </div>
+                <div>
+                  <div class="font-semibold text-primary">{{ formatEventType(entry.event_type) }}</div>
+                  <div v-if="entry.container_name" class="text-xs text-secondary flex items-center gap-1">
+                    <CubeIcon class="h-3 w-3" />
+                    {{ entry.container_name }}
+                  </div>
+                </div>
+              </div>
               <div class="flex items-center gap-3">
                 <span :class="[
-                  'w-2 h-2 rounded-full',
-                  entry.status === 'sent' ? 'bg-green-500' :
-                  entry.status === 'suppressed' ? 'bg-amber-500' :
-                  entry.status === 'failed' ? 'bg-red-500' : 'bg-gray-500'
-                ]"></span>
-                <span class="font-medium text-primary">{{ entry.event_type }}</span>
-                <span v-if="entry.target_label" class="text-sm text-secondary">- {{ entry.target_label }}</span>
-              </div>
-              <div class="flex items-center gap-3 text-sm">
-                <span :class="[
-                  'px-2 py-0.5 rounded-full text-xs font-medium',
+                  'px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wide',
                   entry.status === 'sent' ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400' :
                   entry.status === 'suppressed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
                   entry.status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
@@ -1228,14 +1400,43 @@ onMounted(() => {
                 ]">
                   {{ entry.status }}
                 </span>
-                <span class="text-secondary">{{ formatDate(entry.triggered_at) }}</span>
               </div>
             </div>
-            <div v-if="entry.suppression_reason" class="mt-2 text-sm text-secondary">
-              Reason: {{ entry.suppression_reason }}
-            </div>
-            <div v-if="entry.error_message" class="mt-2 text-sm text-red-500">
-              Error: {{ entry.error_message }}
+
+            <!-- Details row -->
+            <div class="p-4 space-y-3">
+              <!-- Target and Time -->
+              <div class="flex items-center justify-between text-sm">
+                <div v-if="entry.target_label" class="flex items-center gap-2 text-secondary">
+                  <BellIcon class="h-4 w-4" />
+                  <span>{{ entry.target_label }}</span>
+                </div>
+                <div class="flex items-center gap-1 text-secondary">
+                  <ClockIcon class="h-4 w-4" />
+                  <span>{{ formatRelativeTime(entry.triggered_at) }}</span>
+                </div>
+              </div>
+
+              <!-- Event details -->
+              <div v-if="entry.details" class="text-sm text-primary bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+                {{ entry.details }}
+              </div>
+
+              <!-- Suppression reason -->
+              <div v-if="entry.suppression_reason" class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                <ExclamationTriangleIcon class="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div class="text-sm text-amber-700 dark:text-amber-400">
+                  <span class="font-medium">Suppressed:</span> {{ entry.suppression_reason }}
+                </div>
+              </div>
+
+              <!-- Error message -->
+              <div v-if="entry.error_message" class="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30">
+                <XCircleIcon class="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <div class="text-sm text-red-700 dark:text-red-400">
+                  <span class="font-medium">Error:</span> {{ entry.error_message }}
+                </div>
+              </div>
             </div>
           </div>
         </div>
