@@ -90,6 +90,9 @@ export const systemApi = {
   terminalTargets: () => api.get('/system/terminal/targets'),
   externalServices: () => api.get('/system/external-services'),
   debug: () => api.get('/system/debug'),
+  // Host metrics from metrics-agent
+  hostMetrics: (includeContainerStats = false) => api.get('/system/host-metrics', { params: { include_container_stats: includeContainerStats } }),
+  hostMetricsHealth: () => api.get('/system/host-metrics/health'),
 }
 
 export const backupsApi = {
@@ -250,6 +253,8 @@ api.system = {
   getTerminalTargets: systemApi.terminalTargets,
   getExternalServices: systemApi.externalServices,
   getDebug: systemApi.debug,
+  getHostMetrics: systemApi.hostMetrics,
+  getHostMetricsHealth: systemApi.hostMetricsHealth,
 }
 api.backups = backupsApi
 api.containers = containersApi
