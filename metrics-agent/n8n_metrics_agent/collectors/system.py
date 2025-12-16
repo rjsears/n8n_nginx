@@ -4,10 +4,11 @@ System metrics collector using psutil.
 Collects CPU, memory, disk, and general system information.
 """
 
+import os
 import psutil
 import platform
 import socket
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import logging
 
@@ -150,11 +151,73 @@ class SystemCollector:
 
         return disks
 
+    def _get_container_uptime(self) -> Optional[float]:
+        """
+        Get container uptime by checking PID 1's start time.
+        This works in LXC/Docker containers where psutil.boot_time() returns host time.
+        """
+        try:
+            # Read the start time of PID 1 (container's init process)
+            with open('/proc/1/stat', 'r') as f:
+                stat = f.read().split()
+                # Field 22 (index 21) is starttime in clock ticks since boot
+                starttime_ticks = int(stat[21])
+
+            # Get clock ticks per second
+            clk_tck = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
+
+            # Get system uptime from /proc/uptime
+            with open('/proc/uptime', 'r') as f:
+                system_uptime = float(f.read().split()[0])
+
+            # Calculate container uptime: system_uptime - (starttime_ticks / clk_tck)
+            container_start_offset = starttime_ticks / clk_tck
+            container_uptime = system_uptime - container_start_offset
+
+            # If the value is negative or very small, we're likely not in a container
+            if container_uptime < 0:
+                return None
+
+            return container_uptime
+        except Exception as e:
+            logger.debug(f"Could not determine container uptime: {e}")
+            return None
+
+    def _is_in_container(self) -> bool:
+        """Check if we're running inside a container (LXC, Docker, etc.)."""
+        try:
+            # Check for LXC
+            if os.path.exists('/dev/lxc'):
+                return True
+            # Check cgroup for container indicators
+            with open('/proc/1/cgroup', 'r') as f:
+                cgroup = f.read()
+                if 'lxc' in cgroup or 'docker' in cgroup or 'kubepods' in cgroup:
+                    return True
+            # Check for .dockerenv
+            if os.path.exists('/.dockerenv'):
+                return True
+            # Check for container environment variable
+            if os.environ.get('container'):
+                return True
+        except Exception:
+            pass
+        return False
+
     def get_system_metrics(self) -> SystemMetrics:
         """Get general system information."""
         try:
-            boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
-            uptime = (datetime.now(timezone.utc) - boot_time).total_seconds()
+            # Try to get container-specific uptime first
+            container_uptime = self._get_container_uptime()
+
+            if container_uptime is not None and self._is_in_container():
+                # We're in a container, use container uptime
+                uptime = container_uptime
+                boot_time = datetime.now(timezone.utc) - timedelta(seconds=uptime)
+            else:
+                # Use standard system boot time
+                boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
+                uptime = (datetime.now(timezone.utc) - boot_time).total_seconds()
 
             # Get logged in users count
             try:
