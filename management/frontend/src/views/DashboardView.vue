@@ -238,7 +238,7 @@ const networkRxChartData = computed(() => {
   }
 })
 
-// Network TX chart data (rose) - showing rate in MB/s
+// Network TX chart data (teal) - showing rate in MB/s
 const networkTxChartData = computed(() => {
   const hist = history.value
   if (!hist.length) {
@@ -247,8 +247,8 @@ const networkTxChartData = computed(() => {
       datasets: [{
         label: 'Upload',
         data: [0],
-        borderColor: 'rgb(244, 63, 94)',
-        backgroundColor: 'rgba(244, 63, 94, 0.1)',
+        borderColor: 'rgb(20, 184, 166)',
+        backgroundColor: 'rgba(20, 184, 166, 0.1)',
         fill: true,
         tension: 0.4,
         pointRadius: 0,
@@ -263,8 +263,8 @@ const networkTxChartData = computed(() => {
     datasets: [{
       label: 'Upload (MB/s)',
       data: hist.map(h => ((h.network_tx_rate || 0) / (1024 * 1024)).toFixed(2)),
-      borderColor: 'rgb(244, 63, 94)',
-      backgroundColor: 'rgba(244, 63, 94, 0.1)',
+      borderColor: 'rgb(20, 184, 166)',
+      backgroundColor: 'rgba(20, 184, 166, 0.1)',
       fill: true,
       tension: 0.4,
       pointRadius: 0,
@@ -526,9 +526,9 @@ const networkChartOptions = computed(() => ({
                 <p class="text-xs text-muted">Download</p>
               </div>
               <!-- Upload Rate -->
-              <div class="text-center p-4 bg-rose-50 dark:bg-rose-900/20 rounded-xl">
-                <ArrowTrendingUpIcon class="h-6 w-6 text-rose-500 mx-auto mb-2" />
-                <p class="text-2xl font-bold text-rose-500">{{ formatRate(networkRates.tx_bytes_per_sec || 0) }}</p>
+              <div class="text-center p-4 bg-teal-50 dark:bg-teal-900/20 rounded-xl">
+                <ArrowTrendingUpIcon class="h-6 w-6 text-teal-500 mx-auto mb-2" />
+                <p class="text-2xl font-bold text-teal-500">{{ formatRate(networkRates.tx_bytes_per_sec || 0) }}</p>
                 <p class="text-xs text-muted">Upload</p>
               </div>
             </div>
