@@ -46,23 +46,21 @@
 
     <!-- Tabs -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-      <div class="border-b border-gray-200 dark:border-gray-700">
-        <nav class="flex -mb-px overflow-x-auto">
-          <button
-            v-for="tab in tabs"
-            :key="tab.id"
-            @click="activeTab = tab.id"
-            :class="[
-              'px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors',
-              activeTab === tab.id
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            ]"
-          >
-            <component :is="tab.icon" class="w-5 h-5 inline-block mr-2 -mt-0.5" />
-            {{ tab.name }}
-          </button>
-        </nav>
+      <div class="flex flex-wrap gap-2 p-4 border-b border-gray-200 dark:border-gray-700">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          @click="activeTab = tab.id"
+          :class="[
+            'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap border',
+            activeTab === tab.id
+              ? `${tab.bgActive} ${tab.textActive} ${tab.borderActive}`
+              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-transparent'
+          ]"
+        >
+          <component :is="tab.icon" :class="['h-4 w-4', activeTab === tab.id ? '' : tab.iconColor]" />
+          {{ tab.name }}
+        </button>
       </div>
 
       <div class="p-6">
@@ -165,13 +163,13 @@ const integrationExamples = ref([])
 
 // Tabs configuration
 const tabs = [
-  { id: 'composer', name: 'Compose', icon: PaperAirplaneIcon },
-  { id: 'templates', name: 'Templates', icon: DocumentTextIcon },
-  { id: 'topics', name: 'Topics', icon: HashtagIcon },
-  { id: 'saved', name: 'Saved', icon: BookmarkIcon },
-  { id: 'history', name: 'History', icon: ClockIcon },
-  { id: 'settings', name: 'Settings', icon: Cog6ToothIcon },
-  { id: 'integrations', name: 'Integrations', icon: CodeBracketIcon },
+  { id: 'composer', name: 'Compose', icon: PaperAirplaneIcon, iconColor: 'text-blue-500', bgActive: 'bg-blue-500/15 dark:bg-blue-500/20', textActive: 'text-blue-700 dark:text-blue-400', borderActive: 'border-blue-500/30' },
+  { id: 'templates', name: 'Templates', icon: DocumentTextIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
+  { id: 'topics', name: 'Topics', icon: HashtagIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
+  { id: 'saved', name: 'Saved', icon: BookmarkIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
+  { id: 'history', name: 'History', icon: ClockIcon, iconColor: 'text-cyan-500', bgActive: 'bg-cyan-500/15 dark:bg-cyan-500/20', textActive: 'text-cyan-700 dark:text-cyan-400', borderActive: 'border-cyan-500/30' },
+  { id: 'settings', name: 'Settings', icon: Cog6ToothIcon, iconColor: 'text-gray-500', bgActive: 'bg-gray-500/15 dark:bg-gray-500/20', textActive: 'text-gray-700 dark:text-gray-400', borderActive: 'border-gray-500/30' },
+  { id: 'integrations', name: 'Integrations', icon: CodeBracketIcon, iconColor: 'text-rose-500', bgActive: 'bg-rose-500/15 dark:bg-rose-500/20', textActive: 'text-rose-700 dark:text-rose-400', borderActive: 'border-rose-500/30' },
 ]
 
 // Formatters

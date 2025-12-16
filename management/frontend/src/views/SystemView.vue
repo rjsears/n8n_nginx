@@ -78,10 +78,10 @@ const activeTab = ref('overview')
 
 // Tab definitions
 const tabs = [
-  { id: 'health', name: 'Health', icon: SignalIcon },
-  { id: 'overview', name: 'Overview', icon: CpuChipIcon },
-  { id: 'network', name: 'Network', icon: GlobeAltIcon },
-  { id: 'terminal', name: 'Terminal', icon: CommandLineIcon },
+  { id: 'health', name: 'Health', icon: SignalIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
+  { id: 'overview', name: 'Overview', icon: CpuChipIcon, iconColor: 'text-blue-500', bgActive: 'bg-blue-500/15 dark:bg-blue-500/20', textActive: 'text-blue-700 dark:text-blue-400', borderActive: 'border-blue-500/30' },
+  { id: 'network', name: 'Network', icon: GlobeAltIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
+  { id: 'terminal', name: 'Terminal', icon: CommandLineIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
 ]
 
 // System info state
@@ -951,21 +951,19 @@ onUnmounted(() => {
     </div>
 
     <!-- Tabs -->
-    <div class="flex gap-1 p-1 bg-surface-hover rounded-lg overflow-x-auto">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
       <button
         v-for="tab in tabs"
         :key="tab.id"
         @click="activeTab = tab.id"
         :class="[
-          'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap',
+          'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap border',
           activeTab === tab.id
-            ? themeStore.isNeon
-              ? 'bg-cyan-500/20 text-cyan-400'
-              : 'bg-surface text-primary shadow-sm'
-            : 'text-secondary hover:text-primary'
+            ? `${tab.bgActive} ${tab.textActive} ${tab.borderActive}`
+            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-transparent'
         ]"
       >
-        <component :is="tab.icon" class="h-4 w-4" />
+        <component :is="tab.icon" :class="['h-4 w-4', activeTab === tab.id ? '' : tab.iconColor]" />
         {{ tab.name }}
       </button>
     </div>

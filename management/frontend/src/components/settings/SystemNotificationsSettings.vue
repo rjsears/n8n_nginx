@@ -648,35 +648,29 @@ onMounted(() => {
                   <!-- Expanded Settings Panel - Unified layout for all categories -->
                   <Transition name="collapse">
                     <div v-if="expandedEvents.has(event.id)" class="border-t border-gray-200 dark:border-gray-700">
-                      <!-- Unified Clean Layout - Color varies by category -->
-                      <div :class="[
-                        'p-6',
-                        event.category === 'backup' ? 'bg-emerald-50/50 dark:bg-emerald-500/5'
-                          : event.category === 'container' ? 'bg-blue-50/50 dark:bg-blue-500/5'
-                          : event.category === 'security' ? 'bg-red-50/50 dark:bg-red-500/5'
-                          : 'bg-purple-50/50 dark:bg-purple-500/5'
-                      ]">
+                      <!-- Unified Clean Layout - No background color -->
+                      <div class="p-6">
                         <div class="max-w-4xl mx-auto">
                           <!-- Settings Card -->
                           <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
-                            <!-- Header - Flat, translucent color -->
+                            <!-- Header - Subtle colored top border only -->
                             <div :class="[
-                              'px-6 py-4 border-b',
-                              event.category === 'backup' ? 'bg-emerald-100/70 dark:bg-emerald-500/15 border-emerald-200 dark:border-emerald-500/20'
-                                : event.category === 'container' ? 'bg-blue-100/70 dark:bg-blue-500/15 border-blue-200 dark:border-blue-500/20'
-                                : event.category === 'security' ? 'bg-red-100/70 dark:bg-red-500/15 border-red-200 dark:border-red-500/20'
-                                : 'bg-purple-100/70 dark:bg-purple-500/15 border-purple-200 dark:border-purple-500/20'
+                              'px-6 py-4 border-b border-gray-200 dark:border-gray-700',
+                              event.category === 'backup' ? 'border-t-4 border-t-emerald-400'
+                                : event.category === 'container' ? 'border-t-4 border-t-blue-400'
+                                : event.category === 'security' ? 'border-t-4 border-t-red-400'
+                                : 'border-t-4 border-t-purple-400'
                             ]">
-                              <h4 :class="[
-                                'font-semibold flex items-center gap-2',
-                                event.category === 'backup' ? 'text-emerald-700 dark:text-emerald-400'
-                                  : event.category === 'container' ? 'text-blue-700 dark:text-blue-400'
-                                  : event.category === 'security' ? 'text-red-700 dark:text-red-400'
-                                  : 'text-purple-700 dark:text-purple-400'
-                              ]">
+                              <h4 class="font-semibold flex items-center gap-2 text-primary">
                                 <component
                                   :is="categoryInfo[event.category]?.icon || BellIcon"
-                                  class="h-5 w-5"
+                                  :class="[
+                                    'h-5 w-5',
+                                    event.category === 'backup' ? 'text-emerald-500'
+                                      : event.category === 'container' ? 'text-blue-500'
+                                      : event.category === 'security' ? 'text-red-500'
+                                      : 'text-purple-500'
+                                  ]"
                                 />
                                 {{ event.display_name }} Configuration
                               </h4>
@@ -741,8 +735,9 @@ onMounted(() => {
 
                                 <!-- Cooldown (if applicable) -->
                                 <div v-if="event.frequency === 'every_time'">
-                                  <label class="block text-sm font-semibold text-primary mb-3">Cooldown Period</label>
-                                  <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 border-2 border-gray-200 dark:border-gray-600">
+                                  <label class="block text-sm font-semibold text-primary mb-1">Cooldown Period</label>
+                                  <p class="text-xs text-secondary mb-3">Minimum time between duplicate notifications. Prevents alert fatigue from repeated events.</p>
+                                  <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 border border-gray-200 dark:border-gray-600">
                                     <input
                                       type="range"
                                       :value="event.cooldown_minutes"
@@ -811,13 +806,7 @@ onMounted(() => {
                                   <div
                                     v-for="target in event.targets"
                                     :key="target.id"
-                                    :class="[
-                                      'flex items-center justify-between p-4 rounded-xl border transition-colors',
-                                      event.category === 'backup' ? 'bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-300 dark:hover:border-emerald-500/40'
-                                        : event.category === 'container' ? 'bg-blue-50/50 dark:bg-blue-500/5 border-blue-200 dark:border-blue-500/20 hover:border-blue-300 dark:hover:border-blue-500/40'
-                                        : event.category === 'security' ? 'bg-red-50/50 dark:bg-red-500/5 border-red-200 dark:border-red-500/20 hover:border-red-300 dark:hover:border-red-500/40'
-                                        : 'bg-purple-50/50 dark:bg-purple-500/5 border-purple-200 dark:border-purple-500/20 hover:border-purple-300 dark:hover:border-purple-500/40'
-                                    ]"
+                                    class="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-gray-50 dark:bg-gray-700/50 transition-colors"
                                   >
                                     <div class="flex items-center gap-3">
                                       <div :class="[
@@ -1094,7 +1083,7 @@ onMounted(() => {
     <Teleport to="body">
       <Transition name="fade">
         <div v-if="showAddTargetModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div class="bg-surface rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 border border-gray-200 dark:border-gray-700">
             <h3 class="text-lg font-semibold text-primary">Add Notification Target</h3>
             <p class="text-sm text-secondary">
               Choose where to send notifications for "{{ selectedEventForTarget?.display_name }}"
@@ -1117,7 +1106,7 @@ onMounted(() => {
 
               <div v-if="newTargetType === 'channel'">
                 <label class="block text-sm font-medium text-primary mb-1">Select Channel</label>
-                <select v-model="newTargetId" class="select-field w-full">
+                <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="">Choose a channel...</option>
                   <option v-for="channel in channels" :key="channel.id" :value="channel.id">
                     {{ channel.name }} ({{ channel.service_type }})
@@ -1127,7 +1116,7 @@ onMounted(() => {
 
               <div v-if="newTargetType === 'group'">
                 <label class="block text-sm font-medium text-primary mb-1">Select Group</label>
-                <select v-model="newTargetId" class="select-field w-full">
+                <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="">Choose a group...</option>
                   <option v-for="group in groups" :key="group.id" :value="group.id">
                     {{ group.name }} ({{ group.channel_count }} channels)
@@ -1137,7 +1126,7 @@ onMounted(() => {
 
               <div>
                 <label class="block text-sm font-medium text-primary mb-1">Escalation Level</label>
-                <select v-model="newTargetLevel" class="select-field w-full">
+                <select v-model="newTargetLevel" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option :value="1">L1 - Primary (receives immediately)</option>
                   <option :value="2">L2 - Escalation (receives if L1 unacknowledged)</option>
                 </select>
