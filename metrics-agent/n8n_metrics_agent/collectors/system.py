@@ -186,20 +186,69 @@ class SystemCollector:
     def _is_in_container(self) -> bool:
         """Check if we're running inside a container (LXC, Docker, etc.)."""
         try:
-            # Check for LXC
+            # Check for LXC-specific paths
             if os.path.exists('/dev/lxc'):
                 return True
+            if os.path.exists('/run/lxc'):
+                return True
+
             # Check cgroup for container indicators
-            with open('/proc/1/cgroup', 'r') as f:
-                cgroup = f.read()
-                if 'lxc' in cgroup or 'docker' in cgroup or 'kubepods' in cgroup:
-                    return True
+            try:
+                with open('/proc/1/cgroup', 'r') as f:
+                    cgroup = f.read().lower()
+                    if 'lxc' in cgroup or 'docker' in cgroup or 'kubepods' in cgroup:
+                        return True
+            except Exception:
+                pass
+
             # Check for .dockerenv
             if os.path.exists('/.dockerenv'):
                 return True
+
+            # Check /run/.containerenv (Podman)
+            if os.path.exists('/run/.containerenv'):
+                return True
+
             # Check for container environment variable
             if os.environ.get('container'):
                 return True
+
+            # Check /proc/1/environ for container indicators (most reliable for LXC)
+            try:
+                with open('/proc/1/environ', 'rb') as f:
+                    environ = f.read().decode('utf-8', errors='ignore')
+                    if 'container=' in environ or 'lxc' in environ.lower():
+                        return True
+            except Exception:
+                pass
+
+            # Check if /proc/1/exe is not init/systemd (container init might be different)
+            # Also check if the init system thinks it's in a container
+            try:
+                with open('/proc/1/cmdline', 'rb') as f:
+                    cmdline = f.read().decode('utf-8', errors='ignore')
+                    # LXC containers often have /sbin/init as PID 1 but with container env
+                    pass  # This check is informational only
+            except Exception:
+                pass
+
+            # Final check: if boot time is significantly older than system creation
+            # This can indicate we're in a container seeing host's boot time
+            try:
+                boot_time = psutil.boot_time()
+                # If boot time is older than 1 year, we might be in a container
+                # seeing the host's uptime
+                import time
+                current_time = time.time()
+                uptime_days = (current_time - boot_time) / 86400
+                if uptime_days > 365:  # More than 1 year
+                    # Very likely in a container - check if container uptime is reasonable
+                    container_uptime = self._get_container_uptime()
+                    if container_uptime is not None and container_uptime < (current_time - boot_time) * 0.5:
+                        return True
+            except Exception:
+                pass
+
         except Exception:
             pass
         return False
@@ -207,17 +256,38 @@ class SystemCollector:
     def get_system_metrics(self) -> SystemMetrics:
         """Get general system information."""
         try:
-            # Try to get container-specific uptime first
+            # Get standard system boot time first
+            system_boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
+            system_uptime = (datetime.now(timezone.utc) - system_boot_time).total_seconds()
+
+            # Try to get container-specific uptime
             container_uptime = self._get_container_uptime()
 
-            if container_uptime is not None and self._is_in_container():
+            # Decide which uptime to use:
+            # 1. If container uptime is available and significantly different from system uptime
+            # 2. Or if we're in a known container environment
+            use_container_uptime = False
+
+            if container_uptime is not None:
+                # If container uptime is much smaller than system uptime, use it
+                # This handles the case where we're in an LXC seeing host's boot time
+                if container_uptime < system_uptime * 0.9:  # Container uptime is < 90% of system uptime
+                    use_container_uptime = True
+                    logger.debug(f"Using container uptime ({container_uptime:.0f}s) instead of system uptime ({system_uptime:.0f}s)")
+
+            # Also check if we're in a container as a secondary indicator
+            if not use_container_uptime and container_uptime is not None and self._is_in_container():
+                use_container_uptime = True
+                logger.debug(f"Container detected, using container uptime")
+
+            if use_container_uptime and container_uptime is not None:
                 # We're in a container, use container uptime
                 uptime = container_uptime
                 boot_time = datetime.now(timezone.utc) - timedelta(seconds=uptime)
             else:
                 # Use standard system boot time
-                boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
-                uptime = (datetime.now(timezone.utc) - boot_time).total_seconds()
+                boot_time = system_boot_time
+                uptime = system_uptime
 
             # Get logged in users count
             try:
