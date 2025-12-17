@@ -164,10 +164,6 @@ services:
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # PostgreSQL version (for pg_dump compatibility)
       - POSTGRES_VERSION=16
-      # Domain for constructing URLs (used in integration examples)
-      - DOMAIN=${DOMAIN:-}
-      # NTFY public URL (if different from https://ntfy.${DOMAIN})
-      - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -286,9 +282,7 @@ services:
       - serve
     environment:
       - TZ=${TIMEZONE:-America/Los_Angeles}
-      # NTFY_BASE_URL: Set to your ntfy subdomain (e.g., https://ntfy.example.com)
-      # This should match the public hostname configured in Cloudflare Tunnel
-      - NTFY_BASE_URL=${NTFY_BASE_URL:-https://ntfy.${DOMAIN}}
+      - NTFY_BASE_URL=https://${DOMAIN}/ntfy
       - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
       - NTFY_BEHIND_PROXY=true
       - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
