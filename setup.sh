@@ -2113,6 +2113,10 @@ services:
       # Database
       - DATABASE_URL=postgresql+asyncpg://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD}@postgres:5432/n8n_management
       - N8N_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
+      # PostgreSQL connection for backups (pg_dump)
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       # Security
       - SECRET_KEY=${MGMT_SECRET_KEY}
       # Admin user (created on first startup)

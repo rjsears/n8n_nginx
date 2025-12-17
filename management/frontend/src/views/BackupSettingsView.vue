@@ -118,8 +118,9 @@ const compressionLevelMax = computed(() => {
 
 const hasNfsConfigured = computed(() => {
   return storageDetection.value?.has_nfs ||
-    (storageDetection.value?.environment?.nfs_mount_point &&
-     storageDetection.value?.environment?.nfs_mount_point !== '')
+    storageDetection.value?.environment?.nfs_configured ||
+    (storageDetection.value?.environment?.nfs_server &&
+     storageDetection.value?.environment?.nfs_server !== '')
 })
 
 const nfsMounts = computed(() => {
@@ -583,6 +584,20 @@ onMounted(() => {
                         </div>
                       </div>
                       <p class="text-xs text-secondary mt-1 ml-6">{{ nfs.source }} ({{ nfs.fs_type }})</p>
+                    </div>
+                  </div>
+
+                  <!-- NFS configured via env but not mounted -->
+                  <div v-else-if="storageDetection?.environment?.nfs_configured" class="mt-3 ml-11 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <div class="flex items-start gap-2">
+                      <ExclamationTriangleIcon class="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div class="text-xs">
+                        <p class="font-medium text-amber-800 dark:text-amber-300">NFS Mount Issue</p>
+                        <p class="text-amber-700 dark:text-amber-400 mt-0.5">
+                          NFS is configured (<code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">{{ storageDetection?.environment?.nfs_server }}:{{ storageDetection?.environment?.nfs_path }}</code>)
+                          but the mount point is not accessible. Check Docker volume or restart containers.
+                        </p>
+                      </div>
                     </div>
                   </div>
 

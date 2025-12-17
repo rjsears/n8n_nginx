@@ -1402,6 +1402,18 @@ async def detect_storage_locations(
     # Detect NFS mounts
     nfs_mounts = detect_nfs_mounts()
 
+    # Fallback: Check environment variables for Docker NFS volumes
+    # Docker NFS volumes don't show as 'nfs' type in /proc/mounts
+    if not nfs_mounts and settings.nfs_server:
+        # NFS was configured via environment, check if mount point is accessible
+        nfs_mount = settings.nfs_mount_point or "/mnt/backups"
+        nfs_info = check_path(nfs_mount)
+        if nfs_info["exists"]:
+            nfs_info["fs_type"] = "docker-nfs"
+            nfs_info["is_nfs"] = True
+            nfs_info["source"] = f"{settings.nfs_server}:{settings.nfs_path}"
+            nfs_mounts.append(nfs_info)
+
     # Find recommended path (first writable path)
     recommended = None
     # Prefer NFS if available and writable
@@ -1425,5 +1437,8 @@ async def detect_storage_locations(
         "environment": {
             "backup_staging_dir": settings.backup_staging_dir,
             "nfs_mount_point": settings.nfs_mount_point,
+            "nfs_server": settings.nfs_server,
+            "nfs_path": settings.nfs_path,
+            "nfs_configured": bool(settings.nfs_server),
         }
     }
