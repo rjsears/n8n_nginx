@@ -563,7 +563,7 @@ onMounted(loadData)
     <Teleport to="body">
       <div v-if="scheduleDialog.open" class="fixed inset-0 z-50 flex items-center justify-center">
         <div class="absolute inset-0 bg-black/50" @click="scheduleDialog.open = false"></div>
-        <div class="relative bg-primary rounded-lg shadow-xl w-full max-w-md p-6 m-4">
+        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6 m-4">
           <h3 class="text-lg font-semibold text-primary mb-4">Configure Backup Schedule</h3>
 
           <div class="space-y-4">

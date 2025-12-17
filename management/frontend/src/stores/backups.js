@@ -116,7 +116,7 @@ export const useBackupStore = defineStore('backups', () => {
 
   async function triggerBackup() {
     // Trigger a full backup with default settings
-    return await runBackup('full', 'gzip')
+    return await runBackup('postgres_full', 'gzip')
   }
 
   async function deleteBackup(id) {
