@@ -12,7 +12,14 @@ from api.models.notifications import (
     NotificationHistory,
     NotificationBatch,
 )
-from api.models.backups import BackupSchedule, RetentionPolicy, BackupHistory, VerificationSchedule
+from api.models.backups import (
+    BackupSchedule,
+    RetentionPolicy,
+    BackupHistory,
+    VerificationSchedule,
+    BackupContents,
+    BackupPruningSettings,
+)
 from api.models.email import EmailTemplate, EmailTestHistory
 from api.models.audit import AuditLog, ContainerStatusCache, SystemMetricsCache
 from api.models.ntfy import NtfyTemplate, NtfyTopic, NtfySavedMessage, NtfyMessageHistory, NtfyServerConfig
@@ -55,6 +62,8 @@ __all__ = [
     "RetentionPolicy",
     "BackupHistory",
     "VerificationSchedule",
+    "BackupContents",
+    "BackupPruningSettings",
     # Email
     "EmailTemplate",
     "EmailTestHistory",

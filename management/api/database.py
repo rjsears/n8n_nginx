@@ -200,6 +200,13 @@ async def run_schema_migrations() -> None:
         ("system_notification_container_configs", "monitor_stopped", "BOOLEAN DEFAULT TRUE"),
         # system_notification_targets.escalation_timeout_minutes for per-target L2 timeout
         ("system_notification_targets", "escalation_timeout_minutes", "INTEGER"),
+        # backup_history protection and pending deletion columns (Phase 7)
+        ("backup_history", "is_protected", "BOOLEAN DEFAULT FALSE"),
+        ("backup_history", "protected_at", "TIMESTAMP WITH TIME ZONE"),
+        ("backup_history", "protected_reason", "VARCHAR(200)"),
+        ("backup_history", "deletion_status", "VARCHAR(20)"),
+        ("backup_history", "scheduled_deletion_at", "TIMESTAMP WITH TIME ZONE"),
+        ("backup_history", "deletion_reason", "VARCHAR(100)"),
     ]
 
     async with engine.begin() as conn:

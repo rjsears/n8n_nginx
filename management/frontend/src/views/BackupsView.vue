@@ -8,6 +8,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import BackupContentsDialog from '@/components/backups/BackupContentsDialog.vue'
 import {
   CircleStackIcon,
   PlayIcon,
@@ -18,6 +19,9 @@ import {
   XCircleIcon,
   CalendarIcon,
   Cog6ToothIcon,
+  EyeIcon,
+  ShieldCheckIcon,
+  ShieldExclamationIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -27,6 +31,8 @@ const notificationStore = useNotificationStore()
 const loading = ref(true)
 const runningBackup = ref(false)
 const deleteDialog = ref({ open: false, backup: null, loading: false })
+const contentsDialog = ref({ open: false, backup: null })
+const protectingBackup = ref(null)
 
 // Backup schedule (would come from API)
 const schedule = ref({
@@ -103,6 +109,50 @@ async function confirmDelete() {
   } finally {
     deleteDialog.value.loading = false
   }
+}
+
+// View Contents Dialog
+function openContentsDialog(backup) {
+  contentsDialog.value = { open: true, backup }
+}
+
+function closeContentsDialog() {
+  contentsDialog.value = { open: false, backup: null }
+}
+
+// Backup Protection
+async function toggleProtection(backup) {
+  protectingBackup.value = backup.id
+  try {
+    const newProtected = !backup.is_protected
+    await backupStore.protectBackup(backup.id, newProtected, newProtected ? 'Protected via UI' : null)
+    notificationStore.success(newProtected ? 'Backup protected' : 'Backup unprotected')
+    await loadData()  // Refresh to get updated status
+  } catch (error) {
+    notificationStore.error('Failed to update backup protection')
+  } finally {
+    protectingBackup.value = null
+  }
+}
+
+// Run Full Backup with Metadata
+async function runFullBackupNow() {
+  runningBackup.value = true
+  try {
+    await backupStore.runFullBackup('postgres_full')
+    notificationStore.success('Full backup started successfully')
+    await loadData()
+  } catch (error) {
+    notificationStore.error('Failed to start full backup')
+  } finally {
+    runningBackup.value = false
+  }
+}
+
+// Handle workflow restore request from dialog
+function handleRestoreWorkflow({ backup, workflow }) {
+  // For now just show a message - full restore will be implemented in Phase 3
+  notificationStore.info(`Restore workflow "${workflow.name}" from backup - Coming soon!`)
 }
 
 async function loadData() {
@@ -300,6 +350,13 @@ onMounted(loadData)
                 <div class="flex items-center gap-2">
                   <p class="font-medium text-primary">{{ backup.type }} Backup</p>
                   <StatusBadge :status="backup.status" size="sm" />
+                  <span
+                    v-if="backup.is_protected"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-400"
+                  >
+                    <ShieldCheckIcon class="h-3 w-3" />
+                    Protected
+                  </span>
                 </div>
                 <p class="text-sm text-secondary mt-1">
                   {{ new Date(backup.created_at).toLocaleString() }}
@@ -310,6 +367,16 @@ onMounted(loadData)
               </div>
             </div>
             <div class="flex items-center gap-2">
+              <!-- View Contents -->
+              <button
+                v-if="backup.status === 'success'"
+                @click="openContentsDialog(backup)"
+                class="btn-secondary p-2"
+                title="View Contents"
+              >
+                <EyeIcon class="h-4 w-4" />
+              </button>
+              <!-- Download -->
               <button
                 v-if="backup.status === 'success'"
                 class="btn-secondary p-2"
@@ -317,10 +384,26 @@ onMounted(loadData)
               >
                 <ArrowDownTrayIcon class="h-4 w-4" />
               </button>
+              <!-- Protect/Unprotect -->
+              <button
+                v-if="backup.status === 'success'"
+                @click="toggleProtection(backup)"
+                :disabled="protectingBackup === backup.id"
+                :class="[
+                  'btn-secondary p-2',
+                  backup.is_protected ? 'text-amber-500 hover:text-amber-600' : ''
+                ]"
+                :title="backup.is_protected ? 'Unprotect backup' : 'Protect backup'"
+              >
+                <ShieldCheckIcon v-if="backup.is_protected" class="h-4 w-4" />
+                <ShieldExclamationIcon v-else class="h-4 w-4" />
+              </button>
+              <!-- Delete -->
               <button
                 @click="openDeleteDialog(backup)"
                 class="btn-secondary p-2 text-red-500 hover:text-red-600"
-                title="Delete"
+                :disabled="backup.is_protected"
+                :title="backup.is_protected ? 'Unprotect first to delete' : 'Delete'"
               >
                 <TrashIcon class="h-4 w-4" />
               </button>
@@ -340,6 +423,14 @@ onMounted(loadData)
       :loading="deleteDialog.loading"
       @confirm="confirmDelete"
       @cancel="deleteDialog.open = false"
+    />
+
+    <!-- Backup Contents Dialog -->
+    <BackupContentsDialog
+      :open="contentsDialog.open"
+      :backup="contentsDialog.backup"
+      @close="closeContentsDialog"
+      @restore-workflow="handleRestoreWorkflow"
     />
   </div>
 </template>

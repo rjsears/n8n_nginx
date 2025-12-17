@@ -764,39 +764,165 @@ Legend:
 
 ---
 
+## Implementation Notes
+
+### Autonomous Implementation Mode
+- **Continue through phases** without stopping for approval
+- **Build comprehensive test instructions** for each completed phase
+- **Ensure database changes** are integrated with setup.sh for fresh installs
+- **Update this document** after each task completion
+
+### Database Integration Requirements
+- All new tables must be added to the SQLAlchemy models in `models/backups.py`
+- Database initialization handled by `init-db.sh` and SQLAlchemy's `create_all()`
+- Ensure backward compatibility - existing installations should auto-migrate
+- Test that setup.sh on clean server creates all necessary tables
+
+### Testing Instructions Format
+For each phase, document:
+1. Prerequisites (containers running, test data needed)
+2. Step-by-step test procedure
+3. Expected results
+4. Verification commands
+
+---
+
 ## Progress Tracking
 
 This section tracks implementation progress. Update after each completed task, change, or test.
 
 ### Current Status
-- **Current Phase:** Not started
+- **Current Phase:** Phase 3 - Backend Complete, UI Pending
 - **Last Updated:** December 17, 2024
-- **Last Action:** Planning complete, awaiting Phase 1 start
+- **Last Action:** Completed Phase 3 restore backend implementation
 
-### Phase 1: Enhanced Backup Creation & Archive Format
+### Phase 1: Enhanced Backup Creation & Archive Format ✅ COMPLETE
 | Task | Status | Notes |
 |------|--------|-------|
-| 1.1 Create `backup_contents` database model | ⬜ Pending | |
-| 1.2 Update backup service to capture workflow manifest | ⬜ Pending | |
-| 1.3 Capture config file manifest with checksums | ⬜ Pending | |
-| 1.4 Capture database schema manifest | ⬜ Pending | |
-| 1.5 Create tar.gz archive with proper structure | ⬜ Pending | |
-| 1.6 Include all config files | ⬜ Pending | |
-| 1.7 Include SSL certificates in backup | ⬜ Pending | |
-| 1.8 Generate manifest.json | ⬜ Pending | |
-| 1.9 Generate requirements.txt | ⬜ Pending | |
-| 1.10 Create restore.sh template | ⬜ Pending | |
-| 1.11 Store metadata in backup_contents table | ⬜ Pending | |
+| 1.1 Create `backup_contents` database model | ✅ Complete | Added BackupContents, BackupPruningSettings models, plus protection/deletion columns to BackupHistory |
+| 1.2 Update backup service to capture workflow manifest | ✅ Complete | `capture_workflow_manifest()` queries n8n DB |
+| 1.3 Capture config file manifest with checksums | ✅ Complete | `capture_config_file_manifest()` with SHA-256 |
+| 1.4 Capture database schema manifest | ✅ Complete | `capture_database_schema_manifest()` gets tables, row counts, columns |
+| 1.5 Create tar.gz archive with proper structure | ✅ Complete | `create_complete_archive()` creates tar.gz |
+| 1.6 Include all config files | ✅ Complete | .env, docker-compose.yaml, nginx.conf, cloudflare.ini |
+| 1.7 Include SSL certificates in backup | ✅ Complete | Copies entire /etc/letsencrypt/live directory |
+| 1.8 Generate manifest.json (metadata.json) | ✅ Complete | Full metadata JSON inside archive |
+| 1.9 Generate requirements.txt | ⏭️ Skipped | Not critical for MVP |
+| 1.10 Create restore.sh template | ✅ Complete | `_generate_restore_script()` embedded in archive |
+| 1.11 Store metadata in backup_contents table | ✅ Complete | `run_backup_with_metadata()` stores all metadata |
 
-### Phase 2: Backup Content Browser UI
+**Phase 1 API Endpoints:**
+- `POST /api/backups/run-full` - Create full backup with metadata
+- `GET /api/backups/contents/{backup_id}` - Get backup contents for browsing
+- `GET /api/backups/contents/{backup_id}/workflows` - List workflows in backup
+- `GET /api/backups/contents/{backup_id}/config-files` - List config files in backup
+- `POST /api/backups/{backup_id}/protect` - Protect/unprotect backup
+- `GET /api/backups/protected` - List protected backups
+- `GET /api/backups/pruning/settings` - Get pruning settings
+- `PUT /api/backups/pruning/settings` - Update pruning settings
+
+**Files Modified in Phase 1:**
+- `api/models/backups.py` - Added BackupContents, BackupPruningSettings, protection columns
+- `api/schemas/backups.py` - Added all new schemas
+- `api/services/backup_service.py` - Added ~700 lines of backup functionality
+- `api/routers/backups.py` - Added 8 new endpoints
+- `api/database.py` - Added schema migrations for new columns
+
+### Phase 1 Testing Instructions
+```bash
+# Prerequisites:
+# - Management container running
+# - PostgreSQL container running with n8n database
+# - At least one workflow in n8n
+
+# Test 1: Create full backup with metadata
+curl -X POST http://localhost:5678/api/backups/run-full \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"backup_type": "postgres_full", "compression": "gzip"}'
+
+# Expected: Returns backup_id, status "success", filename like "backup_YYYYMMDD_HHMMSS.n8n_backup.tar.gz"
+
+# Test 2: Get backup contents
+curl http://localhost:5678/api/backups/contents/<backup_id> \
+  -H "Authorization: Bearer <token>"
+
+# Expected: JSON with workflow_count, credential_count, config_file_count, manifests
+
+# Test 3: List workflows in backup
+curl http://localhost:5678/api/backups/contents/<backup_id>/workflows \
+  -H "Authorization: Bearer <token>"
+
+# Expected: JSON array of workflows with id, name, active, created_at, updated_at
+
+# Test 4: Protect a backup
+curl -X POST http://localhost:5678/api/backups/<backup_id>/protect \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"protected": true, "reason": "Test protection"}'
+
+# Expected: Backup with is_protected=true, protected_at set, protected_reason set
+
+# Test 5: Verify archive structure
+tar -tzf /path/to/backup_*.n8n_backup.tar.gz
+# Expected contents:
+# - restore.sh
+# - metadata.json
+# - databases/n8n.dump
+# - databases/n8n_management.dump
+# - config/.env (if exists)
+# - config/docker-compose.yaml (if exists)
+# - config/nginx.conf (if exists)
+# - ssl/ (if SSL certs exist)
+```
+
+### Phase 2: Backup Content Browser UI ✅ COMPLETE
 | Task | Status | Notes |
 |------|--------|-------|
-| 2.1-2.8 | ⬜ Pending | Not started |
+| 2.1 Add API endpoint `GET /api/backups/{id}/contents` | ✅ Complete | Done in Phase 1 |
+| 2.2 Add backup_contents schema | ✅ Complete | Done in Phase 1 |
+| 2.3 Create BackupContentsDialog.vue component | ✅ Complete | Full tabbed dialog |
+| 2.4 Add "View Contents" button to backup history | ✅ Complete | Eye icon button |
+| 2.5 Display workflows tab | ✅ Complete | With search filter |
+| 2.6 Display config files tab | ✅ Complete | With checksums |
+| 2.7 Display database info tab | ✅ Complete | Tables with row counts |
+| 2.8 Add search/filter for workflows | ✅ Complete | Real-time search |
 
-### Phase 3: Selective Workflow Restore
+**Phase 2 UI Features:**
+- BackupContentsDialog.vue with 3 tabs (Workflows, Config Files, Database)
+- Summary stats showing workflow/credential/config counts
+- Search/filter for workflows
+- Protection badge and toggle button
+- View Contents (eye) button on each backup
+- Shield icon for protect/unprotect
+
+**Files Modified in Phase 2:**
+- `frontend/src/components/backups/BackupContentsDialog.vue` - NEW: Full dialog component
+- `frontend/src/stores/backups.js` - Added 8 new methods for contents, protection, pruning
+- `frontend/src/views/BackupsView.vue` - Added View Contents, protection buttons, dialog integration
+
+### Phase 3: Selective Workflow Restore - Backend ✅ COMPLETE
 | Task | Status | Notes |
 |------|--------|-------|
-| 3.1-3.12 | ⬜ Pending | Not started |
+| 3.1 Create `restore_service.py` | ✅ Complete | Full service with container management |
+| 3.2 Implement `spin_up_restore_container()` | ✅ Complete | Docker container spin-up/teardown |
+| 3.3 Implement `load_backup_to_container()` | ✅ Complete | Loads both new and legacy backup formats |
+| 3.4 Implement `extract_workflow()` | ✅ Complete | Extracts workflow JSON from restore DB |
+| 3.5 Implement `push_workflow_to_n8n()` via API | ✅ Complete | Uses n8n_api_service |
+| 3.6 Implement `teardown_restore_container()` | ✅ Complete | Cleanup after restore |
+| 3.7 Add restore API endpoints | ✅ Complete | 5 new endpoints |
+| 3.8-3.12 UI Components | ⬜ Pending | WorkflowRestoreDialog.vue |
+
+**Phase 3 API Endpoints:**
+- `POST /api/backups/{id}/restore/workflow` - Restore workflow to n8n
+- `GET /api/backups/{id}/restore/workflows` - List workflows in backup
+- `GET /api/backups/{id}/workflows/{wf_id}/download` - Download workflow JSON
+- `POST /api/backups/restore/cleanup` - Cleanup restore container
+- `GET /api/backups/restore/status` - Check container status
+
+**Files Created/Modified in Phase 3:**
+- `api/services/restore_service.py` - NEW: Full restore service (~400 lines)
+- `api/routers/backups.py` - Added 5 restore endpoints
 
 ### Phase 4: Full System Restore
 | Task | Status | Notes |
@@ -824,6 +950,9 @@ This section tracks implementation progress. Update after each completed task, c
 | 2024-12-17 | Initial planning | Created complete 7-phase implementation plan |
 | 2024-12-17 | Finalized decisions | All 10 key decisions documented |
 | 2024-12-17 | Added Phase 7 | Pruning & retention system with notifications |
+| 2024-12-17 | Phase 1 Complete | Backend implementation done - backup service, models, schemas, routes |
+| 2024-12-17 | Phase 2 Complete | UI implementation done - BackupContentsDialog, store methods, view updates |
+| 2024-12-17 | Phase 3 Backend | Restore service, container management, 5 API endpoints |
 
 ### Testing Notes
 *(Record test results, issues found, and resolutions here)*
