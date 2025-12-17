@@ -1383,12 +1383,21 @@ async def detect_storage_locations(
             seen.add(p)
             unique_paths.append(p)
 
-    # Check each path
+    # Check each path - only include paths that exist
     local_paths = []
+    staging_area = None
+
     for path in unique_paths:
         info = check_path(path)
         if not info["is_mount"]:  # Don't duplicate NFS mounts
-            local_paths.append(info)
+            # Mark the staging area separately
+            if path == settings.backup_staging_dir or path == "/app/backups":
+                info["is_staging"] = True
+                staging_area = info
+            elif info["exists"] and info["is_writable"]:
+                # Only include paths that exist and are writable
+                info["is_staging"] = False
+                local_paths.append(info)
 
     # Detect NFS mounts
     nfs_mounts = detect_nfs_mounts()
@@ -1400,14 +1409,15 @@ async def detect_storage_locations(
         if nfs["is_writable"]:
             recommended = nfs["path"]
             break
-    # Fallback to local writable path
+    # Fallback to local writable path (not staging)
     if not recommended:
         for local in local_paths:
-            if local["is_writable"]:
+            if local["is_writable"] and not local.get("is_staging"):
                 recommended = local["path"]
                 break
 
     return {
+        "staging_area": staging_area,
         "local_paths": local_paths,
         "nfs_mounts": nfs_mounts,
         "has_nfs": len(nfs_mounts) > 0,

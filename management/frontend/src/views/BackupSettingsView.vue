@@ -12,12 +12,18 @@ import {
   TrashIcon,
   BellIcon,
   CheckCircleIcon,
-  Cog6ToothIcon,
   ServerIcon,
   ArrowPathIcon,
   CheckIcon,
   XMarkIcon,
   ArrowLeftIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CloudIcon,
+  CircleStackIcon,
+  ArrowRightIcon,
+  InformationCircleIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -34,6 +40,14 @@ const pathValidation = ref(null)
 const storageDetection = ref(null)
 const detectingStorage = ref(false)
 
+// Collapsible sections state
+const sections = ref({
+  stagingArea: true,
+  nfsStorage: true,
+  backupWorkflow: true,
+  localPaths: false,
+})
+
 // Watch for tab query changes
 watch(() => route.query.tab, (newTab) => {
   if (newTab) activeTab.value = newTab
@@ -46,6 +60,7 @@ const form = ref({
   nfs_storage_path: '',
   nfs_enabled: false,
   storage_preference: 'local',
+  backup_workflow: 'direct', // 'direct' or 'stage_then_copy'
   // Compression
   compression_enabled: true,
   compression_algorithm: 'gzip',
@@ -88,6 +103,29 @@ const compressionLevelMax = computed(() => {
   return form.value.compression_algorithm === 'zstd' ? 22 : 9
 })
 
+// Computed property for NFS availability
+const hasNfsConfigured = computed(() => {
+  return storageDetection.value?.has_nfs ||
+    (storageDetection.value?.environment?.nfs_mount_point &&
+     storageDetection.value?.environment?.nfs_mount_point !== '')
+})
+
+const nfsMounts = computed(() => {
+  return storageDetection.value?.nfs_mounts || []
+})
+
+const stagingArea = computed(() => {
+  return storageDetection.value?.staging_area || {
+    path: '/app/backups',
+    exists: true,
+    is_writable: true,
+  }
+})
+
+const availableLocalPaths = computed(() => {
+  return storageDetection.value?.local_paths?.filter(p => p.exists && p.is_writable) || []
+})
+
 async function loadConfiguration() {
   loading.value = true
   try {
@@ -104,14 +142,14 @@ async function loadConfiguration() {
 
     if (storage) {
       storageDetection.value = storage
-      if (!form.value.primary_storage_path && storage.recommended_path) {
-        form.value.primary_storage_path = storage.recommended_path
-      }
+      // Auto-enable NFS if detected
       if (storage.has_nfs && storage.nfs_mounts.length > 0) {
         const nfsMount = storage.nfs_mounts[0]
         if (!form.value.nfs_storage_path) {
           form.value.nfs_storage_path = nfsMount.path
         }
+        // Auto-expand NFS section if NFS is available
+        sections.value.nfsStorage = true
       }
     }
   } catch (err) {
@@ -130,11 +168,6 @@ async function detectStorage() {
   } finally {
     detectingStorage.value = false
   }
-}
-
-function selectStoragePath(path) {
-  form.value.primary_storage_path = path
-  validatePath(path)
 }
 
 function selectNfsPath(path) {
@@ -173,6 +206,10 @@ function goBack() {
   router.push('/backups')
 }
 
+function toggleSection(section) {
+  sections.value[section] = !sections.value[section]
+}
+
 onMounted(() => {
   loadConfiguration()
 })
@@ -201,18 +238,28 @@ onMounted(() => {
           <p class="text-secondary mt-1">Configure backup storage, schedule, and retention policies</p>
         </div>
       </div>
-      <button
-        @click="save"
-        :disabled="saving"
-        :class="[
-          'btn-primary flex items-center gap-2',
-          themeStore.isNeon ? 'neon-btn-cyan' : ''
-        ]"
-      >
-        <CheckIcon v-if="!saving" class="h-4 w-4" />
-        <ArrowPathIcon v-else class="h-4 w-4 animate-spin" />
-        {{ saving ? 'Saving...' : 'Save Configuration' }}
-      </button>
+      <div class="flex items-center gap-3">
+        <button
+          @click="detectStorage"
+          :disabled="detectingStorage"
+          class="btn-secondary flex items-center gap-2"
+        >
+          <ArrowPathIcon :class="['h-4 w-4', detectingStorage ? 'animate-spin' : '']" />
+          {{ detectingStorage ? 'Detecting...' : 'Detect Storage' }}
+        </button>
+        <button
+          @click="save"
+          :disabled="saving"
+          :class="[
+            'btn-primary flex items-center gap-2',
+            themeStore.isNeon ? 'neon-btn-cyan' : ''
+          ]"
+        >
+          <CheckIcon v-if="!saving" class="h-4 w-4" />
+          <ArrowPathIcon v-else class="h-4 w-4 animate-spin" />
+          {{ saving ? 'Saving...' : 'Save Configuration' }}
+        </button>
+      </div>
     </div>
 
     <LoadingSpinner v-if="loading" size="lg" text="Loading configuration..." class="py-12" />
@@ -237,162 +284,170 @@ onMounted(() => {
       </div>
 
       <!-- Storage Tab -->
-      <div v-if="activeTab === 'storage'" class="space-y-6">
-        <!-- Detected Storage -->
-        <Card title="Detected Storage Locations" subtitle="Automatically detected storage paths available on your system">
-          <template #actions>
-            <button
-              @click="detectStorage"
-              :disabled="detectingStorage"
-              class="btn-secondary text-sm flex items-center gap-2"
-            >
-              <ArrowPathIcon :class="['h-4 w-4', detectingStorage ? 'animate-spin' : '']" />
-              {{ detectingStorage ? 'Detecting...' : 'Refresh' }}
-            </button>
-          </template>
+      <div v-if="activeTab === 'storage'" class="space-y-4">
 
-          <div v-if="storageDetection" class="space-y-4">
-            <!-- NFS Mounts -->
-            <div v-if="storageDetection.has_nfs">
-              <div class="flex items-center gap-2 mb-3">
-                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
-                  <ServerIcon class="h-3.5 w-3.5 mr-1" />
-                  NFS Available
-                </span>
+        <!-- Staging Area Section (Collapsible) -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <button
+            @click="toggleSection('stagingArea')"
+            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2.5 rounded-xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30">
+                <CircleStackIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
               </div>
-              <div class="space-y-2">
-                <div
-                  v-for="nfs in storageDetection.nfs_mounts"
-                  :key="nfs.path"
-                  :class="[
-                    'flex items-center justify-between p-4 rounded-lg border transition-colors',
-                    form.nfs_storage_path === nfs.path
-                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                  ]"
-                >
+              <div class="text-left">
+                <h3 class="font-semibold text-primary">Local Staging Area</h3>
+                <p class="text-sm text-secondary">Temporary storage for backup creation</p>
+              </div>
+            </div>
+            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.stagingArea ? 'rotate-180' : '']" />
+          </button>
+
+          <div v-if="sections.stagingArea" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
+            <div class="mt-4 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              <div class="flex items-start gap-3">
+                <InformationCircleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                <div class="text-sm">
+                  <p class="font-medium text-amber-800 dark:text-amber-300">About the Staging Area</p>
+                  <p class="text-amber-700 dark:text-amber-400 mt-1">
+                    The staging area (<code class="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono text-xs">{{ stagingArea.path }}</code>)
+                    is a local Docker volume used to temporarily store backups during creation.
+                    After the backup completes, it can be automatically moved to your final storage destination (NFS or other location).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+              <div class="flex items-center gap-3">
+                <FolderIcon class="h-5 w-5 text-amber-500" />
+                <div>
+                  <p class="font-mono text-sm font-medium text-primary">{{ stagingArea.path }}</p>
+                  <p class="text-xs text-secondary">
+                    <span v-if="stagingArea.is_writable" class="text-emerald-600 dark:text-emerald-400">Available</span>
+                    <span v-else class="text-red-500">Not writable</span>
+                    <span v-if="stagingArea.free_space_gb" class="ml-2">{{ stagingArea.free_space_gb }} GB free</span>
+                  </p>
+                </div>
+              </div>
+              <span class="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                Staging
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- NFS Storage Section (Collapsible) -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <button
+            @click="toggleSection('nfsStorage')"
+            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2.5 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/30 dark:to-teal-900/30">
+                <CloudIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div class="text-left">
+                <h3 class="font-semibold text-primary">Network Storage (NFS)</h3>
+                <p class="text-sm text-secondary">
+                  <span v-if="hasNfsConfigured" class="text-emerald-600 dark:text-emerald-400">{{ nfsMounts.length }} NFS mount(s) detected</span>
+                  <span v-else>No NFS storage detected</span>
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span v-if="form.nfs_enabled" class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                Enabled
+              </span>
+              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.nfsStorage ? 'rotate-180' : '']" />
+            </div>
+          </button>
+
+          <div v-if="sections.nfsStorage" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
+            <!-- NFS Mounts Detected -->
+            <div v-if="nfsMounts.length > 0" class="mt-4 space-y-3">
+              <p class="text-sm font-medium text-secondary">Detected NFS Mounts</p>
+              <div
+                v-for="nfs in nfsMounts"
+                :key="nfs.path"
+                :class="[
+                  'p-4 rounded-lg border-2 transition-all cursor-pointer',
+                  form.nfs_storage_path === nfs.path
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-emerald-300 dark:hover:border-emerald-700'
+                ]"
+                @click="selectNfsPath(nfs.path)"
+              >
+                <div class="flex items-center justify-between">
                   <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                    <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
                       <ServerIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                     </div>
                     <div>
                       <p class="font-mono text-sm font-medium text-primary">{{ nfs.path }}</p>
-                      <p class="text-xs text-secondary">
-                        {{ nfs.source }} ({{ nfs.fs_type }})
-                        <span v-if="nfs.free_space_gb" class="ml-2">• {{ nfs.free_space_gb }} GB free of {{ nfs.total_space_gb }} GB</span>
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    v-if="nfs.is_writable"
-                    @click="selectNfsPath(nfs.path)"
-                    :class="[
-                      'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                      form.nfs_storage_path === nfs.path
-                        ? 'bg-emerald-500 text-white'
-                        : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50'
-                    ]"
-                  >
-                    {{ form.nfs_storage_path === nfs.path ? 'Selected' : 'Use NFS' }}
-                  </button>
-                  <span v-else class="text-sm text-red-500">Not writable</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Local Paths -->
-            <div>
-              <p class="text-sm font-medium text-secondary mb-3">Local Storage Paths</p>
-              <div class="space-y-2">
-                <div
-                  v-for="local in storageDetection.local_paths"
-                  :key="local.path"
-                  :class="[
-                    'flex items-center justify-between p-4 rounded-lg border transition-colors',
-                    form.primary_storage_path === local.path
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                  ]"
-                >
-                  <div class="flex items-center gap-3">
-                    <div :class="[
-                      'p-2 rounded-lg',
-                      local.is_writable ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-100 dark:bg-gray-800'
-                    ]">
-                      <FolderIcon :class="[
-                        'h-5 w-5',
-                        local.is_writable ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'
-                      ]" />
-                    </div>
-                    <div>
-                      <p class="font-mono text-sm font-medium text-primary">{{ local.path }}</p>
-                      <p class="text-xs text-secondary">
-                        <span v-if="local.exists">
-                          <span v-if="local.is_writable" class="text-emerald-600 dark:text-emerald-400">Writable</span>
-                          <span v-else class="text-red-500">Not writable</span>
-                          <span v-if="local.free_space_gb" class="ml-2">• {{ local.free_space_gb }} GB free</span>
+                      <p class="text-xs text-secondary mt-0.5">
+                        <span class="font-medium">{{ nfs.source }}</span>
+                        <span class="mx-1">|</span>
+                        {{ nfs.fs_type }}
+                        <span v-if="nfs.free_space_gb" class="ml-2 text-emerald-600 dark:text-emerald-400">
+                          {{ nfs.free_space_gb }} GB free of {{ nfs.total_space_gb }} GB
                         </span>
-                        <span v-else class="text-amber-600 dark:text-amber-400">Does not exist</span>
                       </p>
                     </div>
                   </div>
-                  <button
-                    v-if="local.is_writable"
-                    @click="selectStoragePath(local.path)"
-                    :class="[
-                      'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                      form.primary_storage_path === local.path
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50'
-                    ]"
-                  >
-                    {{ form.primary_storage_path === local.path ? 'Selected' : 'Select' }}
-                  </button>
+                  <div class="flex items-center gap-3">
+                    <span v-if="nfs.is_writable" class="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Writable</span>
+                    <span v-else class="text-xs text-red-500 font-medium">Read-only</span>
+                    <div v-if="form.nfs_storage_path === nfs.path" class="p-1.5 rounded-full bg-emerald-500">
+                      <CheckIcon class="h-4 w-4 text-white" />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- Recommended -->
-            <div v-if="storageDetection.recommended_path" class="p-4 rounded-lg bg-gradient-to-r from-blue-50 to-emerald-50 dark:from-blue-900/20 dark:to-emerald-900/20 border border-blue-200 dark:border-blue-800">
-              <p class="text-sm font-medium text-blue-700 dark:text-blue-400">
-                <CheckCircleIcon class="h-4 w-4 inline mr-1" />
-                Recommended: <span class="font-mono">{{ storageDetection.recommended_path }}</span>
-              </p>
+            <!-- No NFS Detected -->
+            <div v-else class="mt-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+              <div class="flex items-start gap-3">
+                <ExclamationTriangleIcon class="h-5 w-5 text-gray-400 flex-shrink-0 mt-0.5" />
+                <div class="text-sm">
+                  <p class="font-medium text-primary">No NFS Storage Detected</p>
+                  <p class="text-secondary mt-1">
+                    NFS is configured in your environment but no mounted NFS shares were found.
+                    Check that the NFS share is properly mounted at <code class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono text-xs">{{ storageDetection?.environment?.nfs_mount_point || '/mnt/backups' }}</code>
+                  </p>
+                  <div v-if="storageDetection?.environment" class="mt-3 p-3 rounded bg-gray-100 dark:bg-gray-800">
+                    <p class="text-xs font-medium text-secondary mb-1">Environment Configuration:</p>
+                    <p class="text-xs font-mono text-muted">NFS_MOUNT_POINT: {{ storageDetection.environment.nfs_mount_point || 'Not set' }}</p>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div v-else class="text-center py-8 text-secondary">
-            <FolderIcon class="h-12 w-12 mx-auto mb-3 opacity-50" />
-            <p>Click "Refresh" to detect available storage locations</p>
-          </div>
-        </Card>
-
-        <!-- Manual Configuration -->
-        <Card title="Storage Configuration" subtitle="Configure your primary and NFS storage paths">
-          <div class="space-y-6">
-            <div>
-              <label class="block text-sm font-medium text-primary mb-2">Primary Storage Path</label>
+            <!-- Manual NFS Path Input -->
+            <div class="mt-4">
+              <label class="block text-sm font-medium text-primary mb-2">Custom NFS Path</label>
               <div class="flex gap-3">
                 <input
-                  v-model="form.primary_storage_path"
+                  v-model="form.nfs_storage_path"
                   type="text"
                   class="input-field flex-1 font-mono"
-                  placeholder="/app/backups"
+                  placeholder="/mnt/backups"
                 />
                 <button
-                  @click="validatePath(form.primary_storage_path)"
-                  :disabled="validatingPath"
+                  @click="validatePath(form.nfs_storage_path)"
+                  :disabled="validatingPath || !form.nfs_storage_path"
                   class="btn-secondary px-4"
                 >
                   {{ validatingPath ? 'Checking...' : 'Validate' }}
                 </button>
               </div>
-
               <div v-if="pathValidation" class="mt-3 p-3 rounded-lg" :class="pathValidation.is_writable ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-red-50 dark:bg-red-900/20'">
                 <div class="flex items-center gap-2">
                   <CheckCircleIcon v-if="pathValidation.is_writable" class="h-5 w-5 text-emerald-500" />
                   <XMarkIcon v-else class="h-5 w-5 text-red-500" />
-                  <span :class="pathValidation.is_writable ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'">
+                  <span :class="pathValidation.is_writable ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'" class="text-sm">
                     {{ pathValidation.is_writable ? 'Path is valid and writable' : 'Path is not accessible or writable' }}
                   </span>
                 </div>
@@ -402,11 +457,11 @@ onMounted(() => {
               </div>
             </div>
 
-            <!-- NFS Toggle -->
-            <div class="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-900">
+            <!-- Enable NFS Toggle -->
+            <div class="mt-4 flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
               <div>
                 <p class="font-medium text-primary">Enable NFS Storage</p>
-                <p class="text-sm text-secondary">Store backups on network-attached storage</p>
+                <p class="text-sm text-secondary">Store final backups on NFS network storage</p>
               </div>
               <button
                 @click="form.nfs_enabled = !form.nfs_enabled"
@@ -418,29 +473,147 @@ onMounted(() => {
                 <span :class="['inline-block h-4 w-4 transform rounded-full bg-white transition-transform', form.nfs_enabled ? 'translate-x-6' : 'translate-x-1']" />
               </button>
             </div>
+          </div>
+        </div>
 
-            <div v-if="form.nfs_enabled" class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-primary mb-2">NFS Storage Path</label>
-                <input
-                  v-model="form.nfs_storage_path"
-                  type="text"
-                  class="input-field w-full font-mono"
-                  placeholder="/mnt/backups"
-                />
+        <!-- Backup Workflow Section (Collapsible) -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <button
+            @click="toggleSection('backupWorkflow')"
+            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2.5 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30">
+                <ArrowRightIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
+              <div class="text-left">
+                <h3 class="font-semibold text-primary">Backup Workflow</h3>
+                <p class="text-sm text-secondary">How backups are created and stored</p>
+              </div>
+            </div>
+            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.backupWorkflow ? 'rotate-180' : '']" />
+          </button>
 
-              <div>
-                <label class="block text-sm font-medium text-primary mb-2">Storage Preference</label>
-                <select v-model="form.storage_preference" class="input-field w-full">
-                  <option value="local">Local storage only</option>
-                  <option value="nfs">NFS storage only</option>
-                  <option value="both">Both (redundant copies)</option>
-                </select>
+          <div v-if="sections.backupWorkflow" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
+            <div class="mt-4 space-y-3">
+              <!-- Direct to destination -->
+              <label
+                :class="[
+                  'flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all',
+                  form.backup_workflow === 'direct'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700'
+                ]"
+              >
+                <input
+                  type="radio"
+                  v-model="form.backup_workflow"
+                  value="direct"
+                  class="mt-1 h-4 w-4 text-blue-500"
+                />
+                <div class="flex-1">
+                  <p class="font-medium text-primary">Direct to Destination</p>
+                  <p class="text-sm text-secondary mt-1">
+                    Create backups directly on the final storage destination. Faster but less safe if network issues occur during backup.
+                  </p>
+                  <div class="flex items-center gap-2 mt-2 text-xs text-blue-600 dark:text-blue-400">
+                    <CircleStackIcon class="h-4 w-4" />
+                    <ArrowRightIcon class="h-3 w-3" />
+                    <CloudIcon class="h-4 w-4" />
+                    <span>Database → NFS/Destination</span>
+                  </div>
+                </div>
+              </label>
+
+              <!-- Stage then copy (safer) -->
+              <label
+                :class="[
+                  'flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all',
+                  form.backup_workflow === 'stage_then_copy'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700'
+                ]"
+              >
+                <input
+                  type="radio"
+                  v-model="form.backup_workflow"
+                  value="stage_then_copy"
+                  class="mt-1 h-4 w-4 text-blue-500"
+                />
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <p class="font-medium text-primary">Stage Locally, Then Copy</p>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                      Recommended
+                    </span>
+                  </div>
+                  <p class="text-sm text-secondary mt-1">
+                    Create backup on local staging area first, verify integrity, then copy to NFS. Safer but requires temporary local storage space.
+                  </p>
+                  <div class="flex items-center gap-2 mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+                    <CircleStackIcon class="h-4 w-4" />
+                    <ArrowRightIcon class="h-3 w-3" />
+                    <FolderIcon class="h-4 w-4" />
+                    <ArrowRightIcon class="h-3 w-3" />
+                    <CloudIcon class="h-4 w-4" />
+                    <span>Database → Local Staging → NFS</span>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <!-- Storage preference when NFS is enabled -->
+            <div v-if="form.nfs_enabled" class="mt-4">
+              <label class="block text-sm font-medium text-primary mb-2">Final Storage Location</label>
+              <select v-model="form.storage_preference" class="input-field w-full">
+                <option value="nfs">NFS only (recommended for remote backups)</option>
+                <option value="local">Local only (keep on staging volume)</option>
+                <option value="both">Both NFS and local (redundant copies)</option>
+              </select>
+              <p class="mt-1 text-xs text-secondary">
+                Choose where to keep the final backup after creation
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Additional Local Paths (Collapsible) -->
+        <div v-if="availableLocalPaths.length > 0" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <button
+            @click="toggleSection('localPaths')"
+            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2.5 rounded-xl bg-gradient-to-br from-gray-100 to-slate-100 dark:from-gray-700/50 dark:to-slate-700/50">
+                <FolderIcon class="h-5 w-5 text-gray-600 dark:text-gray-400" />
+              </div>
+              <div class="text-left">
+                <h3 class="font-semibold text-primary">Additional Local Paths</h3>
+                <p class="text-sm text-secondary">{{ availableLocalPaths.length }} writable path(s) available</p>
+              </div>
+            </div>
+            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.localPaths ? 'rotate-180' : '']" />
+          </button>
+
+          <div v-if="sections.localPaths" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
+            <div class="mt-4 space-y-2">
+              <div
+                v-for="local in availableLocalPaths"
+                :key="local.path"
+                class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700"
+              >
+                <div class="flex items-center gap-3">
+                  <FolderIcon class="h-5 w-5 text-gray-500" />
+                  <div>
+                    <p class="font-mono text-sm font-medium text-primary">{{ local.path }}</p>
+                    <p v-if="local.free_space_gb" class="text-xs text-secondary">{{ local.free_space_gb }} GB free</p>
+                  </div>
+                </div>
+                <span class="text-xs text-emerald-600 dark:text-emerald-400">Writable</span>
               </div>
             </div>
           </div>
-        </Card>
+        </div>
       </div>
 
       <!-- Schedule Tab -->
