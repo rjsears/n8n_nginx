@@ -417,22 +417,6 @@ onMounted(loadData)
         </div>
       </Card>
 
-      <!-- Filters -->
-      <Card :neon="true" :padding="false">
-        <div class="p-4 flex items-center gap-4">
-          <select v-model="filterStatus" class="select-field">
-            <option value="all">All Statuses</option>
-            <option value="success">Successful</option>
-            <option value="failed">Failed</option>
-            <option value="pending">Pending</option>
-          </select>
-          <select v-model="sortBy" class="select-field">
-            <option value="date">Sort by Date</option>
-            <option value="size">Sort by Size</option>
-          </select>
-        </div>
-      </Card>
-
       <!-- Backup History - Collapsible Section -->
       <Card :neon="true" :padding="false">
         <!-- Section Header (Collapsible) -->
@@ -459,6 +443,21 @@ onMounted(loadData)
 
         <!-- Section Content -->
         <div v-show="sections.history" class="border-t border-gray-200 dark:border-gray-700">
+          <!-- Filters (inside Backup History) -->
+          <div class="p-4 flex items-center gap-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+            <select v-model="filterStatus" class="select-field">
+              <option value="all">All Statuses</option>
+              <option value="success">Successful</option>
+              <option value="failed">Failed</option>
+              <option value="running">Running</option>
+              <option value="pending">Pending</option>
+            </select>
+            <select v-model="sortBy" class="select-field">
+              <option value="date">Sort by Date</option>
+              <option value="size">Sort by Size</option>
+            </select>
+          </div>
+
           <EmptyState
             v-if="filteredBackups.length === 0"
             :icon="CircleStackIcon"
