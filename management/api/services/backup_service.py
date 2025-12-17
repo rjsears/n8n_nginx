@@ -25,6 +25,7 @@ from api.models.backups import (
     VerificationSchedule,
     BackupContents,
     BackupPruningSettings,
+    BackupConfiguration,
 )
 from api.schemas.backups import BackupType
 from api.security import hash_file_sha256
@@ -252,8 +253,35 @@ class BackupService:
                 if result.returncode != 0:
                     raise Exception(f"pg_dump failed: {result.stderr.decode()}")
 
+    async def _get_backup_configuration(self) -> Optional[BackupConfiguration]:
+        """Get the current backup configuration from database."""
+        stmt = select(BackupConfiguration).limit(1)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def _get_storage_location(self) -> str:
-        """Get backup storage location (NFS or local)."""
+        """Get backup storage location based on configuration."""
+        # Try to get configuration from database
+        config = await self._get_backup_configuration()
+
+        if config:
+            # Use configured storage preference
+            if config.storage_preference == 'nfs' and config.nfs_enabled:
+                nfs_path = config.nfs_storage_path
+                if nfs_path and os.path.exists(nfs_path) and os.access(nfs_path, os.W_OK):
+                    return nfs_path
+            elif config.storage_preference == 'both' and config.nfs_enabled:
+                # Prefer NFS if available, fallback to local
+                nfs_path = config.nfs_storage_path
+                if nfs_path and os.path.exists(nfs_path) and os.access(nfs_path, os.W_OK):
+                    return nfs_path
+
+            # Use primary storage path from config
+            primary_path = config.primary_storage_path
+            if primary_path and os.path.exists(primary_path):
+                return primary_path
+
+        # Fallback to environment settings
         nfs_mount = settings.nfs_mount_point
         if os.path.ismount(nfs_mount):
             return nfs_mount

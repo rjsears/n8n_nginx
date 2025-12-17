@@ -1209,3 +1209,98 @@ async def execute_pending_deletions(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+# ============================================================================
+# Backup Configuration Endpoints
+# ============================================================================
+
+from api.schemas.backups import BackupConfigurationUpdate, BackupConfigurationResponse
+from api.models.backups import BackupConfiguration
+from sqlalchemy import select
+
+
+@router.get("/configuration", response_model=BackupConfigurationResponse)
+async def get_backup_configuration(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get the current backup configuration settings.
+    Creates default settings if none exist.
+    """
+    # Get or create singleton configuration
+    stmt = select(BackupConfiguration).limit(1)
+    result = await db.execute(stmt)
+    config = result.scalar_one_or_none()
+
+    if not config:
+        # Create default configuration
+        config = BackupConfiguration()
+        db.add(config)
+        await db.commit()
+        await db.refresh(config)
+
+    return BackupConfigurationResponse.model_validate(config)
+
+
+@router.put("/configuration", response_model=BackupConfigurationResponse)
+async def update_backup_configuration(
+    data: BackupConfigurationUpdate,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update backup configuration settings.
+    """
+    # Get or create singleton configuration
+    stmt = select(BackupConfiguration).limit(1)
+    result = await db.execute(stmt)
+    config = result.scalar_one_or_none()
+
+    if not config:
+        config = BackupConfiguration()
+        db.add(config)
+
+    # Update fields
+    updates = data.model_dump(exclude_unset=True)
+    for key, value in updates.items():
+        if hasattr(config, key):
+            setattr(config, key, value)
+
+    await db.commit()
+    await db.refresh(config)
+
+    return BackupConfigurationResponse.model_validate(config)
+
+
+@router.post("/configuration/validate-path")
+async def validate_storage_path(
+    path: str,
+    _=Depends(get_current_user),
+):
+    """
+    Validate that a storage path exists and is writable.
+    """
+    import os
+
+    result = {
+        "path": path,
+        "exists": os.path.exists(path),
+        "is_directory": os.path.isdir(path) if os.path.exists(path) else False,
+        "is_writable": os.access(path, os.W_OK) if os.path.exists(path) else False,
+        "is_mounted": os.path.ismount(path),
+    }
+
+    if result["exists"] and result["is_directory"]:
+        # Get disk space info
+        try:
+            stat = os.statvfs(path)
+            result["free_space_bytes"] = stat.f_frsize * stat.f_bavail
+            result["total_space_bytes"] = stat.f_frsize * stat.f_blocks
+            result["free_space_gb"] = round(result["free_space_bytes"] / (1024**3), 2)
+            result["total_space_gb"] = round(result["total_space_bytes"] / (1024**3), 2)
+        except Exception:
+            pass
+
+    return result
