@@ -19,6 +19,7 @@
 - [Pruning & Retention Decisions](#pruning--retention-decisions)
 - [Progress Tracking](#progress-tracking)
 - [Backup Configuration Page](#backup-configuration-page)
+- [Backup History UI](#backup-history-ui-collapsible-design)
 
 ---
 
@@ -1119,6 +1120,9 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 | 2024-12-17 | Compression Tab | Compression algorithm and level settings |
 | 2024-12-17 | Notifications Tab | Channel/group selection supporting all notification services with validation |
 | 2024-12-17 | Verification Tab | Automatic and manual verification configuration |
+| 2024-12-17 | BackupsView Redesign | Hierarchical collapsible backup history with inline actions |
+| 2024-12-17 | Backup Actions | Verify, Protect, Selective Workflow Restore, Bare Metal Recovery, Delete |
+| 2024-12-17 | Workflow Restore | Collapsible workflow list with Download JSON and Push to n8n options |
 
 ### Testing Notes
 *(Record test results, issues found, and resolutions here)*
@@ -1298,6 +1302,109 @@ All tabs use consistent styling:
 
 ---
 
+## Backup History UI (Collapsible Design)
+
+The main Backups page (`/backups`) uses a hierarchical collapsible design for browsing and managing backups.
+
+### BackupsView.vue Structure
+
+**File:** `frontend/src/views/BackupsView.vue`
+
+The page is organized as follows:
+
+1. **Stats Grid** - Four cards showing Total Backups, Successful, Failed, Total Size
+2. **Backup Schedule Card** - Shows current schedule settings with link to Configure
+3. **Filters** - Filter by status and sort by date/size
+4. **Backup History** - Main collapsible section containing all backups
+
+### Backup History (Collapsible)
+
+When expanded, shows a list of individual backups. Each backup is itself a collapsible item.
+
+**Backup Item Header Shows:**
+- Backup type (postgres_full, postgres_n8n, etc.)
+- Status badge (success/failed/pending)
+- Protected badge (if protected)
+- Verified badge (if verification passed)
+- Creation date and size
+
+### Backup Actions (When Expanded)
+
+When you expand an individual backup, you see these action options:
+
+#### 1. Verify Backup (Teal)
+- Spins up a temporary PostgreSQL Docker container (`n8n_postgres_verify`)
+- Loads the backed-up database into the temp container
+- Validates backup integrity per the Verification Challenge & Solution:
+  - Table existence and schemas
+  - Row counts match manifest
+  - Workflow checksums match
+- Shows verification status badge (passed/failed)
+
+#### 2. Protect Backup (Amber)
+- Toggles protection status for the backup
+- Protected backups are never automatically deleted by pruning
+- Shows "Protected" badge when enabled
+- Must unprotect before deleting
+
+#### 3. Selective Workflow Restore (Indigo) - Collapsible
+This is itself a collapsible section. When expanded:
+- Spins up temporary Docker container with PostgreSQL
+- Loads the workflow database from backup
+- Lists all workflows in the backup with name and status
+
+**Each workflow has two options:**
+- **Download JSON** (DocumentArrowDownIcon) - Downloads the workflow as JSON file for manual import into n8n
+- **Push to n8n** (CloudArrowUpIcon) - Uses n8n API to import the workflow directly (similar to test notification workflow push)
+
+#### 4. Bare Metal Recovery (Purple)
+- Downloads the backup archive as `backup_*.n8n_backup.tar.gz`
+- Archive contains:
+  - `restore.sh` - Self-contained restore script
+  - `databases/` - PostgreSQL dumps
+  - `config/` - .env, docker-compose.yaml, nginx.conf
+  - `ssl/` - SSL certificates
+  - `metadata.json` - Complete backup metadata
+- User extracts on target server and runs `./restore.sh`
+
+#### 5. Delete Backup (Red)
+- Permanently deletes the backup
+- Disabled if backup is protected (must unprotect first)
+- Shows confirmation dialog before deleting
+
+### State Management
+
+```javascript
+// Collapsible section state
+const sections = ref({
+  history: false,  // Backup History section
+})
+
+// Which individual backups are expanded
+const expandedBackups = ref(new Set())
+
+// Which backups have their workflow restore section expanded
+const expandedWorkflowRestore = ref(new Set())
+
+// Workflows loaded per backup (lazy-loaded on expand)
+const backupWorkflows = ref({})
+```
+
+### API Endpoints Used
+
+| Action | Endpoint | Description |
+|--------|----------|-------------|
+| Load workflows | `GET /backups/{id}/restore/workflows` | List workflows in backup |
+| Download workflow | `GET /backups/{id}/workflows/{wf_id}/download` | Get workflow JSON |
+| Restore workflow | `POST /backups/{id}/restore/workflow` | Push to n8n via API |
+| Verify | `POST /backups/{id}/verify` | Full verification with temp container |
+| Protect | `POST /backups/{id}/protect` | Toggle protection status |
+| Download backup | `GET /backups/{id}/download` | Download tar.gz archive |
+| Delete | `DELETE /backups/{id}` | Delete backup |
+
+---
+
 *Document updated on December 17, 2024*
 *Added Phase 7: Pruning & Retention System*
 *Added Backup Configuration Page documentation*
+*Added Backup History UI (Collapsible Design) documentation*
