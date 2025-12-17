@@ -792,9 +792,9 @@ For each phase, document:
 This section tracks implementation progress. Update after each completed task, change, or test.
 
 ### Current Status
-- **Current Phase:** Phase 4 - Complete
+- **Current Phase:** Phase 5 - Complete
 - **Last Updated:** December 17, 2024
-- **Last Action:** Completed Phase 4 - Full System Restore with SystemRestoreDialog
+- **Last Action:** Completed Phase 5 - Backup Verification System
 
 ### Phase 1: Enhanced Backup Creation & Archive Format ✅ COMPLETE
 | Task | Status | Notes |
@@ -971,10 +971,42 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 - `frontend/src/components/backups/SystemRestoreDialog.vue` - NEW: Full system restore dialog (~600 lines)
 - `frontend/src/views/BackupsView.vue` - Added System Restore button and dialog integration
 
-### Phase 5: Backup Verification System
+### Phase 5: Backup Verification System ✅ COMPLETE
 | Task | Status | Notes |
 |------|--------|-------|
-| 5.1-5.13 | ⬜ Pending | Not started |
+| 5.1 Create `verification_service.py` | ✅ Complete | Full verification service with container management |
+| 5.2 Implement `verify_backup()` with temp container | ✅ Complete | Uses n8n_postgres_verify container |
+| 5.3 Verify table existence and schemas | ✅ Complete | `verify_tables_exist()` method |
+| 5.4 Verify row counts match manifest | ✅ Complete | `verify_row_counts()` method |
+| 5.5 Verify workflow checksums | ✅ Complete | `verify_workflow_checksums()` with sampling |
+| 5.6 Verify config file checksums | ✅ Complete | `verify_config_file_checksums()` method |
+| 5.7 Store detailed verification results | ✅ Complete | Stores in backup_history table |
+| 5.8 Add verification API endpoints | ✅ Complete | 5 new endpoints |
+| 5.9 Add "Verify Now" button per backup | ✅ Complete | CheckBadge icon button |
+| 5.10 Display verification status/results | ✅ Complete | Badge with passed/failed status |
+| 5.11 Quick verify option | ✅ Complete | Fast checksum-only verification |
+| 5.12 Verification container cleanup | ✅ Complete | Manual cleanup endpoint |
+
+**Phase 5 API Endpoints:**
+- `POST /api/backups/{id}/verify` - Comprehensive verification (spins up container)
+- `POST /api/backups/{id}/verify/quick` - Quick verification (checksum only)
+- `GET /api/backups/{id}/verification/status` - Get verification status
+- `POST /api/backups/verification/cleanup` - Cleanup verification container
+- `GET /api/backups/verification/container/status` - Check container status
+
+**Phase 5 Features:**
+- Separate verification container (n8n_postgres_verify) from restore container
+- Comprehensive verification: archive integrity, tables, row counts, checksums
+- Quick verification: file exists, checksum match, archive valid
+- Workflow checksum sampling (default: 10 workflows)
+- Verification status badge in backup list
+- Verify button with loading state
+
+**Files Created/Modified in Phase 5:**
+- `api/services/verification_service.py` - NEW: Full verification service (~600 lines)
+- `api/routers/backups.py` - Added 5 verification endpoints
+- `frontend/src/stores/backups.js` - Added 5 verification methods
+- `frontend/src/views/BackupsView.vue` - Added verification button and status display
 
 ### Phase 6: Bare Metal Recovery
 | Task | Status | Notes |
@@ -998,6 +1030,8 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 | 2024-12-17 | Phase 3 UI | WorkflowRestoreDialog with restore/download options |
 | 2024-12-17 | Phase 4 Backend | Full system restore: databases, configs, SSL certs, 5 API endpoints |
 | 2024-12-17 | Phase 4 UI | SystemRestoreDialog with preview/confirm/progress/results steps |
+| 2024-12-17 | Phase 5 Backend | Verification service with temp container, comprehensive checks |
+| 2024-12-17 | Phase 5 UI | Verify button and verification status badge in backup list |
 
 ### Testing Notes
 *(Record test results, issues found, and resolutions here)*

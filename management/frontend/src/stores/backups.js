@@ -335,6 +335,79 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
+  // Phase 5: Backup Verification
+
+  async function verifyBackup(backupId, options = {}) {
+    try {
+      const response = await api.post(`/backups/${backupId}/verify`, {
+        verify_all_workflows: options.verifyAllWorkflows ?? false,
+        workflow_sample_size: options.workflowSampleSize ?? 10,
+      })
+      // Update local state
+      const index = history.value.findIndex(b => b.id === backupId)
+      if (index > -1) {
+        history.value[index] = {
+          ...history.value[index],
+          verification_status: response.data.overall_status,
+          verification_date: new Date().toISOString(),
+        }
+      }
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to verify backup'
+      throw err
+    }
+  }
+
+  async function quickVerifyBackup(backupId) {
+    try {
+      const response = await api.post(`/backups/${backupId}/verify/quick`)
+      // Update local state
+      const index = history.value.findIndex(b => b.id === backupId)
+      if (index > -1) {
+        history.value[index] = {
+          ...history.value[index],
+          verification_status: response.data.overall_status,
+          verification_date: new Date().toISOString(),
+        }
+      }
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to quick verify backup'
+      throw err
+    }
+  }
+
+  async function fetchVerificationStatus(backupId) {
+    try {
+      const response = await api.get(`/backups/${backupId}/verification/status`)
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch verification status'
+      throw err
+    }
+  }
+
+  async function cleanupVerifyContainer() {
+    try {
+      const response = await api.post('/backups/verification/cleanup')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to cleanup verification container'
+      throw err
+    }
+  }
+
+  async function fetchVerifyContainerStatus() {
+    try {
+      const response = await api.get('/backups/verification/container/status')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch verification container status'
+      throw err
+    }
+  }
+
   return {
     // State
     schedules,
@@ -379,5 +452,11 @@ export const useBackupStore = defineStore('backups', () => {
     restoreWorkflowToN8n,
     fetchRestoreStatus,
     cleanupRestoreContainer,
+    // Phase 5: Backup Verification
+    verifyBackup,
+    quickVerifyBackup,
+    fetchVerificationStatus,
+    cleanupVerifyContainer,
+    fetchVerifyContainerStatus,
   }
 })

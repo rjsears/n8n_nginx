@@ -875,3 +875,180 @@ async def full_system_restore(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+# ============================================================================
+# Phase 5: Comprehensive Backup Verification
+# ============================================================================
+
+from api.services.verification_service import VerificationService
+
+
+class VerifyBackupRequest(BaseModel):
+    """Request for backup verification."""
+    verify_all_workflows: bool = False
+    workflow_sample_size: int = 10
+
+
+class VerifyBackupResponse(BaseModel):
+    """Response from backup verification."""
+    backup_id: int
+    status: str
+    overall_status: Opt[str] = None
+    checks: Opt[Dict] = None
+    errors: Opt[List[str]] = None
+    warnings: Opt[List[str]] = None
+    duration_seconds: Opt[float] = None
+
+
+@router.post("/{backup_id}/verify", response_model=VerifyBackupResponse)
+async def verify_backup_comprehensive(
+    backup_id: int,
+    data: VerifyBackupRequest = None,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Perform comprehensive verification of a backup.
+
+    This will:
+    1. Verify archive integrity (checksum, structure)
+    2. Spin up a temporary PostgreSQL container
+    3. Load the backup into the container
+    4. Verify all expected tables exist
+    5. Verify row counts match the stored manifest
+    6. Verify workflow checksums (sampled or all)
+    7. Verify config file checksums
+
+    This operation takes 1-5 minutes depending on backup size.
+    """
+    if data is None:
+        data = VerifyBackupRequest()
+
+    service = VerificationService(db)
+
+    try:
+        result = await service.verify_backup(
+            backup_id=backup_id,
+            verify_all_workflows=data.verify_all_workflows,
+            workflow_sample_size=data.workflow_sample_size,
+        )
+
+        return VerifyBackupResponse(
+            backup_id=backup_id,
+            status=result.get("overall_status", "unknown"),
+            overall_status=result.get("overall_status"),
+            checks=result.get("checks"),
+            errors=result.get("errors"),
+            warnings=result.get("warnings"),
+            duration_seconds=result.get("duration_seconds"),
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/{backup_id}/verify/quick")
+async def verify_backup_quick(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Perform quick verification of a backup.
+
+    Quick verification only checks:
+    - File exists on disk
+    - Checksum matches stored value
+    - Archive is valid and extractable
+
+    This does NOT spin up a container or verify data integrity.
+    Much faster but less comprehensive.
+    """
+    service = VerificationService(db)
+
+    try:
+        result = await service.quick_verify(backup_id)
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/{backup_id}/verification/status")
+async def get_verification_status(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get the verification status of a backup.
+
+    Returns the last verification status and details if available.
+    """
+    from api.services.backup_service import BackupService
+
+    backup_service = BackupService(db)
+    backup = await backup_service.get_backup(backup_id)
+
+    if not backup:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Backup not found",
+        )
+
+    return {
+        "backup_id": backup_id,
+        "verification_status": backup.verification_status,
+        "verification_date": backup.verification_date.isoformat() if backup.verification_date else None,
+        "verification_details": backup.verification_details,
+    }
+
+
+@router.post("/verification/cleanup")
+async def cleanup_verify_container(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Manually clean up the verification container.
+
+    Call this if verification was interrupted and the container is still running.
+    """
+    service = VerificationService(db)
+
+    try:
+        success = await service.teardown_verify_container()
+        return {
+            "success": success,
+            "message": "Verification container cleaned up" if success else "No container to clean up"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/verification/container/status")
+async def get_verify_container_status(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check if the verification container is currently running."""
+    service = VerificationService(db)
+
+    try:
+        is_running = await service.is_container_running()
+        return {"running": is_running}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )

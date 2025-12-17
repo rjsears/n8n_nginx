@@ -24,6 +24,8 @@ import {
   EyeIcon,
   ShieldCheckIcon,
   ShieldExclamationIcon,
+  CheckBadgeIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 
 const themeStore = useThemeStore()
@@ -36,6 +38,7 @@ const deleteDialog = ref({ open: false, backup: null, loading: false })
 const contentsDialog = ref({ open: false, backup: null })
 const restoreDialog = ref({ open: false, backup: null })
 const protectingBackup = ref(null)
+const verifyingBackup = ref(null)
 
 // Backup schedule (would come from API)
 const schedule = ref({
@@ -135,6 +138,38 @@ function closeRestoreDialog() {
 function handleSystemRestored(result) {
   closeRestoreDialog()
   loadData()
+}
+
+// Backup Verification
+async function verifyBackup(backup) {
+  verifyingBackup.value = backup.id
+  try {
+    const result = await backupStore.verifyBackup(backup.id)
+    if (result.overall_status === 'passed') {
+      notificationStore.success('Backup verification passed')
+    } else if (result.overall_status === 'failed') {
+      notificationStore.error('Backup verification failed')
+    } else {
+      notificationStore.warning('Backup verification completed with warnings')
+    }
+    await loadData()  // Refresh to get updated status
+  } catch (error) {
+    notificationStore.error('Failed to verify backup')
+  } finally {
+    verifyingBackup.value = null
+  }
+}
+
+function getVerificationIcon(status) {
+  if (status === 'passed') return CheckBadgeIcon
+  if (status === 'failed') return XCircleIcon
+  return null
+}
+
+function getVerificationColor(status) {
+  if (status === 'passed') return 'text-emerald-500'
+  if (status === 'failed') return 'text-red-500'
+  return 'text-gray-400'
 }
 
 // Backup Protection
@@ -374,6 +409,19 @@ onMounted(loadData)
                     <ShieldCheckIcon class="h-3 w-3" />
                     Protected
                   </span>
+                  <span
+                    v-if="backup.verification_status"
+                    :class="[
+                      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                      backup.verification_status === 'passed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-400' :
+                      backup.verification_status === 'failed' ? 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-400' :
+                      'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-400'
+                    ]"
+                    :title="backup.verification_date ? `Verified: ${new Date(backup.verification_date).toLocaleString()}` : 'Verification status'"
+                  >
+                    <component :is="getVerificationIcon(backup.verification_status)" class="h-3 w-3" v-if="getVerificationIcon(backup.verification_status)" />
+                    {{ backup.verification_status === 'passed' ? 'Verified' : backup.verification_status === 'failed' ? 'Failed' : backup.verification_status }}
+                  </span>
                 </div>
                 <p class="text-sm text-secondary mt-1">
                   {{ new Date(backup.created_at).toLocaleString() }}
@@ -401,6 +449,20 @@ onMounted(loadData)
                 title="System Restore"
               >
                 <ArrowPathIcon class="h-4 w-4" />
+              </button>
+              <!-- Verify -->
+              <button
+                v-if="backup.status === 'success'"
+                @click="verifyBackup(backup)"
+                :disabled="verifyingBackup === backup.id"
+                :class="[
+                  'btn-secondary p-2',
+                  backup.verification_status === 'passed' ? 'text-emerald-500' : ''
+                ]"
+                :title="verifyingBackup === backup.id ? 'Verifying...' : 'Verify Backup'"
+              >
+                <LoadingSpinner v-if="verifyingBackup === backup.id" size="sm" />
+                <CheckBadgeIcon v-else class="h-4 w-4" />
               </button>
               <!-- Download -->
               <button
