@@ -17,6 +17,7 @@
 - [NFS Configuration](#nfs-configuration-from-setupsh-analysis)
 - [Final Implementation Plan](#final-implementation-plan)
 - [Pruning & Retention Decisions](#pruning--retention-decisions)
+- [Progress Tracking](#progress-tracking)
 
 ---
 
@@ -760,6 +761,75 @@ Legend:
   ⏳ Del Xh = Pending deletion in X hours (click ❌ to cancel)
   [👁] = View contents  [⬇] = Download  [🗑] = Delete  [🔓] = Unprotect
 ```
+
+---
+
+## Progress Tracking
+
+This section tracks implementation progress. Update after each completed task, change, or test.
+
+### Current Status
+- **Current Phase:** Not started
+- **Last Updated:** December 17, 2024
+- **Last Action:** Planning complete, awaiting Phase 1 start
+
+### Phase 1: Enhanced Backup Creation & Archive Format
+| Task | Status | Notes |
+|------|--------|-------|
+| 1.1 Create `backup_contents` database model | ⬜ Pending | |
+| 1.2 Update backup service to capture workflow manifest | ⬜ Pending | |
+| 1.3 Capture config file manifest with checksums | ⬜ Pending | |
+| 1.4 Capture database schema manifest | ⬜ Pending | |
+| 1.5 Create tar.gz archive with proper structure | ⬜ Pending | |
+| 1.6 Include all config files | ⬜ Pending | |
+| 1.7 Include SSL certificates in backup | ⬜ Pending | |
+| 1.8 Generate manifest.json | ⬜ Pending | |
+| 1.9 Generate requirements.txt | ⬜ Pending | |
+| 1.10 Create restore.sh template | ⬜ Pending | |
+| 1.11 Store metadata in backup_contents table | ⬜ Pending | |
+
+### Phase 2: Backup Content Browser UI
+| Task | Status | Notes |
+|------|--------|-------|
+| 2.1-2.8 | ⬜ Pending | Not started |
+
+### Phase 3: Selective Workflow Restore
+| Task | Status | Notes |
+|------|--------|-------|
+| 3.1-3.12 | ⬜ Pending | Not started |
+
+### Phase 4: Full System Restore
+| Task | Status | Notes |
+|------|--------|-------|
+| 4.1-4.11 | ⬜ Pending | Not started |
+
+### Phase 5: Backup Verification System
+| Task | Status | Notes |
+|------|--------|-------|
+| 5.1-5.13 | ⬜ Pending | Not started |
+
+### Phase 6: Bare Metal Recovery
+| Task | Status | Notes |
+|------|--------|-------|
+| 6.1-6.10 | ⬜ Pending | Not started |
+
+### Phase 7: Pruning & Retention
+| Task | Status | Notes |
+|------|--------|-------|
+| 7.1-7.17 | ⬜ Pending | Not started |
+
+### Change Log
+| Date | Change | Details |
+|------|--------|---------|
+| 2024-12-17 | Initial planning | Created complete 7-phase implementation plan |
+| 2024-12-17 | Finalized decisions | All 10 key decisions documented |
+| 2024-12-17 | Added Phase 7 | Pruning & retention system with notifications |
+
+### Testing Notes
+*(Record test results, issues found, and resolutions here)*
+
+### Issues & Resolutions
+*(Track any blockers or problems encountered)*
 
 ---
 
