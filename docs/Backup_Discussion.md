@@ -13,7 +13,9 @@
 - [Verification Challenge & Solution](#verification-challenge--solution)
 - [New Database Schema](#new-database-schema)
 - [Revised Implementation Plan](#revised-implementation-plan)
-- [Open Questions](#open-questions)
+- [Finalized Decisions](#finalized-decisions)
+- [NFS Configuration](#nfs-configuration-from-setupsh-analysis)
+- [Final Implementation Plan](#final-implementation-plan)
 
 ---
 
@@ -391,35 +393,78 @@ verification_schedule = {
 
 ---
 
-## Open Questions
+## Finalized Decisions
 
 ### 1. Restore Container Strategy
-Should we keep `n8n_postgres_restore` running constantly (faster restores) or spin up on-demand (saves resources)?
+**Decision:** Spin up on-demand (saves resources)
+- Containers are quick to spin up
+- No resources wasted when not in use
+- Clean state for each restore operation
 
 ### 2. Config File Storage
-Should we store config files:
-- Inside the PostgreSQL backup (as a separate table with BYTEA)
-- As separate files alongside the .dump file in a .tar.gz bundle
-- Both (database for quick browsing, files for actual restore)
+**Decision:** Both approaches
+- **In tar.gz bundle:** Actual files for bare metal restore
+- **In database (JSONB):** Metadata for quick browsing without extracting
+- Best of both worlds: speed for browsing, completeness for restore
 
 ### 3. Workflow Rename Format
-What naming convention for restored workflows?
-- `{name}_restored_{timestamp}` (e.g., "My Workflow_restored_20241217_1430")
-- `{name}_backup_{backup_date}` (e.g., "My Workflow_backup_20241215")
-- User-specified during restore
+**Decision:** `{name}_backup_{backup_date}`
+- Example: "My Workflow_backup_20241215"
+- Users will likely rename immediately anyway
+- Clear indication of which backup it came from
 
-### 4. Verification Frequency Default
-What should be the default?
-- Every backup (safest, most resource intensive)
-- Every 5th backup
-- Weekly regardless of backup count
-- Manual only
+### 4. Verification Frequency
+**Decision:** User-configurable + Manual button
+- Let user choose frequency (every N backups, daily, weekly, etc.)
+- Always provide a "Verify Now" button for any backup
+- No forced default - user decides based on their needs
 
-### 5. Bare Metal Detection
-In setup.sh, what file pattern should trigger restore offer?
-- `*.n8n_backup.tar.gz`
-- Any `.tar.gz` in the directory
-- A specific `restore_me.tar.gz` filename
+### 5. Bare Metal Recovery
+**Decision:** Self-contained backup with embedded restore.sh
+
+**Naming Convention:**
+```
+backup_yyyymmddhhmmss.n8n_backup.tar.gz
+```
+Example: `backup_20241217143022.n8n_backup.tar.gz`
+
+**Backup Archive Contents:**
+```
+backup_20241217143022.n8n_backup.tar.gz
+├── restore.sh                    # Self-contained restore script
+├── requirements.txt              # System packages that were installed
+├── manifest.json                 # Complete backup metadata
+├── databases/
+│   ├── n8n.dump                 # n8n database (pg_dump format)
+│   └── n8n_management.dump      # Management database
+├── config/
+│   ├── .env                     # Environment variables
+│   ├── docker-compose.yaml      # Docker configuration
+│   ├── nginx.conf               # Nginx configuration
+│   └── cloudflare.ini           # DNS credentials (if applicable)
+├── ssl/
+│   ├── fullchain.pem            # SSL certificate
+│   └── privkey.pem              # SSL private key
+└── metadata/
+    ├── workflows.json           # Workflow manifest for browsing
+    ├── credentials.json         # Credential manifest (no secrets)
+    └── system_info.json         # Original system information
+```
+
+**restore.sh Capabilities:**
+- Detects if Docker is installed, installs if needed
+- Detects if NFS was configured, offers to reconfigure
+- Restores all databases
+- Restores all config files
+- Restores SSL certificates
+- Validates restoration
+- Starts all services
+
+**Bare Metal Recovery Process:**
+1. SCP backup file to new server
+2. Extract: `tar -xzf backup_20241217143022.n8n_backup.tar.gz`
+3. Run: `./restore.sh`
+4. Script handles everything (Docker, databases, configs, SSL)
 
 ---
 
@@ -456,12 +501,147 @@ In setup.sh, what file pattern should trigger restore offer?
 
 ---
 
-## Next Steps
+## Final Implementation Plan
 
-1. User to review this document and answer open questions
-2. Finalize phase priorities and any modifications
-3. Begin implementation starting with Phase 1
+Based on the finalized decisions, here is the approved implementation order:
+
+### Phase 1: Enhanced Backup Creation & Archive Format
+*Create complete, self-contained backup archives*
+
+| # | Task | Files to Modify/Create |
+|---|------|------------------------|
+| 1.1 | Create `backup_contents` database model | `models/backups.py` |
+| 1.2 | Update backup service to capture workflow manifest | `services/backup_service.py` |
+| 1.3 | Capture config file manifest with checksums | `services/backup_service.py` |
+| 1.4 | Capture database schema manifest | `services/backup_service.py` |
+| 1.5 | Create tar.gz archive with proper structure | `services/backup_service.py` |
+| 1.6 | Include all config files (.env, nginx.conf, docker-compose.yaml) | `services/backup_service.py` |
+| 1.7 | Include SSL certificates in backup | `services/backup_service.py` |
+| 1.8 | Generate manifest.json with complete metadata | `services/backup_service.py` |
+| 1.9 | Generate requirements.txt (system packages) | `services/backup_service.py` |
+| 1.10 | Create restore.sh template for bare metal | `templates/restore.sh` |
+| 1.11 | Store metadata in backup_contents table | `services/backup_service.py` |
+
+**Deliverable:** Complete backup archive in format `backup_yyyymmddhhmmss.n8n_backup.tar.gz`
 
 ---
 
-*Document generated from implementation discussion on December 17, 2024*
+### Phase 2: Backup Content Browser UI
+*Browse backup contents without loading*
+
+| # | Task | Files to Modify/Create |
+|---|------|------------------------|
+| 2.1 | Add `GET /api/backups/{id}/contents` endpoint | `routers/backups.py` |
+| 2.2 | Add backup_contents schema | `schemas/backups.py` |
+| 2.3 | Create BackupContentsDialog.vue component | `components/backups/BackupContentsDialog.vue` |
+| 2.4 | Add "View Contents" button to backup history | `views/BackupsView.vue` |
+| 2.5 | Display workflows tab (name, active, created date) | `components/backups/BackupContentsDialog.vue` |
+| 2.6 | Display config files tab (name, size, checksum) | `components/backups/BackupContentsDialog.vue` |
+| 2.7 | Display database info tab (tables, row counts) | `components/backups/BackupContentsDialog.vue` |
+| 2.8 | Add search/filter for workflows | `components/backups/BackupContentsDialog.vue` |
+
+**Deliverable:** Click any backup → see complete contents instantly
+
+---
+
+### Phase 3: Selective Workflow Restore
+*Extract and restore individual workflows*
+
+| # | Task | Files to Modify/Create |
+|---|------|------------------------|
+| 3.1 | Create `restore_service.py` for restore operations | `services/restore_service.py` |
+| 3.2 | Implement `spin_up_restore_container()` | `services/restore_service.py` |
+| 3.3 | Implement `load_backup_to_container()` | `services/restore_service.py` |
+| 3.4 | Implement `extract_workflow()` | `services/restore_service.py` |
+| 3.5 | Implement `push_workflow_to_n8n()` via API | `services/restore_service.py` |
+| 3.6 | Implement `teardown_restore_container()` | `services/restore_service.py` |
+| 3.7 | Add `POST /api/backups/{id}/restore/workflow` endpoint | `routers/backups.py` |
+| 3.8 | Add `GET /api/backups/{id}/workflows/{workflow_id}/download` | `routers/backups.py` |
+| 3.9 | Create WorkflowRestoreDialog.vue | `components/backups/WorkflowRestoreDialog.vue` |
+| 3.10 | Add restore options (download file vs restore to n8n) | `components/backups/WorkflowRestoreDialog.vue` |
+| 3.11 | Implement workflow renaming `{name}_backup_{date}` | `services/restore_service.py` |
+| 3.12 | Check n8n API availability before restore | `services/restore_service.py` |
+
+**Deliverable:** Select workflow from backup → restore to n8n or download as file
+
+---
+
+### Phase 4: Full System Restore (via Management UI)
+*Restore entire system from backup*
+
+| # | Task | Files to Modify/Create |
+|---|------|------------------------|
+| 4.1 | Implement `restore_full_system()` | `services/restore_service.py` |
+| 4.2 | Add pre-restore safety checks | `services/restore_service.py` |
+| 4.3 | Create current-state backup before restore | `services/restore_service.py` |
+| 4.4 | Implement database restore (both DBs) | `services/restore_service.py` |
+| 4.5 | Implement config file restore | `services/restore_service.py` |
+| 4.6 | Implement SSL certificate restore | `services/restore_service.py` |
+| 4.7 | Add `POST /api/backups/{id}/restore/full` endpoint | `routers/backups.py` |
+| 4.8 | Create FullRestoreDialog.vue with confirmation | `components/backups/FullRestoreDialog.vue` |
+| 4.9 | Require typing "RESTORE" to confirm | `components/backups/FullRestoreDialog.vue` |
+| 4.10 | Add restore progress indicator | `components/backups/FullRestoreDialog.vue` |
+| 4.11 | Restart services after restore | `services/restore_service.py` |
+
+**Deliverable:** Full system restore from management console
+
+---
+
+### Phase 5: Backup Verification System
+*Prove backups are restorable*
+
+| # | Task | Files to Modify/Create |
+|---|------|------------------------|
+| 5.1 | Create `verification_service.py` | `services/verification_service.py` |
+| 5.2 | Implement `verify_backup()` with temp container | `services/verification_service.py` |
+| 5.3 | Verify table existence and schemas | `services/verification_service.py` |
+| 5.4 | Verify row counts match manifest | `services/verification_service.py` |
+| 5.5 | Verify workflow checksums | `services/verification_service.py` |
+| 5.6 | Verify config file checksums | `services/verification_service.py` |
+| 5.7 | Store detailed verification results | `services/verification_service.py` |
+| 5.8 | Add `POST /api/backups/{id}/verify` endpoint | `routers/backups.py` |
+| 5.9 | Add verification schedule settings UI | `views/SettingsView.vue` |
+| 5.10 | Add "Verify Now" button per backup | `views/BackupsView.vue` |
+| 5.11 | Display verification status/results | `views/BackupsView.vue` |
+| 5.12 | Send notification on verification failure | `services/verification_service.py` |
+| 5.13 | Implement scheduled verification (every N backups) | `tasks/scheduler.py` |
+
+**Deliverable:** Verification system with UI and notifications
+
+---
+
+### Phase 6: Bare Metal Recovery (restore.sh)
+*Self-contained restore for new servers*
+
+| # | Task | Files to Modify/Create |
+|---|------|------------------------|
+| 6.1 | Create restore.sh template | `templates/restore.sh.template` |
+| 6.2 | Implement Docker detection/installation in restore.sh | `templates/restore.sh.template` |
+| 6.3 | Implement NFS reconfiguration prompt | `templates/restore.sh.template` |
+| 6.4 | Implement database restore in restore.sh | `templates/restore.sh.template` |
+| 6.5 | Implement config file restore | `templates/restore.sh.template` |
+| 6.6 | Implement SSL certificate restore | `templates/restore.sh.template` |
+| 6.7 | Add validation checks post-restore | `templates/restore.sh.template` |
+| 6.8 | Generate requirements.txt at backup time | `services/backup_service.py` |
+| 6.9 | Generate system_info.json at backup time | `services/backup_service.py` |
+| 6.10 | Include restore.sh in every backup archive | `services/backup_service.py` |
+
+**Deliverable:** Any backup can be extracted on new server and `./restore.sh` handles everything
+
+---
+
+## Summary
+
+| Phase | Focus | Key Deliverable |
+|-------|-------|-----------------|
+| 1 | Enhanced Backup Creation | Complete tar.gz archives with all files |
+| 2 | Content Browser UI | Browse backups without loading |
+| 3 | Selective Workflow Restore | Restore individual workflows |
+| 4 | Full System Restore | Restore entire system from UI |
+| 5 | Verification System | Prove backups are valid |
+| 6 | Bare Metal Recovery | restore.sh for new servers |
+
+---
+
+*Document finalized on December 17, 2024*
+*Ready to begin Phase 1 implementation*
