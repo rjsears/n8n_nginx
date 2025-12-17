@@ -21,7 +21,7 @@
       <div
         v-for="entry in history"
         :key="entry.id"
-        class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden"
+        class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600 overflow-hidden"
       >
         <!-- Collapsed Header (Always Visible) -->
         <button
@@ -75,14 +75,14 @@
         </button>
 
         <!-- Expanded Content -->
-        <div v-if="expandedEntries[entry.id]" class="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-600">
+        <div v-if="expandedEntries[entry.id]" class="px-4 pb-4 pt-2 border-t border-gray-400 dark:border-gray-600">
           <!-- Title -->
           <div v-if="entry.title" class="font-medium text-gray-900 dark:text-white mb-2">
             {{ entry.title }}
           </div>
 
           <!-- Message -->
-          <p class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-white dark:bg-gray-800 rounded p-3 border border-gray-200 dark:border-gray-600">
+          <p class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-white dark:bg-gray-800 rounded p-3 border border-gray-400 dark:border-gray-600">
             {{ entry.message }}
           </p>
 

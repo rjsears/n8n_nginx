@@ -48,7 +48,7 @@
       <div
         v-for="topic in topics"
         :key="topic.id"
-        class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden"
+        class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600 overflow-hidden"
       >
         <!-- Collapsed Header -->
         <div class="flex items-center">
@@ -95,7 +95,7 @@
         </div>
 
         <!-- Expanded Content -->
-        <div v-if="expandedTopics[topic.id]" class="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-600">
+        <div v-if="expandedTopics[topic.id]" class="px-4 pb-4 pt-2 border-t border-gray-400 dark:border-gray-600">
           <p v-if="topic.description" class="text-sm text-gray-600 dark:text-gray-400 mb-3">
             {{ topic.description }}
           </p>
@@ -127,7 +127,7 @@
               {{ tag }}
             </span>
           </div>
-          <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 text-xs text-gray-500 dark:text-gray-400">
+          <div class="mt-3 pt-3 border-t border-gray-400 dark:border-gray-600 text-xs text-gray-500 dark:text-gray-400">
             Notification Channel: <code class="bg-gray-200 dark:bg-gray-600 px-1 rounded">ntfy_{{ topic.name.toLowerCase().replace(/[^a-z0-9]+/g, '_') }}</code>
           </div>
         </div>
@@ -137,7 +137,7 @@
     <!-- Topic Editor Modal -->
     <div v-if="showEditor" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-lg">
-        <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+        <div class="flex justify-between items-center p-4 border-b border-gray-400 dark:border-gray-700">
           <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
             {{ editingTopic ? 'Edit Topic' : 'Create Topic' }}
           </h3>
@@ -156,7 +156,7 @@
               v-model="editorForm.name"
               type="text"
               placeholder="my-topic"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
               :disabled="editingTopic"
               required
             />
@@ -174,7 +174,7 @@
               v-model="editorForm.description"
               type="text"
               placeholder="What this topic is for..."
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
             />
           </div>
 
@@ -185,7 +185,7 @@
             </label>
             <select
               v-model="editorForm.access_level"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
             >
               <option value="read-write">Read & Write</option>
               <option value="read-only">Read Only</option>
@@ -200,7 +200,7 @@
             </label>
             <select
               v-model="editorForm.default_priority"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
             >
               <option :value="1">Min</option>
               <option :value="2">Low</option>
@@ -219,7 +219,7 @@
               v-model="tagsInput"
               type="text"
               placeholder="server, alerts (comma-separated)"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
             />
           </div>
 
@@ -230,7 +230,7 @@
                 id="requires_auth"
                 v-model="editorForm.requires_auth"
                 type="checkbox"
-                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                class="rounded border-gray-400 text-blue-600 focus:ring-blue-500"
               />
               <label for="requires_auth" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
                 Require authentication
@@ -241,7 +241,7 @@
                 id="enabled"
                 v-model="editorForm.enabled"
                 type="checkbox"
-                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                class="rounded border-gray-400 text-blue-600 focus:ring-blue-500"
               />
               <label for="enabled" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
                 Topic enabled
@@ -250,7 +250,7 @@
           </div>
         </form>
 
-        <div class="flex justify-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700">
+        <div class="flex justify-end gap-2 p-4 border-t border-gray-400 dark:border-gray-700">
           <button
             @click="closeEditor"
             type="button"

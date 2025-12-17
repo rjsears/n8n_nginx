@@ -21,7 +21,7 @@
       <div
         v-for="template in templates"
         :key="template.id"
-        class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600"
+        class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-400 dark:border-gray-600"
       >
         <div class="flex justify-between items-start mb-2">
           <h4 class="font-medium text-gray-900 dark:text-white">{{ template.name }}</h4>
@@ -67,7 +67,7 @@
     <!-- Template Editor Modal -->
     <div v-if="showEditor" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-        <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+        <div class="flex justify-between items-center p-4 border-b border-gray-400 dark:border-gray-700">
           <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
             {{ editingTemplate ? 'Edit Template' : 'Create Template' }}
           </h3>
@@ -88,7 +88,7 @@
                   v-model="editorForm.name"
                   type="text"
                   placeholder="my-template"
-                  class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+                  class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
                   required
                 />
               </div>
@@ -100,7 +100,7 @@
                 </label>
                 <select
                   v-model="editorForm.template_type"
-                  class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+                  class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
                 >
                   <option value="custom">Custom</option>
                   <option value="github">GitHub</option>
@@ -119,7 +119,7 @@
                 v-model="editorForm.description"
                 type="text"
                 placeholder="What this template is for..."
-                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+                class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
               />
             </div>
 
@@ -132,7 +132,7 @@
                 v-model="editorForm.title_template"
                 type="text"
                 placeholder="e.g., {{ .event }} on {{ .repository }}"
-                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 font-mono text-sm"
+                class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 font-mono text-sm"
               />
               <p class="mt-1 text-xs text-gray-500">Uses Go template syntax. Variables: <code v-pre>{{ .field }}</code></p>
             </div>
@@ -146,7 +146,7 @@
                 v-model="editorForm.message_template"
                 rows="6"
                 placeholder="e.g., {{ .description }}&#10;&#10;By: {{ .sender.login }}"
-                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 font-mono text-sm"
+                class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 font-mono text-sm"
               ></textarea>
             </div>
 
@@ -158,7 +158,7 @@
                 </label>
                 <select
                   v-model="editorForm.default_priority"
-                  class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+                  class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
                 >
                   <option :value="1">Min</option>
                   <option :value="2">Low</option>
@@ -174,7 +174,7 @@
                   id="use_markdown"
                   v-model="editorForm.use_markdown"
                   type="checkbox"
-                  class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  class="rounded border-gray-400 text-blue-600 focus:ring-blue-500"
                 />
                 <label for="use_markdown" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
                   Enable Markdown formatting
@@ -191,7 +191,7 @@
                 v-model="tagsInput"
                 type="text"
                 placeholder="warning, server, alert (comma-separated)"
-                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+                class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
               />
             </div>
 
@@ -204,7 +204,7 @@
                 v-model="sampleJsonInput"
                 rows="4"
                 placeholder='{"event": "push", "repository": "my-repo"}'
-                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 font-mono text-sm"
+                class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 font-mono text-sm"
               ></textarea>
             </div>
 
@@ -226,7 +226,7 @@
           </form>
         </div>
 
-        <div class="flex justify-between p-4 border-t border-gray-200 dark:border-gray-700">
+        <div class="flex justify-between p-4 border-t border-gray-400 dark:border-gray-700">
           <button
             @click="runPreview"
             type="button"

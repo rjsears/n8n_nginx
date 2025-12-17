@@ -230,9 +230,9 @@ const appriseExamples = [
         />
 
         <!-- Dialog -->
-        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full border border-gray-200 dark:border-gray-700 max-h-[90vh] overflow-hidden flex flex-col">
+        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full border border-gray-400 dark:border-gray-700 max-h-[90vh] overflow-hidden flex flex-col">
           <!-- Header -->
-          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-full bg-blue-100 dark:bg-blue-500/20">
                 <BellIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
@@ -259,7 +259,7 @@ const appriseExamples = [
                   v-model="form.name"
                   @input="onNameChange"
                   type="text"
-                  class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="e.g., Discord Alerts"
                   required
                 />
@@ -275,7 +275,7 @@ const appriseExamples = [
                   <input
                     v-model="form.slug"
                     type="text"
-                    class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="flex-1 px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="discord_alerts"
                     pattern="^[a-z0-9_]+$"
                   />
@@ -292,7 +292,7 @@ const appriseExamples = [
                 </label>
                 <select
                   v-model="form.service_type"
-                  class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option
                     v-for="type in serviceTypes"
@@ -313,7 +313,7 @@ const appriseExamples = [
                   <input
                     v-model="form.config.url"
                     type="text"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="discord://webhook_id/webhook_token"
                     required
                   />
@@ -349,7 +349,7 @@ const appriseExamples = [
                   <input
                     v-model="form.config.server"
                     type="text"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="https://ntfy.sh"
                   />
                 </div>
@@ -360,7 +360,7 @@ const appriseExamples = [
                   <input
                     v-model="form.config.topic"
                     type="text"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="my-n8n-alerts"
                     required
                   />
@@ -372,7 +372,7 @@ const appriseExamples = [
                   <input
                     v-model="form.config.token"
                     type="password"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="tk_xxx..."
                   />
                 </div>
@@ -388,7 +388,7 @@ const appriseExamples = [
                   <select
                     v-model="form.config.email_preset"
                     @change="applyEmailPreset(form.config.email_preset)"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option
                       v-for="preset in emailPresets"
@@ -412,7 +412,7 @@ const appriseExamples = [
                     <input
                       v-model="form.config.smtp_server"
                       type="text"
-                      class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       :placeholder="form.config.email_preset === 'internal' ? 'mail.internal.local' : 'smtp.example.com'"
                       required
                     />
@@ -424,7 +424,7 @@ const appriseExamples = [
                     <input
                       v-model="form.config.smtp_port"
                       type="number"
-                      class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
@@ -439,7 +439,7 @@ const appriseExamples = [
                       <input
                         v-model="form.config.smtp_user"
                         type="text"
-                        class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         :placeholder="form.config.email_preset === 'gmail_app' ? 'user@gmail.com' : 'user@example.com'"
                       />
                     </div>
@@ -450,7 +450,7 @@ const appriseExamples = [
                       <input
                         v-model="form.config.smtp_password"
                         type="password"
-                        class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="••••••••"
                       />
                     </div>
@@ -482,7 +482,7 @@ const appriseExamples = [
                   <input
                     v-model="form.config.from_email"
                     type="email"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="n8n-alerts@yourdomain.com"
                     required
                   />
@@ -496,7 +496,7 @@ const appriseExamples = [
                   <input
                     v-model="form.config.to_emails"
                     type="text"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="admin@example.com, ops@example.com"
                     required
                   />
@@ -518,7 +518,7 @@ const appriseExamples = [
                       class="sr-only peer"
                     />
                     <div
-                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
                     ></div>
                   </label>
                 </div>
@@ -533,7 +533,7 @@ const appriseExamples = [
                   <input
                     v-model="form.config.url"
                     type="url"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="https://your-server.com/webhook"
                     required
                   />
@@ -544,7 +544,7 @@ const appriseExamples = [
                   </label>
                   <select
                     v-model="form.config.method"
-                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="POST">POST</option>
                     <option value="GET">GET</option>
@@ -565,13 +565,13 @@ const appriseExamples = [
                     class="sr-only peer"
                   />
                   <div
-                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
                   ></div>
                 </label>
               </div>
 
               <!-- Webhook Enabled Toggle -->
-              <div class="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-4">
+              <div class="flex items-center justify-between border-t border-gray-400 dark:border-gray-700 pt-4">
                 <div>
                   <label class="text-sm font-medium text-gray-900 dark:text-white">n8n Webhook Routing</label>
                   <p class="text-xs text-gray-500 dark:text-gray-400">Receive notifications from n8n workflows via webhook</p>
@@ -583,7 +583,7 @@ const appriseExamples = [
                     class="sr-only peer"
                   />
                   <div
-                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-500"
+                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-500"
                   ></div>
                 </label>
               </div>
@@ -604,7 +604,7 @@ const appriseExamples = [
           </div>
 
           <!-- Footer -->
-          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800">
             <button
               @click="close"
               class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"

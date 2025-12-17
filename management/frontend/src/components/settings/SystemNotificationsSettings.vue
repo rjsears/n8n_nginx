@@ -730,7 +730,7 @@ onMounted(() => {
     </div>
 
     <!-- Section Tabs - Lighter, more translucent with colored icons when inactive -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-400 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
       <button
         v-for="(section, idx) in [
           { id: 'events', label: 'Notification Events', icon: BellAlertIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
@@ -865,13 +865,13 @@ onMounted(() => {
 
           <!-- Category Content (Collapsible) -->
           <Transition name="collapse">
-            <div v-if="expandedCategories.has(category)" class="border-t border-gray-200 dark:border-gray-700">
+            <div v-if="expandedCategories.has(category)" class="border-t border-gray-400 dark:border-gray-700">
               <div class="p-4 space-y-3">
                 <!-- Event Rows -->
                 <div
                   v-for="event in categoryEvents"
                   :key="event.id"
-                  class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
+                  class="rounded-lg border border-gray-400 dark:border-gray-700 overflow-hidden"
                 >
                   <!-- Event Header Row -->
                   <div
@@ -946,7 +946,7 @@ onMounted(() => {
                             :disabled="hasNoTargets(event) && !event.enabled"
                             class="sr-only peer"
                           />
-                          <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500 peer-disabled:cursor-not-allowed"></div>
+                          <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500 peer-disabled:cursor-not-allowed"></div>
                         </label>
                       </div>
                     </div>
@@ -954,15 +954,15 @@ onMounted(() => {
 
                   <!-- Expanded Settings Panel - Unified layout for all categories -->
                   <Transition name="collapse">
-                    <div v-if="expandedEvents.has(event.id)" class="border-t border-gray-200 dark:border-gray-700">
+                    <div v-if="expandedEvents.has(event.id)" class="border-t border-gray-400 dark:border-gray-700">
                       <!-- Unified Clean Layout - No background color -->
                       <div class="p-6">
                         <div class="max-w-4xl mx-auto">
                           <!-- Settings Card -->
-                          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
+                          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden border border-gray-400 dark:border-gray-700">
                             <!-- Header - Subtle colored top border only -->
                             <div :class="[
-                              'px-6 py-4 border-b border-gray-200 dark:border-gray-700',
+                              'px-6 py-4 border-b border-gray-400 dark:border-gray-700',
                               event.category === 'backup' ? 'border-t-4 border-t-emerald-400'
                                 : event.category === 'container' ? 'border-t-4 border-t-blue-400'
                                 : event.category === 'security' ? 'border-t-4 border-t-red-400'
@@ -999,7 +999,7 @@ onMounted(() => {
                                           ? sev.value === 'critical' ? 'border-red-400 bg-red-50 dark:bg-red-500/10'
                                             : sev.value === 'warning' ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10'
                                             : 'border-blue-400 bg-blue-50 dark:bg-blue-500/10'
-                                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                                          : 'border-gray-400 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600'
                                       ]"
                                     >
                                       <input
@@ -1029,10 +1029,10 @@ onMounted(() => {
                                     @change="updateEvent(event, 'frequency', $event.target.value)"
                                     :class="[
                                       'w-full bg-gray-50 dark:bg-gray-700 border-2 rounded-xl px-4 py-3 text-primary',
-                                      event.category === 'backup' ? 'border-gray-200 dark:border-gray-600 focus:border-emerald-400 focus:ring-emerald-400'
-                                        : event.category === 'container' ? 'border-gray-200 dark:border-gray-600 focus:border-blue-400 focus:ring-blue-400'
-                                        : event.category === 'security' ? 'border-gray-200 dark:border-gray-600 focus:border-red-400 focus:ring-red-400'
-                                        : 'border-gray-200 dark:border-gray-600 focus:border-purple-400 focus:ring-purple-400'
+                                      event.category === 'backup' ? 'border-gray-400 dark:border-gray-600 focus:border-emerald-400 focus:ring-emerald-400'
+                                        : event.category === 'container' ? 'border-gray-400 dark:border-gray-600 focus:border-blue-400 focus:ring-blue-400'
+                                        : event.category === 'security' ? 'border-gray-400 dark:border-gray-600 focus:border-red-400 focus:ring-red-400'
+                                        : 'border-gray-400 dark:border-gray-600 focus:border-purple-400 focus:ring-purple-400'
                                     ]"
                                   >
                                     <option v-for="opt in frequencyOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -1043,7 +1043,7 @@ onMounted(() => {
                                 <!-- Cooldown (if applicable) -->
                                 <div v-if="event.frequency === 'every_time'">
                                   <label class="block text-sm font-semibold text-primary mb-2">Cooldown Period</label>
-                                  <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 border border-gray-200 dark:border-gray-600">
+                                  <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 border border-gray-400 dark:border-gray-600">
                                     <input
                                       type="range"
                                       :value="event.cooldown_minutes"
@@ -1076,7 +1076,7 @@ onMounted(() => {
                               </div>
 
                               <!-- Targets Section -->
-                              <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+                              <div class="border-t border-gray-400 dark:border-gray-700 pt-6">
                                 <div class="flex items-center justify-between mb-4">
                                   <div>
                                     <h5 class="font-semibold text-primary">Notification Targets</h5>
@@ -1113,7 +1113,7 @@ onMounted(() => {
                                   <div
                                     v-for="target in event.targets"
                                     :key="target.id"
-                                    class="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-gray-50 dark:bg-gray-700/50 transition-colors"
+                                    class="flex items-center justify-between p-4 rounded-xl border border-gray-400 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600 bg-gray-50 dark:bg-gray-700/50 transition-colors"
                                   >
                                     <div class="flex items-center gap-3">
                                       <div :class="[
@@ -1270,7 +1270,7 @@ onMounted(() => {
                       @change="updateGlobalSettings({ digest_enabled: $event.target.checked })"
                       class="sr-only peer"
                     />
-                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
+                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
                   </label>
                 </div>
 
@@ -1334,7 +1334,7 @@ onMounted(() => {
                   <input
                     type="checkbox"
                     :checked="config.monitor_unhealthy"
-                    class="w-4 h-4 rounded border-gray-300 text-blue-500"
+                    class="w-4 h-4 rounded border-gray-400 text-blue-500"
                   />
                   <span class="text-secondary">Unhealthy</span>
                 </label>
@@ -1342,7 +1342,7 @@ onMounted(() => {
                   <input
                     type="checkbox"
                     :checked="config.monitor_restart"
-                    class="w-4 h-4 rounded border-gray-300 text-blue-500"
+                    class="w-4 h-4 rounded border-gray-400 text-blue-500"
                   />
                   <span class="text-secondary">Restarts</span>
                 </label>
@@ -1468,7 +1468,7 @@ onMounted(() => {
     <Teleport to="body">
       <Transition name="fade">
         <div v-if="showAddTargetModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 border border-gray-200 dark:border-gray-700">
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 border border-gray-400 dark:border-gray-700">
             <h3 class="text-lg font-semibold text-primary">Add Notification Target</h3>
             <p class="text-sm text-secondary">
               Choose where to send notifications for "{{ selectedEventForTarget?.display_name }}"
@@ -1491,7 +1491,7 @@ onMounted(() => {
 
               <div v-if="newTargetType === 'channel'">
                 <label class="block text-sm font-medium text-primary mb-1">Select Channel</label>
-                <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="">Choose a channel...</option>
                   <option v-for="channel in availableChannelsForTarget" :key="channel.id" :value="channel.id">
                     {{ channel.name }} ({{ channel.service_type }})
@@ -1504,7 +1504,7 @@ onMounted(() => {
 
               <div v-if="newTargetType === 'group'">
                 <label class="block text-sm font-medium text-primary mb-1">Select Group</label>
-                <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <select v-model="newTargetId" class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option value="">Choose a group...</option>
                   <option v-for="group in availableGroupsForTarget" :key="group.id" :value="group.id">
                     {{ group.name }} ({{ group.channel_count }} channels)
@@ -1517,7 +1517,7 @@ onMounted(() => {
 
               <div>
                 <label class="block text-sm font-medium text-primary mb-1">Escalation Level</label>
-                <select v-model="newTargetLevel" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <select v-model="newTargetLevel" class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option :value="1">L1 - Primary (receives immediately)</option>
                   <option :value="2">L2 - Escalation (receives after timeout)</option>
                 </select>
@@ -1540,7 +1540,7 @@ onMounted(() => {
                       'px-2 py-1.5 rounded-lg text-sm font-medium border transition-all',
                       newTargetEscalationTimeout === mins
                         ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
-                        : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                        : 'bg-white dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
                     ]"
                   >
                     {{ mins }}m
@@ -1555,7 +1555,7 @@ onMounted(() => {
                       'px-2 py-1.5 rounded-lg text-sm font-medium border transition-all',
                       newTargetEscalationTimeout === mins
                         ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
-                        : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                        : 'bg-white dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
                     ]"
                   >
                     {{ mins >= 60 ? `${mins/60}h` : `${mins}m` }}
@@ -1585,7 +1585,7 @@ onMounted(() => {
     <Teleport to="body">
       <Transition name="fade">
         <div v-if="showMaintenanceModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5 border border-gray-200 dark:border-gray-700">
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5 border border-gray-400 dark:border-gray-700">
             <div class="flex items-center gap-3">
               <div class="p-3 rounded-xl bg-amber-100 dark:bg-amber-500/20">
                 <PauseCircleIcon class="h-6 w-6 text-amber-600" />
@@ -1619,7 +1619,7 @@ onMounted(() => {
                       'px-3 py-2 rounded-lg text-sm font-medium border transition-all',
                       maintenanceDuration === opt.value
                         ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-400 text-amber-700 dark:text-amber-300'
-                        : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-100 dark:hover:bg-gray-600'
+                        : 'bg-gray-50 dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-100 dark:hover:bg-gray-600'
                     ]"
                   >
                     {{ opt.label }}
@@ -1638,7 +1638,7 @@ onMounted(() => {
                       'px-3 py-2 rounded-lg text-sm font-medium border transition-all',
                       maintenanceDuration === opt.value
                         ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-400 text-amber-700 dark:text-amber-300'
-                        : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-secondary hover:bg-gray-100 dark:hover:bg-gray-600'
+                        : 'bg-gray-50 dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-100 dark:hover:bg-gray-600'
                     ]"
                   >
                     {{ opt.label }}
@@ -1652,7 +1652,7 @@ onMounted(() => {
                   v-model="maintenanceReason"
                   type="text"
                   placeholder="e.g., Server maintenance, Upgrade in progress..."
-                  class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                 />
               </div>
             </div>

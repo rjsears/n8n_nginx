@@ -4,7 +4,7 @@
 
     <form @submit.prevent="saveSettings" class="space-y-6">
       <!-- Connection Settings -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-400 dark:border-gray-600">
         <h4 class="font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <GlobeAltIcon class="w-5 h-5" />
           Connection
@@ -19,7 +19,7 @@
               v-model="form.base_url"
               type="url"
               placeholder="https://ntfy.example.com"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
             <p class="mt-1 text-xs text-gray-500">Your NTFY server URL (leave empty for default)</p>
           </div>
@@ -32,7 +32,7 @@
               v-model="form.upstream_base_url"
               type="url"
               placeholder="https://ntfy.sh"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
             <p class="mt-1 text-xs text-gray-500">Upstream server for federation</p>
           </div>
@@ -40,7 +40,7 @@
       </div>
 
       <!-- Access Control -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-400 dark:border-gray-600">
         <h4 class="font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <ShieldCheckIcon class="w-5 h-5" />
           Access Control
@@ -53,7 +53,7 @@
             </label>
             <select
               v-model="form.default_access"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             >
               <option value="read-write">Read & Write</option>
               <option value="read-only">Read Only</option>
@@ -68,7 +68,7 @@
                 id="enable_login"
                 v-model="form.enable_login"
                 type="checkbox"
-                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                class="rounded border-gray-400 text-blue-600 focus:ring-blue-500"
               />
               <label for="enable_login" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
                 Enable login
@@ -79,7 +79,7 @@
                 id="enable_signup"
                 v-model="form.enable_signup"
                 type="checkbox"
-                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                class="rounded border-gray-400 text-blue-600 focus:ring-blue-500"
               />
               <label for="enable_signup" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
                 Enable signup
@@ -90,7 +90,7 @@
       </div>
 
       <!-- Cache & Attachments -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-400 dark:border-gray-600">
         <h4 class="font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <CircleStackIcon class="w-5 h-5" />
           Cache & Attachments
@@ -105,7 +105,7 @@
               v-model="form.cache_duration"
               type="text"
               placeholder="24h"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
           </div>
 
@@ -117,7 +117,7 @@
               v-model="form.attachment_expiry_duration"
               type="text"
               placeholder="24h"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
           </div>
 
@@ -129,7 +129,7 @@
               v-model="form.attachment_total_size_limit"
               type="text"
               placeholder="100M"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
           </div>
 
@@ -141,14 +141,14 @@
               v-model="form.attachment_file_size_limit"
               type="text"
               placeholder="15M"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
           </div>
         </div>
       </div>
 
       <!-- Rate Limiting -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-400 dark:border-gray-600">
         <h4 class="font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <ClockIcon class="w-5 h-5" />
           Rate Limiting
@@ -163,14 +163,14 @@
             type="number"
             min="0"
             placeholder="0 = unlimited"
-            class="w-full md:w-1/2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+            class="w-full md:w-1/2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
           />
           <p class="mt-1 text-xs text-gray-500">Set to 0 for unlimited</p>
         </div>
       </div>
 
       <!-- SMTP Settings -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-400 dark:border-gray-600">
         <h4 class="font-medium text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <EnvelopeIcon class="w-5 h-5" />
           SMTP Email Settings
@@ -188,7 +188,7 @@
               v-model="form.smtp_sender_addr"
               type="text"
               placeholder="smtp.gmail.com:587"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
           </div>
 
@@ -200,7 +200,7 @@
               v-model="form.smtp_sender_from"
               type="email"
               placeholder="noreply@example.com"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
           </div>
 
@@ -212,7 +212,7 @@
               v-model="form.smtp_sender_user"
               type="text"
               placeholder="(optional for IP-whitelisted servers)"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
           </div>
 
@@ -224,7 +224,7 @@
               v-model="form.smtp_sender_pass"
               type="password"
               placeholder="(optional for IP-whitelisted servers)"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2"
             />
           </div>
         </div>
@@ -235,7 +235,7 @@
       </div>
 
       <!-- Status Info -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-400 dark:border-gray-600">
         <h4 class="font-medium text-gray-900 dark:text-white mb-4">Server Status</h4>
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
