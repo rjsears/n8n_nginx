@@ -46,9 +46,10 @@ const pathValidation = ref(null)
 const storageDetection = ref(null)
 const detectingStorage = ref(false)
 
-// NTFY Topics for notification selection
-const ntfyTopics = ref([])
-const loadingTopics = ref(false)
+// Notification channels and groups for selection
+const notificationServices = ref([])
+const notificationGroups = ref([])
+const loadingChannels = ref(false)
 
 // Backups for manual verification
 const availableBackups = ref([])
@@ -109,7 +110,8 @@ const form = ref({
   // Notifications
   notify_on_success: false,
   notify_on_failure: true,
-  notification_topic_id: null,
+  notification_channel_id: null,
+  notification_channel_type: null, // 'service' or 'group'
   // Verification
   auto_verify_enabled: false,
   verify_after_backup: false,
@@ -154,6 +156,39 @@ const verifiableBackups = computed(() => {
   return availableBackups.value.filter(b => b.status === 'success')
 })
 
+// Check if notifications can be enabled (requires channel selected)
+const canEnableNotifications = computed(() => {
+  return form.value.notification_channel_id !== null
+})
+
+// All available notification channels (services + groups)
+const allNotificationChannels = computed(() => {
+  const channels = []
+  // Add services
+  notificationServices.value.forEach(s => {
+    channels.push({
+      id: s.id,
+      type: 'service',
+      name: s.name,
+      description: s.service_type ? `${s.service_type.toUpperCase()} Channel` : 'Channel',
+      enabled: s.enabled,
+      icon: 'service'
+    })
+  })
+  // Add groups
+  notificationGroups.value.forEach(g => {
+    channels.push({
+      id: g.id,
+      type: 'group',
+      name: g.name,
+      description: g.description || `${g.services?.length || 0} services`,
+      enabled: g.enabled,
+      icon: 'group'
+    })
+  })
+  return channels
+})
+
 async function loadConfiguration() {
   loading.value = true
   try {
@@ -185,15 +220,19 @@ async function loadConfiguration() {
   }
 }
 
-async function loadNtfyTopics() {
-  loadingTopics.value = true
+async function loadNotificationChannels() {
+  loadingChannels.value = true
   try {
-    const response = await api.get('/ntfy/topics')
-    ntfyTopics.value = response.data
+    const [servicesRes, groupsRes] = await Promise.all([
+      api.get('/notifications/services'),
+      api.get('/notifications/groups')
+    ])
+    notificationServices.value = servicesRes.data.filter(s => s.enabled)
+    notificationGroups.value = groupsRes.data.filter(g => g.enabled)
   } catch (err) {
-    console.error('Failed to load NTFY topics:', err)
+    console.error('Failed to load notification channels:', err)
   } finally {
-    loadingTopics.value = false
+    loadingChannels.value = false
   }
 }
 
@@ -304,9 +343,35 @@ function formatBytes(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
+function selectNotificationChannel(channel) {
+  form.value.notification_channel_id = channel.id
+  form.value.notification_channel_type = channel.type
+}
+
+function clearNotificationChannel() {
+  form.value.notification_channel_id = null
+  form.value.notification_channel_type = null
+  // Disable notifications if no channel selected
+  form.value.notify_on_success = false
+  form.value.notify_on_failure = false
+}
+
+function tryEnableNotification(type) {
+  if (!canEnableNotifications.value) {
+    notificationStore.warning('Please select a notification channel first')
+    sections.value.notifyChannels = true
+    return
+  }
+  if (type === 'success') {
+    form.value.notify_on_success = !form.value.notify_on_success
+  } else {
+    form.value.notify_on_failure = !form.value.notify_on_failure
+  }
+}
+
 onMounted(() => {
   loadConfiguration()
-  loadNtfyTopics()
+  loadNotificationChannels()
   loadBackups()
 })
 </script>
@@ -871,7 +936,147 @@ onMounted(() => {
 
       <!-- Notifications Tab -->
       <div v-if="activeTab === 'notifications'" class="space-y-4">
-        <!-- Notification Settings -->
+        <!-- Channel Selection First (Required) -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <button
+            @click="toggleSection('notifyChannels')"
+            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2.5 rounded-xl bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30">
+                <ServerIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div class="text-left">
+                <h3 class="font-semibold text-primary">Notification Channel</h3>
+                <p class="text-sm text-secondary">Select where to send backup notifications</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span v-if="form.notification_channel_id" class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">
+                Selected
+              </span>
+              <span v-else class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                Required
+              </span>
+              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.notifyChannels ? 'rotate-180' : '']" />
+            </div>
+          </button>
+
+          <div v-if="sections.notifyChannels" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
+            <!-- Configure Notifications Button -->
+            <div class="mt-4 flex justify-end">
+              <button
+                @click="router.push('/notifications')"
+                class="btn-secondary text-sm flex items-center gap-2"
+              >
+                <Cog6ToothIcon class="h-4 w-4" />
+                Configure Notification Channels
+              </button>
+            </div>
+
+            <div v-if="loadingChannels" class="mt-4 flex justify-center py-8">
+              <LoadingSpinner text="Loading notification channels..." />
+            </div>
+
+            <div v-else-if="allNotificationChannels.length > 0" class="mt-4 space-y-3">
+              <p class="text-sm font-medium text-secondary">Select a channel or group to receive backup notifications</p>
+
+              <!-- Services -->
+              <div v-if="notificationServices.length > 0">
+                <p class="text-xs font-medium text-muted uppercase tracking-wide mb-2">Channels</p>
+                <div class="space-y-2">
+                  <div
+                    v-for="channel in allNotificationChannels.filter(c => c.type === 'service')"
+                    :key="`service-${channel.id}`"
+                    :class="[
+                      'p-4 rounded-lg border-2 cursor-pointer transition-all',
+                      form.notification_channel_id === channel.id && form.notification_channel_type === 'service'
+                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                    ]"
+                    @click="selectNotificationChannel(channel)"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-3">
+                        <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/40">
+                          <BellIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                        <div>
+                          <p class="font-medium text-primary">{{ channel.name }}</p>
+                          <p class="text-xs text-secondary">{{ channel.description }}</p>
+                        </div>
+                      </div>
+                      <div v-if="form.notification_channel_id === channel.id && form.notification_channel_type === 'service'" class="p-1.5 rounded-full bg-indigo-500">
+                        <CheckIcon class="h-4 w-4 text-white" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Groups -->
+              <div v-if="notificationGroups.length > 0" class="mt-4">
+                <p class="text-xs font-medium text-muted uppercase tracking-wide mb-2">Groups</p>
+                <div class="space-y-2">
+                  <div
+                    v-for="channel in allNotificationChannels.filter(c => c.type === 'group')"
+                    :key="`group-${channel.id}`"
+                    :class="[
+                      'p-4 rounded-lg border-2 cursor-pointer transition-all',
+                      form.notification_channel_id === channel.id && form.notification_channel_type === 'group'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
+                    ]"
+                    @click="selectNotificationChannel(channel)"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-3">
+                        <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/40">
+                          <FolderIcon class="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                        </div>
+                        <div>
+                          <p class="font-medium text-primary">{{ channel.name }}</p>
+                          <p class="text-xs text-secondary">{{ channel.description }}</p>
+                        </div>
+                      </div>
+                      <div v-if="form.notification_channel_id === channel.id && form.notification_channel_type === 'group'" class="p-1.5 rounded-full bg-purple-500">
+                        <CheckIcon class="h-4 w-4 text-white" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                v-if="form.notification_channel_id"
+                @click="clearNotificationChannel"
+                class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                Clear selection
+              </button>
+            </div>
+
+            <div v-else class="mt-4 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              <div class="flex items-start gap-3">
+                <ExclamationTriangleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                <div class="text-sm">
+                  <p class="font-medium text-amber-800 dark:text-amber-300">No Notification Channels Configured</p>
+                  <p class="text-amber-700 dark:text-amber-400 mt-1">
+                    You need to configure at least one notification channel (NTFY, email, etc.) before enabling backup notifications.
+                  </p>
+                  <button
+                    @click="router.push('/notifications')"
+                    class="mt-3 btn-primary text-sm"
+                  >
+                    Configure Notifications
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notification Triggers (only show if channel selected) -->
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <button
             @click="toggleSection('notifySettings')"
@@ -886,11 +1091,20 @@ onMounted(() => {
                 <p class="text-sm text-secondary">When to send backup notifications</p>
               </div>
             </div>
-            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.notifySettings ? 'rotate-180' : '']" />
+            <div class="flex items-center gap-2">
+              <span v-if="!canEnableNotifications" class="text-xs text-amber-600 dark:text-amber-400">Select channel first</span>
+              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.notifySettings ? 'rotate-180' : '']" />
+            </div>
           </button>
 
           <div v-if="sections.notifySettings" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div class="mt-4 space-y-3">
+            <div v-if="!canEnableNotifications" class="mt-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              <p class="text-sm text-amber-700 dark:text-amber-400">
+                Please select a notification channel above before enabling notifications.
+              </p>
+            </div>
+
+            <div class="mt-4 space-y-3" :class="{ 'opacity-50 pointer-events-none': !canEnableNotifications }">
               <div class="flex items-center justify-between p-4 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
                 <div class="flex items-center gap-3">
                   <CheckCircleIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
@@ -900,7 +1114,7 @@ onMounted(() => {
                   </div>
                 </div>
                 <button
-                  @click="form.notify_on_success = !form.notify_on_success"
+                  @click="tryEnableNotification('success')"
                   :class="[
                     'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
                     form.notify_on_success ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'
@@ -919,7 +1133,7 @@ onMounted(() => {
                   </div>
                 </div>
                 <button
-                  @click="form.notify_on_failure = !form.notify_on_failure"
+                  @click="tryEnableNotification('failure')"
                   :class="[
                     'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
                     form.notify_on_failure ? 'bg-red-500' : 'bg-gray-300 dark:bg-gray-600'
@@ -927,87 +1141,6 @@ onMounted(() => {
                 >
                   <span :class="['inline-block h-4 w-4 transform rounded-full bg-white transition-transform', form.notify_on_failure ? 'translate-x-6' : 'translate-x-1']" />
                 </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Notification Channels -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('notifyChannels')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30">
-                <ServerIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Notification Channel</h3>
-                <p class="text-sm text-secondary">Where to send notifications (NTFY)</p>
-              </div>
-            </div>
-            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.notifyChannels ? 'rotate-180' : '']" />
-          </button>
-
-          <div v-if="sections.notifyChannels" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div v-if="loadingTopics" class="mt-4 flex justify-center py-8">
-              <LoadingSpinner text="Loading notification channels..." />
-            </div>
-
-            <div v-else-if="ntfyTopics.length > 0" class="mt-4 space-y-3">
-              <p class="text-sm font-medium text-secondary">Select NTFY Topic</p>
-              <div
-                v-for="topic in ntfyTopics"
-                :key="topic.id"
-                :class="[
-                  'p-4 rounded-lg border-2 cursor-pointer transition-all',
-                  form.notification_topic_id === topic.id
-                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
-                ]"
-                @click="form.notification_topic_id = topic.id"
-              >
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/40">
-                      <BellIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                    </div>
-                    <div>
-                      <p class="font-medium text-primary">{{ topic.name }}</p>
-                      <p v-if="topic.description" class="text-xs text-secondary">{{ topic.description }}</p>
-                    </div>
-                  </div>
-                  <div v-if="form.notification_topic_id === topic.id" class="p-1.5 rounded-full bg-indigo-500">
-                    <CheckIcon class="h-4 w-4 text-white" />
-                  </div>
-                </div>
-              </div>
-
-              <button
-                v-if="form.notification_topic_id"
-                @click="form.notification_topic_id = null"
-                class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-              >
-                Clear selection
-              </button>
-            </div>
-
-            <div v-else class="mt-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-              <div class="flex items-start gap-3">
-                <InformationCircleIcon class="h-5 w-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                <div class="text-sm">
-                  <p class="font-medium text-primary">No NTFY Topics Found</p>
-                  <p class="text-secondary mt-1">
-                    Create NTFY topics in the Notifications section to receive backup alerts.
-                  </p>
-                  <button
-                    @click="router.push('/notifications?tab=ntfy')"
-                    class="mt-2 text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-medium"
-                  >
-                    Go to Notifications
-                  </button>
-                </div>
               </div>
             </div>
           </div>
