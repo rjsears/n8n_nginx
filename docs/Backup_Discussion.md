@@ -16,6 +16,8 @@
 - [Finalized Decisions](#finalized-decisions)
 - [NFS Configuration](#nfs-configuration-from-setupsh-analysis)
 - [Final Implementation Plan](#final-implementation-plan)
+- [Pruning & Retention Decisions](#pruning--retention-decisions)
+- [Progress Tracking](#progress-tracking)
 
 ---
 
@@ -630,6 +632,494 @@ Based on the finalized decisions, here is the approved implementation order:
 
 ---
 
+### Phase 7: Backup Pruning & Retention System
+*Automatic cleanup with pre-deletion notifications*
+
+| # | Task | Files to Modify/Create |
+|---|------|------------------------|
+| 7.1 | Add pruning columns to backup_history (protected, deletion_status, scheduled_deletion_at) | `models/backups.py` |
+| 7.2 | Create `backup_pruning_settings` table | `models/backups.py` |
+| 7.3 | Create `pruning_service.py` | `services/pruning_service.py` |
+| 7.4 | Implement time-based pruning (delete older than X days) | `services/pruning_service.py` |
+| 7.5 | Implement space-based pruning (delete when below X% free) | `services/pruning_service.py` |
+| 7.6 | Implement size-based pruning (keep under X GB total) | `services/pruning_service.py` |
+| 7.7 | Implement pending deletion workflow (24h wait + notification) | `services/pruning_service.py` |
+| 7.8 | Implement critical space handling (delete immediately OR stop + emergency notify) | `services/pruning_service.py` |
+| 7.9 | Add protect/unprotect backup endpoints | `routers/backups.py` |
+| 7.10 | Add pruning settings API endpoints | `routers/backups.py` |
+| 7.11 | Add scheduler task for pruning checks (hourly) | `tasks/scheduler.py` |
+| 7.12 | Add scheduler task for pending deletion execution | `tasks/scheduler.py` |
+| 7.13 | Integrate with notification service | `services/pruning_service.py` |
+| 7.14 | Add pruning settings UI | `views/SettingsView.vue` |
+| 7.15 | Add protect/pending status to backup history UI | `views/BackupsView.vue` |
+| 7.16 | Add cancel pending deletion button | `views/BackupsView.vue` |
+| 7.17 | Add storage usage display | `views/BackupsView.vue` |
+
+**Deliverable:** Automatic backup cleanup with notifications and protected backups
+
+---
+
+## Pruning & Retention Decisions
+
+### 6. Manual vs Automatic Deletion
+**Decision:** Different behavior based on deletion type
+
+| Deletion Type | Behavior |
+|---------------|----------|
+| **Manual** (user clicks delete) | Confirmation dialog → Immediate delete (no notification) |
+| **Automatic** (pruning rules) | If "Notify before deletion" enabled: wait configured hours, send notification, then delete |
+
+### 7. Critical Space Handling
+**Decision:** User-configurable emergency behavior
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Critical Space Settings                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Critical space threshold: [5] %                                 │
+│                                                                  │
+│  When storage is critically low:                                 │
+│  ○ Delete oldest backups as necessary to complete new backup    │
+│  ○ Stop all backups and send emergency notification             │
+│      └─► Emergency channel: [#alerts ▼] (required)              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 8. Deletion Priority
+**Decision:** Oldest first
+- Older backups deleted before newer ones
+- Larger backups are typically newer, so they're preserved
+- Simple, predictable behavior
+
+### 9. Protected Backups
+**Decision:** Users can protect specific backups
+
+| Feature | Description |
+|---------|-------------|
+| **Protect button** | Lock icon on each backup in history |
+| **Protected status** | Shield badge shown on protected backups |
+| **Automatic deletion** | Protected backups are NEVER auto-deleted |
+| **Manual deletion** | Protected backups require unprotect first |
+| **Use cases** | Known-good backup, milestone backup, pre-upgrade backup |
+
+### Pruning Settings UI
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Backup Retention & Pruning                                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Automatic Pruning Rules:                                        │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ ☑ Delete backups older than [90] days                      │ │
+│  │ ☑ Delete oldest when free space below [10] %               │ │
+│  │ ☑ Keep maximum total backup size of [100] GB               │ │
+│  │ ☐ Keep only [7] daily, [4] weekly, [12] monthly            │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  Pre-Deletion Notifications:                                     │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ ☑ Notify before automatic deletion                         │ │
+│  │   Hours before deletion: [24 ▼]                            │ │
+│  │   Notification channel:  [#backup-alerts ▼] (required)     │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  Critical Space Handling:                                        │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ Critical threshold: [5] % free space                       │ │
+│  │                                                             │ │
+│  │ When critically low:                                        │ │
+│  │ ● Delete oldest (unprotected) to make room for new backup  │ │
+│  │ ○ Stop backups & send emergency alert to [#alerts ▼]       │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│                                              [Save Settings]    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Backup History with Protection & Pending Status
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Backup History                                    Storage: 45/100GB │
+├─────────────────────────────────────────────────────────────────┤
+│ ⚠️ 2 backups pending deletion (click to cancel)                  │
+├─────────────────────────────────────────────────────────────────┤
+│ │ Date         │ Size   │ Status      │ Protected │ Actions    │
+│ ├──────────────┼────────┼─────────────┼───────────┼────────────│
+│ │ 12/17 02:00  │ 52 MB  │ ✓ Verified  │ 🛡️        │ [👁][⬇][🔓]│
+│ │ 12/16 02:00  │ 51 MB  │ ✓ Verified  │           │ [👁][⬇][🗑]│
+│ │ 12/15 02:00  │ 50 MB  │ ⏳ Del 18h  │           │ [👁][⬇][❌]│
+│ │ 09/15 02:00  │ 48 MB  │ ⏳ Del 18h  │           │ [👁][⬇][❌]│
+│ │ 09/14 02:00  │ 47 MB  │ ✓ Verified  │ 🛡️        │ [👁][⬇][🔓]│
+└─────────────────────────────────────────────────────────────────┘
+
+Legend:
+  🛡️ = Protected (click 🔓 to unprotect)
+  ⏳ Del Xh = Pending deletion in X hours (click ❌ to cancel)
+  [👁] = View contents  [⬇] = Download  [🗑] = Delete  [🔓] = Unprotect
+```
+
+---
+
+## Implementation Notes
+
+### Autonomous Implementation Mode
+- **Continue through phases** without stopping for approval
+- **Build comprehensive test instructions** for each completed phase
+- **Ensure database changes** are integrated with setup.sh for fresh installs
+- **Update this document** after each task completion
+
+### Database Integration Requirements
+- All new tables must be added to the SQLAlchemy models in `models/backups.py`
+- Database initialization handled by `init-db.sh` and SQLAlchemy's `create_all()`
+- Ensure backward compatibility - existing installations should auto-migrate
+- Test that setup.sh on clean server creates all necessary tables
+
+### Testing Instructions Format
+For each phase, document:
+1. Prerequisites (containers running, test data needed)
+2. Step-by-step test procedure
+3. Expected results
+4. Verification commands
+
+---
+
+## Progress Tracking
+
+This section tracks implementation progress. Update after each completed task, change, or test.
+
+### Current Status
+- **Current Phase:** ALL PHASES COMPLETE
+- **Last Updated:** December 17, 2024
+- **Last Action:** Completed Phase 7 - Pruning & Retention System
+
+### Phase 1: Enhanced Backup Creation & Archive Format ✅ COMPLETE
+| Task | Status | Notes |
+|------|--------|-------|
+| 1.1 Create `backup_contents` database model | ✅ Complete | Added BackupContents, BackupPruningSettings models, plus protection/deletion columns to BackupHistory |
+| 1.2 Update backup service to capture workflow manifest | ✅ Complete | `capture_workflow_manifest()` queries n8n DB |
+| 1.3 Capture config file manifest with checksums | ✅ Complete | `capture_config_file_manifest()` with SHA-256 |
+| 1.4 Capture database schema manifest | ✅ Complete | `capture_database_schema_manifest()` gets tables, row counts, columns |
+| 1.5 Create tar.gz archive with proper structure | ✅ Complete | `create_complete_archive()` creates tar.gz |
+| 1.6 Include all config files | ✅ Complete | .env, docker-compose.yaml, nginx.conf, cloudflare.ini |
+| 1.7 Include SSL certificates in backup | ✅ Complete | Copies entire /etc/letsencrypt/live directory |
+| 1.8 Generate manifest.json (metadata.json) | ✅ Complete | Full metadata JSON inside archive |
+| 1.9 Generate requirements.txt | ⏭️ Skipped | Not critical for MVP |
+| 1.10 Create restore.sh template | ✅ Complete | `_generate_restore_script()` embedded in archive |
+| 1.11 Store metadata in backup_contents table | ✅ Complete | `run_backup_with_metadata()` stores all metadata |
+
+**Phase 1 API Endpoints:**
+- `POST /api/backups/run-full` - Create full backup with metadata
+- `GET /api/backups/contents/{backup_id}` - Get backup contents for browsing
+- `GET /api/backups/contents/{backup_id}/workflows` - List workflows in backup
+- `GET /api/backups/contents/{backup_id}/config-files` - List config files in backup
+- `POST /api/backups/{backup_id}/protect` - Protect/unprotect backup
+- `GET /api/backups/protected` - List protected backups
+- `GET /api/backups/pruning/settings` - Get pruning settings
+- `PUT /api/backups/pruning/settings` - Update pruning settings
+
+**Files Modified in Phase 1:**
+- `api/models/backups.py` - Added BackupContents, BackupPruningSettings, protection columns
+- `api/schemas/backups.py` - Added all new schemas
+- `api/services/backup_service.py` - Added ~700 lines of backup functionality
+- `api/routers/backups.py` - Added 8 new endpoints
+- `api/database.py` - Added schema migrations for new columns
+
+### Phase 1 Testing Instructions
+```bash
+# Prerequisites:
+# - Management container running
+# - PostgreSQL container running with n8n database
+# - At least one workflow in n8n
+
+# Test 1: Create full backup with metadata
+curl -X POST http://localhost:5678/api/backups/run-full \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"backup_type": "postgres_full", "compression": "gzip"}'
+
+# Expected: Returns backup_id, status "success", filename like "backup_YYYYMMDD_HHMMSS.n8n_backup.tar.gz"
+
+# Test 2: Get backup contents
+curl http://localhost:5678/api/backups/contents/<backup_id> \
+  -H "Authorization: Bearer <token>"
+
+# Expected: JSON with workflow_count, credential_count, config_file_count, manifests
+
+# Test 3: List workflows in backup
+curl http://localhost:5678/api/backups/contents/<backup_id>/workflows \
+  -H "Authorization: Bearer <token>"
+
+# Expected: JSON array of workflows with id, name, active, created_at, updated_at
+
+# Test 4: Protect a backup
+curl -X POST http://localhost:5678/api/backups/<backup_id>/protect \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"protected": true, "reason": "Test protection"}'
+
+# Expected: Backup with is_protected=true, protected_at set, protected_reason set
+
+# Test 5: Verify archive structure
+tar -tzf /path/to/backup_*.n8n_backup.tar.gz
+# Expected contents:
+# - restore.sh
+# - metadata.json
+# - databases/n8n.dump
+# - databases/n8n_management.dump
+# - config/.env (if exists)
+# - config/docker-compose.yaml (if exists)
+# - config/nginx.conf (if exists)
+# - ssl/ (if SSL certs exist)
+```
+
+### Phase 2: Backup Content Browser UI ✅ COMPLETE
+| Task | Status | Notes |
+|------|--------|-------|
+| 2.1 Add API endpoint `GET /api/backups/{id}/contents` | ✅ Complete | Done in Phase 1 |
+| 2.2 Add backup_contents schema | ✅ Complete | Done in Phase 1 |
+| 2.3 Create BackupContentsDialog.vue component | ✅ Complete | Full tabbed dialog |
+| 2.4 Add "View Contents" button to backup history | ✅ Complete | Eye icon button |
+| 2.5 Display workflows tab | ✅ Complete | With search filter |
+| 2.6 Display config files tab | ✅ Complete | With checksums |
+| 2.7 Display database info tab | ✅ Complete | Tables with row counts |
+| 2.8 Add search/filter for workflows | ✅ Complete | Real-time search |
+
+**Phase 2 UI Features:**
+- BackupContentsDialog.vue with 3 tabs (Workflows, Config Files, Database)
+- Summary stats showing workflow/credential/config counts
+- Search/filter for workflows
+- Protection badge and toggle button
+- View Contents (eye) button on each backup
+- Shield icon for protect/unprotect
+
+**Files Modified in Phase 2:**
+- `frontend/src/components/backups/BackupContentsDialog.vue` - NEW: Full dialog component
+- `frontend/src/stores/backups.js` - Added 8 new methods for contents, protection, pruning
+- `frontend/src/views/BackupsView.vue` - Added View Contents, protection buttons, dialog integration
+
+### Phase 3: Selective Workflow Restore ✅ COMPLETE
+| Task | Status | Notes |
+|------|--------|-------|
+| 3.1 Create `restore_service.py` | ✅ Complete | Full service with container management |
+| 3.2 Implement `spin_up_restore_container()` | ✅ Complete | Docker container spin-up/teardown |
+| 3.3 Implement `load_backup_to_container()` | ✅ Complete | Loads both new and legacy backup formats |
+| 3.4 Implement `extract_workflow()` | ✅ Complete | Extracts workflow JSON from restore DB |
+| 3.5 Implement `push_workflow_to_n8n()` via API | ✅ Complete | Uses n8n_api_service |
+| 3.6 Implement `teardown_restore_container()` | ✅ Complete | Cleanup after restore |
+| 3.7 Add restore API endpoints | ✅ Complete | 5 new endpoints |
+| 3.8 Create WorkflowRestoreDialog.vue | ✅ Complete | Full restore dialog with options |
+| 3.9 Integrate restore into BackupContentsDialog | ✅ Complete | Restore button opens dialog |
+
+**Phase 3 API Endpoints:**
+- `POST /api/backups/{id}/restore/workflow` - Restore workflow to n8n
+- `GET /api/backups/{id}/restore/workflows` - List workflows in backup
+- `GET /api/backups/{id}/workflows/{wf_id}/download` - Download workflow JSON
+- `POST /api/backups/restore/cleanup` - Cleanup restore container
+- `GET /api/backups/restore/status` - Check container status
+
+**Phase 3 UI Features:**
+- WorkflowRestoreDialog.vue with restore/download options
+- Custom naming with format selection or custom name
+- Preview of new workflow name
+- Success/error feedback
+- Integrated into BackupContentsDialog
+
+**Files Created/Modified in Phase 3:**
+- `api/services/restore_service.py` - NEW: Full restore service (~400 lines)
+- `api/routers/backups.py` - Added 5 restore endpoints
+- `frontend/src/components/backups/WorkflowRestoreDialog.vue` - NEW: Restore dialog
+- `frontend/src/components/backups/BackupContentsDialog.vue` - Integrated restore
+
+### Phase 4: Full System Restore ✅ COMPLETE
+| Task | Status | Notes |
+|------|--------|-------|
+| 4.1 Implement `restore_full_system()` | ✅ Complete | Full system restore in restore_service.py |
+| 4.2 Add pre-restore safety checks | ✅ Complete | Backup creation option before overwriting |
+| 4.3 Create current-state backup before restore | ✅ Complete | create_backups option in restore |
+| 4.4 Implement database restore (both DBs) | ✅ Complete | `restore_database()` method |
+| 4.5 Implement config file restore | ✅ Complete | `restore_config_file()` with path mappings |
+| 4.6 Implement SSL certificate restore | ✅ Complete | Handled via config file restore |
+| 4.7 Add Phase 4 API endpoints | ✅ Complete | 5 new restore endpoints |
+| 4.8 Create SystemRestoreDialog.vue | ✅ Complete | Full restore UI with preview/confirm/progress |
+| 4.9 Require confirmation to restore | ✅ Complete | Two-step confirm with warning |
+| 4.10 Add restore progress indicator | ✅ Complete | Loading state during restore |
+| 4.11 Restart services notification | ✅ Complete | Post-restore restart notice |
+
+**Phase 4 API Endpoints:**
+- `GET /api/backups/{id}/restore/preview` - Preview what would be restored
+- `GET /api/backups/{id}/restore/config-files` - List config files in backup
+- `POST /api/backups/{id}/restore/config` - Restore specific config file
+- `POST /api/backups/{id}/restore/database` - Restore specific database
+- `POST /api/backups/{id}/restore/full` - Full system restore
+
+**Phase 4 UI Features:**
+- SystemRestoreDialog.vue with 4 steps (preview, confirm, restoring, complete)
+- Select databases, config files, SSL certificates to restore
+- Option to create backups of existing files before overwriting
+- Warning about destructive action
+- Detailed results showing success/failure per item
+- Post-restore notice about container restart
+
+**Files Created/Modified in Phase 4:**
+- `api/services/restore_service.py` - Added ~400 lines: extract_backup_archive, list_config_files_in_backup, restore_config_file, restore_database, get_restore_preview, full_system_restore
+- `api/routers/backups.py` - Added 5 Phase 4 endpoints
+- `frontend/src/stores/backups.js` - Added 8 Phase 4 methods
+- `frontend/src/components/backups/SystemRestoreDialog.vue` - NEW: Full system restore dialog (~600 lines)
+- `frontend/src/views/BackupsView.vue` - Added System Restore button and dialog integration
+
+### Phase 5: Backup Verification System ✅ COMPLETE
+| Task | Status | Notes |
+|------|--------|-------|
+| 5.1 Create `verification_service.py` | ✅ Complete | Full verification service with container management |
+| 5.2 Implement `verify_backup()` with temp container | ✅ Complete | Uses n8n_postgres_verify container |
+| 5.3 Verify table existence and schemas | ✅ Complete | `verify_tables_exist()` method |
+| 5.4 Verify row counts match manifest | ✅ Complete | `verify_row_counts()` method |
+| 5.5 Verify workflow checksums | ✅ Complete | `verify_workflow_checksums()` with sampling |
+| 5.6 Verify config file checksums | ✅ Complete | `verify_config_file_checksums()` method |
+| 5.7 Store detailed verification results | ✅ Complete | Stores in backup_history table |
+| 5.8 Add verification API endpoints | ✅ Complete | 5 new endpoints |
+| 5.9 Add "Verify Now" button per backup | ✅ Complete | CheckBadge icon button |
+| 5.10 Display verification status/results | ✅ Complete | Badge with passed/failed status |
+| 5.11 Quick verify option | ✅ Complete | Fast checksum-only verification |
+| 5.12 Verification container cleanup | ✅ Complete | Manual cleanup endpoint |
+
+**Phase 5 API Endpoints:**
+- `POST /api/backups/{id}/verify` - Comprehensive verification (spins up container)
+- `POST /api/backups/{id}/verify/quick` - Quick verification (checksum only)
+- `GET /api/backups/{id}/verification/status` - Get verification status
+- `POST /api/backups/verification/cleanup` - Cleanup verification container
+- `GET /api/backups/verification/container/status` - Check container status
+
+**Phase 5 Features:**
+- Separate verification container (n8n_postgres_verify) from restore container
+- Comprehensive verification: archive integrity, tables, row counts, checksums
+- Quick verification: file exists, checksum match, archive valid
+- Workflow checksum sampling (default: 10 workflows)
+- Verification status badge in backup list
+- Verify button with loading state
+
+**Files Created/Modified in Phase 5:**
+- `api/services/verification_service.py` - NEW: Full verification service (~600 lines)
+- `api/routers/backups.py` - Added 5 verification endpoints
+- `frontend/src/stores/backups.js` - Added 5 verification methods
+- `frontend/src/views/BackupsView.vue` - Added verification button and status display
+
+### Phase 6: Bare Metal Recovery ✅ COMPLETE
+| Task | Status | Notes |
+|------|--------|-------|
+| 6.1 Create restore.sh template | ✅ Complete | Enhanced script with full recovery workflow |
+| 6.2 Implement Docker detection/installation | ✅ Complete | Checks and optionally installs Docker |
+| 6.3 Implement NFS reconfiguration prompt | ⏭️ Not needed | User handles NFS during initial setup |
+| 6.4 Implement database restore | ✅ Complete | pg_restore with --clean --if-exists |
+| 6.5 Implement config file restore | ✅ Complete | With backup of existing files |
+| 6.6 Implement SSL certificate restore | ✅ Complete | Restores to /etc/letsencrypt/live |
+| 6.7 Add validation checks post-restore | ✅ Complete | Checks files exist, DB connectivity |
+| 6.8 Add dry-run mode | ✅ Complete | --dry-run shows what would happen |
+| 6.9 Add --force mode | ✅ Complete | Skips confirmation prompts |
+| 6.10 Include restore.sh in every backup | ✅ Complete | Already implemented in Phase 1 |
+
+**restore.sh Features:**
+- Comprehensive 8-step restore process
+- Docker installation check/prompt
+- PostgreSQL tools verification
+- Database auto-creation if not exists
+- Config file backup before overwrite
+- SSL certificate restoration
+- Post-restore validation checks
+- Dry-run mode for testing
+- Force mode for automation
+- Colored output with status indicators
+- Detailed next steps guide
+
+**restore.sh Command Line Options:**
+```bash
+./restore.sh [options]
+  --target-dir DIR    Directory to restore to (default: /opt/n8n)
+  --db-host HOST      PostgreSQL host (default: localhost)
+  --db-user USER      PostgreSQL user (default: n8n)
+  --db-pass PASS      PostgreSQL password
+  --skip-docker       Skip Docker installation check
+  --skip-ssl          Skip SSL certificate restoration
+  --skip-db           Skip database restoration
+  --skip-config       Skip config file restoration
+  --dry-run           Show what would be done without changes
+  --force             Skip all confirmation prompts
+  -h, --help          Show help message
+```
+
+### Phase 7: Pruning & Retention ✅ COMPLETE
+| Task | Status | Notes |
+|------|--------|-------|
+| 7.1 Add pruning columns to backup_history | ✅ Complete | Already done in Phase 1 |
+| 7.2 Create backup_pruning_settings table | ✅ Complete | Already done in Phase 1 |
+| 7.3 Create pruning_service.py | ✅ Complete | Full pruning service with all methods |
+| 7.4 Implement time-based pruning | ✅ Complete | Delete backups older than X days |
+| 7.5 Implement space-based pruning | ✅ Complete | Trigger when free space below X% |
+| 7.6 Implement size-based pruning | ✅ Complete | Keep total backup size under X GB |
+| 7.7 Implement pending deletion workflow | ✅ Complete | 24h wait + notification before delete |
+| 7.8 Implement critical space handling | ✅ Complete | delete_oldest or stop_and_alert |
+| 7.9 Add protect/unprotect backup endpoints | ✅ Complete | Already done in Phase 1 |
+| 7.10 Add pruning settings API endpoints | ✅ Complete | Already done in Phase 1 |
+| 7.11 Add storage usage endpoint | ✅ Complete | /api/backups/storage/usage |
+| 7.12 Add pruning candidates endpoint | ✅ Complete | /api/backups/pruning/candidates |
+| 7.13 Add pending deletions endpoint | ✅ Complete | /api/backups/pruning/pending |
+| 7.14 Add cancel deletion endpoint | ✅ Complete | POST /{id}/cancel-deletion |
+| 7.15 Add run pruning endpoint | ✅ Complete | POST /pruning/run |
+| 7.16 Integrate with notification service | ✅ Complete | dispatch_notification calls |
+| 7.17 Add frontend store methods | ✅ Complete | 6 new methods in backups.js |
+
+**Phase 7 API Endpoints:**
+- `GET /api/backups/storage/usage` - Get storage usage info
+- `GET /api/backups/pruning/candidates` - Preview what would be pruned
+- `GET /api/backups/pruning/pending` - List pending deletions
+- `POST /api/backups/{id}/cancel-deletion` - Cancel pending deletion
+- `POST /api/backups/pruning/run` - Manually trigger all pruning checks
+- `POST /api/backups/pruning/execute-pending` - Execute pending deletions
+
+**Pruning Service Features:**
+- Time-based: Delete backups older than X days
+- Space-based: Delete oldest when free space below X%
+- Size-based: Keep total backup size under X GB
+- Pending deletion workflow: Mark for deletion, wait, notify, then delete
+- Critical space handling: Emergency delete or stop+alert
+- Protected backups: Never auto-deleted
+- Storage usage reporting: Local and NFS backup directories
+- Candidate preview: See what would be deleted without executing
+
+**Files Created/Modified in Phase 7:**
+- `api/services/pruning_service.py` - NEW: Full pruning service (~500 lines)
+- `api/routers/backups.py` - Added 6 pruning endpoints
+- `frontend/src/stores/backups.js` - Added 6 pruning methods
+
+### Change Log
+| Date | Change | Details |
+|------|--------|---------|
+| 2024-12-17 | Initial planning | Created complete 7-phase implementation plan |
+| 2024-12-17 | Finalized decisions | All 10 key decisions documented |
+| 2024-12-17 | Added Phase 7 | Pruning & retention system with notifications |
+| 2024-12-17 | Phase 1 Complete | Backend implementation done - backup service, models, schemas, routes |
+| 2024-12-17 | Phase 2 Complete | UI implementation done - BackupContentsDialog, store methods, view updates |
+| 2024-12-17 | Phase 3 Backend | Restore service, container management, 5 API endpoints |
+| 2024-12-17 | Phase 3 UI | WorkflowRestoreDialog with restore/download options |
+| 2024-12-17 | Phase 4 Backend | Full system restore: databases, configs, SSL certs, 5 API endpoints |
+| 2024-12-17 | Phase 4 UI | SystemRestoreDialog with preview/confirm/progress/results steps |
+| 2024-12-17 | Phase 5 Backend | Verification service with temp container, comprehensive checks |
+| 2024-12-17 | Phase 5 UI | Verify button and verification status badge in backup list |
+| 2024-12-17 | Phase 6 | Enhanced restore.sh with Docker check, dry-run, validation |
+| 2024-12-17 | Phase 7 | Pruning service with time/space/size-based cleanup, notifications |
+
+### Testing Notes
+*(Record test results, issues found, and resolutions here)*
+
+### Issues & Resolutions
+*(Track any blockers or problems encountered)*
+
+---
+
 ## Summary
 
 | Phase | Focus | Key Deliverable |
@@ -640,8 +1130,10 @@ Based on the finalized decisions, here is the approved implementation order:
 | 4 | Full System Restore | Restore entire system from UI |
 | 5 | Verification System | Prove backups are valid |
 | 6 | Bare Metal Recovery | restore.sh for new servers |
+| 7 | Pruning & Retention | Automatic cleanup with notifications |
 
 ---
 
-*Document finalized on December 17, 2024*
+*Document updated on December 17, 2024*
+*Added Phase 7: Pruning & Retention System*
 *Ready to begin Phase 1 implementation*

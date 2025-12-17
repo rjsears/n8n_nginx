@@ -191,3 +191,136 @@ class BackupStatsResponse(BaseModel):
     last_successful_backup: Optional[datetime] = None
     by_type: Dict[str, int]
     by_status: Dict[str, int]
+
+
+# ============================================================================
+# Backup Contents Schemas (Phase 1)
+# ============================================================================
+
+class WorkflowManifestItem(BaseModel):
+    """Individual workflow in backup manifest."""
+    id: str
+    name: str
+    active: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    checksum: Optional[str] = None
+    tags: List[str] = []
+    node_count: Optional[int] = None
+
+
+class CredentialManifestItem(BaseModel):
+    """Individual credential in backup manifest (no sensitive data)."""
+    id: str
+    name: str
+    type: str
+
+
+class ConfigFileManifestItem(BaseModel):
+    """Individual config file in backup manifest."""
+    name: str
+    path: str
+    size: int
+    checksum: str
+    modified_at: Optional[datetime] = None
+
+
+class DatabaseTableInfo(BaseModel):
+    """Database table information."""
+    name: str
+    row_count: int
+    columns: List[str] = []
+
+
+class DatabaseManifestItem(BaseModel):
+    """Database schema manifest."""
+    database: str
+    tables: List[DatabaseTableInfo]
+    total_rows: int = 0
+
+
+class BackupContentsResponse(BaseModel):
+    """Response for backup contents (browsing without loading)."""
+    id: int
+    backup_id: int
+    workflow_count: int
+    credential_count: int
+    config_file_count: int
+    workflows_manifest: Optional[List[WorkflowManifestItem]] = None
+    credentials_manifest: Optional[List[CredentialManifestItem]] = None
+    config_files_manifest: Optional[List[ConfigFileManifestItem]] = None
+    database_schema_manifest: Optional[List[DatabaseManifestItem]] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# Backup Pruning Schemas (Phase 7)
+# ============================================================================
+
+class BackupPruningSettingsUpdate(BaseModel):
+    """Update backup pruning settings."""
+    # Time-based pruning
+    time_based_enabled: Optional[bool] = None
+    max_age_days: Optional[int] = Field(None, ge=1, le=365)
+
+    # Space-based pruning
+    space_based_enabled: Optional[bool] = None
+    min_free_space_percent: Optional[int] = Field(None, ge=1, le=50)
+
+    # Size-based pruning
+    size_based_enabled: Optional[bool] = None
+    max_total_size_gb: Optional[int] = Field(None, ge=1)
+
+    # Pre-deletion notifications
+    notify_before_delete: Optional[bool] = None
+    notify_hours_before: Optional[int] = Field(None, ge=1, le=168)  # max 7 days
+    notification_channel_id: Optional[int] = None
+
+    # Critical space handling
+    critical_space_threshold: Optional[int] = Field(None, ge=1, le=20)
+    critical_space_action: Optional[str] = Field(None, pattern="^(delete_oldest|stop_and_alert)$")
+    critical_notification_channel_id: Optional[int] = None
+
+
+class BackupPruningSettingsResponse(BaseModel):
+    """Backup pruning settings response."""
+    id: int
+    time_based_enabled: bool
+    max_age_days: int
+    space_based_enabled: bool
+    min_free_space_percent: int
+    size_based_enabled: bool
+    max_total_size_gb: int
+    notify_before_delete: bool
+    notify_hours_before: int
+    notification_channel_id: Optional[int] = None
+    critical_space_threshold: int
+    critical_space_action: str
+    critical_notification_channel_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BackupProtectRequest(BaseModel):
+    """Request to protect/unprotect a backup."""
+    protected: bool
+    reason: Optional[str] = Field(None, max_length=200)
+
+
+class BackupHistoryExtendedResponse(BackupHistoryResponse):
+    """Extended backup history response with protection and deletion status."""
+    is_protected: bool = False
+    protected_at: Optional[datetime] = None
+    protected_reason: Optional[str] = None
+    deletion_status: Optional[str] = None
+    scheduled_deletion_at: Optional[datetime] = None
+    deletion_reason: Optional[str] = None
+
+    class Config:
+        from_attributes = True

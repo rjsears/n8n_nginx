@@ -118,6 +118,14 @@ class BackupHistory(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
     deleted_by = Column(String(50), nullable=True)  # 'retention_policy', 'manual', 'storage_limit'
 
+    # Protection and pending deletion (Phase 7)
+    is_protected = Column(Boolean, default=False)  # Protected from automatic deletion
+    protected_at = Column(DateTime(timezone=True), nullable=True)
+    protected_reason = Column(String(200), nullable=True)  # User-provided reason for protection
+    deletion_status = Column(String(20), nullable=True)  # 'pending', 'cancelled', None
+    scheduled_deletion_at = Column(DateTime(timezone=True), nullable=True)
+    deletion_reason = Column(String(100), nullable=True)  # 'time_based', 'space_based', 'size_based'
+
     # Database metadata
     postgres_version = Column(String(20), nullable=True)
     database_name = Column(String(100), nullable=True)
@@ -128,6 +136,7 @@ class BackupHistory(Base):
 
     # Relationships
     schedule = relationship("BackupSchedule", back_populates="history")
+    contents = relationship("BackupContents", back_populates="backup", uselist=False, cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_backup_history_type", "backup_type"),
@@ -195,3 +204,86 @@ class APSchedulerJob(Base):
 
     def __repr__(self):
         return f"<APSchedulerJob(id='{self.id}')>"
+
+
+class BackupContents(Base):
+    """
+    Stores metadata for each backup for browsing without loading.
+    This enables instant viewing of backup contents (workflows, config files, etc.)
+    without having to extract or restore the backup.
+    """
+
+    __tablename__ = "backup_contents"
+
+    id = Column(Integer, primary_key=True)
+    backup_id = Column(Integer, ForeignKey("backup_history.id", ondelete="CASCADE"), nullable=False, unique=True)
+
+    # Quick lookup counts
+    workflow_count = Column(Integer, default=0)
+    credential_count = Column(Integer, default=0)
+    config_file_count = Column(Integer, default=0)
+
+    # JSON manifests for detailed contents
+    # workflows_manifest: [{id, name, active, created_at, updated_at, checksum, tags}, ...]
+    workflows_manifest = Column(JSONB, nullable=True)
+    # credentials_manifest: [{id, name, type}, ...] (no sensitive data!)
+    credentials_manifest = Column(JSONB, nullable=True)
+    # config_files_manifest: [{name, path, size, checksum, modified_at}, ...]
+    config_files_manifest = Column(JSONB, nullable=True)
+    # database_schema_manifest: [{database, tables: [{name, row_count, columns}]}, ...]
+    database_schema_manifest = Column(JSONB, nullable=True)
+
+    # Verification checksums for integrity validation
+    # {workflow_id: checksum, ...}
+    verification_checksums = Column(JSONB, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    # Relationship
+    backup = relationship("BackupHistory", back_populates="contents")
+
+    __table_args__ = (
+        Index("idx_backup_contents_backup_id", "backup_id"),
+    )
+
+    def __repr__(self):
+        return f"<BackupContents(id={self.id}, backup_id={self.backup_id}, workflows={self.workflow_count})>"
+
+
+class BackupPruningSettings(Base):
+    """
+    Settings for automatic backup pruning and retention.
+    Single row table (singleton pattern).
+    """
+
+    __tablename__ = "backup_pruning_settings"
+
+    id = Column(Integer, primary_key=True)
+
+    # Time-based pruning
+    time_based_enabled = Column(Boolean, default=False)
+    max_age_days = Column(Integer, default=90)  # Delete backups older than X days
+
+    # Space-based pruning
+    space_based_enabled = Column(Boolean, default=False)
+    min_free_space_percent = Column(Integer, default=10)  # Trigger when free space below X%
+
+    # Size-based pruning
+    size_based_enabled = Column(Boolean, default=False)
+    max_total_size_gb = Column(Integer, default=100)  # Keep total backup size under X GB
+
+    # Pre-deletion notifications
+    notify_before_delete = Column(Boolean, default=True)
+    notify_hours_before = Column(Integer, default=24)  # Hours before deletion to notify
+    notification_channel_id = Column(Integer, nullable=True)  # FK to notification service (optional)
+
+    # Critical space handling
+    critical_space_threshold = Column(Integer, default=5)  # Critical when below X%
+    critical_space_action = Column(String(50), default="delete_oldest")  # 'delete_oldest' or 'stop_and_alert'
+    critical_notification_channel_id = Column(Integer, nullable=True)  # Emergency notification channel
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    def __repr__(self):
+        return f"<BackupPruningSettings(id={self.id})>"
