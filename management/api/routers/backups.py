@@ -5,7 +5,7 @@ Backups API routes.
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Dict
 import os
 
 from api.database import get_db, get_n8n_db
