@@ -792,9 +792,9 @@ For each phase, document:
 This section tracks implementation progress. Update after each completed task, change, or test.
 
 ### Current Status
-- **Current Phase:** Phase 3 - Backend Complete, UI Pending
+- **Current Phase:** Phase 4 - Starting
 - **Last Updated:** December 17, 2024
-- **Last Action:** Completed Phase 3 restore backend implementation
+- **Last Action:** Completed Phase 3 - Full restore UI with WorkflowRestoreDialog
 
 ### Phase 1: Enhanced Backup Creation & Archive Format ✅ COMPLETE
 | Task | Status | Notes |
@@ -901,7 +901,7 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 - `frontend/src/stores/backups.js` - Added 8 new methods for contents, protection, pruning
 - `frontend/src/views/BackupsView.vue` - Added View Contents, protection buttons, dialog integration
 
-### Phase 3: Selective Workflow Restore - Backend ✅ COMPLETE
+### Phase 3: Selective Workflow Restore ✅ COMPLETE
 | Task | Status | Notes |
 |------|--------|-------|
 | 3.1 Create `restore_service.py` | ✅ Complete | Full service with container management |
@@ -911,7 +911,8 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 | 3.5 Implement `push_workflow_to_n8n()` via API | ✅ Complete | Uses n8n_api_service |
 | 3.6 Implement `teardown_restore_container()` | ✅ Complete | Cleanup after restore |
 | 3.7 Add restore API endpoints | ✅ Complete | 5 new endpoints |
-| 3.8-3.12 UI Components | ⬜ Pending | WorkflowRestoreDialog.vue |
+| 3.8 Create WorkflowRestoreDialog.vue | ✅ Complete | Full restore dialog with options |
+| 3.9 Integrate restore into BackupContentsDialog | ✅ Complete | Restore button opens dialog |
 
 **Phase 3 API Endpoints:**
 - `POST /api/backups/{id}/restore/workflow` - Restore workflow to n8n
@@ -920,9 +921,18 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 - `POST /api/backups/restore/cleanup` - Cleanup restore container
 - `GET /api/backups/restore/status` - Check container status
 
+**Phase 3 UI Features:**
+- WorkflowRestoreDialog.vue with restore/download options
+- Custom naming with format selection or custom name
+- Preview of new workflow name
+- Success/error feedback
+- Integrated into BackupContentsDialog
+
 **Files Created/Modified in Phase 3:**
 - `api/services/restore_service.py` - NEW: Full restore service (~400 lines)
 - `api/routers/backups.py` - Added 5 restore endpoints
+- `frontend/src/components/backups/WorkflowRestoreDialog.vue` - NEW: Restore dialog
+- `frontend/src/components/backups/BackupContentsDialog.vue` - Integrated restore
 
 ### Phase 4: Full System Restore
 | Task | Status | Notes |
@@ -953,6 +963,7 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 | 2024-12-17 | Phase 1 Complete | Backend implementation done - backup service, models, schemas, routes |
 | 2024-12-17 | Phase 2 Complete | UI implementation done - BackupContentsDialog, store methods, view updates |
 | 2024-12-17 | Phase 3 Backend | Restore service, container management, 5 API endpoints |
+| 2024-12-17 | Phase 3 UI | WorkflowRestoreDialog with restore/download options |
 
 ### Testing Notes
 *(Record test results, issues found, and resolutions here)*

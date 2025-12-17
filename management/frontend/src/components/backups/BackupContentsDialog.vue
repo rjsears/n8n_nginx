@@ -4,6 +4,7 @@ import { useBackupStore } from '@/stores/backups'
 import { useNotificationStore } from '@/stores/notifications'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import WorkflowRestoreDialog from './WorkflowRestoreDialog.vue'
 import {
   XMarkIcon,
   CircleStackIcon,
@@ -32,6 +33,7 @@ const loading = ref(false)
 const contents = ref(null)
 const activeTab = ref('workflows')
 const searchQuery = ref('')
+const restoreDialog = ref({ open: false, workflow: null })
 
 // Tabs configuration
 const tabs = [
@@ -97,7 +99,17 @@ function formatDate(dateStr) {
 
 // Handle restore workflow request
 function requestRestoreWorkflow(workflow) {
-  emit('restore-workflow', { backup: props.backup, workflow })
+  restoreDialog.value = { open: true, workflow }
+}
+
+function closeRestoreDialog() {
+  restoreDialog.value = { open: false, workflow: null }
+}
+
+function handleRestored(data) {
+  closeRestoreDialog()
+  notificationStore.success(`Workflow "${data.new_name}" restored successfully`)
+  emit('restore-workflow', { backup: props.backup, ...data })
 }
 
 function close() {
@@ -349,6 +361,15 @@ function close() {
         </div>
       </div>
     </Transition>
+
+    <!-- Workflow Restore Dialog -->
+    <WorkflowRestoreDialog
+      :open="restoreDialog.open"
+      :backup="backup"
+      :workflow="restoreDialog.workflow"
+      @close="closeRestoreDialog"
+      @restored="handleRestored"
+    />
   </Teleport>
 </template>
 
