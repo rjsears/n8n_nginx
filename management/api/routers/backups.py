@@ -1052,3 +1052,160 @@ async def get_verify_container_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+# ============================================================================
+# Phase 7: Pruning & Retention
+# ============================================================================
+
+from api.services.pruning_service import PruningService
+
+
+@router.get("/storage/usage")
+async def get_storage_usage(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get current storage usage for backup directories.
+    Returns information about local and NFS storage, total backup size, etc.
+    """
+    service = PruningService(db)
+    return service.get_storage_usage()
+
+
+@router.get("/pruning/candidates")
+async def get_pruning_candidates(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get a preview of backups that would be affected by current pruning settings.
+    Does not actually delete anything.
+    """
+    service = PruningService(db)
+    settings = await service.get_settings()
+
+    if not settings:
+        return {"message": "No pruning settings configured", "candidates": []}
+
+    result = {
+        "settings": {
+            "time_based_enabled": settings.time_based_enabled,
+            "max_age_days": settings.max_age_days,
+            "space_based_enabled": settings.space_based_enabled,
+            "min_free_space_percent": settings.min_free_space_percent,
+            "size_based_enabled": settings.size_based_enabled,
+            "max_total_size_gb": settings.max_total_size_gb,
+        },
+        "candidates": {
+            "time_based": [],
+            "oldest_unprotected": [],
+        },
+        "storage": service.get_storage_usage(),
+    }
+
+    if settings.time_based_enabled:
+        time_candidates = await service.get_time_based_candidates(settings.max_age_days)
+        result["candidates"]["time_based"] = [
+            {"id": b.id, "filename": b.filename, "created_at": b.created_at.isoformat()}
+            for b in time_candidates[:10]
+        ]
+
+    oldest = await service.get_oldest_unprotected_backups(limit=5)
+    result["candidates"]["oldest_unprotected"] = [
+        {"id": b.id, "filename": b.filename, "created_at": b.created_at.isoformat(), "size_bytes": b.file_size}
+        for b in oldest
+    ]
+
+    return result
+
+
+@router.get("/pruning/pending")
+async def get_pending_deletions(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get list of backups pending deletion."""
+    service = PruningService(db)
+    pending = await service.get_pending_deletions()
+
+    return {
+        "count": len(pending),
+        "backups": [
+            {
+                "id": b.id,
+                "filename": b.filename,
+                "scheduled_deletion_at": b.scheduled_deletion_at.isoformat() if b.scheduled_deletion_at else None,
+                "deletion_reason": b.deletion_reason,
+            }
+            for b in pending
+        ]
+    }
+
+
+@router.post("/{backup_id}/cancel-deletion")
+async def cancel_backup_deletion(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cancel a pending deletion for a backup.
+    Can only cancel if the backup is in 'pending' deletion status.
+    """
+    service = PruningService(db)
+    backup = await service.cancel_deletion(backup_id)
+
+    if backup:
+        return {"success": True, "message": f"Cancelled deletion for backup {backup_id}"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Backup not found or not pending deletion"
+        )
+
+
+@router.post("/pruning/run")
+async def run_pruning_manually(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Manually trigger all pruning checks.
+    This will:
+    1. Execute any pending deletions that are past their scheduled time
+    2. Check space-based pruning conditions
+    3. Check size-based pruning conditions
+    4. Check time-based pruning conditions
+    """
+    service = PruningService(db)
+
+    try:
+        results = await service.run_all_pruning_checks()
+        return results
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/pruning/execute-pending")
+async def execute_pending_deletions(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Execute all pending deletions that have passed their scheduled time.
+    """
+    service = PruningService(db)
+
+    try:
+        results = await service.execute_pending_deletions()
+        return results
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )

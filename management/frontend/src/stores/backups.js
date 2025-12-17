@@ -408,6 +408,68 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
+  // Phase 7: Pruning & Retention (Additional)
+
+  async function fetchStorageUsage() {
+    try {
+      const response = await api.get('/backups/storage/usage')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch storage usage'
+      throw err
+    }
+  }
+
+  async function fetchPruningCandidates() {
+    try {
+      const response = await api.get('/backups/pruning/candidates')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch pruning candidates'
+      throw err
+    }
+  }
+
+  async function fetchPendingDeletions() {
+    try {
+      const response = await api.get('/backups/pruning/pending')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch pending deletions'
+      throw err
+    }
+  }
+
+  async function cancelDeletion(backupId) {
+    try {
+      const response = await api.post(`/backups/${backupId}/cancel-deletion`)
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to cancel deletion'
+      throw err
+    }
+  }
+
+  async function runPruning() {
+    try {
+      const response = await api.post('/backups/pruning/run')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to run pruning'
+      throw err
+    }
+  }
+
+  async function executePendingDeletions() {
+    try {
+      const response = await api.post('/backups/pruning/execute-pending')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to execute pending deletions'
+      throw err
+    }
+  }
+
   return {
     // State
     schedules,
@@ -458,5 +520,12 @@ export const useBackupStore = defineStore('backups', () => {
     fetchVerificationStatus,
     cleanupVerifyContainer,
     fetchVerifyContainerStatus,
+    // Phase 7: Pruning & Retention (Additional)
+    fetchStorageUsage,
+    fetchPruningCandidates,
+    fetchPendingDeletions,
+    cancelDeletion,
+    runPruning,
+    executePendingDeletions,
   }
 })

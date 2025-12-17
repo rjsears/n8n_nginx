@@ -792,9 +792,9 @@ For each phase, document:
 This section tracks implementation progress. Update after each completed task, change, or test.
 
 ### Current Status
-- **Current Phase:** Phase 6 - Complete
+- **Current Phase:** ALL PHASES COMPLETE
 - **Last Updated:** December 17, 2024
-- **Last Action:** Completed Phase 6 - Bare Metal Recovery (restore.sh)
+- **Last Action:** Completed Phase 7 - Pruning & Retention System
 
 ### Phase 1: Enhanced Backup Creation & Archive Format ✅ COMPLETE
 | Task | Status | Notes |
@@ -1051,10 +1051,49 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
   -h, --help          Show help message
 ```
 
-### Phase 7: Pruning & Retention
+### Phase 7: Pruning & Retention ✅ COMPLETE
 | Task | Status | Notes |
 |------|--------|-------|
-| 7.1-7.17 | ⬜ Pending | Not started |
+| 7.1 Add pruning columns to backup_history | ✅ Complete | Already done in Phase 1 |
+| 7.2 Create backup_pruning_settings table | ✅ Complete | Already done in Phase 1 |
+| 7.3 Create pruning_service.py | ✅ Complete | Full pruning service with all methods |
+| 7.4 Implement time-based pruning | ✅ Complete | Delete backups older than X days |
+| 7.5 Implement space-based pruning | ✅ Complete | Trigger when free space below X% |
+| 7.6 Implement size-based pruning | ✅ Complete | Keep total backup size under X GB |
+| 7.7 Implement pending deletion workflow | ✅ Complete | 24h wait + notification before delete |
+| 7.8 Implement critical space handling | ✅ Complete | delete_oldest or stop_and_alert |
+| 7.9 Add protect/unprotect backup endpoints | ✅ Complete | Already done in Phase 1 |
+| 7.10 Add pruning settings API endpoints | ✅ Complete | Already done in Phase 1 |
+| 7.11 Add storage usage endpoint | ✅ Complete | /api/backups/storage/usage |
+| 7.12 Add pruning candidates endpoint | ✅ Complete | /api/backups/pruning/candidates |
+| 7.13 Add pending deletions endpoint | ✅ Complete | /api/backups/pruning/pending |
+| 7.14 Add cancel deletion endpoint | ✅ Complete | POST /{id}/cancel-deletion |
+| 7.15 Add run pruning endpoint | ✅ Complete | POST /pruning/run |
+| 7.16 Integrate with notification service | ✅ Complete | dispatch_notification calls |
+| 7.17 Add frontend store methods | ✅ Complete | 6 new methods in backups.js |
+
+**Phase 7 API Endpoints:**
+- `GET /api/backups/storage/usage` - Get storage usage info
+- `GET /api/backups/pruning/candidates` - Preview what would be pruned
+- `GET /api/backups/pruning/pending` - List pending deletions
+- `POST /api/backups/{id}/cancel-deletion` - Cancel pending deletion
+- `POST /api/backups/pruning/run` - Manually trigger all pruning checks
+- `POST /api/backups/pruning/execute-pending` - Execute pending deletions
+
+**Pruning Service Features:**
+- Time-based: Delete backups older than X days
+- Space-based: Delete oldest when free space below X%
+- Size-based: Keep total backup size under X GB
+- Pending deletion workflow: Mark for deletion, wait, notify, then delete
+- Critical space handling: Emergency delete or stop+alert
+- Protected backups: Never auto-deleted
+- Storage usage reporting: Local and NFS backup directories
+- Candidate preview: See what would be deleted without executing
+
+**Files Created/Modified in Phase 7:**
+- `api/services/pruning_service.py` - NEW: Full pruning service (~500 lines)
+- `api/routers/backups.py` - Added 6 pruning endpoints
+- `frontend/src/stores/backups.js` - Added 6 pruning methods
 
 ### Change Log
 | Date | Change | Details |
@@ -1071,6 +1110,7 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 | 2024-12-17 | Phase 5 Backend | Verification service with temp container, comprehensive checks |
 | 2024-12-17 | Phase 5 UI | Verify button and verification status badge in backup list |
 | 2024-12-17 | Phase 6 | Enhanced restore.sh with Docker check, dry-run, validation |
+| 2024-12-17 | Phase 7 | Pruning service with time/space/size-based cleanup, notifications |
 
 ### Testing Notes
 *(Record test results, issues found, and resolutions here)*
