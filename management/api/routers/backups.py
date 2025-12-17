@@ -1304,3 +1304,115 @@ async def validate_storage_path(
             pass
 
     return result
+
+
+@router.get("/configuration/detect-storage")
+async def detect_storage_locations(
+    _=Depends(get_current_user),
+):
+    """
+    Detect available storage locations for backups.
+    Checks common paths, NFS mounts, and returns their status.
+    """
+    import os
+
+    def check_path(path: str) -> dict:
+        """Check a path and return its status."""
+        info = {
+            "path": path,
+            "exists": os.path.exists(path),
+            "is_directory": False,
+            "is_writable": False,
+            "is_mount": False,
+            "is_nfs": False,
+            "free_space_gb": None,
+            "total_space_gb": None,
+        }
+
+        if info["exists"]:
+            info["is_directory"] = os.path.isdir(path)
+            info["is_writable"] = os.access(path, os.W_OK)
+            info["is_mount"] = os.path.ismount(path)
+
+            if info["is_directory"]:
+                try:
+                    stat = os.statvfs(path)
+                    info["free_space_gb"] = round((stat.f_frsize * stat.f_bavail) / (1024**3), 2)
+                    info["total_space_gb"] = round((stat.f_frsize * stat.f_blocks) / (1024**3), 2)
+                except Exception:
+                    pass
+
+        return info
+
+    def detect_nfs_mounts() -> list:
+        """Detect NFS mounts from /proc/mounts."""
+        nfs_mounts = []
+        try:
+            with open('/proc/mounts', 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        mount_point = parts[1]
+                        fs_type = parts[2]
+                        if fs_type in ('nfs', 'nfs4', 'cifs', 'smb'):
+                            mount_info = check_path(mount_point)
+                            mount_info["fs_type"] = fs_type
+                            mount_info["is_nfs"] = True
+                            mount_info["source"] = parts[0]
+                            nfs_mounts.append(mount_info)
+        except Exception:
+            pass
+        return nfs_mounts
+
+    # Common backup paths to check
+    common_paths = [
+        "/app/backups",
+        "/backups",
+        "/mnt/backups",
+        "/var/backups",
+        settings.backup_staging_dir,
+        settings.nfs_mount_point,
+    ]
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_paths = []
+    for p in common_paths:
+        if p and p not in seen:
+            seen.add(p)
+            unique_paths.append(p)
+
+    # Check each path
+    local_paths = []
+    for path in unique_paths:
+        info = check_path(path)
+        if not info["is_mount"]:  # Don't duplicate NFS mounts
+            local_paths.append(info)
+
+    # Detect NFS mounts
+    nfs_mounts = detect_nfs_mounts()
+
+    # Find recommended path (first writable path)
+    recommended = None
+    # Prefer NFS if available and writable
+    for nfs in nfs_mounts:
+        if nfs["is_writable"]:
+            recommended = nfs["path"]
+            break
+    # Fallback to local writable path
+    if not recommended:
+        for local in local_paths:
+            if local["is_writable"]:
+                recommended = local["path"]
+                break
+
+    return {
+        "local_paths": local_paths,
+        "nfs_mounts": nfs_mounts,
+        "has_nfs": len(nfs_mounts) > 0,
+        "recommended_path": recommended,
+        "environment": {
+            "backup_staging_dir": settings.backup_staging_dir,
+            "nfs_mount_point": settings.nfs_mount_point,
+        }
+    }
