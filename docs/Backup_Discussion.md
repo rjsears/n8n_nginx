@@ -16,6 +16,7 @@
 - [Finalized Decisions](#finalized-decisions)
 - [NFS Configuration](#nfs-configuration-from-setupsh-analysis)
 - [Final Implementation Plan](#final-implementation-plan)
+- [Pruning & Retention Decisions](#pruning--retention-decisions)
 
 ---
 
@@ -630,6 +631,138 @@ Based on the finalized decisions, here is the approved implementation order:
 
 ---
 
+### Phase 7: Backup Pruning & Retention System
+*Automatic cleanup with pre-deletion notifications*
+
+| # | Task | Files to Modify/Create |
+|---|------|------------------------|
+| 7.1 | Add pruning columns to backup_history (protected, deletion_status, scheduled_deletion_at) | `models/backups.py` |
+| 7.2 | Create `backup_pruning_settings` table | `models/backups.py` |
+| 7.3 | Create `pruning_service.py` | `services/pruning_service.py` |
+| 7.4 | Implement time-based pruning (delete older than X days) | `services/pruning_service.py` |
+| 7.5 | Implement space-based pruning (delete when below X% free) | `services/pruning_service.py` |
+| 7.6 | Implement size-based pruning (keep under X GB total) | `services/pruning_service.py` |
+| 7.7 | Implement pending deletion workflow (24h wait + notification) | `services/pruning_service.py` |
+| 7.8 | Implement critical space handling (delete immediately OR stop + emergency notify) | `services/pruning_service.py` |
+| 7.9 | Add protect/unprotect backup endpoints | `routers/backups.py` |
+| 7.10 | Add pruning settings API endpoints | `routers/backups.py` |
+| 7.11 | Add scheduler task for pruning checks (hourly) | `tasks/scheduler.py` |
+| 7.12 | Add scheduler task for pending deletion execution | `tasks/scheduler.py` |
+| 7.13 | Integrate with notification service | `services/pruning_service.py` |
+| 7.14 | Add pruning settings UI | `views/SettingsView.vue` |
+| 7.15 | Add protect/pending status to backup history UI | `views/BackupsView.vue` |
+| 7.16 | Add cancel pending deletion button | `views/BackupsView.vue` |
+| 7.17 | Add storage usage display | `views/BackupsView.vue` |
+
+**Deliverable:** Automatic backup cleanup with notifications and protected backups
+
+---
+
+## Pruning & Retention Decisions
+
+### 6. Manual vs Automatic Deletion
+**Decision:** Different behavior based on deletion type
+
+| Deletion Type | Behavior |
+|---------------|----------|
+| **Manual** (user clicks delete) | Confirmation dialog → Immediate delete (no notification) |
+| **Automatic** (pruning rules) | If "Notify before deletion" enabled: wait configured hours, send notification, then delete |
+
+### 7. Critical Space Handling
+**Decision:** User-configurable emergency behavior
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Critical Space Settings                                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Critical space threshold: [5] %                                 │
+│                                                                  │
+│  When storage is critically low:                                 │
+│  ○ Delete oldest backups as necessary to complete new backup    │
+│  ○ Stop all backups and send emergency notification             │
+│      └─► Emergency channel: [#alerts ▼] (required)              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 8. Deletion Priority
+**Decision:** Oldest first
+- Older backups deleted before newer ones
+- Larger backups are typically newer, so they're preserved
+- Simple, predictable behavior
+
+### 9. Protected Backups
+**Decision:** Users can protect specific backups
+
+| Feature | Description |
+|---------|-------------|
+| **Protect button** | Lock icon on each backup in history |
+| **Protected status** | Shield badge shown on protected backups |
+| **Automatic deletion** | Protected backups are NEVER auto-deleted |
+| **Manual deletion** | Protected backups require unprotect first |
+| **Use cases** | Known-good backup, milestone backup, pre-upgrade backup |
+
+### Pruning Settings UI
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Backup Retention & Pruning                                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Automatic Pruning Rules:                                        │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ ☑ Delete backups older than [90] days                      │ │
+│  │ ☑ Delete oldest when free space below [10] %               │ │
+│  │ ☑ Keep maximum total backup size of [100] GB               │ │
+│  │ ☐ Keep only [7] daily, [4] weekly, [12] monthly            │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  Pre-Deletion Notifications:                                     │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ ☑ Notify before automatic deletion                         │ │
+│  │   Hours before deletion: [24 ▼]                            │ │
+│  │   Notification channel:  [#backup-alerts ▼] (required)     │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  Critical Space Handling:                                        │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ Critical threshold: [5] % free space                       │ │
+│  │                                                             │ │
+│  │ When critically low:                                        │ │
+│  │ ● Delete oldest (unprotected) to make room for new backup  │ │
+│  │ ○ Stop backups & send emergency alert to [#alerts ▼]       │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│                                              [Save Settings]    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Backup History with Protection & Pending Status
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Backup History                                    Storage: 45/100GB │
+├─────────────────────────────────────────────────────────────────┤
+│ ⚠️ 2 backups pending deletion (click to cancel)                  │
+├─────────────────────────────────────────────────────────────────┤
+│ │ Date         │ Size   │ Status      │ Protected │ Actions    │
+│ ├──────────────┼────────┼─────────────┼───────────┼────────────│
+│ │ 12/17 02:00  │ 52 MB  │ ✓ Verified  │ 🛡️        │ [👁][⬇][🔓]│
+│ │ 12/16 02:00  │ 51 MB  │ ✓ Verified  │           │ [👁][⬇][🗑]│
+│ │ 12/15 02:00  │ 50 MB  │ ⏳ Del 18h  │           │ [👁][⬇][❌]│
+│ │ 09/15 02:00  │ 48 MB  │ ⏳ Del 18h  │           │ [👁][⬇][❌]│
+│ │ 09/14 02:00  │ 47 MB  │ ✓ Verified  │ 🛡️        │ [👁][⬇][🔓]│
+└─────────────────────────────────────────────────────────────────┘
+
+Legend:
+  🛡️ = Protected (click 🔓 to unprotect)
+  ⏳ Del Xh = Pending deletion in X hours (click ❌ to cancel)
+  [👁] = View contents  [⬇] = Download  [🗑] = Delete  [🔓] = Unprotect
+```
+
+---
+
 ## Summary
 
 | Phase | Focus | Key Deliverable |
@@ -640,8 +773,10 @@ Based on the finalized decisions, here is the approved implementation order:
 | 4 | Full System Restore | Restore entire system from UI |
 | 5 | Verification System | Prove backups are valid |
 | 6 | Bare Metal Recovery | restore.sh for new servers |
+| 7 | Pruning & Retention | Automatic cleanup with notifications |
 
 ---
 
-*Document finalized on December 17, 2024*
+*Document updated on December 17, 2024*
+*Added Phase 7: Pruning & Retention System*
 *Ready to begin Phase 1 implementation*
