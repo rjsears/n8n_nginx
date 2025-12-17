@@ -125,16 +125,6 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
-  async function verifyBackup(id) {
-    try {
-      const response = await api.post(`/backups/verification/run/${id}`)
-      return response.data
-    } catch (err) {
-      error.value = err.response?.data?.detail || 'Failed to verify backup'
-      throw err
-    }
-  }
-
   function getDownloadUrl(id) {
     return `/api/backups/download/${id}`
   }
@@ -493,7 +483,6 @@ export const useBackupStore = defineStore('backups', () => {
     deleteSchedule,
     runBackup,
     deleteBackup,
-    verifyBackup,
     getDownloadUrl,
     // Phase 2: Backup Contents
     fetchBackupContents,
