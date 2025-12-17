@@ -18,6 +18,7 @@
 - [Final Implementation Plan](#final-implementation-plan)
 - [Pruning & Retention Decisions](#pruning--retention-decisions)
 - [Progress Tracking](#progress-tracking)
+- [Backup Configuration Page](#backup-configuration-page)
 
 ---
 
@@ -1111,6 +1112,13 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 | 2024-12-17 | Phase 5 UI | Verify button and verification status badge in backup list |
 | 2024-12-17 | Phase 6 | Enhanced restore.sh with Docker check, dry-run, validation |
 | 2024-12-17 | Phase 7 | Pruning service with time/space/size-based cleanup, notifications |
+| 2024-12-17 | Backup Settings Page | Added dedicated `/backup-settings` page with 6 tabbed configuration sections |
+| 2024-12-17 | Storage Tab | Local staging area, NFS detection, backup workflow options |
+| 2024-12-17 | Schedule Tab | Schedule timing with frequency and backup type selection |
+| 2024-12-17 | Retention Tab | Retention periods and automatic cleanup settings |
+| 2024-12-17 | Compression Tab | Compression algorithm and level settings |
+| 2024-12-17 | Notifications Tab | Channel/group selection supporting all notification services with validation |
+| 2024-12-17 | Verification Tab | Automatic and manual verification configuration |
 
 ### Testing Notes
 *(Record test results, issues found, and resolutions here)*
@@ -1134,6 +1142,162 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 
 ---
 
+## Backup Configuration Page
+
+A dedicated backup configuration page (`/backup-settings`) was added to provide a comprehensive UI for configuring all backup-related settings. This page is accessed via the **Configure** button on the main Backups page.
+
+### BackupSettingsView.vue
+
+**Route:** `/backup-settings`
+**File:** `frontend/src/views/BackupSettingsView.vue`
+
+The page uses a tabbed interface with 6 tabs, each featuring collapsible sections with gradient icons for a polished UI experience.
+
+### Tab 1: Storage
+
+Configures where backups are stored and how they flow through the system.
+
+**Collapsible Sections:**
+
+1. **Local Staging Area** (Emerald gradient icon)
+   - Shows the Docker volume mount at `/app/backups`
+   - Explains this is a temporary holding area inside the management container
+   - Displays path, status, and available space
+
+2. **Network Storage (NFS)** (Blue gradient icon)
+   - Auto-detects NFS mounts via `/proc/mounts` parsing
+   - Shows NFS server address and mount path
+   - Displays available space and mount status
+   - Indicates when no NFS storage is detected
+
+3. **Backup Workflow** (Purple gradient icon)
+   - **Direct to Destination**: Backups written directly to final storage
+   - **Stage Locally, Then Copy**: Write to local staging first, then copy to NFS
+   - Explains the trade-offs of each approach
+
+**API Integration:**
+- `GET /api/backups/detect-storage` - Detects available storage paths
+- Returns `staging_area`, `local_paths`, `nfs_mounts`, `has_nfs`, `recommended_path`
+
+### Tab 2: Schedule
+
+Configures when backups run automatically.
+
+**Collapsible Sections:**
+
+1. **Schedule Timing** (Emerald gradient icon)
+   - Enable/disable scheduled backups
+   - Frequency selection: Daily, Weekly, Monthly, Hourly
+   - Time selection (hour and minute)
+   - Day of week/month for weekly/monthly schedules
+
+2. **Backup Types** (Blue gradient icon)
+   - Configure which backup types to include
+   - Options: postgres_full, postgres_n8n, n8n_config, flows
+
+### Tab 3: Retention
+
+Configures how long backups are kept.
+
+**Collapsible Sections:**
+
+1. **Retention Periods** (Amber gradient icon)
+   - Hourly backups to keep (default: 24)
+   - Daily backups to keep (default: 7)
+   - Weekly backups to keep (default: 4)
+   - Monthly backups to keep (default: 12)
+
+2. **Automatic Cleanup** (Orange gradient icon)
+   - Enable/disable automatic cleanup
+   - Maximum age in days before deletion
+   - Maximum total size limit
+
+### Tab 4: Compression
+
+Configures backup compression settings.
+
+**Collapsible Sections:**
+
+1. **Compression Settings** (Purple gradient icon)
+   - Enable/disable compression
+   - Algorithm selection: gzip, zstd, none
+   - Compression level: Fast, Balanced, Maximum
+
+2. **Advanced Options** (Indigo gradient icon)
+   - Parallel compression threads
+   - Chunk size settings
+
+### Tab 5: Notifications
+
+Configures alerts for backup events. **Supports all notification channels and groups, not just NTFY.**
+
+**Collapsible Sections:**
+
+1. **Notification Channel** (Indigo gradient icon)
+   - Select from ALL configured notification services and groups
+   - Services shown with indigo badge
+   - Groups shown with purple badge
+   - "Configure Notification Channels" button links to notification settings
+   - **Validation:** Cannot enable notifications without selecting a channel first
+
+2. **Notification Events** (Blue gradient icon)
+   - Notify on success (with validation check)
+   - Notify on failure (with validation check)
+   - Shows warning and auto-expands channel section if trying to enable without channel selected
+
+**API Integration:**
+- `GET /notifications/services` - Fetches all notification services
+- `GET /notifications/groups` - Fetches all notification groups
+- Only enabled services and groups are shown as options
+
+**Form Fields:**
+- `notification_channel_id` - ID of selected service or group
+- `notification_channel_type` - 'service' or 'group'
+
+### Tab 6: Verification
+
+Configures backup verification settings.
+
+**Collapsible Sections:**
+
+1. **Automatic Verification** (Teal gradient icon)
+   - Enable/disable automatic verification
+   - Verification frequency
+   - Sample percentage for large backups
+
+2. **Manual Verification** (Cyan gradient icon)
+   - Verify selected backups on-demand
+   - Shows last verification status
+   - Quick verify vs comprehensive verify options
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `frontend/src/views/BackupSettingsView.vue` | NEW: Complete 6-tab configuration page with collapsible sections |
+| `frontend/src/router/index.js` | Added route for `/backup-settings` |
+| `frontend/src/views/BackupsView.vue` | Updated Configure button to navigate to new page |
+| `api/routers/backups.py` | Added `GET /api/backups/detect-storage` endpoint with staging area separation |
+
+### UI Design Patterns
+
+All tabs use consistent styling:
+- **Collapsible sections** with ChevronDownIcon toggle
+- **Gradient icon backgrounds** using `bg-gradient-to-br from-{color}-100 to-{color}-100`
+- **Color coding** for different section purposes:
+  - Emerald/Green: Primary/main settings
+  - Blue: Secondary settings
+  - Purple/Indigo: Advanced settings
+  - Amber/Orange: Warning/cleanup settings
+  - Teal/Cyan: Verification settings
+
+### Navigation
+
+- **From Backups page:** Click "Configure" button with Cog6ToothIcon
+- **Back to Backups:** Click "← Back to Backups" link or breadcrumb
+
+---
+
 *Document updated on December 17, 2024*
 *Added Phase 7: Pruning & Retention System*
-*Ready to begin Phase 1 implementation*
+*Added Backup Configuration Page documentation*
