@@ -26,6 +26,8 @@ const saving = ref(false)
 const activeTab = ref('storage')
 const validatingPath = ref(false)
 const pathValidation = ref(null)
+const storageDetection = ref(null)
+const detectingStorage = ref(false)
 
 // Form data
 const form = ref({
@@ -79,18 +81,60 @@ const compressionLevelMax = computed(() => {
 async function loadConfiguration() {
   loading.value = true
   try {
-    const config = await backupStore.fetchConfiguration()
+    // Load config and detect storage in parallel
+    const [config, storage] = await Promise.all([
+      backupStore.fetchConfiguration(),
+      backupStore.detectStorageLocations()
+    ])
+
     // Copy config to form
     Object.keys(form.value).forEach(key => {
       if (config[key] !== undefined) {
         form.value[key] = config[key]
       }
     })
+
+    // Store detected storage info
+    storageDetection.value = storage
+
+    // If no primary path set and we have a recommended path, use it
+    if (!form.value.primary_storage_path && storage.recommended_path) {
+      form.value.primary_storage_path = storage.recommended_path
+    }
+
+    // Auto-detect NFS
+    if (storage.has_nfs && storage.nfs_mounts.length > 0) {
+      const nfsMount = storage.nfs_mounts[0]
+      if (!form.value.nfs_storage_path) {
+        form.value.nfs_storage_path = nfsMount.path
+      }
+    }
   } catch (err) {
     notificationStore.error('Failed to load configuration')
   } finally {
     loading.value = false
   }
+}
+
+async function detectStorage() {
+  detectingStorage.value = true
+  try {
+    storageDetection.value = await backupStore.detectStorageLocations()
+  } catch (err) {
+    notificationStore.error('Failed to detect storage locations')
+  } finally {
+    detectingStorage.value = false
+  }
+}
+
+function selectStoragePath(path) {
+  form.value.primary_storage_path = path
+  validatePath(path)
+}
+
+function selectNfsPath(path) {
+  form.value.nfs_storage_path = path
+  form.value.nfs_enabled = true
 }
 
 async function validatePath(path) {
@@ -190,7 +234,91 @@ onMounted(() => {
             <!-- Storage Tab -->
             <div v-if="activeTab === 'storage'" class="space-y-6">
               <div>
-                <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Storage Settings</h3>
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-lg font-medium text-gray-900 dark:text-white">Storage Settings</h3>
+                  <button
+                    @click="detectStorage"
+                    :disabled="detectingStorage"
+                    class="btn-secondary text-sm"
+                  >
+                    {{ detectingStorage ? 'Detecting...' : 'Refresh Detection' }}
+                  </button>
+                </div>
+
+                <!-- Detected Storage Locations -->
+                <div v-if="storageDetection" class="mb-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                  <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Detected Storage Locations</h4>
+
+                  <!-- NFS Mounts -->
+                  <div v-if="storageDetection.has_nfs" class="mb-4">
+                    <div class="flex items-center gap-2 mb-2">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                        NFS Available
+                      </span>
+                    </div>
+                    <div class="space-y-2">
+                      <div
+                        v-for="nfs in storageDetection.nfs_mounts"
+                        :key="nfs.path"
+                        class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700"
+                      >
+                        <div>
+                          <p class="text-sm font-mono text-gray-900 dark:text-white">{{ nfs.path }}</p>
+                          <p class="text-xs text-gray-500">
+                            {{ nfs.source }} ({{ nfs.fs_type }})
+                            <span v-if="nfs.free_space_gb"> · {{ nfs.free_space_gb }} GB free</span>
+                          </p>
+                        </div>
+                        <button
+                          v-if="nfs.is_writable"
+                          @click="selectNfsPath(nfs.path)"
+                          class="btn-primary text-xs px-2 py-1"
+                        >
+                          Use NFS
+                        </button>
+                        <span v-else class="text-xs text-red-500">Not writable</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Local Paths -->
+                  <div>
+                    <p class="text-xs text-gray-500 mb-2">Local Paths:</p>
+                    <div class="space-y-2">
+                      <div
+                        v-for="local in storageDetection.local_paths"
+                        :key="local.path"
+                        class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700"
+                      >
+                        <div>
+                          <p class="text-sm font-mono text-gray-900 dark:text-white">{{ local.path }}</p>
+                          <p class="text-xs text-gray-500">
+                            <span v-if="local.exists">
+                              <span v-if="local.is_writable" class="text-green-600">Writable</span>
+                              <span v-else class="text-red-500">Not writable</span>
+                              <span v-if="local.free_space_gb"> · {{ local.free_space_gb }} GB free</span>
+                            </span>
+                            <span v-else class="text-yellow-600">Does not exist</span>
+                          </p>
+                        </div>
+                        <button
+                          v-if="local.is_writable"
+                          @click="selectStoragePath(local.path)"
+                          class="btn-secondary text-xs px-2 py-1"
+                        >
+                          Select
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Recommended -->
+                  <div v-if="storageDetection.recommended_path" class="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded">
+                    <p class="text-xs text-blue-700 dark:text-blue-400">
+                      Recommended: <span class="font-mono">{{ storageDetection.recommended_path }}</span>
+                    </p>
+                  </div>
+                </div>
 
                 <div class="space-y-4">
                   <div>

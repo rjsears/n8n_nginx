@@ -505,6 +505,16 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
+  async function detectStorageLocations() {
+    try {
+      const response = await api.get('/backups/configuration/detect-storage')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to detect storage locations'
+      throw err
+    }
+  }
+
   return {
     // State
     schedules,
@@ -567,5 +577,6 @@ export const useBackupStore = defineStore('backups', () => {
     fetchConfiguration,
     updateConfiguration,
     validateStoragePath,
+    detectStorageLocations,
   }
 })
