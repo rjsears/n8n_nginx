@@ -806,7 +806,7 @@ async function handleNtfyUpdateConfig(config) {
     </div>
 
     <!-- Main Tab Navigation -->
-    <div class="flex flex-wrap gap-2 pb-4 border-b border-gray-200 dark:border-gray-700">
+    <div class="flex flex-wrap gap-2 pb-4 border-b border-gray-400 dark:border-gray-700">
       <button
         v-for="tab in mainTabs"
         :key="tab.id"
@@ -912,7 +912,7 @@ async function handleNtfyUpdateConfig(config) {
         </div>
 
         <Transition name="collapse">
-          <div v-if="channelsExpanded" class="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
+          <div v-if="channelsExpanded" class="px-4 pb-4 border-t border-gray-400 dark:border-gray-700">
             <EmptyState
               v-if="channels.length === 0"
               :icon="BellIcon"
@@ -937,7 +937,7 @@ async function handleNtfyUpdateConfig(config) {
               <div
                 v-for="channel in channels"
                 :key="channel.id"
-                class="grid grid-cols-[44px_160px_1fr_70px_80px_70px_130px] gap-4 items-center p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-black"
+                class="grid grid-cols-[44px_160px_1fr_70px_80px_70px_130px] gap-4 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
               >
                 <!-- Icon -->
                 <div
@@ -1008,7 +1008,7 @@ async function handleNtfyUpdateConfig(config) {
                       class="sr-only peer"
                     />
                     <div
-                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
                     ></div>
                   </label>
                 </div>
@@ -1043,7 +1043,7 @@ async function handleNtfyUpdateConfig(config) {
         </div>
 
         <Transition name="collapse">
-          <div v-if="historyExpanded" class="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
+          <div v-if="historyExpanded" class="px-4 pb-4 border-t border-gray-400 dark:border-gray-700">
             <EmptyState
               v-if="history.length === 0"
               :icon="BellIcon"
@@ -1087,7 +1087,7 @@ async function handleNtfyUpdateConfig(config) {
                       <div
                         v-for="item in groupData.items"
                         :key="item.id"
-                        class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+                        class="border border-gray-400 dark:border-gray-700 rounded-lg overflow-hidden"
                       >
                         <!-- Message Header -->
                         <div
@@ -1115,7 +1115,7 @@ async function handleNtfyUpdateConfig(config) {
                         <Transition name="collapse">
                           <div
                             v-if="expandedHistoryItems.has(item.id)"
-                            class="px-4 pb-3 pt-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                            class="px-4 pb-3 pt-2 border-t border-gray-400 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
                           >
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div class="space-y-2">
@@ -1155,7 +1155,7 @@ async function handleNtfyUpdateConfig(config) {
               <div
                 v-for="item in groupedHistory.ungrouped"
                 :key="item.id"
-                class="border border-gray-300 dark:border-black rounded-lg overflow-hidden"
+                class="border border-gray-400 dark:border-black rounded-lg overflow-hidden"
               >
                 <!-- Collapsed Header Row -->
                 <div
@@ -1183,7 +1183,7 @@ async function handleNtfyUpdateConfig(config) {
                 <Transition name="collapse">
                   <div
                     v-if="expandedHistoryItems.has(item.id)"
-                    class="px-4 pb-4 pt-2 border-t border-gray-300 dark:border-black bg-gray-50 dark:bg-gray-800/50"
+                    class="px-4 pb-4 pt-2 border-t border-gray-400 dark:border-black bg-gray-50 dark:bg-gray-800/50"
                   >
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <!-- Left Column -->
@@ -1265,7 +1265,7 @@ async function handleNtfyUpdateConfig(config) {
         </div>
 
         <Transition name="collapse">
-          <div v-if="webhookExpanded" class="px-4 pb-4 space-y-4 border-t border-gray-200 dark:border-gray-700">
+          <div v-if="webhookExpanded" class="px-4 pb-4 space-y-4 border-t border-gray-400 dark:border-gray-700">
             <p class="text-sm text-secondary pt-4">
               Use this webhook endpoint in your n8n workflows to send notifications through all channels with "n8n Webhook Routing" enabled.
             </p>
@@ -1278,7 +1278,7 @@ async function handleNtfyUpdateConfig(config) {
                   type="text"
                   :value="getWebhookUrl()"
                   readonly
-                  class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+                  class="flex-1 px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
                 />
                 <button
                   @click.stop="copyToClipboard(getWebhookUrl(), 'Webhook URL')"
@@ -1321,7 +1321,7 @@ async function handleNtfyUpdateConfig(config) {
                     :type="showApiKey ? 'text' : 'password'"
                     :value="webhookInfo.api_key"
                     readonly
-                    class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+                    class="flex-1 px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
                   />
                   <button
                     @click.stop="showApiKey = !showApiKey"
@@ -1402,7 +1402,7 @@ async function handleNtfyUpdateConfig(config) {
             </div>
 
             <!-- Create Test Workflows -->
-            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+            <div class="border-t border-gray-400 dark:border-gray-700 pt-4 mt-4">
               <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-2">
                   <Cog6ToothIcon class="h-5 w-5 text-secondary" />
@@ -1471,7 +1471,7 @@ async function handleNtfyUpdateConfig(config) {
                 <p class="text-xs text-secondary text-center">Creates all three workflow types at once</p>
 
                 <!-- Individual Workflow Buttons -->
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-400 dark:border-gray-700">
                   <!-- Broadcast -->
                   <button
                     @click.stop="createTestWorkflow('broadcast')"
@@ -1615,7 +1615,7 @@ async function handleNtfyUpdateConfig(config) {
             </div>
           </div>
           <Transition name="collapse">
-            <div v-if="groupsExpanded" class="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
+            <div v-if="groupsExpanded" class="px-4 pb-4 border-t border-gray-400 dark:border-gray-700">
               <EmptyState
                 v-if="groups.length === 0"
                 :icon="HashtagIcon"
@@ -1630,7 +1630,7 @@ async function handleNtfyUpdateConfig(config) {
                 <div
                   v-for="group in groups"
                   :key="group.id"
-                  class="rounded-lg bg-surface-hover border border-gray-300 dark:border-black overflow-hidden"
+                  class="rounded-lg bg-surface-hover border border-gray-400 dark:border-black overflow-hidden"
                 >
                   <!-- Group Header (Clickable to expand) -->
                   <div
@@ -1695,7 +1695,7 @@ async function handleNtfyUpdateConfig(config) {
                           class="sr-only peer"
                         />
                         <div
-                          class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"
+                          class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"
                         ></div>
                       </label>
                     </div>
@@ -1705,7 +1705,7 @@ async function handleNtfyUpdateConfig(config) {
                   <Transition name="collapse">
                     <div
                       v-if="expandedGroups.has(group.id)"
-                      class="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                      class="px-4 pb-4 pt-2 border-t border-gray-400 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
                     >
                       <!-- Group description if present -->
                       <p v-if="group.description" class="text-sm text-secondary mb-3">{{ group.description }}</p>
@@ -1713,7 +1713,7 @@ async function handleNtfyUpdateConfig(config) {
                       <!-- Channels in group -->
                       <div v-if="group.channels && group.channels.length > 0">
                         <p class="text-xs font-medium text-secondary uppercase tracking-wide mb-2">Channels in this group</p>
-                        <div class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                        <div class="rounded-lg border border-gray-400 dark:border-gray-700 overflow-hidden">
                           <!-- Header row -->
                           <div class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(180px,2fr)_70px_70px] gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-xs font-medium text-secondary uppercase tracking-wide">
                             <div></div>
@@ -1726,7 +1726,7 @@ async function handleNtfyUpdateConfig(config) {
                           <div
                             v-for="channel in group.channels"
                             :key="channel.id"
-                            class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(180px,2fr)_70px_70px] gap-2 px-3 py-2 items-center bg-white dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700"
+                            class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(180px,2fr)_70px_70px] gap-2 px-3 py-2 items-center bg-white dark:bg-gray-800/50 border-t border-gray-400 dark:border-gray-700"
                           >
                             <component
                               :is="channelIcons[channel.service_type] || BellIcon"
@@ -1839,7 +1839,7 @@ async function handleNtfyUpdateConfig(config) {
 
         <!-- NTFY Sub-Tabs -->
         <Card :neon="true" :padding="false">
-          <div class="border-b border-gray-200 dark:border-gray-700">
+          <div class="border-b border-gray-400 dark:border-gray-700">
             <nav class="flex -mb-px overflow-x-auto">
               <button
                 v-for="tab in ntfyTabs"
@@ -1849,7 +1849,7 @@ async function handleNtfyUpdateConfig(config) {
                   'px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap transition-colors',
                   ntfyActiveTab === tab.id
                     ? 'border-orange-500 text-orange-600 dark:text-orange-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-400 dark:text-gray-400 dark:hover:text-gray-300'
                 ]"
               >
                 <component :is="tab.icon" class="w-5 h-5 inline-block mr-2 -mt-0.5" />

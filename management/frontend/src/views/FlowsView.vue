@@ -402,7 +402,7 @@ onMounted(loadData)
 
         <!-- Collapsible Content -->
         <Transition name="collapse">
-          <div v-if="workflowsExpanded" class="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
+          <div v-if="workflowsExpanded" class="px-4 pb-4 border-t border-gray-400 dark:border-gray-700">
             <EmptyState
               v-if="filteredWorkflows.length === 0"
               :icon="BoltIcon"
@@ -413,7 +413,7 @@ onMounted(loadData)
 
             <div v-else class="pt-2">
               <!-- Header Row -->
-              <div class="grid grid-cols-[20px_36px_minmax(200px,1fr)_80px_100px_50px] gap-3 px-3 py-2 text-xs font-medium text-secondary uppercase tracking-wide border-b border-gray-200 dark:border-gray-700">
+              <div class="grid grid-cols-[20px_36px_minmax(200px,1fr)_80px_100px_50px] gap-3 px-3 py-2 text-xs font-medium text-secondary uppercase tracking-wide border-b border-gray-400 dark:border-gray-700">
                 <div></div>
                 <div></div>
                 <div>Name</div>
@@ -426,7 +426,7 @@ onMounted(loadData)
                 <div
                   v-for="workflow in filteredWorkflows"
                   :key="workflow.id"
-                  class="rounded-lg bg-surface-hover border border-gray-300 dark:border-black overflow-hidden"
+                  class="rounded-lg bg-surface-hover border border-gray-400 dark:border-black overflow-hidden"
                 >
                   <!-- Workflow Row (Single line, clickable to expand) -->
                   <div
@@ -468,7 +468,7 @@ onMounted(loadData)
                           class="sr-only peer"
                         />
                         <div
-                          class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"
+                          class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"
                         ></div>
                       </label>
                     </div>
@@ -478,7 +478,7 @@ onMounted(loadData)
                   <Transition name="collapse">
                     <div
                       v-if="expandedWorkflows.has(workflow.id)"
-                      class="px-4 pb-4 pt-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                      class="px-4 pb-4 pt-3 border-t border-gray-400 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
                     >
                     <!-- Workflow Info -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -687,7 +687,7 @@ onMounted(loadData)
 
         <!-- Collapsible Content -->
         <Transition name="collapse">
-          <div v-if="executionsExpanded" class="border-t border-gray-300 dark:border-black">
+          <div v-if="executionsExpanded" class="border-t border-gray-400 dark:border-black">
             <EmptyState
               v-if="executions.length === 0"
               :icon="ClockIcon"
@@ -699,7 +699,7 @@ onMounted(loadData)
             <div v-else class="overflow-x-auto">
               <table class="w-full">
                 <thead>
-                  <tr class="border-b border-gray-300 dark:border-black bg-gray-50 dark:bg-gray-800/50">
+                  <tr class="border-b border-gray-400 dark:border-black bg-gray-50 dark:bg-gray-800/50">
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Workflow</th>
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Status</th>
                     <th class="text-left py-3 px-4 text-sm font-medium text-secondary">Duration</th>
@@ -711,7 +711,7 @@ onMounted(loadData)
                   <tr
                     v-for="execution in executions.slice(0, 20)"
                     :key="execution.id"
-                    class="border-b border-gray-300 dark:border-black last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                    class="border-b border-gray-400 dark:border-black last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                   >
                     <td class="py-3 px-4">
                       <span class="font-medium text-primary">{{ execution.workflowName }}</span>

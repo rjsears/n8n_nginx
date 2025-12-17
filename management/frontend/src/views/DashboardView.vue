@@ -488,7 +488,7 @@ const networkChartOptions = computed(() => ({
                 <ServerIcon class="h-8 w-8 text-indigo-500" />
               </div>
             </div>
-            <div class="grid grid-cols-4 gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div class="grid grid-cols-4 gap-2 pt-4 border-t border-gray-400 dark:border-gray-700">
               <button @click="navigateToContainers('running')" class="text-center p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                 <p class="text-lg font-bold text-emerald-500">{{ containerHealth.running || 0 }}</p>
                 <p class="text-xs text-muted">Running</p>

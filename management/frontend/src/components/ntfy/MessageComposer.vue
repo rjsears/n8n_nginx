@@ -11,7 +11,7 @@
         <div class="flex gap-2">
           <select
             v-model="form.topic"
-            class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+            class="flex-1 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
           >
             <option value="">Select a topic...</option>
             <option v-for="topic in topics" :key="topic.id" :value="topic.name">
@@ -22,7 +22,7 @@
             v-model="customTopic"
             type="text"
             placeholder="Or enter custom topic"
-            class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+            class="flex-1 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
             @input="form.topic = customTopic"
           />
         </div>
@@ -37,7 +37,7 @@
           v-model="form.title"
           type="text"
           placeholder="Notification title (optional)"
-          class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
@@ -50,7 +50,7 @@
           v-model="form.message"
           rows="4"
           placeholder="Your notification message..."
-          class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
           required
         ></textarea>
         <div class="flex items-center mt-1">
@@ -58,7 +58,7 @@
             id="markdown"
             v-model="form.markdown"
             type="checkbox"
-            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            class="rounded border-gray-400 text-blue-600 focus:ring-blue-500"
           />
           <label for="markdown" class="ml-2 text-sm text-gray-600 dark:text-gray-400">
             Enable Markdown formatting
@@ -111,7 +111,7 @@
             v-model="newTag"
             type="text"
             placeholder="Add tag or emoji shortcode..."
-            class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+            class="flex-1 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
             @keydown.enter.prevent="addTag"
           />
           <button
@@ -124,7 +124,7 @@
         </div>
 
         <!-- Emoji Picker -->
-        <div v-if="showEmojiPicker" class="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+        <div v-if="showEmojiPicker" class="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600">
           <div class="flex flex-wrap gap-2 mb-3">
             <button
               v-for="cat in Object.keys(emojiCategories)"
@@ -165,7 +165,7 @@
           v-model="form.click"
           type="url"
           placeholder="https://example.com - URL to open when notification is clicked"
-          class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
@@ -186,7 +186,7 @@
         <div v-for="(action, index) in form.actions" :key="index" class="flex gap-2 mb-2">
           <select
             v-model="action.action"
-            class="w-24 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-2 text-sm"
+            class="w-24 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-2 text-sm"
           >
             <option value="view">View</option>
             <option value="http">HTTP</option>
@@ -196,13 +196,13 @@
             v-model="action.label"
             type="text"
             placeholder="Button label"
-            class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm"
+            class="flex-1 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm"
           />
           <input
             v-model="action.url"
             type="text"
             placeholder="URL"
-            class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm"
+            class="flex-1 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm"
           />
           <button
             type="button"
@@ -215,7 +215,7 @@
       </div>
 
       <!-- Advanced Options -->
-      <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+      <div class="border-t border-gray-400 dark:border-gray-700 pt-4">
         <button
           type="button"
           @click="showAdvanced = !showAdvanced"
@@ -235,7 +235,7 @@
               v-model="form.attach"
               type="url"
               placeholder="https://example.com/file.pdf"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -248,7 +248,7 @@
               v-model="form.icon"
               type="url"
               placeholder="https://example.com/icon.png"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -261,7 +261,7 @@
               v-model="form.delay"
               type="text"
               placeholder="e.g., 30m, 2h, tomorrow 10am"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
             />
             <p class="mt-1 text-xs text-gray-500">Supports: 30m, 2h, 1d, "tomorrow 10am", Unix timestamp</p>
           </div>
@@ -275,14 +275,14 @@
               v-model="form.email"
               type="email"
               placeholder="user@example.com"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
             />
           </div>
         </div>
       </div>
 
       <!-- Submit Buttons -->
-      <div class="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div class="flex gap-3 pt-4 border-t border-gray-400 dark:border-gray-700">
         <button
           type="submit"
           :disabled="sending || !form.topic || !form.message"

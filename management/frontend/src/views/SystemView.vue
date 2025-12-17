@@ -950,7 +950,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Tabs -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-400 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
       <button
         v-for="tab in tabs"
         :key="tab.id"
@@ -1106,7 +1106,7 @@ onUnmounted(() => {
                 </div>
               </div>
               <!-- Unhealthy containers list -->
-              <div v-if="healthData.checks?.docker?.details?.unhealthy_containers?.length" class="mt-3 pt-3 border-t border-gray-300 dark:border-black">
+              <div v-if="healthData.checks?.docker?.details?.unhealthy_containers?.length" class="mt-3 pt-3 border-t border-gray-400 dark:border-black">
                 <p class="text-xs text-red-500 font-medium mb-1">Unhealthy:</p>
                 <div class="flex flex-wrap gap-1">
                   <span
@@ -1525,7 +1525,7 @@ onUnmounted(() => {
                 </div>
               </div>
               <!-- Recent errors -->
-              <div v-if="healthData.checks?.logs?.details?.recent_errors?.length" class="mt-3 pt-3 border-t border-gray-300 dark:border-black">
+              <div v-if="healthData.checks?.logs?.details?.recent_errors?.length" class="mt-3 pt-3 border-t border-gray-400 dark:border-black">
                 <p class="text-xs text-muted mb-2">Recent Errors:</p>
                 <div class="space-y-1 max-h-24 overflow-y-auto">
                   <div
@@ -1582,7 +1582,7 @@ onUnmounted(() => {
                 :href="service.url"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="group block p-4 bg-surface rounded-lg border border-gray-300 dark:border-black hover:border-blue-500 hover:shadow-md transition-all"
+                class="group block p-4 bg-surface rounded-lg border border-gray-400 dark:border-black hover:border-blue-500 hover:shadow-md transition-all"
               >
                 <div class="flex items-center gap-3">
                   <div :class="['p-2 rounded-lg', service.color || 'bg-blue-100 dark:bg-blue-500/20']">
@@ -1624,11 +1624,11 @@ onUnmounted(() => {
             <div class="p-4 space-y-4">
               <!-- Gateway & DNS -->
               <div class="space-y-2">
-                <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Default Gateway</span>
                   <span class="font-medium text-primary font-mono">{{ networkInfo.gateway || 'N/A' }}</span>
                 </div>
-                <div class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">DNS Servers</span>
                   <div class="text-right">
                     <span
@@ -1717,7 +1717,7 @@ onUnmounted(() => {
             <template v-else>
               <div class="space-y-3">
                 <!-- Status -->
-                <div class="flex items-center justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div class="flex items-center justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Status</span>
                   <span :class="[
                     'flex items-center gap-2 font-medium',
@@ -1727,17 +1727,17 @@ onUnmounted(() => {
                     {{ cloudflareInfo.running ? 'Running' : 'Stopped' }}
                   </span>
                 </div>
-                <div v-if="cloudflareInfo.version" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="cloudflareInfo.version" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Version</span>
                   <span class="font-medium text-primary">{{ cloudflareInfo.version }}</span>
                 </div>
-                <div v-if="cloudflareInfo.connected !== undefined" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="cloudflareInfo.connected !== undefined" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Connected</span>
                   <span :class="cloudflareInfo.connected ? 'text-emerald-500' : 'text-amber-500'">
                     {{ cloudflareInfo.connected ? 'Yes' : 'No' }}
                   </span>
                 </div>
-                <div v-if="cloudflareInfo.edge_locations?.length" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="cloudflareInfo.edge_locations?.length" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Edge Locations</span>
                   <div class="flex flex-wrap gap-1 justify-end">
                     <span
@@ -1749,19 +1749,19 @@ onUnmounted(() => {
                     </span>
                   </div>
                 </div>
-                <div v-if="cloudflareInfo.tunnel_id" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="cloudflareInfo.tunnel_id" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Tunnel ID</span>
                   <span class="font-mono text-xs text-primary truncate max-w-[180px]" :title="cloudflareInfo.tunnel_id">
                     {{ cloudflareInfo.tunnel_id.slice(0, 8) }}...
                   </span>
                 </div>
-                <div v-if="cloudflareInfo.connector_id" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="cloudflareInfo.connector_id" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Connector ID</span>
                   <span class="font-mono text-xs text-primary truncate max-w-[180px]" :title="cloudflareInfo.connector_id">
                     {{ cloudflareInfo.connector_id.slice(0, 8) }}...
                   </span>
                 </div>
-                <div v-if="cloudflareInfo.connections_per_location && Object.keys(cloudflareInfo.connections_per_location).length" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="cloudflareInfo.connections_per_location && Object.keys(cloudflareInfo.connections_per_location).length" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Connections</span>
                   <div class="flex flex-wrap gap-1 justify-end">
                     <span
@@ -1868,7 +1868,7 @@ onUnmounted(() => {
             </div>
             <template v-else>
               <div class="space-y-3">
-                <div class="flex items-center justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div class="flex items-center justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Status</span>
                   <span :class="[
                     'flex items-center gap-2 font-medium',
@@ -1878,19 +1878,19 @@ onUnmounted(() => {
                     {{ tailscaleInfo.running && tailscaleInfo.logged_in ? 'Connected' : tailscaleInfo.running ? 'Not Logged In' : 'Stopped' }}
                   </span>
                 </div>
-                <div v-if="tailscaleInfo.tailscale_ip" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="tailscaleInfo.tailscale_ip" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Tailscale IP</span>
                   <span class="font-medium text-primary font-mono">{{ tailscaleInfo.tailscale_ip }}</span>
                 </div>
-                <div v-if="tailscaleInfo.hostname" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="tailscaleInfo.hostname" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Hostname</span>
                   <span class="font-medium text-primary">{{ tailscaleInfo.hostname }}</span>
                 </div>
-                <div v-if="tailscaleInfo.dns_name" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="tailscaleInfo.dns_name" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">DNS Name</span>
                   <span class="font-medium text-primary font-mono text-sm">{{ tailscaleInfo.dns_name }}</span>
                 </div>
-                <div v-if="tailscaleInfo.tailnet" class="flex justify-between py-2 border-b border-gray-300 dark:border-black">
+                <div v-if="tailscaleInfo.tailnet" class="flex justify-between py-2 border-b border-gray-400 dark:border-black">
                   <span class="text-secondary">Tailnet</span>
                   <span class="font-medium text-primary">{{ tailscaleInfo.tailnet }}</span>
                 </div>
@@ -2063,7 +2063,7 @@ onUnmounted(() => {
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
       >
         <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="closeCloudflareTokenModal"></div>
-        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700">
+        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-400 dark:border-gray-700">
           <div class="flex items-center gap-3 mb-4">
             <div class="p-2 rounded-lg bg-orange-100 dark:bg-orange-500/20">
               <CloudIcon class="h-6 w-6 text-orange-500" />
@@ -2145,7 +2145,7 @@ onUnmounted(() => {
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
       >
         <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="closeTailscaleKeyModal"></div>
-        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700">
+        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-400 dark:border-gray-700">
           <div class="flex items-center gap-3 mb-4">
             <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
               <LinkIcon class="h-6 w-6 text-blue-500" />
@@ -2227,7 +2227,7 @@ onUnmounted(() => {
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
       >
         <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="!sslRenewing && closeSslRenewModal()"></div>
-        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full p-6 border border-gray-200 dark:border-gray-700">
+        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full p-6 border border-gray-400 dark:border-gray-700">
           <div class="flex items-center gap-3 mb-4">
             <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
               <LockClosedIcon class="h-6 w-6 text-emerald-500" />

@@ -24,19 +24,19 @@
 
     <!-- Stats Cards -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-400 dark:border-gray-700">
         <div class="text-sm text-gray-500 dark:text-gray-400">Topics</div>
         <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ status.topics_count || 0 }}</div>
       </div>
-      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-400 dark:border-gray-700">
         <div class="text-sm text-gray-500 dark:text-gray-400">Templates</div>
         <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ status.templates_count || 0 }}</div>
       </div>
-      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-400 dark:border-gray-700">
         <div class="text-sm text-gray-500 dark:text-gray-400">Messages Today</div>
         <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ status.messages_today || 0 }}</div>
       </div>
-      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm border border-gray-400 dark:border-gray-700">
         <div class="text-sm text-gray-500 dark:text-gray-400">Last Message</div>
         <div class="text-lg font-medium text-gray-900 dark:text-white">
           {{ status.last_message_at ? formatTime(status.last_message_at) : 'Never' }}
@@ -45,8 +45,8 @@
     </div>
 
     <!-- Tabs -->
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-      <div class="flex flex-wrap gap-2 p-4 border-b border-gray-200 dark:border-gray-700">
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-400 dark:border-gray-700">
+      <div class="flex flex-wrap gap-2 p-4 border-b border-gray-400 dark:border-gray-700">
         <button
           v-for="tab in tabs"
           :key="tab.id"

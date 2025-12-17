@@ -56,9 +56,9 @@ function confirm() {
         />
 
         <!-- Dialog -->
-        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-700">
+        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-400 dark:border-gray-700">
           <!-- Header -->
-          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800">
             <div class="flex items-center gap-3">
               <div
                 :class="[
@@ -90,7 +90,7 @@ function confirm() {
           </div>
 
           <!-- Footer -->
-          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800">
             <button
               @click="close"
               class="btn-secondary"

@@ -494,7 +494,7 @@ onUnmounted(() => {
           :padding="false"
         >
           <!-- Card Header -->
-          <div class="p-4 border-b border-gray-300 dark:border-black">
+          <div class="p-4 border-b border-gray-400 dark:border-black">
             <div class="flex items-start justify-between">
               <div class="flex items-center gap-3">
                 <div
@@ -588,7 +588,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Actions Footer - Evenly distributed buttons -->
-          <div class="p-4 border-t border-gray-300 dark:border-black">
+          <div class="p-4 border-t border-gray-400 dark:border-black">
             <div class="flex items-center justify-center gap-3 flex-wrap">
               <!-- Start Button (when stopped) -->
               <button
@@ -629,7 +629,7 @@ onUnmounted(() => {
                   'flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 border',
                   hasNotificationConfig(container.name)
                     ? 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 border-amber-200 dark:border-amber-500/30'
-                    : 'text-gray-500 hover:text-gray-700 border-gray-200 dark:border-gray-600'
+                    : 'text-gray-500 hover:text-gray-700 border-gray-400 dark:border-gray-600'
                 ]"
                 :title="hasNotificationConfig(container.name) ? 'Notifications enabled - Click to configure' : 'Configure notifications'"
               >
@@ -684,8 +684,8 @@ onUnmounted(() => {
           class="fixed inset-0 z-[100] flex items-center justify-center p-4"
         >
           <div class="absolute inset-0 bg-black/50" @click="logsDialog.open = false" />
-          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col border border-gray-200 dark:border-gray-700">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col border border-gray-400 dark:border-gray-700">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800">
               <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
                 Logs: {{ logsDialog.container?.name }}
               </h3>
@@ -716,9 +716,9 @@ onUnmounted(() => {
           class="fixed inset-0 z-[100] flex items-center justify-center p-4"
         >
           <div class="absolute inset-0 bg-black/50" @click="notifyDialog.open = false" />
-          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col border border-gray-200 dark:border-gray-700">
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col border border-gray-400 dark:border-gray-700">
             <!-- Header -->
-            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700">
               <div class="flex items-center gap-3">
                 <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
                   <BellIcon class="h-5 w-5 text-amber-500" />
@@ -782,7 +782,7 @@ onUnmounted(() => {
                       class="sr-only peer"
                       @change="!hasContainerEventTargets && notifyDialog.config.enabled && notificationStore.warning('Configure notification targets first in Settings → Notifications')"
                     >
-                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-500 peer-checked:bg-blue-600"></div>
+                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-500 peer-checked:bg-blue-600"></div>
                   </label>
                 </div>
 
@@ -873,7 +873,7 @@ onUnmounted(() => {
             </div>
 
             <!-- Footer -->
-            <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
+            <div class="px-6 py-4 border-t border-gray-400 dark:border-gray-700 space-y-4">
               <!-- Info about targets -->
               <div v-if="hasContainerEventTargets" class="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
                 <p class="font-medium mb-1">ℹ️ These settings control which events to monitor for this container.</p>

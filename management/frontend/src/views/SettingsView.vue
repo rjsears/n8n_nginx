@@ -632,7 +632,7 @@ watch(activeTab, (newTab) => {
 
     <template v-else>
       <!-- Tabs - Matching style with colored icons -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-400 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -659,12 +659,12 @@ watch(activeTab, (newTab) => {
                 'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
                 !themeStore.isDark
                   ? 'border-blue-500 ring-2 ring-blue-500/20'
-                  : 'border-gray-200 hover:border-gray-300'
+                  : 'border-gray-400 hover:border-gray-400'
               ]"
               @click="selectTheme('light')"
             >
               <!-- Preview Area -->
-              <div class="bg-white p-4 border-b border-gray-200">
+              <div class="bg-white p-4 border-b border-gray-400">
                 <div class="flex items-center gap-3 mb-3">
                   <div class="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-300 to-orange-400 flex items-center justify-center">
                     <SunIcon class="h-6 w-6 text-white" />
@@ -689,7 +689,7 @@ watch(activeTab, (newTab) => {
               <div class="bg-gray-50 p-3" @click.stop>
                 <div class="flex items-center justify-between">
                   <span class="text-sm font-medium text-gray-700">Navigation</span>
-                  <div class="flex items-center gap-2 bg-white rounded-lg p-1 border border-gray-200">
+                  <div class="flex items-center gap-2 bg-white rounded-lg p-1 border border-gray-400">
                     <button
                       @click="themeStore.setLayoutMode('horizontal')"
                       :class="[
@@ -725,7 +725,7 @@ watch(activeTab, (newTab) => {
                 'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
                 themeStore.isDark
                   ? 'border-blue-500 ring-2 ring-blue-500/20'
-                  : 'border-gray-200 hover:border-gray-300'
+                  : 'border-gray-400 hover:border-gray-400'
               ]"
               @click="selectTheme('dark')"
             >
@@ -800,7 +800,7 @@ watch(activeTab, (newTab) => {
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" v-model="settings.backup.enabled" class="sr-only peer" />
                 <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
                 ></div>
               </label>
             </div>
@@ -839,7 +839,7 @@ watch(activeTab, (newTab) => {
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" v-model="settings.backup.include_workflows" class="sr-only peer" />
                 <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
                 ></div>
               </label>
             </div>
@@ -852,7 +852,7 @@ watch(activeTab, (newTab) => {
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" v-model="settings.backup.include_credentials" class="sr-only peer" />
                 <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
                 ></div>
               </label>
             </div>
@@ -881,7 +881,7 @@ watch(activeTab, (newTab) => {
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" v-model="settings.backup.nfs_enabled" class="sr-only peer" />
                 <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
                 ></div>
               </label>
             </div>
@@ -1011,7 +1011,7 @@ watch(activeTab, (newTab) => {
           </div>
 
           <!-- Nginx Routes Section - Collapsible Card -->
-          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all overflow-hidden">
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-400 dark:border-gray-700 shadow-sm hover:shadow-md transition-all overflow-hidden">
             <!-- Section Header (clickable) -->
             <div
               @click="toggleRoutesSection"
@@ -1083,7 +1083,7 @@ watch(activeTab, (newTab) => {
                       <div
                         v-for="(route, index) in externalRoutes.routes"
                         :key="index"
-                        class="bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
+                        class="bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-400 dark:border-gray-700 overflow-hidden"
                       >
                         <!-- Route Header -->
                         <div
@@ -1138,7 +1138,7 @@ watch(activeTab, (newTab) => {
 
                         <!-- Route Details -->
                         <Transition name="expand">
-                          <div v-if="expandedRoutes.has(index)" class="px-3 pb-3 pt-1 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                          <div v-if="expandedRoutes.has(index)" class="px-3 pb-3 pt-1 border-t border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800">
                             <div class="space-y-2 text-sm">
                               <p class="text-gray-600 dark:text-gray-300">{{ route.description }}</p>
 
@@ -1181,7 +1181,7 @@ watch(activeTab, (newTab) => {
                     </div>
 
                     <!-- Add Route Form -->
-                    <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                    <div class="border-t border-gray-400 dark:border-gray-700 pt-4 mt-4">
                       <div class="flex items-center gap-2 mb-3">
                         <PlusIcon class="h-5 w-5 text-green-500" />
                         <p class="text-sm font-medium text-primary">Add New Route</p>
@@ -1282,7 +1282,7 @@ watch(activeTab, (newTab) => {
           </div>
 
           <!-- Configured IP Ranges - Collapsible Card -->
-          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all overflow-hidden">
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-400 dark:border-gray-700 shadow-sm hover:shadow-md transition-all overflow-hidden">
             <!-- Section Header (clickable) -->
             <div
               @click="toggleIpRangesSection"
@@ -1330,7 +1330,7 @@ watch(activeTab, (newTab) => {
               <div v-if="ipRangesSectionExpanded" class="border-t border-gray-100 dark:border-gray-700">
                 <div class="p-5">
                   <!-- Status Info and Reload Button -->
-                  <div class="flex items-center justify-between mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+                  <div class="flex items-center justify-between mb-4 pb-4 border-b border-gray-400 dark:border-gray-700">
                     <div class="text-sm text-gray-500 dark:text-gray-400">
                       <span v-if="accessControl.last_updated">
                         Last updated: {{ new Date(accessControl.last_updated).toLocaleString() }}
@@ -1356,7 +1356,7 @@ watch(activeTab, (newTab) => {
                     <div
                       v-for="(range, index) in accessControl.ip_ranges"
                       :key="index"
-                      class="bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
+                      class="bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-400 dark:border-gray-700 overflow-hidden"
                     >
                       <!-- Range Header -->
                       <div
@@ -1431,7 +1431,7 @@ watch(activeTab, (newTab) => {
 
                       <!-- Range Details -->
                       <Transition name="expand">
-                        <div v-if="expandedIpRanges.has(index)" class="px-3 pb-3 pt-1 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                        <div v-if="expandedIpRanges.has(index)" class="px-3 pb-3 pt-1 border-t border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800">
                           <div class="space-y-2 text-sm">
                             <!-- Description with edit capability -->
                             <div v-if="editingIpRangeIndex === index" class="space-y-2">
@@ -1493,7 +1493,7 @@ watch(activeTab, (newTab) => {
                   </div>
 
                   <!-- Add IP Range Form -->
-                  <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                  <div class="border-t border-gray-400 dark:border-gray-700 pt-4 mt-4">
                     <div class="flex items-center gap-2 mb-3">
                       <PlusIcon class="h-5 w-5 text-blue-500" />
                       <p class="text-sm font-medium text-primary">Add New IP Range</p>
@@ -1540,7 +1540,7 @@ watch(activeTab, (newTab) => {
                   </div>
 
                   <!-- Quick Add Common Networks -->
-                  <div v-if="availableDefaultRanges.length > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                  <div v-if="availableDefaultRanges.length > 0" class="border-t border-gray-400 dark:border-gray-700 pt-4 mt-4">
                     <div class="flex items-center gap-2 mb-3">
                       <BoltIcon class="h-5 w-5 text-amber-500" />
                       <p class="text-sm font-medium text-primary">Quick Add Common Networks</p>
@@ -1550,7 +1550,7 @@ watch(activeTab, (newTab) => {
                         v-for="defaultRange in availableDefaultRanges"
                         :key="defaultRange.cidr"
                         @click.stop="addDefaultRange(defaultRange)"
-                        class="flex items-center justify-between p-3 rounded-lg border text-left transition-colors border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10"
+                        class="flex items-center justify-between p-3 rounded-lg border text-left transition-colors border-gray-400 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10"
                       >
                         <div>
                           <p class="font-mono text-gray-900 dark:text-white text-sm">{{ defaultRange.cidr }}</p>
@@ -1811,7 +1811,7 @@ watch(activeTab, (newTab) => {
                       'w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700',
                       'peer-checked:after:translate-x-full peer-checked:after:border-white',
                       `after:content-[''] after:absolute after:top-[2px] after:left-[2px]`,
-                      'after:bg-white after:border-gray-300 after:border after:rounded-full',
+                      'after:bg-white after:border-gray-400 after:border after:rounded-full',
                       'after:h-5 after:w-5 after:transition-all dark:border-gray-600',
                       'peer-checked:bg-amber-500',
                       debugModeLoading ? 'opacity-50' : ''
@@ -1826,7 +1826,7 @@ watch(activeTab, (newTab) => {
                 </p>
               </div>
 
-              <div v-else class="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+              <div v-else class="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-400 dark:border-gray-700">
                 <p class="text-sm text-secondary">
                   Debug mode is disabled. Enable it when troubleshooting issues.
                 </p>

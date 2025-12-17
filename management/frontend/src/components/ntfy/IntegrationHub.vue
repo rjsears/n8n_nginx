@@ -70,9 +70,9 @@
       <div
         v-for="example in filteredExamples"
         :key="example.name"
-        class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden"
+        class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600 overflow-hidden"
       >
-        <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-600">
+        <div class="flex items-center justify-between p-4 border-b border-gray-400 dark:border-gray-600">
           <div>
             <h4 class="font-medium text-gray-900 dark:text-white">{{ example.name }}</h4>
             <p class="text-sm text-gray-600 dark:text-gray-400">{{ example.description }}</p>
@@ -92,8 +92,8 @@
     <!-- Built-in Examples (if no API examples) -->
     <div v-if="!examples.length" class="space-y-4">
       <!-- cURL Example -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
-        <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600 overflow-hidden">
+        <div class="flex items-center justify-between p-4 border-b border-gray-400 dark:border-gray-600">
           <div>
             <h4 class="font-medium text-gray-900 dark:text-white">cURL - Basic Message</h4>
             <p class="text-sm text-gray-600 dark:text-gray-400">Send a simple notification via command line</p>
@@ -110,8 +110,8 @@
       </div>
 
       <!-- cURL with Actions -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
-        <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600 overflow-hidden">
+        <div class="flex items-center justify-between p-4 border-b border-gray-400 dark:border-gray-600">
           <div>
             <h4 class="font-medium text-gray-900 dark:text-white">cURL - With Actions</h4>
             <p class="text-sm text-gray-600 dark:text-gray-400">Notification with clickable action buttons</p>
@@ -128,8 +128,8 @@
       </div>
 
       <!-- Python Example -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
-        <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600 overflow-hidden">
+        <div class="flex items-center justify-between p-4 border-b border-gray-400 dark:border-gray-600">
           <div>
             <h4 class="font-medium text-gray-900 dark:text-white">Python - Requests</h4>
             <p class="text-sm text-gray-600 dark:text-gray-400">Send notifications from Python scripts</p>
@@ -146,8 +146,8 @@
       </div>
 
       <!-- n8n Webhook Example -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
-        <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600 overflow-hidden">
+        <div class="flex items-center justify-between p-4 border-b border-gray-400 dark:border-gray-600">
           <div>
             <h4 class="font-medium text-gray-900 dark:text-white">n8n - HTTP Request Node</h4>
             <p class="text-sm text-gray-600 dark:text-gray-400">Send notifications from n8n workflows</p>
@@ -164,8 +164,8 @@
       </div>
 
       <!-- Bash Script Example -->
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
-        <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-600">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600 overflow-hidden">
+        <div class="flex items-center justify-between p-4 border-b border-gray-400 dark:border-gray-600">
           <div>
             <h4 class="font-medium text-gray-900 dark:text-white">Bash - Function</h4>
             <p class="text-sm text-gray-600 dark:text-gray-400">Reusable bash function for shell scripts</p>

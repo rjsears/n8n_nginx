@@ -43,9 +43,9 @@ function openGithub() {
         />
 
         <!-- Dialog -->
-        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-700">
+        <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-400 dark:border-gray-700">
           <!-- Header -->
-          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-full bg-blue-100 dark:bg-blue-500/20">
                 <InformationCircleIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
@@ -74,7 +74,7 @@ function openGithub() {
             </div>
 
             <!-- Divider -->
-            <div class="border-t border-gray-200 dark:border-gray-700"></div>
+            <div class="border-t border-gray-400 dark:border-gray-700"></div>
 
             <!-- Author info -->
             <div class="text-center space-y-1">
@@ -89,7 +89,7 @@ function openGithub() {
             </div>
 
             <!-- Divider -->
-            <div class="border-t border-gray-200 dark:border-gray-700"></div>
+            <div class="border-t border-gray-400 dark:border-gray-700"></div>
 
             <!-- GitHub link -->
             <div class="text-center">
@@ -107,7 +107,7 @@ function openGithub() {
           </div>
 
           <!-- Footer -->
-          <div class="flex items-center justify-center px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-lg">
+          <div class="flex items-center justify-center px-6 py-4 border-t border-gray-400 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-lg">
             <button
               @click="close"
               class="btn-secondary"
