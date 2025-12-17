@@ -85,7 +85,7 @@ const filteredBackups = computed(() => {
   if (sortBy.value === 'date') {
     backups.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   } else if (sortBy.value === 'size') {
-    backups.sort((a, b) => (b.size_bytes || 0) - (a.size_bytes || 0))
+    backups.sort((a, b) => (b.file_size || 0) - (a.file_size || 0))
   }
 
   return backups
@@ -96,7 +96,7 @@ const stats = computed(() => ({
   total: backupStore.backups.length,
   successful: backupStore.backups.filter((b) => b.status === 'success').length,
   failed: backupStore.backups.filter((b) => b.status === 'failed').length,
-  totalSize: backupStore.backups.reduce((sum, b) => sum + (b.size_bytes || 0), 0),
+  totalSize: backupStore.backups.reduce((sum, b) => sum + (b.file_size || 0), 0),
 }))
 
 function formatBytes(bytes) {
@@ -499,7 +499,7 @@ onMounted(loadData)
                   </div>
                   <div class="text-left">
                     <div class="flex items-center gap-2">
-                      <p class="font-medium text-primary">{{ backup.type }} Backup</p>
+                      <p class="font-medium text-primary">{{ backup.backup_type }} Backup</p>
                       <StatusBadge :status="backup.status" size="sm" />
                       <span
                         v-if="backup.is_protected"
@@ -517,7 +517,7 @@ onMounted(loadData)
                       </span>
                     </div>
                     <p class="text-sm text-secondary mt-0.5">
-                      {{ new Date(backup.created_at).toLocaleString() }} • {{ formatBytes(backup.size_bytes) }}
+                      {{ new Date(backup.created_at).toLocaleString() }} • {{ formatBytes(backup.file_size) }}
                     </p>
                   </div>
                 </div>
@@ -676,7 +676,7 @@ onMounted(loadData)
                     </div>
                   </button>
 
-                  <!-- Delete Action -->
+                  <!-- Delete Action - Always visible for all backups -->
                   <button
                     @click="openDeleteDialog(backup)"
                     :disabled="backup.is_protected"
@@ -691,9 +691,13 @@ onMounted(loadData)
                       <TrashIcon class="h-5 w-5 text-red-600 dark:text-red-400" />
                     </div>
                     <div class="text-left flex-1">
-                      <p class="font-medium text-primary">Delete Backup</p>
+                      <p class="font-medium text-primary">
+                        {{ backup.status === 'running' ? 'Cancel & Delete' : 'Delete Backup' }}
+                      </p>
                       <p class="text-sm text-secondary">
-                        {{ backup.is_protected ? 'Unprotect first to delete' : 'Permanently delete this backup' }}
+                        {{ backup.is_protected ? 'Unprotect first to delete' :
+                           backup.status === 'running' ? 'Cancel this stuck backup and delete the record' :
+                           'Permanently delete this backup' }}
                       </p>
                     </div>
                   </button>

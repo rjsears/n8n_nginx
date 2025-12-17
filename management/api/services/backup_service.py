@@ -9,6 +9,7 @@ from sqlalchemy import select, update, delete, func, text
 from datetime import datetime, timedelta, UTC
 from typing import Optional, List, Dict, Any, Tuple
 import subprocess
+import asyncio
 import gzip
 import tarfile
 import tempfile
@@ -110,6 +111,7 @@ class BackupService:
         compression: str = "gzip",
     ) -> BackupHistory:
         """Execute a backup."""
+        logger.info(f"Starting backup: type={backup_type}, compression={compression}")
 
         # Create history record
         history = BackupHistory(
@@ -120,10 +122,12 @@ class BackupService:
             started_at=datetime.now(UTC),
             status="running",
             compression=compression,
+            storage_location="local",  # Default, will be updated
         )
         self.db.add(history)
         await self.db.commit()
         await self.db.refresh(history)
+        logger.info(f"Created backup history record: id={history.id}")
 
         try:
             # Notify start
@@ -133,14 +137,16 @@ class BackupService:
             })
 
             # Determine database(s)
-            if backup_type == BackupType.POSTGRES_FULL:
+            if backup_type == BackupType.POSTGRES_FULL or backup_type == "postgres_full":
                 databases = ["n8n", "n8n_management"]
-            elif backup_type == BackupType.POSTGRES_N8N:
+            elif backup_type == BackupType.POSTGRES_N8N or backup_type == "postgres_n8n":
                 databases = ["n8n"]
-            elif backup_type == BackupType.POSTGRES_MGMT:
+            elif backup_type == BackupType.POSTGRES_MGMT or backup_type == "postgres_mgmt":
                 databases = ["n8n_management"]
             else:
                 databases = []
+
+            logger.info(f"Databases to backup: {databases}")
 
             # Generate filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -150,9 +156,11 @@ class BackupService:
 
             # Determine storage path
             storage_dir = await self._get_storage_location()
+            logger.info(f"Storage directory: {storage_dir}")
             type_dir = os.path.join(storage_dir, backup_type)
             os.makedirs(type_dir, exist_ok=True)
             filepath = os.path.join(type_dir, filename)
+            logger.info(f"Backup filepath: {filepath}")
 
             # Execute backup
             row_counts = {}
@@ -213,11 +221,14 @@ class BackupService:
             raise
 
     async def _execute_pg_dump(self, database: str, filepath: str, compression: str) -> None:
-        """Execute pg_dump command."""
+        """Execute pg_dump command using async subprocess."""
         # Get connection info from environment
         host = os.environ.get("POSTGRES_HOST", "postgres")
         user = os.environ.get("POSTGRES_USER", "n8n")
         password = os.environ.get("POSTGRES_PASSWORD", "")
+
+        logger.info(f"Starting pg_dump for database '{database}' to '{filepath}'")
+        logger.debug(f"PostgreSQL host: {host}, user: {user}")
 
         cmd = [
             "pg_dump",
@@ -231,27 +242,55 @@ class BackupService:
 
         env = {**os.environ, "PGPASSWORD": password}
 
-        if compression == "gzip":
-            # Pipe through gzip
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-            )
+        try:
+            if compression == "gzip":
+                # Run pg_dump and pipe to gzip using asyncio
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
 
-            with gzip.open(filepath, 'wb') as f:
-                while chunk := process.stdout.read(8192):
-                    f.write(chunk)
+                # Read stdout and write to gzip file
+                with gzip.open(filepath, 'wb') as f:
+                    while True:
+                        chunk = await process.stdout.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
 
-            _, stderr = process.communicate()
-            if process.returncode != 0:
-                raise Exception(f"pg_dump failed: {stderr.decode()}")
-        else:
-            with open(filepath, 'wb') as f:
-                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, env=env)
-                if result.returncode != 0:
-                    raise Exception(f"pg_dump failed: {result.stderr.decode()}")
+                # Wait for process to complete and get stderr
+                _, stderr = await process.communicate()
+
+                if process.returncode != 0:
+                    error_msg = stderr.decode() if stderr else "Unknown error"
+                    logger.error(f"pg_dump failed for {database}: {error_msg}")
+                    raise Exception(f"pg_dump failed: {error_msg}")
+            else:
+                # Run without compression
+                with open(filepath, 'wb') as f:
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=f,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env,
+                    )
+                    _, stderr = await process.communicate()
+
+                    if process.returncode != 0:
+                        error_msg = stderr.decode() if stderr else "Unknown error"
+                        logger.error(f"pg_dump failed for {database}: {error_msg}")
+                        raise Exception(f"pg_dump failed: {error_msg}")
+
+            logger.info(f"pg_dump completed successfully for database '{database}'")
+
+        except FileNotFoundError:
+            logger.error("pg_dump command not found - is postgresql-client installed?")
+            raise Exception("pg_dump command not found - postgresql-client not installed")
+        except Exception as e:
+            logger.error(f"Error during pg_dump: {str(e)}")
+            raise
 
     async def _get_backup_configuration(self) -> Optional[BackupConfiguration]:
         """Get the current backup configuration from database."""
@@ -313,8 +352,10 @@ class BackupService:
         backup_type: Optional[str] = None,
         status: Optional[str] = None,
     ) -> List[BackupHistory]:
-        """Get backup history."""
-        query = select(BackupHistory).order_by(BackupHistory.created_at.desc())
+        """Get backup history (excludes soft-deleted backups)."""
+        query = select(BackupHistory).where(
+            BackupHistory.deleted_at.is_(None)
+        ).order_by(BackupHistory.created_at.desc())
 
         if backup_type:
             query = query.where(BackupHistory.backup_type == backup_type)
