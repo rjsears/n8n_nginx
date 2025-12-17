@@ -48,6 +48,9 @@ const sections = ref({
 // Expanded backup IDs (which backup items are expanded)
 const expandedBackups = ref(new Set())
 
+// Which action is expanded for each backup (backupId -> 'verify'|'protect'|'restore'|'baremetal'|'delete'|null)
+const expandedAction = ref({})
+
 // Expanded workflow restore sections within backups
 const expandedWorkflowRestore = ref(new Set())
 
@@ -85,7 +88,7 @@ const filteredBackups = computed(() => {
   if (sortBy.value === 'date') {
     backups.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   } else if (sortBy.value === 'size') {
-    backups.sort((a, b) => (b.size_bytes || 0) - (a.size_bytes || 0))
+    backups.sort((a, b) => (b.file_size || 0) - (a.file_size || 0))
   }
 
   return backups
@@ -96,7 +99,7 @@ const stats = computed(() => ({
   total: backupStore.backups.length,
   successful: backupStore.backups.filter((b) => b.status === 'success').length,
   failed: backupStore.backups.filter((b) => b.status === 'failed').length,
-  totalSize: backupStore.backups.reduce((sum, b) => sum + (b.size_bytes || 0), 0),
+  totalSize: backupStore.backups.reduce((sum, b) => sum + (b.file_size || 0), 0),
 }))
 
 function formatBytes(bytes) {
@@ -114,8 +117,23 @@ function toggleSection(section) {
 function toggleBackup(backupId) {
   if (expandedBackups.value.has(backupId)) {
     expandedBackups.value.delete(backupId)
+    // Clear expanded action when collapsing backup
+    delete expandedAction.value[backupId]
   } else {
     expandedBackups.value.add(backupId)
+  }
+}
+
+function toggleAction(backupId, action) {
+  // Toggle the action panel - if same action is clicked, close it
+  if (expandedAction.value[backupId] === action) {
+    expandedAction.value[backupId] = null
+  } else {
+    expandedAction.value[backupId] = action
+    // Load workflows if opening restore action
+    if (action === 'restore' && !backupWorkflows.value[backupId]) {
+      loadWorkflowsForBackup(backupId)
+    }
   }
 }
 
@@ -417,22 +435,6 @@ onMounted(loadData)
         </div>
       </Card>
 
-      <!-- Filters -->
-      <Card :neon="true" :padding="false">
-        <div class="p-4 flex items-center gap-4">
-          <select v-model="filterStatus" class="select-field">
-            <option value="all">All Statuses</option>
-            <option value="success">Successful</option>
-            <option value="failed">Failed</option>
-            <option value="pending">Pending</option>
-          </select>
-          <select v-model="sortBy" class="select-field">
-            <option value="date">Sort by Date</option>
-            <option value="size">Sort by Size</option>
-          </select>
-        </div>
-      </Card>
-
       <!-- Backup History - Collapsible Section -->
       <Card :neon="true" :padding="false">
         <!-- Section Header (Collapsible) -->
@@ -459,6 +461,21 @@ onMounted(loadData)
 
         <!-- Section Content -->
         <div v-show="sections.history" class="border-t border-gray-200 dark:border-gray-700">
+          <!-- Filters (inside Backup History) -->
+          <div class="p-4 flex items-center gap-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+            <select v-model="filterStatus" class="select-field">
+              <option value="all">All Statuses</option>
+              <option value="success">Successful</option>
+              <option value="failed">Failed</option>
+              <option value="running">Running</option>
+              <option value="pending">Pending</option>
+            </select>
+            <select v-model="sortBy" class="select-field">
+              <option value="date">Sort by Date</option>
+              <option value="size">Sort by Size</option>
+            </select>
+          </div>
+
           <EmptyState
             v-if="filteredBackups.length === 0"
             :icon="CircleStackIcon"
@@ -499,7 +516,7 @@ onMounted(loadData)
                   </div>
                   <div class="text-left">
                     <div class="flex items-center gap-2">
-                      <p class="font-medium text-primary">{{ backup.type }} Backup</p>
+                      <p class="font-medium text-primary">{{ backup.backup_type }} Backup</p>
                       <StatusBadge :status="backup.status" size="sm" />
                       <span
                         v-if="backup.is_protected"
@@ -517,7 +534,7 @@ onMounted(loadData)
                       </span>
                     </div>
                     <p class="text-sm text-secondary mt-0.5">
-                      {{ new Date(backup.created_at).toLocaleString() }} • {{ formatBytes(backup.size_bytes) }}
+                      {{ new Date(backup.created_at).toLocaleString() }} • {{ formatBytes(backup.file_size) }}
                     </p>
                   </div>
                 </div>
@@ -534,95 +551,172 @@ onMounted(loadData)
                 v-show="expandedBackups.has(backup.id)"
                 class="bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700"
               >
-                <div class="p-4 space-y-2">
-                  <!-- Verify Action -->
+                <!-- Action Button Bar -->
+                <div class="p-4 flex flex-wrap items-center gap-2">
+                  <!-- Verify Button -->
                   <button
                     v-if="backup.status === 'success'"
-                    @click="verifyBackup(backup)"
-                    :disabled="verifyingBackup === backup.id"
-                    class="w-full flex items-center gap-3 p-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-teal-300 dark:hover:border-teal-500 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition-colors"
+                    @click="toggleAction(backup.id, 'verify')"
+                    :class="[
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all',
+                      expandedAction[backup.id] === 'verify'
+                        ? 'bg-teal-100 dark:bg-teal-500/20 border-teal-400 dark:border-teal-500 text-teal-700 dark:text-teal-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-teal-300 dark:hover:border-teal-500 hover:bg-teal-50 dark:hover:bg-teal-500/10'
+                    ]"
                   >
-                    <div class="p-2 rounded-lg bg-gradient-to-br from-teal-100 to-teal-100 dark:from-teal-500/20 dark:to-teal-500/20">
-                      <CheckBadgeIcon v-if="verifyingBackup !== backup.id" class="h-5 w-5 text-teal-600 dark:text-teal-400" />
-                      <LoadingSpinner v-else size="sm" />
-                    </div>
-                    <div class="text-left flex-1">
-                      <p class="font-medium text-primary">Verify Backup</p>
-                      <p class="text-sm text-secondary">Spin up temp container and validate backup integrity</p>
-                    </div>
-                    <span
-                      v-if="backup.verification_status"
-                      :class="[
-                        'text-xs px-2 py-1 rounded-full',
-                        backup.verification_status === 'passed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' :
-                        backup.verification_status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
-                        'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400'
-                      ]"
-                    >
-                      {{ backup.verification_status }}
-                    </span>
+                    <CheckBadgeIcon class="h-5 w-5 text-teal-600 dark:text-teal-400" />
+                    <span class="font-medium">Verify</span>
                   </button>
 
-                  <!-- Protect Action -->
+                  <!-- Protect Button -->
                   <button
                     v-if="backup.status === 'success'"
-                    @click="toggleProtection(backup)"
-                    :disabled="protectingBackup === backup.id"
-                    class="w-full flex items-center gap-3 p-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-amber-300 dark:hover:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors"
+                    @click="toggleAction(backup.id, 'protect')"
+                    :class="[
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all',
+                      expandedAction[backup.id] === 'protect'
+                        ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-amber-300 dark:hover:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10'
+                    ]"
                   >
-                    <div class="p-2 rounded-lg bg-gradient-to-br from-amber-100 to-amber-100 dark:from-amber-500/20 dark:to-amber-500/20">
-                      <ShieldCheckIcon v-if="protectingBackup !== backup.id" class="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                      <LoadingSpinner v-else size="sm" />
-                    </div>
-                    <div class="text-left flex-1">
-                      <p class="font-medium text-primary">{{ backup.is_protected ? 'Unprotect' : 'Protect' }} Backup</p>
-                      <p class="text-sm text-secondary">{{ backup.is_protected ? 'Remove protection from automated pruning' : 'Protect from automated pruning' }}</p>
-                    </div>
-                    <span
-                      v-if="backup.is_protected"
-                      class="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
-                    >
-                      Protected
-                    </span>
+                    <ShieldCheckIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                    <span class="font-medium">{{ backup.is_protected ? 'Unprotect' : 'Protect' }}</span>
                   </button>
 
-                  <!-- Selective Workflow Restore - Collapsible -->
-                  <div v-if="backup.status === 'success'" class="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 overflow-hidden">
-                    <button
-                      @click="toggleWorkflowRestore(backup.id)"
-                      class="w-full flex items-center gap-3 p-3 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
-                    >
-                      <div class="p-2 rounded-lg bg-gradient-to-br from-indigo-100 to-indigo-100 dark:from-indigo-500/20 dark:to-indigo-500/20">
-                        <ArrowPathIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  <!-- Selective Restore Button -->
+                  <button
+                    v-if="backup.status === 'success'"
+                    @click="toggleAction(backup.id, 'restore')"
+                    :class="[
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all',
+                      expandedAction[backup.id] === 'restore'
+                        ? 'bg-indigo-100 dark:bg-indigo-500/20 border-indigo-400 dark:border-indigo-500 text-indigo-700 dark:text-indigo-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10'
+                    ]"
+                  >
+                    <ArrowPathIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                    <span class="font-medium">Selective Restore</span>
+                  </button>
+
+                  <!-- Bare Metal Button -->
+                  <button
+                    v-if="backup.status === 'success'"
+                    @click="toggleAction(backup.id, 'baremetal')"
+                    :class="[
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all',
+                      expandedAction[backup.id] === 'baremetal'
+                        ? 'bg-purple-100 dark:bg-purple-500/20 border-purple-400 dark:border-purple-500 text-purple-700 dark:text-purple-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-500/10'
+                    ]"
+                  >
+                    <ServerStackIcon class="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    <span class="font-medium">Bare Metal</span>
+                  </button>
+
+                  <!-- Delete Button - Always visible -->
+                  <button
+                    @click="toggleAction(backup.id, 'delete')"
+                    :disabled="backup.is_protected"
+                    :class="[
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all',
+                      backup.is_protected ? 'opacity-50 cursor-not-allowed' :
+                      expandedAction[backup.id] === 'delete'
+                        ? 'bg-red-100 dark:bg-red-500/20 border-red-400 dark:border-red-500 text-red-700 dark:text-red-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-red-300 dark:hover:border-red-500 hover:bg-red-50 dark:hover:bg-red-500/10'
+                    ]"
+                  >
+                    <TrashIcon class="h-5 w-5 text-red-600 dark:text-red-400" />
+                    <span class="font-medium">Delete</span>
+                  </button>
+                </div>
+
+                <!-- Action Panels -->
+                <div v-if="expandedAction[backup.id]" class="border-t border-gray-200 dark:border-gray-700">
+                  <!-- Verify Panel -->
+                  <div v-if="expandedAction[backup.id] === 'verify'" class="p-4">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-teal-200 dark:border-teal-700 p-4">
+                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
+                        <CheckBadgeIcon class="h-5 w-5 text-teal-600 dark:text-teal-400" />
+                        Verify Backup Integrity
+                      </h4>
+                      <p class="text-sm text-secondary mb-4">
+                        Spins up a temporary PostgreSQL container, loads the backup, and validates all database tables, row counts, and workflow checksums.
+                      </p>
+                      <div class="flex items-center gap-3">
+                        <button
+                          @click="verifyBackup(backup)"
+                          :disabled="verifyingBackup === backup.id"
+                          class="btn-primary bg-teal-600 hover:bg-teal-700 flex items-center gap-2"
+                        >
+                          <LoadingSpinner v-if="verifyingBackup === backup.id" size="sm" />
+                          <CheckBadgeIcon v-else class="h-4 w-4" />
+                          {{ verifyingBackup === backup.id ? 'Verifying...' : 'Start Verification' }}
+                        </button>
+                        <span
+                          v-if="backup.verification_status && backup.verification_status !== 'pending'"
+                          :class="[
+                            'text-sm px-3 py-1 rounded-full',
+                            backup.verification_status === 'passed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' :
+                            'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                          ]"
+                        >
+                          Last result: {{ backup.verification_status }}
+                        </span>
                       </div>
-                      <div class="text-left flex-1">
-                        <p class="font-medium text-primary">Selective Workflow Restore</p>
-                        <p class="text-sm text-secondary">Download or push individual workflows to n8n</p>
-                      </div>
-                      <ChevronDownIcon
+                    </div>
+                  </div>
+
+                  <!-- Protect Panel -->
+                  <div v-if="expandedAction[backup.id] === 'protect'" class="p-4">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-700 p-4">
+                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
+                        <ShieldCheckIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                        {{ backup.is_protected ? 'Backup Protection' : 'Protect Backup' }}
+                      </h4>
+                      <p class="text-sm text-secondary mb-4">
+                        {{ backup.is_protected
+                          ? 'This backup is protected from automatic pruning and cannot be deleted until unprotected.'
+                          : 'Protected backups are never automatically deleted by retention policies or pruning.'
+                        }}
+                      </p>
+                      <button
+                        @click="toggleProtection(backup)"
+                        :disabled="protectingBackup === backup.id"
                         :class="[
-                          'h-5 w-5 text-muted transition-transform duration-200',
-                          expandedWorkflowRestore.has(backup.id) ? 'rotate-180' : ''
+                          'flex items-center gap-2',
+                          backup.is_protected ? 'btn-secondary' : 'btn-primary bg-amber-600 hover:bg-amber-700'
                         ]"
-                      />
-                    </button>
+                      >
+                        <LoadingSpinner v-if="protectingBackup === backup.id" size="sm" />
+                        <ShieldCheckIcon v-else class="h-4 w-4" />
+                        {{ protectingBackup === backup.id ? 'Processing...' : (backup.is_protected ? 'Remove Protection' : 'Protect This Backup') }}
+                      </button>
+                    </div>
+                  </div>
 
-                    <!-- Workflow List -->
-                    <div
-                      v-show="expandedWorkflowRestore.has(backup.id)"
-                      class="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
-                    >
-                      <div v-if="loadingWorkflows.has(backup.id)" class="p-4 text-center">
+                  <!-- Selective Restore Panel -->
+                  <div v-if="expandedAction[backup.id] === 'restore'" class="p-4">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700 p-4">
+                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
+                        <ArrowPathIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                        Selective Workflow Restore
+                      </h4>
+                      <p class="text-sm text-secondary mb-4">
+                        Download individual workflows as JSON or push them directly to your n8n instance via API.
+                      </p>
+
+                      <!-- Workflow List -->
+                      <div v-if="loadingWorkflows.has(backup.id)" class="py-4 text-center">
                         <LoadingSpinner size="sm" text="Loading workflows..." />
                       </div>
-                      <div v-else-if="!backupWorkflows[backup.id] || backupWorkflows[backup.id].length === 0" class="p-4 text-center text-secondary">
+                      <div v-else-if="!backupWorkflows[backup.id] || backupWorkflows[backup.id].length === 0" class="py-4 text-center text-secondary">
                         No workflows found in this backup
                       </div>
-                      <div v-else class="divide-y divide-gray-200 dark:divide-gray-700">
+                      <div v-else class="space-y-2 max-h-64 overflow-y-auto">
                         <div
                           v-for="workflow in backupWorkflows[backup.id]"
                           :key="workflow.id"
-                          class="p-3 flex items-center justify-between hover:bg-white dark:hover:bg-gray-800"
+                          class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700"
                         >
                           <div class="flex items-center gap-3">
                             <DocumentTextIcon class="h-5 w-5 text-indigo-500" />
@@ -630,28 +724,28 @@ onMounted(loadData)
                               <p class="font-medium text-primary">{{ workflow.name }}</p>
                               <p class="text-xs text-secondary">
                                 {{ workflow.active ? 'Active' : 'Inactive' }}
-                                <span v-if="workflow.updated_at"> • Updated {{ new Date(workflow.updated_at).toLocaleDateString() }}</span>
+                                <span v-if="workflow.updated_at"> • {{ new Date(workflow.updated_at).toLocaleDateString() }}</span>
                               </p>
                             </div>
                           </div>
                           <div class="flex items-center gap-2">
-                            <!-- Download JSON -->
                             <button
                               @click.stop="downloadWorkflow(backup, workflow)"
-                              class="btn-secondary p-2 text-blue-500 hover:text-blue-600"
+                              class="btn-secondary px-3 py-1.5 text-sm flex items-center gap-1 text-blue-600 hover:text-blue-700"
                               title="Download JSON"
                             >
                               <DocumentArrowDownIcon class="h-4 w-4" />
+                              Download
                             </button>
-                            <!-- Push to n8n -->
                             <button
                               @click.stop="restoreWorkflowToN8n(backup, workflow)"
                               :disabled="restoringWorkflow === `${backup.id}-${workflow.id}`"
-                              class="btn-secondary p-2 text-emerald-500 hover:text-emerald-600"
-                              title="Push to n8n via API"
+                              class="btn-primary px-3 py-1.5 text-sm flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700"
+                              title="Push to n8n"
                             >
                               <LoadingSpinner v-if="restoringWorkflow === `${backup.id}-${workflow.id}`" size="sm" />
                               <CloudArrowUpIcon v-else class="h-4 w-4" />
+                              Push to n8n
                             </button>
                           </div>
                         </div>
@@ -659,44 +753,54 @@ onMounted(loadData)
                     </div>
                   </div>
 
-                  <!-- Bare Metal Recovery -->
-                  <button
-                    v-if="backup.status === 'success'"
-                    @click="createBareMetalRecovery(backup)"
-                    :disabled="creatingBareMetal === backup.id"
-                    class="w-full flex items-center gap-3 p-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-500/10 transition-colors"
-                  >
-                    <div class="p-2 rounded-lg bg-gradient-to-br from-purple-100 to-purple-100 dark:from-purple-500/20 dark:to-purple-500/20">
-                      <ServerStackIcon v-if="creatingBareMetal !== backup.id" class="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                      <LoadingSpinner v-else size="sm" />
+                  <!-- Bare Metal Panel -->
+                  <div v-if="expandedAction[backup.id] === 'baremetal'" class="p-4">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700 p-4">
+                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
+                        <ServerStackIcon class="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                        Bare Metal Recovery
+                      </h4>
+                      <p class="text-sm text-secondary mb-4">
+                        Downloads a complete recovery archive containing databases, configuration files, SSL certificates, and a self-contained <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">restore.sh</code> script. Extract on any server and run the script to fully restore your n8n installation.
+                      </p>
+                      <button
+                        @click="createBareMetalRecovery(backup)"
+                        :disabled="creatingBareMetal === backup.id"
+                        class="btn-primary bg-purple-600 hover:bg-purple-700 flex items-center gap-2"
+                      >
+                        <LoadingSpinner v-if="creatingBareMetal === backup.id" size="sm" />
+                        <ArrowDownTrayIcon v-else class="h-4 w-4" />
+                        {{ creatingBareMetal === backup.id ? 'Preparing...' : 'Download Recovery Archive' }}
+                      </button>
                     </div>
-                    <div class="text-left flex-1">
-                      <p class="font-medium text-primary">Bare Metal Recovery</p>
-                      <p class="text-sm text-secondary">Download tar.gz with restore.sh for full server recovery</p>
-                    </div>
-                  </button>
+                  </div>
 
-                  <!-- Delete Action -->
-                  <button
-                    @click="openDeleteDialog(backup)"
-                    :disabled="backup.is_protected"
-                    :class="[
-                      'w-full flex items-center gap-3 p-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 transition-colors',
-                      backup.is_protected
-                        ? 'opacity-50 cursor-not-allowed'
-                        : 'hover:border-red-300 dark:hover:border-red-500 hover:bg-red-50 dark:hover:bg-red-500/10'
-                    ]"
-                  >
-                    <div class="p-2 rounded-lg bg-gradient-to-br from-red-100 to-red-100 dark:from-red-500/20 dark:to-red-500/20">
-                      <TrashIcon class="h-5 w-5 text-red-600 dark:text-red-400" />
-                    </div>
-                    <div class="text-left flex-1">
-                      <p class="font-medium text-primary">Delete Backup</p>
-                      <p class="text-sm text-secondary">
-                        {{ backup.is_protected ? 'Unprotect first to delete' : 'Permanently delete this backup' }}
+                  <!-- Delete Panel -->
+                  <div v-if="expandedAction[backup.id] === 'delete'" class="p-4">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-red-200 dark:border-red-700 p-4">
+                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
+                        <TrashIcon class="h-5 w-5 text-red-600 dark:text-red-400" />
+                        {{ backup.status === 'running' ? 'Cancel & Delete Backup' : 'Delete Backup' }}
+                      </h4>
+                      <p class="text-sm text-secondary mb-4">
+                        {{ backup.status === 'running'
+                          ? 'This backup appears to be stuck. Deleting will cancel the backup operation and remove the record.'
+                          : 'This action cannot be undone. The backup file and all associated data will be permanently deleted.'
+                        }}
+                      </p>
+                      <button
+                        @click="openDeleteDialog(backup)"
+                        :disabled="backup.is_protected"
+                        class="btn-danger flex items-center gap-2"
+                      >
+                        <TrashIcon class="h-4 w-4" />
+                        {{ backup.is_protected ? 'Unprotect First' : 'Delete Permanently' }}
+                      </button>
+                      <p v-if="backup.is_protected" class="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                        This backup is protected. Remove protection before deleting.
                       </p>
                     </div>
-                  </button>
+                  </div>
                 </div>
               </div>
             </div>
