@@ -114,6 +114,11 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
+  async function triggerBackup() {
+    // Trigger a full backup with default settings
+    return await runBackup('full', 'gzip')
+  }
+
   async function deleteBackup(id) {
     try {
       await api.delete(`/backups/${id}`)
@@ -482,6 +487,7 @@ export const useBackupStore = defineStore('backups', () => {
     updateSchedule,
     deleteSchedule,
     runBackup,
+    triggerBackup,
     deleteBackup,
     getDownloadUrl,
     // Phase 2: Backup Contents

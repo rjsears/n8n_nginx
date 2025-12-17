@@ -39,9 +39,18 @@ const contentsDialog = ref({ open: false, backup: null })
 const restoreDialog = ref({ open: false, backup: null })
 const protectingBackup = ref(null)
 const verifyingBackup = ref(null)
+const scheduleDialog = ref({ open: false, loading: false })
 
 // Backup schedule (would come from API)
 const schedule = ref({
+  enabled: true,
+  time: '02:00',
+  frequency: 'daily',
+  retention_days: 30,
+})
+
+// Editable schedule form
+const scheduleForm = ref({
   enabled: true,
   time: '02:00',
   frequency: 'daily',
@@ -170,6 +179,27 @@ function getVerificationColor(status) {
   if (status === 'passed') return 'text-emerald-500'
   if (status === 'failed') return 'text-red-500'
   return 'text-gray-400'
+}
+
+// Schedule Configuration
+function openScheduleDialog() {
+  // Copy current schedule to form
+  scheduleForm.value = { ...schedule.value }
+  scheduleDialog.value.open = true
+}
+
+async function saveSchedule() {
+  scheduleDialog.value.loading = true
+  try {
+    // Update the schedule (for now just update locally, API integration can be added)
+    schedule.value = { ...scheduleForm.value }
+    notificationStore.success('Backup schedule updated')
+    scheduleDialog.value.open = false
+  } catch (error) {
+    notificationStore.error('Failed to update schedule')
+  } finally {
+    scheduleDialog.value.loading = false
+  }
 }
 
 // Backup Protection
@@ -314,7 +344,7 @@ onMounted(loadData)
       <!-- Schedule Card -->
       <Card title="Backup Schedule" :neon="true">
         <template #actions>
-          <button class="btn-secondary text-sm flex items-center gap-1">
+          <button @click="openScheduleDialog" class="btn-secondary text-sm flex items-center gap-1">
             <Cog6ToothIcon class="h-4 w-4" />
             Configure
           </button>
@@ -528,5 +558,88 @@ onMounted(loadData)
       @close="closeRestoreDialog"
       @restored="handleSystemRestored"
     />
+
+    <!-- Schedule Configuration Dialog -->
+    <Teleport to="body">
+      <div v-if="scheduleDialog.open" class="fixed inset-0 z-50 flex items-center justify-center">
+        <div class="absolute inset-0 bg-black/50" @click="scheduleDialog.open = false"></div>
+        <div class="relative bg-primary rounded-lg shadow-xl w-full max-w-md p-6 m-4">
+          <h3 class="text-lg font-semibold text-primary mb-4">Configure Backup Schedule</h3>
+
+          <div class="space-y-4">
+            <!-- Enabled Toggle -->
+            <div class="flex items-center justify-between">
+              <label class="text-sm font-medium text-primary">Enable Scheduled Backups</label>
+              <button
+                @click="scheduleForm.enabled = !scheduleForm.enabled"
+                :class="[
+                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                  scheduleForm.enabled ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                    scheduleForm.enabled ? 'translate-x-6' : 'translate-x-1'
+                  ]"
+                />
+              </button>
+            </div>
+
+            <!-- Frequency -->
+            <div>
+              <label class="block text-sm font-medium text-primary mb-1">Frequency</label>
+              <select
+                v-model="scheduleForm.frequency"
+                class="input-field w-full"
+              >
+                <option value="hourly">Hourly</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+
+            <!-- Time -->
+            <div>
+              <label class="block text-sm font-medium text-primary mb-1">Time</label>
+              <input
+                v-model="scheduleForm.time"
+                type="time"
+                class="input-field w-full"
+              />
+            </div>
+
+            <!-- Retention -->
+            <div>
+              <label class="block text-sm font-medium text-primary mb-1">Retention (days)</label>
+              <input
+                v-model.number="scheduleForm.retention_days"
+                type="number"
+                min="1"
+                max="365"
+                class="input-field w-full"
+              />
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-3 mt-6">
+            <button
+              @click="scheduleDialog.open = false"
+              class="btn-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              @click="saveSchedule"
+              :disabled="scheduleDialog.loading"
+              class="btn-primary"
+            >
+              {{ scheduleDialog.loading ? 'Saving...' : 'Save' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
