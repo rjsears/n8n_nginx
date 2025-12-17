@@ -1402,16 +1402,18 @@ async def detect_storage_locations(
     # Detect NFS mounts
     nfs_mounts = detect_nfs_mounts()
 
-    # Fallback: Check environment variables for Docker NFS volumes
-    # Docker NFS volumes don't show as 'nfs' type in /proc/mounts
+    # Fallback: Check environment variables for host-level NFS bind mounts
+    # Host-level NFS mounts (bind-mounted into container) don't show as 'nfs' type in /proc/mounts
+    # We detect them via environment variables set during setup
     if not nfs_mounts and settings.nfs_server:
         # NFS was configured via environment, check if mount point is accessible
         nfs_mount = settings.nfs_mount_point or "/mnt/backups"
         nfs_info = check_path(nfs_mount)
         if nfs_info["exists"]:
-            nfs_info["fs_type"] = "docker-nfs"
+            nfs_info["fs_type"] = "nfs (host bind)"
             nfs_info["is_nfs"] = True
             nfs_info["source"] = f"{settings.nfs_server}:{settings.nfs_path}"
+            nfs_info["host_mount"] = settings.nfs_local_mount  # e.g., /opt/n8n_backups
             nfs_mounts.append(nfs_info)
 
     # Find recommended path (first writable path)

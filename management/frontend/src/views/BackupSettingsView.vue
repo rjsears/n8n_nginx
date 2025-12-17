@@ -583,7 +583,10 @@ onMounted(() => {
                           </div>
                         </div>
                       </div>
-                      <p class="text-xs text-secondary mt-1 ml-6">{{ nfs.source }} ({{ nfs.fs_type }})</p>
+                      <p class="text-xs text-secondary mt-1 ml-6">
+                        {{ nfs.source }} ({{ nfs.fs_type }})
+                        <span v-if="nfs.host_mount" class="text-gray-400"> → {{ nfs.host_mount }}</span>
+                      </p>
                     </div>
                   </div>
 
@@ -595,7 +598,9 @@ onMounted(() => {
                         <p class="font-medium text-amber-800 dark:text-amber-300">NFS Mount Issue</p>
                         <p class="text-amber-700 dark:text-amber-400 mt-0.5">
                           NFS is configured (<code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">{{ storageDetection?.environment?.nfs_server }}:{{ storageDetection?.environment?.nfs_path }}</code>)
-                          but the mount point is not accessible. Check Docker volume or restart containers.
+                          but the mount point is not accessible. Check that NFS is mounted on the host at
+                          <code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">{{ storageDetection?.environment?.nfs_local_mount || '/opt/n8n_backups' }}</code>
+                          and verify with <code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">mount | grep nfs</code>.
                         </p>
                       </div>
                     </div>
