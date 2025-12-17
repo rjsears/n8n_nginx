@@ -28,7 +28,6 @@ import {
   Cog6ToothIcon,
   DocumentTextIcon,
   ShieldCheckIcon,
-  PlayIcon,
   ArchiveBoxIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -51,18 +50,12 @@ const notificationServices = ref([])
 const notificationGroups = ref([])
 const loadingChannels = ref(false)
 
-// Backups for manual verification
-const availableBackups = ref([])
-const loadingBackups = ref(false)
-const selectedBackupId = ref(null)
-const verifying = ref(false)
-const verificationResult = ref(null)
 
 // Collapsible sections state
 const sections = ref({
-  stagingArea: true,
-  nfsStorage: true,
+  backupDestination: true,
   backupWorkflow: true,
+  stagingArea: true,
   localPaths: false,
   scheduleConfig: true,
   backupContents: true,
@@ -70,8 +63,6 @@ const sections = ref({
   compressionSettings: true,
   notifySettings: true,
   notifyChannels: true,
-  autoVerify: true,
-  manualVerify: true,
 })
 
 // Watch for tab query changes
@@ -110,11 +101,7 @@ const form = ref({
   // Notifications
   notify_on_success: false,
   notify_on_failure: true,
-  notification_channel_id: null,
-  notification_channel_type: null, // 'service' or 'group'
-  // Verification
-  auto_verify_enabled: false,
-  verify_after_backup: false,
+  notification_channel_ids: [], // Array of {id, type} for multi-select
 })
 
 const tabs = [
@@ -123,7 +110,6 @@ const tabs = [
   { id: 'retention', name: 'Retention', icon: TrashIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
   { id: 'compression', name: 'Compression', icon: ServerIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
   { id: 'notifications', name: 'Notifications', icon: BellIcon, iconColor: 'text-pink-500', bgActive: 'bg-pink-500/15 dark:bg-pink-500/20', textActive: 'text-pink-700 dark:text-pink-400', borderActive: 'border-pink-500/30' },
-  { id: 'verification', name: 'Verification', icon: CheckCircleIcon, iconColor: 'text-cyan-500', bgActive: 'bg-cyan-500/15 dark:bg-cyan-500/20', textActive: 'text-cyan-700 dark:text-cyan-400', borderActive: 'border-cyan-500/30' },
 ]
 
 const compressionLevelMax = computed(() => {
@@ -152,13 +138,14 @@ const availableLocalPaths = computed(() => {
   return storageDetection.value?.local_paths?.filter(p => p.exists && p.is_writable) || []
 })
 
-const verifiableBackups = computed(() => {
-  return availableBackups.value.filter(b => b.status === 'success')
+// Check if notifications can be enabled (requires at least one channel selected)
+const canEnableNotifications = computed(() => {
+  return form.value.notification_channel_ids.length > 0
 })
 
-// Check if notifications can be enabled (requires channel selected)
-const canEnableNotifications = computed(() => {
-  return form.value.notification_channel_id !== null
+// Selected channel count for display
+const selectedChannelCount = computed(() => {
+  return form.value.notification_channel_ids.length
 })
 
 // All available notification channels (services + groups)
@@ -236,18 +223,6 @@ async function loadNotificationChannels() {
   }
 }
 
-async function loadBackups() {
-  loadingBackups.value = true
-  try {
-    await backupStore.fetchBackups()
-    availableBackups.value = backupStore.backups || []
-  } catch (err) {
-    console.error('Failed to load backups:', err)
-  } finally {
-    loadingBackups.value = false
-  }
-}
-
 async function detectStorage() {
   detectingStorage.value = true
   try {
@@ -260,6 +235,25 @@ async function detectStorage() {
 }
 
 function selectNfsPath(path) {
+  form.value.nfs_storage_path = path
+  form.value.nfs_enabled = true
+}
+
+function selectStorageDestination(destination) {
+  form.value.storage_preference = destination
+  if (destination === 'nfs') {
+    form.value.nfs_enabled = true
+    // If no NFS path selected yet and there are mounts, select the first one
+    if (!form.value.nfs_storage_path && nfsMounts.value.length > 0) {
+      form.value.nfs_storage_path = nfsMounts.value[0].path
+    }
+  } else {
+    form.value.nfs_enabled = false
+  }
+}
+
+function selectNfsMount(path) {
+  form.value.storage_preference = 'nfs'
   form.value.nfs_storage_path = path
   form.value.nfs_enabled = true
 }
@@ -291,33 +285,6 @@ async function save() {
   }
 }
 
-async function runManualVerification() {
-  if (!selectedBackupId.value) {
-    notificationStore.warning('Please select a backup to verify')
-    return
-  }
-
-  verifying.value = true
-  verificationResult.value = null
-  try {
-    const result = await backupStore.verifyBackup(selectedBackupId.value)
-    verificationResult.value = result
-    if (result.overall_status === 'passed') {
-      notificationStore.success('Backup verification passed!')
-    } else if (result.overall_status === 'failed') {
-      notificationStore.error('Backup verification failed')
-    } else {
-      notificationStore.warning('Backup verification completed with warnings')
-    }
-    await loadBackups()
-  } catch (err) {
-    notificationStore.error('Failed to verify backup')
-    verificationResult.value = { error: true, message: err.message }
-  } finally {
-    verifying.value = false
-  }
-}
-
 function goBack() {
   router.push('/backups')
 }
@@ -326,32 +293,33 @@ function toggleSection(section) {
   sections.value[section] = !sections.value[section]
 }
 
-function formatDate(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+function isChannelSelected(channel) {
+  return form.value.notification_channel_ids.some(
+    c => c.id === channel.id && c.type === channel.type
+  )
 }
 
-function formatBytes(bytes) {
-  if (!bytes) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+function toggleNotificationChannel(channel) {
+  const index = form.value.notification_channel_ids.findIndex(
+    c => c.id === channel.id && c.type === channel.type
+  )
+  if (index > -1) {
+    // Remove if already selected
+    form.value.notification_channel_ids.splice(index, 1)
+  } else {
+    // Add if not selected
+    form.value.notification_channel_ids.push({ id: channel.id, type: channel.type })
+  }
+
+  // Disable notifications if no channels selected
+  if (form.value.notification_channel_ids.length === 0) {
+    form.value.notify_on_success = false
+    form.value.notify_on_failure = false
+  }
 }
 
-function selectNotificationChannel(channel) {
-  form.value.notification_channel_id = channel.id
-  form.value.notification_channel_type = channel.type
-}
-
-function clearNotificationChannel() {
-  form.value.notification_channel_id = null
-  form.value.notification_channel_type = null
-  // Disable notifications if no channel selected
+function clearAllNotificationChannels() {
+  form.value.notification_channel_ids = []
   form.value.notify_on_success = false
   form.value.notify_on_failure = false
 }
@@ -372,7 +340,6 @@ function tryEnableNotification(type) {
 onMounted(() => {
   loadConfiguration()
   loadNotificationChannels()
-  loadBackups()
 })
 </script>
 
@@ -444,233 +411,379 @@ onMounted(() => {
         </button>
       </div>
 
-      <!-- Storage Tab -->
+      <!-- Storage Tab - 3-Step Configuration Flow -->
       <div v-if="activeTab === 'storage'" class="space-y-4">
-        <!-- Staging Area Section -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('stagingArea')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30">
-                <CircleStackIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Local Staging Area</h3>
-                <p class="text-sm text-secondary">Temporary storage for backup creation</p>
-              </div>
-            </div>
-            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.stagingArea ? 'rotate-180' : '']" />
-          </button>
-
-          <div v-if="sections.stagingArea" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div class="mt-4 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-              <div class="flex items-start gap-3">
-                <InformationCircleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                <div class="text-sm">
-                  <p class="font-medium text-amber-800 dark:text-amber-300">About the Staging Area</p>
-                  <p class="text-amber-700 dark:text-amber-400 mt-1">
-                    The staging area (<code class="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono text-xs">{{ stagingArea.path }}</code>)
-                    is a local Docker volume used to temporarily store backups during creation.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-4 flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-              <div class="flex items-center gap-3">
-                <FolderIcon class="h-5 w-5 text-amber-500" />
-                <div>
-                  <p class="font-mono text-sm font-medium text-primary">{{ stagingArea.path }}</p>
-                  <p class="text-xs text-secondary">
-                    <span v-if="stagingArea.is_writable" class="text-emerald-600 dark:text-emerald-400">Available</span>
-                    <span v-else class="text-red-500">Not writable</span>
-                    <span v-if="stagingArea.free_space_gb" class="ml-2">{{ stagingArea.free_space_gb }} GB free</span>
-                  </p>
-                </div>
-              </div>
-              <span class="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                Staging
-              </span>
+        <!-- Introduction -->
+        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-200 dark:border-blue-800 p-4">
+          <div class="flex items-start gap-3">
+            <InformationCircleIcon class="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+            <div class="text-sm">
+              <p class="font-medium text-blue-800 dark:text-blue-300">Storage Configuration</p>
+              <p class="text-blue-700 dark:text-blue-400 mt-1">
+                Configure where your backups will be stored. Follow the steps below to set up your backup destination.
+              </p>
             </div>
           </div>
         </div>
 
-        <!-- NFS Storage Section -->
+        <!-- STEP 1: Backup Destination -->
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <button
-            @click="toggleSection('nfsStorage')"
+            @click="toggleSection('backupDestination')"
             class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
           >
             <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/30 dark:to-teal-900/30">
-                <CloudIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              <div class="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500 text-white font-bold text-sm">
+                1
               </div>
               <div class="text-left">
-                <h3 class="font-semibold text-primary">Network Storage (NFS)</h3>
-                <p class="text-sm text-secondary">
-                  <span v-if="hasNfsConfigured" class="text-emerald-600 dark:text-emerald-400">{{ nfsMounts.length }} NFS mount(s) detected</span>
-                  <span v-else>No NFS storage detected</span>
-                </p>
+                <h3 class="font-semibold text-primary">Backup Destination</h3>
+                <p class="text-sm text-secondary">Choose where backups will be stored</p>
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <span v-if="form.nfs_enabled" class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
-                Enabled
+              <span :class="[
+                'px-2.5 py-1 rounded-full text-xs font-medium',
+                form.storage_preference === 'nfs'
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                  : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+              ]">
+                {{ form.storage_preference === 'nfs' ? 'Network Storage' : 'Local Storage' }}
               </span>
-              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.nfsStorage ? 'rotate-180' : '']" />
+              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.backupDestination ? 'rotate-180' : '']" />
             </div>
           </button>
 
-          <div v-if="sections.nfsStorage" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div v-if="nfsMounts.length > 0" class="mt-4 space-y-3">
-              <p class="text-sm font-medium text-secondary">Detected NFS Mounts</p>
-              <div
-                v-for="nfs in nfsMounts"
-                :key="nfs.path"
+          <div v-if="sections.backupDestination" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
+            <div class="mt-4 space-y-3">
+              <!-- Local Storage Option -->
+              <label
                 :class="[
-                  'p-4 rounded-lg border-2 transition-all cursor-pointer',
-                  form.nfs_storage_path === nfs.path
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-emerald-300 dark:hover:border-emerald-700'
+                  'flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all',
+                  form.storage_preference === 'local'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
                 ]"
-                @click="selectNfsPath(nfs.path)"
+                @click="selectStorageDestination('local')"
               >
-                <div class="flex items-center justify-between">
+                <input type="radio" v-model="form.storage_preference" value="local" class="mt-1 h-4 w-4 text-blue-500" />
+                <div class="flex-1">
                   <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
-                      <ServerIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40">
+                      <CircleStackIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
                     </div>
                     <div>
-                      <p class="font-mono text-sm font-medium text-primary">{{ nfs.path }}</p>
-                      <p class="text-xs text-secondary mt-0.5">
-                        <span class="font-medium">{{ nfs.source }}</span>
-                        <span class="mx-1">|</span>
-                        {{ nfs.fs_type }}
-                        <span v-if="nfs.free_space_gb" class="ml-2 text-emerald-600 dark:text-emerald-400">
-                          {{ nfs.free_space_gb }} GB free
-                        </span>
+                      <p class="font-medium text-primary">Local Storage</p>
+                      <p class="text-sm text-secondary mt-0.5">Store backups on the local Docker volume</p>
+                    </div>
+                  </div>
+                  <div v-if="stagingArea" class="mt-3 ml-11 p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+                    <div class="flex items-center gap-2">
+                      <FolderIcon class="h-4 w-4 text-gray-500" />
+                      <code class="text-xs font-mono text-primary">{{ stagingArea.path }}</code>
+                      <span v-if="stagingArea.is_writable" class="px-1.5 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                        {{ stagingArea.free_space_gb }} GB free
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </label>
+
+              <!-- Network Storage Option (NFS) -->
+              <label
+                :class="[
+                  'flex items-start gap-4 p-4 rounded-lg border-2 transition-all',
+                  hasNfsConfigured ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
+                  form.storage_preference === 'nfs'
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-emerald-300'
+                ]"
+                @click="hasNfsConfigured && selectStorageDestination('nfs')"
+              >
+                <input type="radio" v-model="form.storage_preference" value="nfs" :disabled="!hasNfsConfigured" class="mt-1 h-4 w-4 text-emerald-500" />
+                <div class="flex-1">
+                  <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
+                      <CloudIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <div>
+                      <p class="font-medium text-primary">Network Storage (NFS)</p>
+                      <p class="text-sm text-secondary mt-0.5">
+                        <span v-if="hasNfsConfigured">Store backups on remote NFS server</span>
+                        <span v-else class="text-amber-600 dark:text-amber-400">No NFS storage detected</span>
                       </p>
                     </div>
                   </div>
-                  <div v-if="form.nfs_storage_path === nfs.path" class="p-1.5 rounded-full bg-emerald-500">
-                    <CheckIcon class="h-4 w-4 text-white" />
+
+                  <!-- Show detected NFS mounts -->
+                  <div v-if="nfsMounts.length > 0" class="mt-3 ml-11 space-y-2">
+                    <div
+                      v-for="nfs in nfsMounts"
+                      :key="nfs.path"
+                      :class="[
+                        'p-3 rounded-lg border transition-all',
+                        form.nfs_storage_path === nfs.path && form.storage_preference === 'nfs'
+                          ? 'bg-emerald-100 dark:bg-emerald-900/40 border-emerald-300 dark:border-emerald-700'
+                          : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700'
+                      ]"
+                      @click.stop="selectNfsMount(nfs.path)"
+                    >
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <ServerIcon class="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          <code class="text-xs font-mono text-primary">{{ nfs.path }}</code>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <span v-if="nfs.free_space_gb" class="text-xs text-emerald-600 dark:text-emerald-400">
+                            {{ nfs.free_space_gb }} GB free
+                          </span>
+                          <div v-if="form.nfs_storage_path === nfs.path && form.storage_preference === 'nfs'" class="p-1 rounded-full bg-emerald-500">
+                            <CheckIcon class="h-3 w-3 text-white" />
+                          </div>
+                        </div>
+                      </div>
+                      <p class="text-xs text-secondary mt-1 ml-6">{{ nfs.source }} ({{ nfs.fs_type }})</p>
+                    </div>
+                  </div>
+
+                  <!-- No NFS detected message -->
+                  <div v-else class="mt-3 ml-11 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <div class="flex items-start gap-2">
+                      <ExclamationTriangleIcon class="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div class="text-xs">
+                        <p class="font-medium text-amber-800 dark:text-amber-300">NFS Not Configured</p>
+                        <p class="text-amber-700 dark:text-amber-400 mt-0.5">
+                          To use NFS storage, configure it during setup or mount an NFS share at
+                          <code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">{{ storageDetection?.environment?.nfs_mount_point || '/mnt/backups' }}</code>
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div v-else class="mt-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-              <div class="flex items-start gap-3">
-                <ExclamationTriangleIcon class="h-5 w-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                <div class="text-sm">
-                  <p class="font-medium text-primary">No NFS Storage Detected</p>
-                  <p class="text-secondary mt-1">
-                    Check that the NFS share is properly mounted at <code class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono text-xs">{{ storageDetection?.environment?.nfs_mount_point || '/mnt/backups' }}</code>
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-4">
-              <label class="block text-sm font-medium text-primary mb-2">Custom NFS Path</label>
-              <div class="flex gap-3">
-                <input
-                  v-model="form.nfs_storage_path"
-                  type="text"
-                  class="input-field flex-1 font-mono"
-                  placeholder="/mnt/backups"
-                />
-                <button
-                  @click="validatePath(form.nfs_storage_path)"
-                  :disabled="validatingPath || !form.nfs_storage_path"
-                  class="btn-secondary px-4"
-                >
-                  {{ validatingPath ? 'Checking...' : 'Validate' }}
-                </button>
-              </div>
-            </div>
-
-            <div class="mt-4 flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-              <div>
-                <p class="font-medium text-primary">Enable NFS Storage</p>
-                <p class="text-sm text-secondary">Store final backups on NFS network storage</p>
-              </div>
-              <button
-                @click="form.nfs_enabled = !form.nfs_enabled"
-                :class="[
-                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                  form.nfs_enabled ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'
-                ]"
-              >
-                <span :class="['inline-block h-4 w-4 transform rounded-full bg-white transition-transform', form.nfs_enabled ? 'translate-x-6' : 'translate-x-1']" />
-              </button>
+              </label>
             </div>
           </div>
         </div>
 
-        <!-- Backup Workflow Section -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('backupWorkflow')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30">
-                <ArrowRightIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Backup Workflow</h3>
-                <p class="text-sm text-secondary">How backups are created and stored</p>
-              </div>
-            </div>
-            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.backupWorkflow ? 'rotate-180' : '']" />
-          </button>
-
-          <div v-if="sections.backupWorkflow" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div class="mt-4 space-y-3">
-              <label
-                :class="[
-                  'flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all',
-                  form.backup_workflow === 'direct'
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
-                ]"
-              >
-                <input type="radio" v-model="form.backup_workflow" value="direct" class="mt-1 h-4 w-4 text-blue-500" />
-                <div class="flex-1">
-                  <p class="font-medium text-primary">Direct to Destination</p>
-                  <p class="text-sm text-secondary mt-1">Faster but less safe if network issues occur</p>
+        <!-- STEP 2: Backup Workflow (only if NFS selected) -->
+        <Transition name="slide-fade">
+          <div v-if="form.storage_preference === 'nfs'" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <button
+              @click="toggleSection('backupWorkflow')"
+              class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+            >
+              <div class="flex items-center gap-3">
+                <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-500 text-white font-bold text-sm">
+                  2
                 </div>
-              </label>
-
-              <label
-                :class="[
-                  'flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all',
+                <div class="text-left">
+                  <h3 class="font-semibold text-primary">Backup Workflow</h3>
+                  <p class="text-sm text-secondary">How backups are transferred to NFS</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span :class="[
+                  'px-2.5 py-1 rounded-full text-xs font-medium',
                   form.backup_workflow === 'stage_then_copy'
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
-                ]"
-              >
-                <input type="radio" v-model="form.backup_workflow" value="stage_then_copy" class="mt-1 h-4 w-4 text-blue-500" />
-                <div class="flex-1">
-                  <div class="flex items-center gap-2">
-                    <p class="font-medium text-primary">Stage Locally, Then Copy</p>
-                    <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">Recommended</span>
-                  </div>
-                  <p class="text-sm text-secondary mt-1">Safer - verify locally before copying to NFS</p>
-                </div>
-              </label>
-            </div>
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400'
+                ]">
+                  {{ form.backup_workflow === 'stage_then_copy' ? 'Stage & Copy' : 'Direct' }}
+                </span>
+                <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.backupWorkflow ? 'rotate-180' : '']" />
+              </div>
+            </button>
 
-            <div v-if="form.nfs_enabled" class="mt-4">
-              <label class="block text-sm font-medium text-primary mb-2">Final Storage Location</label>
-              <select v-model="form.storage_preference" class="input-field w-full">
-                <option value="nfs">NFS only</option>
-                <option value="local">Local only</option>
-                <option value="both">Both (redundant)</option>
-              </select>
+            <div v-if="sections.backupWorkflow" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
+              <div class="mt-4 space-y-3">
+                <!-- Direct to NFS Option -->
+                <label
+                  :class="[
+                    'flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all',
+                    form.backup_workflow === 'direct'
+                      ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                  ]"
+                >
+                  <input type="radio" v-model="form.backup_workflow" value="direct" class="mt-1 h-4 w-4 text-indigo-500" />
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <p class="font-medium text-primary">Direct to NFS</p>
+                    </div>
+                    <p class="text-sm text-secondary mt-1">Write backups directly to NFS. Faster, but may be incomplete if network issues occur during backup.</p>
+                    <div class="mt-2 flex items-center gap-4 text-xs">
+                      <span class="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                        <CheckIcon class="h-3 w-3" /> Faster
+                      </span>
+                      <span class="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                        <ExclamationTriangleIcon class="h-3 w-3" /> Network-dependent
+                      </span>
+                    </div>
+                  </div>
+                </label>
+
+                <!-- Stage Locally, Then Copy Option -->
+                <label
+                  :class="[
+                    'flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all',
+                    form.backup_workflow === 'stage_then_copy'
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-emerald-300'
+                  ]"
+                >
+                  <input type="radio" v-model="form.backup_workflow" value="stage_then_copy" class="mt-1 h-4 w-4 text-emerald-500" />
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <p class="font-medium text-primary">Stage Locally, Then Copy</p>
+                      <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">Recommended</span>
+                    </div>
+                    <p class="text-sm text-secondary mt-1">Create backup locally first, verify integrity, then copy to NFS. Ensures backup completes successfully before transfer.</p>
+                    <div class="mt-2 flex items-center gap-4 text-xs">
+                      <span class="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                        <CheckIcon class="h-3 w-3" /> Reliable
+                      </span>
+                      <span class="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                        <CheckIcon class="h-3 w-3" /> Verified
+                      </span>
+                      <span class="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                        <CircleStackIcon class="h-3 w-3" /> Uses staging area
+                      </span>
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </Transition>
+
+        <!-- STEP 3: Local Staging Area (only if Stage & Copy workflow selected) -->
+        <Transition name="slide-fade">
+          <div v-if="form.storage_preference === 'nfs' && form.backup_workflow === 'stage_then_copy'" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <button
+              @click="toggleSection('stagingArea')"
+              class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+            >
+              <div class="flex items-center gap-3">
+                <div class="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500 text-white font-bold text-sm">
+                  3
+                </div>
+                <div class="text-left">
+                  <h3 class="font-semibold text-primary">Local Staging Area</h3>
+                  <p class="text-sm text-secondary">Temporary storage for backup creation</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span v-if="stagingArea?.is_writable" class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                  Ready
+                </span>
+                <span v-else class="px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                  Not Available
+                </span>
+                <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.stagingArea ? 'rotate-180' : '']" />
+              </div>
+            </button>
+
+            <div v-if="sections.stagingArea" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
+              <div class="mt-4 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <div class="flex items-start gap-3">
+                  <InformationCircleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div class="text-sm">
+                    <p class="font-medium text-amber-800 dark:text-amber-300">How Staging Works</p>
+                    <p class="text-amber-700 dark:text-amber-400 mt-1">
+                      Backups are created in the staging area first, verified for integrity, then copied to the final NFS destination.
+                      The local copy is removed after successful transfer.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/40">
+                      <FolderIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div>
+                      <p class="font-mono text-sm font-medium text-primary">{{ stagingArea?.path || '/app/backups' }}</p>
+                      <p class="text-xs text-secondary mt-0.5">
+                        <span v-if="stagingArea?.is_writable" class="text-emerald-600 dark:text-emerald-400">Available</span>
+                        <span v-else class="text-red-500">Not writable</span>
+                        <span v-if="stagingArea?.free_space_gb" class="ml-2">{{ stagingArea.free_space_gb }} GB free</span>
+                      </p>
+                    </div>
+                  </div>
+                  <span class="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                    Staging
+                  </span>
+                </div>
+              </div>
+
+              <!-- Workflow Visualization -->
+              <div class="mt-4 p-4 rounded-lg bg-gradient-to-r from-blue-50 via-amber-50 to-emerald-50 dark:from-blue-900/10 dark:via-amber-900/10 dark:to-emerald-900/10 border border-gray-200 dark:border-gray-700">
+                <p class="text-xs font-medium text-secondary mb-3">Backup Flow</p>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex flex-col items-center gap-1">
+                    <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40">
+                      <CircleStackIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <span class="text-xs text-secondary">Database</span>
+                  </div>
+                  <ArrowRightIcon class="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <div class="flex flex-col items-center gap-1">
+                    <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/40">
+                      <FolderIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <span class="text-xs text-secondary">Staging</span>
+                  </div>
+                  <ArrowRightIcon class="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <div class="flex flex-col items-center gap-1">
+                    <div class="p-2 rounded-lg bg-cyan-100 dark:bg-cyan-900/40">
+                      <ShieldCheckIcon class="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                    </div>
+                    <span class="text-xs text-secondary">Verify</span>
+                  </div>
+                  <ArrowRightIcon class="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <div class="flex flex-col items-center gap-1">
+                    <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
+                      <CloudIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <span class="text-xs text-secondary">NFS</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Transition>
+
+        <!-- Summary Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <h4 class="font-semibold text-primary mb-3">Configuration Summary</h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+              <p class="text-xs font-medium text-secondary uppercase tracking-wide">Destination</p>
+              <p class="text-sm font-medium text-primary mt-1">
+                {{ form.storage_preference === 'nfs' ? 'Network Storage (NFS)' : 'Local Storage' }}
+              </p>
+              <p v-if="form.storage_preference === 'nfs' && form.nfs_storage_path" class="text-xs text-secondary mt-0.5 font-mono">
+                {{ form.nfs_storage_path }}
+              </p>
+            </div>
+            <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+              <p class="text-xs font-medium text-secondary uppercase tracking-wide">Workflow</p>
+              <p class="text-sm font-medium text-primary mt-1">
+                <span v-if="form.storage_preference === 'local'">Direct to Local</span>
+                <span v-else-if="form.backup_workflow === 'stage_then_copy'">Stage & Copy</span>
+                <span v-else>Direct to NFS</span>
+              </p>
+            </div>
+            <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+              <p class="text-xs font-medium text-secondary uppercase tracking-wide">Staging</p>
+              <p class="text-sm font-medium text-primary mt-1">
+                <span v-if="form.storage_preference === 'nfs' && form.backup_workflow === 'stage_then_copy'">
+                  Enabled
+                </span>
+                <span v-else class="text-secondary">Not Used</span>
+              </p>
             </div>
           </div>
         </div>
@@ -936,7 +1049,7 @@ onMounted(() => {
 
       <!-- Notifications Tab -->
       <div v-if="activeTab === 'notifications'" class="space-y-4">
-        <!-- Channel Selection First (Required) -->
+        <!-- Channel Selection (Multi-select) -->
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <button
             @click="toggleSection('notifyChannels')"
@@ -947,16 +1060,16 @@ onMounted(() => {
                 <ServerIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               </div>
               <div class="text-left">
-                <h3 class="font-semibold text-primary">Notification Channel</h3>
-                <p class="text-sm text-secondary">Select where to send backup notifications</p>
+                <h3 class="font-semibold text-primary">Notification Channels</h3>
+                <p class="text-sm text-secondary">Select channels to receive backup notifications</p>
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <span v-if="form.notification_channel_id" class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">
-                Selected
+              <span v-if="selectedChannelCount > 0" class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">
+                {{ selectedChannelCount }} selected
               </span>
               <span v-else class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                Required
+                None selected
               </span>
               <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.notifyChannels ? 'rotate-180' : '']" />
             </div>
@@ -964,13 +1077,14 @@ onMounted(() => {
 
           <div v-if="sections.notifyChannels" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
             <!-- Configure Notifications Button -->
-            <div class="mt-4 flex justify-end">
+            <div class="mt-4 flex items-center justify-between">
+              <p class="text-sm text-secondary">Select one or more channels to receive notifications</p>
               <button
                 @click="router.push('/notifications')"
                 class="btn-secondary text-sm flex items-center gap-2"
               >
                 <Cog6ToothIcon class="h-4 w-4" />
-                Configure Notification Channels
+                Manage Channels
               </button>
             </div>
 
@@ -978,81 +1092,79 @@ onMounted(() => {
               <LoadingSpinner text="Loading notification channels..." />
             </div>
 
-            <div v-else-if="allNotificationChannels.length > 0" class="mt-4 space-y-3">
-              <p class="text-sm font-medium text-secondary">Select a channel or group to receive backup notifications</p>
-
-              <!-- Services -->
+            <div v-else-if="allNotificationChannels.length > 0" class="mt-4 space-y-4">
+              <!-- Services (Checkboxes) -->
               <div v-if="notificationServices.length > 0">
                 <p class="text-xs font-medium text-muted uppercase tracking-wide mb-2">Channels</p>
                 <div class="space-y-2">
-                  <div
+                  <label
                     v-for="channel in allNotificationChannels.filter(c => c.type === 'service')"
                     :key="`service-${channel.id}`"
                     :class="[
-                      'p-4 rounded-lg border-2 cursor-pointer transition-all',
-                      form.notification_channel_id === channel.id && form.notification_channel_type === 'service'
+                      'flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all',
+                      isChannelSelected(channel)
                         ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
                         : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
                     ]"
-                    @click="selectNotificationChannel(channel)"
                   >
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-3">
-                        <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/40">
-                          <BellIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                        </div>
-                        <div>
-                          <p class="font-medium text-primary">{{ channel.name }}</p>
-                          <p class="text-xs text-secondary">{{ channel.description }}</p>
-                        </div>
+                    <input
+                      type="checkbox"
+                      :checked="isChannelSelected(channel)"
+                      @change="toggleNotificationChannel(channel)"
+                      class="h-4 w-4 rounded border-gray-300 text-indigo-500 focus:ring-indigo-500"
+                    />
+                    <div class="flex items-center gap-3 flex-1">
+                      <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/40">
+                        <BellIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                       </div>
-                      <div v-if="form.notification_channel_id === channel.id && form.notification_channel_type === 'service'" class="p-1.5 rounded-full bg-indigo-500">
-                        <CheckIcon class="h-4 w-4 text-white" />
+                      <div>
+                        <p class="font-medium text-primary">{{ channel.name }}</p>
+                        <p class="text-xs text-secondary">{{ channel.description }}</p>
                       </div>
                     </div>
-                  </div>
+                  </label>
                 </div>
               </div>
 
-              <!-- Groups -->
-              <div v-if="notificationGroups.length > 0" class="mt-4">
+              <!-- Groups (Checkboxes) -->
+              <div v-if="notificationGroups.length > 0">
                 <p class="text-xs font-medium text-muted uppercase tracking-wide mb-2">Groups</p>
                 <div class="space-y-2">
-                  <div
+                  <label
                     v-for="channel in allNotificationChannels.filter(c => c.type === 'group')"
                     :key="`group-${channel.id}`"
                     :class="[
-                      'p-4 rounded-lg border-2 cursor-pointer transition-all',
-                      form.notification_channel_id === channel.id && form.notification_channel_type === 'group'
+                      'flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all',
+                      isChannelSelected(channel)
                         ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                         : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
                     ]"
-                    @click="selectNotificationChannel(channel)"
                   >
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-3">
-                        <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/40">
-                          <FolderIcon class="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                        </div>
-                        <div>
-                          <p class="font-medium text-primary">{{ channel.name }}</p>
-                          <p class="text-xs text-secondary">{{ channel.description }}</p>
-                        </div>
+                    <input
+                      type="checkbox"
+                      :checked="isChannelSelected(channel)"
+                      @change="toggleNotificationChannel(channel)"
+                      class="h-4 w-4 rounded border-gray-300 text-purple-500 focus:ring-purple-500"
+                    />
+                    <div class="flex items-center gap-3 flex-1">
+                      <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/40">
+                        <FolderIcon class="h-5 w-5 text-purple-600 dark:text-purple-400" />
                       </div>
-                      <div v-if="form.notification_channel_id === channel.id && form.notification_channel_type === 'group'" class="p-1.5 rounded-full bg-purple-500">
-                        <CheckIcon class="h-4 w-4 text-white" />
+                      <div>
+                        <p class="font-medium text-primary">{{ channel.name }}</p>
+                        <p class="text-xs text-secondary">{{ channel.description }}</p>
                       </div>
                     </div>
-                  </div>
+                  </label>
                 </div>
               </div>
 
               <button
-                v-if="form.notification_channel_id"
-                @click="clearNotificationChannel"
+                v-if="selectedChannelCount > 0"
+                @click="clearAllNotificationChannels"
                 class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
               >
-                Clear selection
+                Clear all selections
               </button>
             </div>
 
@@ -1076,7 +1188,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Notification Triggers (only show if channel selected) -->
+        <!-- Notification Triggers -->
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <button
             @click="toggleSection('notifySettings')"
@@ -1092,7 +1204,7 @@ onMounted(() => {
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <span v-if="!canEnableNotifications" class="text-xs text-amber-600 dark:text-amber-400">Select channel first</span>
+              <span v-if="!canEnableNotifications" class="text-xs text-amber-600 dark:text-amber-400">Select channels first</span>
               <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.notifySettings ? 'rotate-180' : '']" />
             </div>
           </button>
@@ -1100,7 +1212,7 @@ onMounted(() => {
           <div v-if="sections.notifySettings" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
             <div v-if="!canEnableNotifications" class="mt-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
               <p class="text-sm text-amber-700 dark:text-amber-400">
-                Please select a notification channel above before enabling notifications.
+                Please select at least one notification channel above before enabling notifications.
               </p>
             </div>
 
@@ -1146,137 +1258,24 @@ onMounted(() => {
           </div>
         </div>
       </div>
-
-      <!-- Verification Tab -->
-      <div v-if="activeTab === 'verification'" class="space-y-4">
-        <!-- Auto Verification -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('autoVerify')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-cyan-100 to-blue-100 dark:from-cyan-900/30 dark:to-blue-900/30">
-                <ShieldCheckIcon class="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Automatic Verification</h3>
-                <p class="text-sm text-secondary">Auto-verify backups after creation</p>
-              </div>
-            </div>
-            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.autoVerify ? 'rotate-180' : '']" />
-          </button>
-
-          <div v-if="sections.autoVerify" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div class="mt-4 space-y-3">
-              <div class="flex items-center justify-between p-4 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
-                <div>
-                  <p class="font-medium text-cyan-800 dark:text-cyan-300">Auto-verify Backups</p>
-                  <p class="text-sm text-cyan-700 dark:text-cyan-400">Automatically verify backups on a schedule</p>
-                </div>
-                <button
-                  @click="form.auto_verify_enabled = !form.auto_verify_enabled"
-                  :class="[
-                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                    form.auto_verify_enabled ? 'bg-cyan-500' : 'bg-gray-300 dark:bg-gray-600'
-                  ]"
-                >
-                  <span :class="['inline-block h-4 w-4 transform rounded-full bg-white transition-transform', form.auto_verify_enabled ? 'translate-x-6' : 'translate-x-1']" />
-                </button>
-              </div>
-
-              <div class="flex items-center justify-between p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-                <div>
-                  <p class="font-medium text-blue-800 dark:text-blue-300">Verify After Backup</p>
-                  <p class="text-sm text-blue-700 dark:text-blue-400">Run verification immediately after each backup</p>
-                </div>
-                <button
-                  @click="form.verify_after_backup = !form.verify_after_backup"
-                  :class="[
-                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                    form.verify_after_backup ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
-                  ]"
-                >
-                  <span :class="['inline-block h-4 w-4 transform rounded-full bg-white transition-transform', form.verify_after_backup ? 'translate-x-6' : 'translate-x-1']" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Manual Verification -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('manualVerify')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/30 dark:to-teal-900/30">
-                <PlayIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Manual Verification</h3>
-                <p class="text-sm text-secondary">Verify a specific backup now</p>
-              </div>
-            </div>
-            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.manualVerify ? 'rotate-180' : '']" />
-          </button>
-
-          <div v-if="sections.manualVerify" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div v-if="loadingBackups" class="mt-4 flex justify-center py-8">
-              <LoadingSpinner text="Loading backups..." />
-            </div>
-
-            <div v-else-if="verifiableBackups.length > 0" class="mt-4 space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-primary mb-2">Select Backup to Verify</label>
-                <select v-model="selectedBackupId" class="input-field w-full">
-                  <option :value="null">-- Select a backup --</option>
-                  <option v-for="backup in verifiableBackups" :key="backup.id" :value="backup.id">
-                    {{ formatDate(backup.created_at) }} - {{ backup.type }} ({{ formatBytes(backup.size_bytes) }})
-                    <span v-if="backup.verification_status">- {{ backup.verification_status }}</span>
-                  </option>
-                </select>
-              </div>
-
-              <button
-                @click="runManualVerification"
-                :disabled="!selectedBackupId || verifying"
-                class="btn-primary w-full flex items-center justify-center gap-2"
-              >
-                <ArrowPathIcon v-if="verifying" class="h-4 w-4 animate-spin" />
-                <ShieldCheckIcon v-else class="h-4 w-4" />
-                {{ verifying ? 'Verifying...' : 'Run Verification' }}
-              </button>
-
-              <div v-if="verificationResult && !verificationResult.error" class="p-4 rounded-lg" :class="verificationResult.overall_status === 'passed' ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'">
-                <div class="flex items-center gap-2 mb-2">
-                  <CheckCircleIcon v-if="verificationResult.overall_status === 'passed'" class="h-5 w-5 text-emerald-500" />
-                  <XMarkIcon v-else class="h-5 w-5 text-red-500" />
-                  <span class="font-medium" :class="verificationResult.overall_status === 'passed' ? 'text-emerald-800 dark:text-emerald-300' : 'text-red-800 dark:text-red-300'">
-                    Verification {{ verificationResult.overall_status }}
-                  </span>
-                </div>
-                <div v-if="verificationResult.checks" class="text-sm text-secondary">
-                  <p v-for="(check, key) in verificationResult.checks" :key="key">
-                    {{ key }}: {{ check.status }}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div v-else class="mt-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-              <div class="flex items-start gap-3">
-                <InformationCircleIcon class="h-5 w-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                <div class="text-sm">
-                  <p class="font-medium text-primary">No Backups Available</p>
-                  <p class="text-secondary mt-1">Create a backup first to verify it.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </template>
   </div>
 </template>
+
+<style scoped>
+/* Slide-fade transition for conditional sections */
+.slide-fade-enter-active {
+  transition: all 0.3s ease-out;
+}
+.slide-fade-leave-active {
+  transition: all 0.2s ease-in;
+}
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+</style>
