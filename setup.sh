@@ -451,6 +451,7 @@ SAVED_ADMIN_PASS="$ADMIN_PASS"
 SAVED_NFS_CONFIGURED="$NFS_CONFIGURED"
 SAVED_NFS_SERVER="$NFS_SERVER"
 SAVED_NFS_PATH="$NFS_PATH"
+SAVED_NFS_LOCAL_MOUNT="$NFS_LOCAL_MOUNT"
 
 # Optional Services
 SAVED_INSTALL_PORTAINER="$INSTALL_PORTAINER"
@@ -510,6 +511,7 @@ load_state() {
         NFS_CONFIGURED="${SAVED_NFS_CONFIGURED:-false}"
         NFS_SERVER="${SAVED_NFS_SERVER:-}"
         NFS_PATH="${SAVED_NFS_PATH:-}"
+        NFS_LOCAL_MOUNT="${SAVED_NFS_LOCAL_MOUNT:-}"
 
         INSTALL_PORTAINER="${SAVED_INSTALL_PORTAINER:-false}"
         INSTALL_PORTAINER_AGENT="${SAVED_INSTALL_PORTAINER_AGENT:-false}"
@@ -1043,6 +1045,7 @@ configure_nfs() {
 
     echo ""
     echo -e "  ${GRAY}NFS storage allows centralized backup storage on a remote server.${NC}"
+    echo -e "  ${GRAY}The NFS share will be mounted on this host and bind-mounted into Docker.${NC}"
     echo -e "  ${GRAY}If you skip this, backups will be stored locally in the container.${NC}"
     echo ""
 
@@ -1050,6 +1053,7 @@ configure_nfs() {
         NFS_CONFIGURED="false"
         NFS_SERVER=""
         NFS_PATH=""
+        NFS_LOCAL_MOUNT=""
         print_info "Skipping NFS configuration. Backups will be stored locally."
         return
     fi
@@ -1146,7 +1150,7 @@ configure_nfs() {
     # Manual entry fallback
     if [ "$use_manual_entry" = true ]; then
         echo ""
-        echo -ne "${WHITE}  NFS export path (e.g., /mnt/backups)${NC}: "
+        echo -ne "${WHITE}  NFS export path (e.g., /exports/backups)${NC}: "
         read nfs_path
 
         if [ -z "$nfs_path" ]; then
@@ -1156,6 +1160,15 @@ configure_nfs() {
         fi
     fi
 
+    # Get local mount point on host
+    echo ""
+    echo -e "  ${GRAY}Choose where to mount the NFS share on this host.${NC}"
+    echo -e "  ${GRAY}This directory will be created if it doesn't exist.${NC}"
+    echo ""
+    echo -ne "${WHITE}  Local mount point [/opt/n8n_backups]${NC}: "
+    read nfs_local_mount
+    nfs_local_mount="${nfs_local_mount:-/opt/n8n_backups}"
+
     # Test the selected/entered mount with retry loop
     while true; do
         print_info "Testing NFS mount: ${nfs_server}:${nfs_path}..."
@@ -1163,12 +1176,49 @@ configure_nfs() {
         mkdir -p "$test_mount"
 
         if mount -t nfs -o ro,nolock,soft,timeo=10 "${nfs_server}:${nfs_path}" "$test_mount" 2>/dev/null; then
-            print_success "NFS mount successful"
+            print_success "NFS mount test successful"
             umount "$test_mount" 2>/dev/null || true
             rmdir "$test_mount" 2>/dev/null || true
 
+            # Create local mount point
+            print_info "Creating local mount point: $nfs_local_mount"
+            mkdir -p "$nfs_local_mount"
+
+            # Check if already in fstab
+            if grep -q "${nfs_server}:${nfs_path}" /etc/fstab 2>/dev/null; then
+                print_warning "NFS entry already exists in /etc/fstab, updating..."
+                # Remove old entry
+                sudo sed -i "\|${nfs_server}:${nfs_path}|d" /etc/fstab
+            fi
+
+            # Add to fstab
+            print_info "Adding NFS mount to /etc/fstab..."
+            echo "${nfs_server}:${nfs_path} ${nfs_local_mount} nfs defaults,_netdev 0 0" | sudo tee -a /etc/fstab > /dev/null
+
+            # Mount the NFS share
+            print_info "Mounting NFS share..."
+            if mount "$nfs_local_mount" 2>/dev/null; then
+                print_success "NFS share mounted at $nfs_local_mount"
+            else
+                # Try with explicit options
+                if mount -t nfs -o rw,nolock,soft "${nfs_server}:${nfs_path}" "$nfs_local_mount" 2>/dev/null; then
+                    print_success "NFS share mounted at $nfs_local_mount"
+                else
+                    print_error "Failed to mount NFS share. Check /etc/fstab and try 'mount -a'"
+                fi
+            fi
+
+            # Verify mount is writable
+            if touch "${nfs_local_mount}/.n8n_test_write" 2>/dev/null; then
+                rm -f "${nfs_local_mount}/.n8n_test_write"
+                print_success "NFS share is writable"
+            else
+                print_warning "NFS share may not be writable - check permissions on NFS server"
+            fi
+
             NFS_SERVER="$nfs_server"
             NFS_PATH="$nfs_path"
+            NFS_LOCAL_MOUNT="$nfs_local_mount"
             NFS_CONFIGURED="true"
 
             save_state "nfs" "complete"
@@ -1207,6 +1257,7 @@ configure_nfs() {
                     ;;
                 3)
                     NFS_CONFIGURED="false"
+                    NFS_LOCAL_MOUNT=""
                     print_info "Continuing without NFS. Backups will be stored locally."
                     return
                     ;;
@@ -1988,6 +2039,7 @@ TIMEZONE=${N8N_TIMEZONE}
 # ===========================================
 NFS_SERVER=${NFS_SERVER:-}
 NFS_PATH=${NFS_PATH:-}
+NFS_LOCAL_MOUNT=${NFS_LOCAL_MOUNT:-}
 
 # ===========================================
 # Optional: Cloudflare Tunnel
@@ -2127,9 +2179,10 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=false
-      # NFS Configuration
-      - NFS_SERVER=${NFS_SERVER:-}
-      - NFS_PATH=${NFS_PATH:-}
+      # NFS Configuration (host-level mount, bind-mounted into container)
+      - NFS_SERVER=\${NFS_SERVER:-}
+      - NFS_PATH=\${NFS_PATH:-}
+      - NFS_LOCAL_MOUNT=\${NFS_LOCAL_MOUNT:-}
       # Timezone
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # n8n API Integration (for creating test workflows)
@@ -2173,10 +2226,10 @@ EOF
       - ./.env:/app/host_env/.env:rw
 EOF
 
-    # Add NFS mount if configured
-    if [ "$NFS_CONFIGURED" = "true" ] && [ -n "$NFS_SERVER" ]; then
+    # Add NFS bind mount if configured (host-level NFS mount)
+    if [ "$NFS_CONFIGURED" = "true" ] && [ -n "$NFS_LOCAL_MOUNT" ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-      - nfs_backups:/mnt/backups
+      - ${NFS_LOCAL_MOUNT}:/mnt/backups
 EOF
     fi
 
@@ -2456,17 +2509,8 @@ volumes:
     driver: local
 EOF
 
-    # Add NFS volume if configured
-    if [ "$NFS_CONFIGURED" = "true" ] && [ -n "$NFS_SERVER" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
-  nfs_backups:
-    driver: local
-    driver_opts:
-      type: nfs
-      o: addr=${NFS_SERVER},rw,nolock,soft
-      device: ":${NFS_PATH}"
-EOF
-    fi
+    # NFS is now mounted at host level and bind-mounted into container
+    # No Docker NFS volume needed - using ${NFS_LOCAL_MOUNT}:/mnt/backups bind mount
 
     # Add Tailscale volume if configured
     if [ "$INSTALL_TAILSCALE" = true ]; then

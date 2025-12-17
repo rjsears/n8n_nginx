@@ -1437,6 +1437,7 @@ async def detect_storage_locations(
         "environment": {
             "backup_staging_dir": settings.backup_staging_dir,
             "nfs_mount_point": settings.nfs_mount_point,
+            "nfs_local_mount": settings.nfs_local_mount,
             "nfs_server": settings.nfs_server,
             "nfs_path": settings.nfs_path,
             "nfs_configured": bool(settings.nfs_server),

@@ -54,10 +54,11 @@ class Settings(BaseSettings):
     # Password hashing
     bcrypt_rounds: int = Field(default=12, description="Bcrypt hashing rounds")
 
-    # NFS Configuration
+    # NFS Configuration (host-level mount, bind-mounted into container)
     nfs_server: Optional[str] = Field(default=None, description="NFS server hostname")
-    nfs_path: Optional[str] = Field(default=None, description="NFS export path")
-    nfs_mount_point: str = Field(default="/mnt/backups", description="Local mount point for NFS")
+    nfs_path: Optional[str] = Field(default=None, description="NFS export path on remote server")
+    nfs_local_mount: Optional[str] = Field(default=None, description="Host-level NFS mount point (e.g., /opt/n8n_backups)")
+    nfs_mount_point: str = Field(default="/mnt/backups", description="Container mount point for NFS (bind-mounted from host)")
 
     # Backup settings
     backup_staging_dir: str = Field(default="/app/backups", description="Local backup staging directory")
