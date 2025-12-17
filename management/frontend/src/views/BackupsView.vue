@@ -10,6 +10,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import BackupContentsDialog from '@/components/backups/BackupContentsDialog.vue'
 import SystemRestoreDialog from '@/components/backups/SystemRestoreDialog.vue'
+import BackupSettingsDialog from '@/components/backups/BackupSettingsDialog.vue'
 import {
   CircleStackIcon,
   PlayIcon,
@@ -40,6 +41,7 @@ const restoreDialog = ref({ open: false, backup: null })
 const protectingBackup = ref(null)
 const verifyingBackup = ref(null)
 const scheduleDialog = ref({ open: false, loading: false })
+const settingsDialog = ref(false)
 
 // Backup schedule (would come from API)
 const schedule = ref({
@@ -344,7 +346,7 @@ onMounted(loadData)
       <!-- Schedule Card -->
       <Card title="Backup Schedule" :neon="true">
         <template #actions>
-          <button @click="openScheduleDialog" class="btn-secondary text-sm flex items-center gap-1">
+          <button @click="settingsDialog = true" class="btn-secondary text-sm flex items-center gap-1">
             <Cog6ToothIcon class="h-4 w-4" />
             Configure
           </button>
@@ -559,7 +561,14 @@ onMounted(loadData)
       @restored="handleSystemRestored"
     />
 
-    <!-- Schedule Configuration Dialog -->
+    <!-- Backup Settings Dialog -->
+    <BackupSettingsDialog
+      :open="settingsDialog"
+      @close="settingsDialog = false"
+      @saved="loadData"
+    />
+
+    <!-- Schedule Configuration Dialog (Legacy) -->
     <Teleport to="body">
       <div v-if="scheduleDialog.open" class="fixed inset-0 z-50 flex items-center justify-center">
         <div class="absolute inset-0 bg-black/50" @click="scheduleDialog.open = false"></div>

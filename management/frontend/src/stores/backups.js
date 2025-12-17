@@ -465,6 +465,46 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
+  // ============================================================================
+  // Backup Configuration
+  // ============================================================================
+
+  const configuration = ref(null)
+
+  async function fetchConfiguration() {
+    try {
+      const response = await api.get('/backups/configuration')
+      configuration.value = response.data
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch configuration'
+      throw err
+    }
+  }
+
+  async function updateConfiguration(updates) {
+    try {
+      const response = await api.put('/backups/configuration', updates)
+      configuration.value = response.data
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to update configuration'
+      throw err
+    }
+  }
+
+  async function validateStoragePath(path) {
+    try {
+      const response = await api.post('/backups/configuration/validate-path', null, {
+        params: { path }
+      })
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to validate path'
+      throw err
+    }
+  }
+
   return {
     // State
     schedules,
@@ -522,5 +562,10 @@ export const useBackupStore = defineStore('backups', () => {
     cancelDeletion,
     runPruning,
     executePendingDeletions,
+    // Backup Configuration
+    configuration,
+    fetchConfiguration,
+    updateConfiguration,
+    validateStoragePath,
   }
 })

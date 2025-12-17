@@ -287,3 +287,59 @@ class BackupPruningSettings(Base):
 
     def __repr__(self):
         return f"<BackupPruningSettings(id={self.id})>"
+
+
+class BackupConfiguration(Base):
+    """
+    Comprehensive backup configuration settings.
+    Single row table (singleton pattern).
+    """
+
+    __tablename__ = "backup_configuration"
+
+    id = Column(Integer, primary_key=True)
+
+    # Storage Settings
+    primary_storage_path = Column(String(500), default="/app/backups")
+    nfs_storage_path = Column(String(500), nullable=True)
+    nfs_enabled = Column(Boolean, default=False)
+    storage_preference = Column(String(20), default="local")  # 'local', 'nfs', 'both'
+
+    # Compression Settings
+    compression_enabled = Column(Boolean, default=True)
+    compression_algorithm = Column(String(20), default="gzip")  # 'gzip', 'zstd', 'none'
+    compression_level = Column(Integer, default=6)  # 1-9 for gzip, 1-22 for zstd
+
+    # Retention Settings
+    retention_enabled = Column(Boolean, default=True)
+    retention_days = Column(Integer, default=30)  # Keep backups for X days
+    retention_count = Column(Integer, default=10)  # Keep at least X backups
+    retention_min_count = Column(Integer, default=3)  # Never delete below X backups
+
+    # Schedule Settings
+    schedule_enabled = Column(Boolean, default=True)
+    schedule_frequency = Column(String(20), default="daily")  # 'hourly', 'daily', 'weekly', 'monthly'
+    schedule_time = Column(String(10), default="02:00")  # HH:MM format
+    schedule_day_of_week = Column(Integer, nullable=True)  # 0-6 for weekly (0=Monday)
+    schedule_day_of_month = Column(Integer, nullable=True)  # 1-31 for monthly
+
+    # Backup Type Settings
+    default_backup_type = Column(String(50), default="postgres_full")
+    include_n8n_config = Column(Boolean, default=True)
+    include_ssl_certs = Column(Boolean, default=True)
+    include_env_files = Column(Boolean, default=True)
+
+    # Notification Settings
+    notify_on_success = Column(Boolean, default=False)
+    notify_on_failure = Column(Boolean, default=True)
+    notification_channel_id = Column(Integer, nullable=True)
+
+    # Verification Settings
+    auto_verify_enabled = Column(Boolean, default=False)
+    verify_after_backup = Column(Boolean, default=False)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    def __repr__(self):
+        return f"<BackupConfiguration(id={self.id})>"

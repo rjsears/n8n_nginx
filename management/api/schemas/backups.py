@@ -324,3 +324,99 @@ class BackupHistoryExtendedResponse(BackupHistoryResponse):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# Backup Configuration Schemas (Comprehensive Settings)
+# ============================================================================
+
+class BackupConfigurationUpdate(BaseModel):
+    """Update backup configuration settings."""
+    # Storage Settings
+    primary_storage_path: Optional[str] = Field(None, max_length=500)
+    nfs_storage_path: Optional[str] = Field(None, max_length=500)
+    nfs_enabled: Optional[bool] = None
+    storage_preference: Optional[str] = Field(None, pattern="^(local|nfs|both)$")
+
+    # Compression Settings
+    compression_enabled: Optional[bool] = None
+    compression_algorithm: Optional[str] = Field(None, pattern="^(gzip|zstd|none)$")
+    compression_level: Optional[int] = Field(None, ge=1, le=22)
+
+    # Retention Settings
+    retention_enabled: Optional[bool] = None
+    retention_days: Optional[int] = Field(None, ge=1, le=365)
+    retention_count: Optional[int] = Field(None, ge=1, le=100)
+    retention_min_count: Optional[int] = Field(None, ge=1, le=50)
+
+    # Schedule Settings
+    schedule_enabled: Optional[bool] = None
+    schedule_frequency: Optional[str] = Field(None, pattern="^(hourly|daily|weekly|monthly)$")
+    schedule_time: Optional[str] = Field(None, pattern="^[0-2][0-9]:[0-5][0-9]$")
+    schedule_day_of_week: Optional[int] = Field(None, ge=0, le=6)
+    schedule_day_of_month: Optional[int] = Field(None, ge=1, le=31)
+
+    # Backup Type Settings
+    default_backup_type: Optional[str] = None
+    include_n8n_config: Optional[bool] = None
+    include_ssl_certs: Optional[bool] = None
+    include_env_files: Optional[bool] = None
+
+    # Notification Settings
+    notify_on_success: Optional[bool] = None
+    notify_on_failure: Optional[bool] = None
+    notification_channel_id: Optional[int] = None
+
+    # Verification Settings
+    auto_verify_enabled: Optional[bool] = None
+    verify_after_backup: Optional[bool] = None
+
+
+class BackupConfigurationResponse(BaseModel):
+    """Backup configuration response."""
+    id: int
+
+    # Storage Settings
+    primary_storage_path: str
+    nfs_storage_path: Optional[str] = None
+    nfs_enabled: bool
+    storage_preference: str
+
+    # Compression Settings
+    compression_enabled: bool
+    compression_algorithm: str
+    compression_level: int
+
+    # Retention Settings
+    retention_enabled: bool
+    retention_days: int
+    retention_count: int
+    retention_min_count: int
+
+    # Schedule Settings
+    schedule_enabled: bool
+    schedule_frequency: str
+    schedule_time: str
+    schedule_day_of_week: Optional[int] = None
+    schedule_day_of_month: Optional[int] = None
+
+    # Backup Type Settings
+    default_backup_type: str
+    include_n8n_config: bool
+    include_ssl_certs: bool
+    include_env_files: bool
+
+    # Notification Settings
+    notify_on_success: bool
+    notify_on_failure: bool
+    notification_channel_id: Optional[int] = None
+
+    # Verification Settings
+    auto_verify_enabled: bool
+    verify_after_backup: bool
+
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
