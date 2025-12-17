@@ -10,6 +10,7 @@ import os
 
 from api.database import get_db, get_n8n_db
 from api.dependencies import get_current_user
+from api.config import settings
 from api.services.backup_service import BackupService
 from api.schemas.backups import (
     BackupScheduleCreate,

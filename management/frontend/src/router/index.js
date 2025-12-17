@@ -10,6 +10,7 @@ import ContainersView from '@/views/ContainersView.vue'
 import FlowsView from '@/views/FlowsView.vue'
 import SystemView from '@/views/SystemView.vue'
 import SettingsView from '@/views/SettingsView.vue'
+import BackupSettingsView from '@/views/BackupSettingsView.vue'
 
 const routes = [
   {
@@ -28,6 +29,12 @@ const routes = [
     path: '/backups',
     name: 'backups',
     component: BackupsView,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/backup-settings',
+    name: 'backup-settings',
+    component: BackupSettingsView,
     meta: { requiresAuth: true },
   },
   {

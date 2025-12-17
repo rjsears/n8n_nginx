@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useBackupStore } from '@/stores/backups'
 import { useNotificationStore } from '@/stores/notifications'
@@ -29,6 +30,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 
+const router = useRouter()
 const themeStore = useThemeStore()
 const backupStore = useBackupStore()
 const notificationStore = useNotificationStore()
@@ -346,7 +348,7 @@ onMounted(loadData)
       <!-- Schedule Card -->
       <Card title="Backup Schedule" :neon="true">
         <template #actions>
-          <button @click="settingsDialog = true" class="btn-secondary text-sm flex items-center gap-1">
+          <button @click="router.push('/backup-settings')" class="btn-secondary text-sm flex items-center gap-1">
             <Cog6ToothIcon class="h-4 w-4" />
             Configure
           </button>
