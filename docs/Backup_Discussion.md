@@ -792,9 +792,9 @@ For each phase, document:
 This section tracks implementation progress. Update after each completed task, change, or test.
 
 ### Current Status
-- **Current Phase:** Phase 4 - Starting
+- **Current Phase:** Phase 4 - Complete
 - **Last Updated:** December 17, 2024
-- **Last Action:** Completed Phase 3 - Full restore UI with WorkflowRestoreDialog
+- **Last Action:** Completed Phase 4 - Full System Restore with SystemRestoreDialog
 
 ### Phase 1: Enhanced Backup Creation & Archive Format ✅ COMPLETE
 | Task | Status | Notes |
@@ -934,10 +934,42 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 - `frontend/src/components/backups/WorkflowRestoreDialog.vue` - NEW: Restore dialog
 - `frontend/src/components/backups/BackupContentsDialog.vue` - Integrated restore
 
-### Phase 4: Full System Restore
+### Phase 4: Full System Restore ✅ COMPLETE
 | Task | Status | Notes |
 |------|--------|-------|
-| 4.1-4.11 | ⬜ Pending | Not started |
+| 4.1 Implement `restore_full_system()` | ✅ Complete | Full system restore in restore_service.py |
+| 4.2 Add pre-restore safety checks | ✅ Complete | Backup creation option before overwriting |
+| 4.3 Create current-state backup before restore | ✅ Complete | create_backups option in restore |
+| 4.4 Implement database restore (both DBs) | ✅ Complete | `restore_database()` method |
+| 4.5 Implement config file restore | ✅ Complete | `restore_config_file()` with path mappings |
+| 4.6 Implement SSL certificate restore | ✅ Complete | Handled via config file restore |
+| 4.7 Add Phase 4 API endpoints | ✅ Complete | 5 new restore endpoints |
+| 4.8 Create SystemRestoreDialog.vue | ✅ Complete | Full restore UI with preview/confirm/progress |
+| 4.9 Require confirmation to restore | ✅ Complete | Two-step confirm with warning |
+| 4.10 Add restore progress indicator | ✅ Complete | Loading state during restore |
+| 4.11 Restart services notification | ✅ Complete | Post-restore restart notice |
+
+**Phase 4 API Endpoints:**
+- `GET /api/backups/{id}/restore/preview` - Preview what would be restored
+- `GET /api/backups/{id}/restore/config-files` - List config files in backup
+- `POST /api/backups/{id}/restore/config` - Restore specific config file
+- `POST /api/backups/{id}/restore/database` - Restore specific database
+- `POST /api/backups/{id}/restore/full` - Full system restore
+
+**Phase 4 UI Features:**
+- SystemRestoreDialog.vue with 4 steps (preview, confirm, restoring, complete)
+- Select databases, config files, SSL certificates to restore
+- Option to create backups of existing files before overwriting
+- Warning about destructive action
+- Detailed results showing success/failure per item
+- Post-restore notice about container restart
+
+**Files Created/Modified in Phase 4:**
+- `api/services/restore_service.py` - Added ~400 lines: extract_backup_archive, list_config_files_in_backup, restore_config_file, restore_database, get_restore_preview, full_system_restore
+- `api/routers/backups.py` - Added 5 Phase 4 endpoints
+- `frontend/src/stores/backups.js` - Added 8 Phase 4 methods
+- `frontend/src/components/backups/SystemRestoreDialog.vue` - NEW: Full system restore dialog (~600 lines)
+- `frontend/src/views/BackupsView.vue` - Added System Restore button and dialog integration
 
 ### Phase 5: Backup Verification System
 | Task | Status | Notes |
@@ -964,6 +996,8 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 | 2024-12-17 | Phase 2 Complete | UI implementation done - BackupContentsDialog, store methods, view updates |
 | 2024-12-17 | Phase 3 Backend | Restore service, container management, 5 API endpoints |
 | 2024-12-17 | Phase 3 UI | WorkflowRestoreDialog with restore/download options |
+| 2024-12-17 | Phase 4 Backend | Full system restore: databases, configs, SSL certs, 5 API endpoints |
+| 2024-12-17 | Phase 4 UI | SystemRestoreDialog with preview/confirm/progress/results steps |
 
 ### Testing Notes
 *(Record test results, issues found, and resolutions here)*

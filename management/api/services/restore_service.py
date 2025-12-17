@@ -9,6 +9,7 @@ import tarfile
 import tempfile
 import json
 import os
+import shutil
 import logging
 import asyncio
 from datetime import datetime, UTC
@@ -526,3 +527,428 @@ class RestoreService:
             logger.info("Cleaning up idle restore container")
             return await self.teardown_restore_container()
         return True
+
+    # ============================================================================
+    # Phase 4: Full System Restore
+    # ============================================================================
+
+    async def extract_backup_archive(self, backup_id: int) -> Tuple[Optional[str], Dict[str, Any]]:
+        """
+        Extract a backup archive to a temp directory.
+        Returns (temp_dir_path, metadata_dict) or (None, error_dict).
+        """
+        backup = await self.backup_service.get_backup(backup_id)
+        if not backup:
+            return None, {"error": "Backup not found"}
+
+        if not os.path.exists(backup.filepath):
+            return None, {"error": f"Backup file not found: {backup.filepath}"}
+
+        try:
+            temp_dir = tempfile.mkdtemp(prefix="n8n_restore_")
+
+            with tarfile.open(backup.filepath, "r:gz") as tar:
+                tar.extractall(temp_dir)
+
+            # Read metadata
+            metadata_path = os.path.join(temp_dir, "metadata.json")
+            metadata = {}
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+
+            return temp_dir, metadata
+
+        except Exception as e:
+            logger.error(f"Failed to extract backup: {e}")
+            return None, {"error": str(e)}
+
+    async def list_config_files_in_backup(self, backup_id: int) -> List[Dict[str, Any]]:
+        """
+        List config files available in a backup.
+        """
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            return []
+
+        try:
+            config_files = []
+            config_dir = os.path.join(temp_dir, "config")
+
+            if os.path.exists(config_dir):
+                for filename in os.listdir(config_dir):
+                    filepath = os.path.join(config_dir, filename)
+                    if os.path.isfile(filepath):
+                        stat = os.stat(filepath)
+                        config_files.append({
+                            "name": filename,
+                            "path": f"config/{filename}",
+                            "size": stat.st_size,
+                            "exists_in_backup": True,
+                        })
+
+            # Check SSL certificates
+            ssl_dir = os.path.join(temp_dir, "ssl")
+            if os.path.exists(ssl_dir):
+                for domain in os.listdir(ssl_dir):
+                    domain_path = os.path.join(ssl_dir, domain)
+                    if os.path.isdir(domain_path):
+                        for cert_file in os.listdir(domain_path):
+                            cert_path = os.path.join(domain_path, cert_file)
+                            if os.path.isfile(cert_path):
+                                stat = os.stat(cert_path)
+                                config_files.append({
+                                    "name": f"{domain}/{cert_file}",
+                                    "path": f"ssl/{domain}/{cert_file}",
+                                    "size": stat.st_size,
+                                    "exists_in_backup": True,
+                                    "is_ssl": True,
+                                })
+
+            return config_files
+
+        finally:
+            # Cleanup temp dir
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def restore_config_file(
+        self,
+        backup_id: int,
+        config_path: str,
+        target_path: Optional[str] = None,
+        create_backup: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Restore a specific config file from backup.
+
+        Args:
+            backup_id: The backup to restore from
+            config_path: Path within backup (e.g., "config/.env")
+            target_path: Where to restore (if None, uses default location)
+            create_backup: If True, backs up existing file before overwriting
+
+        Returns:
+            Dict with status and details
+        """
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            return {"status": "failed", "error": metadata.get("error", "Extract failed")}
+
+        try:
+            source_path = os.path.join(temp_dir, config_path)
+            if not os.path.exists(source_path):
+                return {"status": "failed", "error": f"Config file not found in backup: {config_path}"}
+
+            # Determine target path
+            if not target_path:
+                # Map backup paths to host paths
+                path_mappings = {
+                    "config/.env": "/app/host_env/.env",
+                    "config/docker-compose.yaml": "/app/host_config/docker-compose.yaml",
+                    "config/nginx.conf": "/app/host_config/nginx.conf",
+                    "config/cloudflare.ini": "/app/host_config/cloudflare.ini",
+                }
+                target_path = path_mappings.get(config_path)
+
+                # Handle SSL paths
+                if config_path.startswith("ssl/"):
+                    ssl_relative = config_path[4:]  # Remove "ssl/" prefix
+                    target_path = f"/etc/letsencrypt/live/{ssl_relative}"
+
+                if not target_path:
+                    return {"status": "failed", "error": f"No target path for: {config_path}"}
+
+            # Create backup of existing file
+            backup_created = None
+            if create_backup and os.path.exists(target_path):
+                backup_path = f"{target_path}.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                shutil.copy2(target_path, backup_path)
+                backup_created = backup_path
+                logger.info(f"Created backup: {backup_created}")
+
+            # Ensure target directory exists
+            target_dir = os.path.dirname(target_path)
+            os.makedirs(target_dir, exist_ok=True)
+
+            # Copy file
+            shutil.copy2(source_path, target_path)
+            logger.info(f"Restored config file: {config_path} -> {target_path}")
+
+            return {
+                "status": "success",
+                "config_path": config_path,
+                "target_path": target_path,
+                "backup_created": backup_created,
+                "message": f"Restored {config_path}",
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to restore config file: {e}")
+            return {"status": "failed", "error": str(e)}
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def restore_database(
+        self,
+        backup_id: int,
+        database_name: str,
+        target_database: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Restore a database from backup to the running PostgreSQL.
+
+        WARNING: This overwrites the target database!
+
+        Args:
+            backup_id: The backup to restore from
+            database_name: Database name in backup (e.g., "n8n")
+            target_database: Target database (defaults to same name)
+
+        Returns:
+            Dict with status and details
+        """
+        if not target_database:
+            target_database = database_name
+
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            return {"status": "failed", "error": metadata.get("error", "Extract failed")}
+
+        try:
+            dump_path = os.path.join(temp_dir, "databases", f"{database_name}.dump")
+            if not os.path.exists(dump_path):
+                return {"status": "failed", "error": f"Database dump not found: {database_name}"}
+
+            # Get connection info
+            host = os.environ.get("POSTGRES_HOST", "postgres")
+            user = os.environ.get("POSTGRES_USER", "n8n")
+            password = os.environ.get("POSTGRES_PASSWORD", "")
+
+            env = {**os.environ, "PGPASSWORD": password}
+
+            # Restore the dump
+            restore_cmd = [
+                "pg_restore",
+                "-h", host,
+                "-U", user,
+                "-d", target_database,
+                "--clean",
+                "--if-exists",
+                "--no-owner",
+                "--no-acl",
+                dump_path,
+            ]
+
+            result = subprocess.run(restore_cmd, capture_output=True, text=True, env=env)
+
+            # pg_restore may return non-zero even for warnings
+            if result.returncode != 0 and "ERROR" in result.stderr:
+                logger.warning(f"pg_restore had errors: {result.stderr}")
+                return {
+                    "status": "partial",
+                    "database": database_name,
+                    "target": target_database,
+                    "warnings": result.stderr,
+                    "message": f"Restored {database_name} with warnings",
+                }
+
+            logger.info(f"Database restored: {database_name} -> {target_database}")
+            return {
+                "status": "success",
+                "database": database_name,
+                "target": target_database,
+                "message": f"Restored database {database_name}",
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to restore database: {e}")
+            return {"status": "failed", "error": str(e)}
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def get_restore_preview(self, backup_id: int) -> Dict[str, Any]:
+        """
+        Get a preview of what would be restored from a backup.
+        Returns lists of databases, config files, and workflows.
+        """
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            return {"status": "failed", "error": metadata.get("error", "Extract failed")}
+
+        try:
+            preview = {
+                "backup_id": backup_id,
+                "backup_type": metadata.get("backup_type", "unknown"),
+                "created_at": metadata.get("created_at"),
+                "databases": [],
+                "config_files": [],
+                "ssl_certificates": [],
+                "workflow_count": metadata.get("workflow_count", 0),
+                "credential_count": metadata.get("credential_count", 0),
+            }
+
+            # Check databases
+            db_dir = os.path.join(temp_dir, "databases")
+            if os.path.exists(db_dir):
+                for filename in os.listdir(db_dir):
+                    if filename.endswith(".dump"):
+                        db_name = filename[:-5]  # Remove .dump
+                        dump_path = os.path.join(db_dir, filename)
+                        stat = os.stat(dump_path)
+                        preview["databases"].append({
+                            "name": db_name,
+                            "size": stat.st_size,
+                            "row_counts": metadata.get("row_counts", {}).get(db_name, {}),
+                        })
+
+            # Check config files
+            config_dir = os.path.join(temp_dir, "config")
+            if os.path.exists(config_dir):
+                for filename in os.listdir(config_dir):
+                    filepath = os.path.join(config_dir, filename)
+                    if os.path.isfile(filepath):
+                        stat = os.stat(filepath)
+                        preview["config_files"].append({
+                            "name": filename,
+                            "size": stat.st_size,
+                        })
+
+            # Check SSL certificates
+            ssl_dir = os.path.join(temp_dir, "ssl")
+            if os.path.exists(ssl_dir):
+                for domain in os.listdir(ssl_dir):
+                    domain_path = os.path.join(ssl_dir, domain)
+                    if os.path.isdir(domain_path):
+                        certs = os.listdir(domain_path)
+                        preview["ssl_certificates"].append({
+                            "domain": domain,
+                            "certificates": certs,
+                        })
+
+            preview["status"] = "success"
+            return preview
+
+        except Exception as e:
+            logger.error(f"Failed to get restore preview: {e}")
+            return {"status": "failed", "error": str(e)}
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def full_system_restore(
+        self,
+        backup_id: int,
+        restore_databases: bool = True,
+        restore_configs: bool = True,
+        restore_ssl: bool = True,
+        database_names: Optional[List[str]] = None,
+        config_files: Optional[List[str]] = None,
+        create_backups: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Perform a full system restore from a backup.
+
+        This is a comprehensive restore that can restore:
+        - Databases (n8n, n8n_management)
+        - Config files (.env, docker-compose.yaml, nginx.conf)
+        - SSL certificates
+
+        WARNING: This will overwrite existing data!
+
+        Args:
+            backup_id: The backup to restore from
+            restore_databases: Whether to restore databases
+            restore_configs: Whether to restore config files
+            restore_ssl: Whether to restore SSL certificates
+            database_names: Specific databases to restore (None = all)
+            config_files: Specific config files to restore (None = all)
+            create_backups: Create backups of existing files before overwriting
+
+        Returns:
+            Dict with comprehensive status
+        """
+        logger.info(f"Starting full system restore from backup {backup_id}")
+
+        results = {
+            "status": "in_progress",
+            "backup_id": backup_id,
+            "databases": [],
+            "config_files": [],
+            "ssl_certificates": [],
+            "errors": [],
+            "warnings": [],
+        }
+
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            return {"status": "failed", "error": metadata.get("error", "Extract failed")}
+
+        try:
+            # Restore databases
+            if restore_databases:
+                db_dir = os.path.join(temp_dir, "databases")
+                if os.path.exists(db_dir):
+                    for filename in os.listdir(db_dir):
+                        if filename.endswith(".dump"):
+                            db_name = filename[:-5]
+                            if database_names and db_name not in database_names:
+                                continue
+
+                            result = await self.restore_database(backup_id, db_name)
+                            results["databases"].append(result)
+                            if result["status"] == "failed":
+                                results["errors"].append(f"Database {db_name}: {result.get('error')}")
+                            elif result["status"] == "partial":
+                                results["warnings"].append(f"Database {db_name}: {result.get('warnings')}")
+
+            # Restore config files
+            if restore_configs:
+                config_dir = os.path.join(temp_dir, "config")
+                if os.path.exists(config_dir):
+                    for filename in os.listdir(config_dir):
+                        if config_files and filename not in config_files:
+                            continue
+
+                        config_path = f"config/{filename}"
+                        result = await self.restore_config_file(
+                            backup_id, config_path, create_backup=create_backups
+                        )
+                        results["config_files"].append(result)
+                        if result["status"] == "failed":
+                            results["errors"].append(f"Config {filename}: {result.get('error')}")
+
+            # Restore SSL certificates
+            if restore_ssl:
+                ssl_dir = os.path.join(temp_dir, "ssl")
+                if os.path.exists(ssl_dir):
+                    for domain in os.listdir(ssl_dir):
+                        domain_path = os.path.join(ssl_dir, domain)
+                        if os.path.isdir(domain_path):
+                            for cert_file in os.listdir(domain_path):
+                                cert_path = f"ssl/{domain}/{cert_file}"
+                                result = await self.restore_config_file(
+                                    backup_id, cert_path, create_backup=create_backups
+                                )
+                                results["ssl_certificates"].append(result)
+                                if result["status"] == "failed":
+                                    results["errors"].append(f"SSL {domain}/{cert_file}: {result.get('error')}")
+
+            # Determine overall status
+            if results["errors"]:
+                results["status"] = "partial" if (results["databases"] or results["config_files"]) else "failed"
+            else:
+                results["status"] = "success"
+
+            results["message"] = f"Restored {len(results['databases'])} databases, {len(results['config_files'])} config files, {len(results['ssl_certificates'])} SSL certs"
+            logger.info(f"Full system restore completed: {results['message']}")
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Full system restore failed: {e}")
+            return {"status": "failed", "error": str(e)}
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)

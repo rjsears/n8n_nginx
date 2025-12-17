@@ -236,6 +236,105 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
+  // Phase 4: Full System Restore
+
+  async function fetchRestorePreview(backupId) {
+    try {
+      const response = await api.get(`/backups/${backupId}/restore/preview`)
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch restore preview'
+      throw err
+    }
+  }
+
+  async function fetchRestoreConfigFiles(backupId) {
+    try {
+      const response = await api.get(`/backups/${backupId}/restore/config-files`)
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch config files'
+      throw err
+    }
+  }
+
+  async function restoreConfigFile(backupId, configPath, targetPath = null, createBackup = true) {
+    try {
+      const response = await api.post(`/backups/${backupId}/restore/config`, {
+        config_path: configPath,
+        target_path: targetPath,
+        create_backup: createBackup,
+      })
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to restore config file'
+      throw err
+    }
+  }
+
+  async function restoreDatabase(backupId, databaseName, targetDatabase = null) {
+    try {
+      const response = await api.post(`/backups/${backupId}/restore/database`, {
+        database_name: databaseName,
+        target_database: targetDatabase,
+      })
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to restore database'
+      throw err
+    }
+  }
+
+  async function fullSystemRestore(backupId, options = {}) {
+    try {
+      const response = await api.post(`/backups/${backupId}/restore/full`, {
+        restore_databases: options.restoreDatabases ?? true,
+        restore_configs: options.restoreConfigs ?? true,
+        restore_ssl: options.restoreSsl ?? true,
+        database_names: options.databaseNames ?? null,
+        config_files: options.configFiles ?? null,
+        create_backups: options.createBackups ?? true,
+      })
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to perform full system restore'
+      throw err
+    }
+  }
+
+  async function restoreWorkflowToN8n(backupId, workflowId, renameFormat = '{name}_backup_{date}') {
+    try {
+      const response = await api.post(`/backups/${backupId}/restore/workflow`, {
+        workflow_id: workflowId,
+        rename_format: renameFormat,
+      })
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to restore workflow'
+      throw err
+    }
+  }
+
+  async function fetchRestoreStatus() {
+    try {
+      const response = await api.get('/backups/restore/status')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch restore status'
+      throw err
+    }
+  }
+
+  async function cleanupRestoreContainer() {
+    try {
+      const response = await api.post('/backups/restore/cleanup')
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to cleanup restore container'
+      throw err
+    }
+  }
+
   return {
     // State
     schedules,
@@ -271,5 +370,14 @@ export const useBackupStore = defineStore('backups', () => {
     fetchProtectedBackups,
     fetchPruningSettings,
     updatePruningSettings,
+    // Phase 4: Full System Restore
+    fetchRestorePreview,
+    fetchRestoreConfigFiles,
+    restoreConfigFile,
+    restoreDatabase,
+    fullSystemRestore,
+    restoreWorkflowToN8n,
+    fetchRestoreStatus,
+    cleanupRestoreContainer,
   }
 })

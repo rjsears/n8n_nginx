@@ -9,11 +9,13 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import BackupContentsDialog from '@/components/backups/BackupContentsDialog.vue'
+import SystemRestoreDialog from '@/components/backups/SystemRestoreDialog.vue'
 import {
   CircleStackIcon,
   PlayIcon,
   TrashIcon,
   ArrowDownTrayIcon,
+  ArrowPathIcon,
   ClockIcon,
   CheckCircleIcon,
   XCircleIcon,
@@ -32,6 +34,7 @@ const loading = ref(true)
 const runningBackup = ref(false)
 const deleteDialog = ref({ open: false, backup: null, loading: false })
 const contentsDialog = ref({ open: false, backup: null })
+const restoreDialog = ref({ open: false, backup: null })
 const protectingBackup = ref(null)
 
 // Backup schedule (would come from API)
@@ -118,6 +121,20 @@ function openContentsDialog(backup) {
 
 function closeContentsDialog() {
   contentsDialog.value = { open: false, backup: null }
+}
+
+// System Restore Dialog
+function openRestoreDialog(backup) {
+  restoreDialog.value = { open: true, backup }
+}
+
+function closeRestoreDialog() {
+  restoreDialog.value = { open: false, backup: null }
+}
+
+function handleSystemRestored(result) {
+  closeRestoreDialog()
+  loadData()
 }
 
 // Backup Protection
@@ -376,6 +393,15 @@ onMounted(loadData)
               >
                 <EyeIcon class="h-4 w-4" />
               </button>
+              <!-- System Restore -->
+              <button
+                v-if="backup.status === 'success'"
+                @click="openRestoreDialog(backup)"
+                class="btn-secondary p-2 text-blue-500 hover:text-blue-600"
+                title="System Restore"
+              >
+                <ArrowPathIcon class="h-4 w-4" />
+              </button>
               <!-- Download -->
               <button
                 v-if="backup.status === 'success'"
@@ -431,6 +457,14 @@ onMounted(loadData)
       :backup="contentsDialog.backup"
       @close="closeContentsDialog"
       @restore-workflow="handleRestoreWorkflow"
+    />
+
+    <!-- System Restore Dialog -->
+    <SystemRestoreDialog
+      :open="restoreDialog.open"
+      :backup="restoreDialog.backup"
+      @close="closeRestoreDialog"
+      @restored="handleSystemRestored"
     />
   </div>
 </template>

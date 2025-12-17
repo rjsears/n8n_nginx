@@ -673,3 +673,205 @@ async def get_restore_container_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+# ============================================================================
+# Phase 4: Full System Restore
+# ============================================================================
+
+class FullRestoreRequest(BaseModel):
+    """Request for full system restore."""
+    restore_databases: bool = True
+    restore_configs: bool = True
+    restore_ssl: bool = True
+    database_names: Opt[List[str]] = None
+    config_files: Opt[List[str]] = None
+    create_backups: bool = True
+
+
+@router.get("/{backup_id}/restore/preview")
+async def get_restore_preview(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get a preview of what would be restored from a backup.
+
+    Returns lists of databases, config files, SSL certificates, and workflow count.
+    """
+    service = RestoreService(db)
+
+    try:
+        preview = await service.get_restore_preview(backup_id)
+        if preview.get("status") == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=preview.get("error", "Failed to get preview"),
+            )
+        return preview
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/{backup_id}/restore/config-files")
+async def list_config_files_in_backup(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all config files available in a backup."""
+    service = RestoreService(db)
+
+    try:
+        config_files = await service.list_config_files_in_backup(backup_id)
+        return {"backup_id": backup_id, "config_files": config_files}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+class ConfigRestoreRequest(BaseModel):
+    """Request to restore a specific config file."""
+    config_path: str
+    target_path: Opt[str] = None
+    create_backup: bool = True
+
+
+@router.post("/{backup_id}/restore/config")
+async def restore_config_file(
+    backup_id: int,
+    data: ConfigRestoreRequest,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Restore a specific config file from backup.
+
+    WARNING: This will overwrite the existing file!
+    """
+    service = RestoreService(db)
+
+    try:
+        result = await service.restore_config_file(
+            backup_id=backup_id,
+            config_path=data.config_path,
+            target_path=data.target_path,
+            create_backup=data.create_backup,
+        )
+
+        if result["status"] == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Restore failed"),
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+class DatabaseRestoreRequest(BaseModel):
+    """Request to restore a database."""
+    database_name: str
+    target_database: Opt[str] = None
+
+
+@router.post("/{backup_id}/restore/database")
+async def restore_database(
+    backup_id: int,
+    data: DatabaseRestoreRequest,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Restore a database from backup.
+
+    WARNING: This will OVERWRITE the target database!
+    """
+    service = RestoreService(db)
+
+    try:
+        result = await service.restore_database(
+            backup_id=backup_id,
+            database_name=data.database_name,
+            target_database=data.target_database,
+        )
+
+        if result["status"] == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Restore failed"),
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/{backup_id}/restore/full")
+async def full_system_restore(
+    backup_id: int,
+    data: FullRestoreRequest,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Perform a full system restore from a backup.
+
+    This can restore:
+    - Databases (n8n, n8n_management)
+    - Config files (.env, docker-compose.yaml, nginx.conf)
+    - SSL certificates
+
+    WARNING: This will OVERWRITE existing data! Use with caution.
+
+    By default, existing files are backed up before overwriting (create_backups=true).
+    """
+    service = RestoreService(db)
+
+    try:
+        result = await service.full_system_restore(
+            backup_id=backup_id,
+            restore_databases=data.restore_databases,
+            restore_configs=data.restore_configs,
+            restore_ssl=data.restore_ssl,
+            database_names=data.database_names,
+            config_files=data.config_files,
+            create_backups=data.create_backups,
+        )
+
+        if result["status"] == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Restore failed"),
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
