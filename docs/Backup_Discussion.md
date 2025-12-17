@@ -792,9 +792,9 @@ For each phase, document:
 This section tracks implementation progress. Update after each completed task, change, or test.
 
 ### Current Status
-- **Current Phase:** Phase 5 - Complete
+- **Current Phase:** Phase 6 - Complete
 - **Last Updated:** December 17, 2024
-- **Last Action:** Completed Phase 5 - Backup Verification System
+- **Last Action:** Completed Phase 6 - Bare Metal Recovery (restore.sh)
 
 ### Phase 1: Enhanced Backup Creation & Archive Format ✅ COMPLETE
 | Task | Status | Notes |
@@ -1008,10 +1008,48 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 - `frontend/src/stores/backups.js` - Added 5 verification methods
 - `frontend/src/views/BackupsView.vue` - Added verification button and status display
 
-### Phase 6: Bare Metal Recovery
+### Phase 6: Bare Metal Recovery ✅ COMPLETE
 | Task | Status | Notes |
 |------|--------|-------|
-| 6.1-6.10 | ⬜ Pending | Not started |
+| 6.1 Create restore.sh template | ✅ Complete | Enhanced script with full recovery workflow |
+| 6.2 Implement Docker detection/installation | ✅ Complete | Checks and optionally installs Docker |
+| 6.3 Implement NFS reconfiguration prompt | ⏭️ Not needed | User handles NFS during initial setup |
+| 6.4 Implement database restore | ✅ Complete | pg_restore with --clean --if-exists |
+| 6.5 Implement config file restore | ✅ Complete | With backup of existing files |
+| 6.6 Implement SSL certificate restore | ✅ Complete | Restores to /etc/letsencrypt/live |
+| 6.7 Add validation checks post-restore | ✅ Complete | Checks files exist, DB connectivity |
+| 6.8 Add dry-run mode | ✅ Complete | --dry-run shows what would happen |
+| 6.9 Add --force mode | ✅ Complete | Skips confirmation prompts |
+| 6.10 Include restore.sh in every backup | ✅ Complete | Already implemented in Phase 1 |
+
+**restore.sh Features:**
+- Comprehensive 8-step restore process
+- Docker installation check/prompt
+- PostgreSQL tools verification
+- Database auto-creation if not exists
+- Config file backup before overwrite
+- SSL certificate restoration
+- Post-restore validation checks
+- Dry-run mode for testing
+- Force mode for automation
+- Colored output with status indicators
+- Detailed next steps guide
+
+**restore.sh Command Line Options:**
+```bash
+./restore.sh [options]
+  --target-dir DIR    Directory to restore to (default: /opt/n8n)
+  --db-host HOST      PostgreSQL host (default: localhost)
+  --db-user USER      PostgreSQL user (default: n8n)
+  --db-pass PASS      PostgreSQL password
+  --skip-docker       Skip Docker installation check
+  --skip-ssl          Skip SSL certificate restoration
+  --skip-db           Skip database restoration
+  --skip-config       Skip config file restoration
+  --dry-run           Show what would be done without changes
+  --force             Skip all confirmation prompts
+  -h, --help          Show help message
+```
 
 ### Phase 7: Pruning & Retention
 | Task | Status | Notes |
@@ -1032,6 +1070,7 @@ tar -tzf /path/to/backup_*.n8n_backup.tar.gz
 | 2024-12-17 | Phase 4 UI | SystemRestoreDialog with preview/confirm/progress/results steps |
 | 2024-12-17 | Phase 5 Backend | Verification service with temp container, comprehensive checks |
 | 2024-12-17 | Phase 5 UI | Verify button and verification status badge in backup list |
+| 2024-12-17 | Phase 6 | Enhanced restore.sh with Docker check, dry-run, validation |
 
 ### Testing Notes
 *(Record test results, issues found, and resolutions here)*

@@ -840,16 +840,33 @@ class BackupService:
     def _generate_restore_script(self) -> str:
         """Generate the restore.sh script for bare metal recovery."""
         return '''#!/bin/bash
-# n8n Backup Restore Script
-# Generated automatically - DO NOT EDIT
+# ============================================================================
+# n8n Bare Metal Recovery Script
+# ============================================================================
+# Generated automatically by n8n Management Console
+#
+# This script restores a complete n8n installation from a backup archive.
+# It can be used for:
+#   - Disaster recovery
+#   - Migration to a new server
+#   - Restoring from a specific backup point
 #
 # Usage: ./restore.sh [options]
+#
+# Options:
 #   --target-dir DIR    Directory to restore to (default: /opt/n8n)
 #   --db-host HOST      PostgreSQL host (default: localhost)
 #   --db-user USER      PostgreSQL user (default: n8n)
 #   --db-pass PASS      PostgreSQL password (prompted if not provided)
+#   --skip-docker       Skip Docker installation check
 #   --skip-ssl          Skip SSL certificate restoration
+#   --skip-db           Skip database restoration
+#   --skip-config       Skip config file restoration
 #   --dry-run           Show what would be done without making changes
+#   --force             Skip all confirmation prompts
+#   -h, --help          Show this help message
+#
+# ============================================================================
 
 set -e
 
@@ -857,6 +874,8 @@ set -e
 RED='\\033[0;31m'
 GREEN='\\033[0;32m'
 YELLOW='\\033[1;33m'
+BLUE='\\033[0;34m'
+CYAN='\\033[0;36m'
 NC='\\033[0m' # No Color
 
 # Default values
@@ -864,8 +883,12 @@ TARGET_DIR="/opt/n8n"
 DB_HOST="localhost"
 DB_USER="n8n"
 DB_PASS=""
+SKIP_DOCKER=false
 SKIP_SSL=false
+SKIP_DB=false
+SKIP_CONFIG=false
 DRY_RUN=false
+FORCE=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -874,110 +897,372 @@ while [[ $# -gt 0 ]]; do
         --db-host) DB_HOST="$2"; shift 2 ;;
         --db-user) DB_USER="$2"; shift 2 ;;
         --db-pass) DB_PASS="$2"; shift 2 ;;
+        --skip-docker) SKIP_DOCKER=true; shift ;;
         --skip-ssl) SKIP_SSL=true; shift ;;
+        --skip-db) SKIP_DB=true; shift ;;
+        --skip-config) SKIP_CONFIG=true; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
-        -h|--help) echo "Usage: $0 [options]"; exit 0 ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
+        --force) FORCE=true; shift ;;
+        -h|--help)
+            head -n 30 "$0" | tail -n 26
+            exit 0
+            ;;
+        *) echo -e "${RED}Unknown option: $1${NC}"; exit 1 ;;
     esac
 done
 
 # Get script directory (where backup was extracted)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo -e "${GREEN}n8n Backup Restore${NC}"
-echo "================================"
-echo "Backup location: $SCRIPT_DIR"
-echo "Target directory: $TARGET_DIR"
-echo "Database host: $DB_HOST"
-echo ""
+# ============================================================================
+# Helper Functions
+# ============================================================================
 
-# Check for metadata
-if [[ ! -f "$SCRIPT_DIR/metadata.json" ]]; then
-    echo -e "${RED}Error: metadata.json not found. Is this a valid backup?${NC}"
-    exit 1
-fi
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Show backup info
-echo "Backup Information:"
-cat "$SCRIPT_DIR/metadata.json" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(f\\"  Type: {data.get('backup_type', 'unknown')}\\")
-print(f\\"  Created: {data.get('created_at', 'unknown')}\\")
-print(f\\"  Workflows: {data.get('workflow_count', 0)}\\")
-print(f\\"  Credentials: {data.get('credential_count', 0)}\\")
-print(f\\"  Config files: {data.get('config_file_count', 0)}\\")
-"
-echo ""
-
-if [[ "$DRY_RUN" == "true" ]]; then
-    echo -e "${YELLOW}DRY RUN - No changes will be made${NC}"
-    echo ""
-fi
-
-# Prompt for database password if not provided
-if [[ -z "$DB_PASS" ]]; then
-    read -sp "Enter PostgreSQL password for user $DB_USER: " DB_PASS
-    echo ""
-fi
-
-# Function to run or show command
 run_cmd() {
     if [[ "$DRY_RUN" == "true" ]]; then
-        echo "  Would run: $*"
+        echo -e "${CYAN}  [DRY-RUN] Would run:${NC} $*"
+        return 0
     else
         "$@"
     fi
 }
 
-# Restore databases
-echo -e "${GREEN}Restoring databases...${NC}"
-for db_file in "$SCRIPT_DIR/databases"/*.dump; do
-    if [[ -f "$db_file" ]]; then
-        db_name=$(basename "$db_file" .dump)
-        echo "  Restoring $db_name..."
-        if [[ "$DRY_RUN" != "true" ]]; then
-            PGPASSWORD="$DB_PASS" pg_restore -h "$DB_HOST" -U "$DB_USER" -d "$db_name" --clean --if-exists "$db_file" 2>/dev/null || true
-        else
-            echo "  Would run: pg_restore -h $DB_HOST -U $DB_USER -d $db_name --clean --if-exists $db_file"
+confirm() {
+    if [[ "$FORCE" == "true" ]]; then
+        return 0
+    fi
+    local prompt="$1 [y/N] "
+    read -p "$prompt" response
+    [[ "$response" =~ ^[Yy]$ ]]
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        log_warning "This script should be run as root for full functionality"
+        if ! confirm "Continue anyway?"; then
+            exit 1
         fi
     fi
-done
+}
 
-# Restore config files
-echo -e "${GREEN}Restoring config files...${NC}"
-if [[ -d "$SCRIPT_DIR/config" ]]; then
-    run_cmd mkdir -p "$TARGET_DIR"
+# ============================================================================
+# Pre-flight Checks
+# ============================================================================
+
+echo ""
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║           n8n Bare Metal Recovery Script                     ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# Check for metadata
+if [[ ! -f "$SCRIPT_DIR/metadata.json" ]]; then
+    log_error "metadata.json not found. Is this a valid backup?"
+    exit 1
+fi
+
+# Show backup info
+echo -e "${CYAN}Backup Information:${NC}"
+echo "──────────────────────────────────────────────────────────────"
+if command -v python3 &>/dev/null; then
+    cat "$SCRIPT_DIR/metadata.json" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'  Backup Type:    {data.get(\"backup_type\", \"unknown\")}')
+print(f'  Created:        {data.get(\"created_at\", \"unknown\")}')
+print(f'  n8n Version:    {data.get(\"n8n_version\", \"unknown\")}')
+print(f'  Workflows:      {data.get(\"workflow_count\", 0)}')
+print(f'  Credentials:    {data.get(\"credential_count\", 0)}')
+print(f'  Config Files:   {data.get(\"config_file_count\", 0)}')
+"
+else
+    log_warning "python3 not found, showing raw metadata"
+    cat "$SCRIPT_DIR/metadata.json"
+fi
+echo "──────────────────────────────────────────────────────────────"
+echo ""
+
+echo -e "${CYAN}Restore Configuration:${NC}"
+echo "  Target Directory: $TARGET_DIR"
+echo "  Database Host:    $DB_HOST"
+echo "  Database User:    $DB_USER"
+echo "  Skip Docker:      $SKIP_DOCKER"
+echo "  Skip SSL:         $SKIP_SSL"
+echo "  Skip Database:    $SKIP_DB"
+echo "  Skip Config:      $SKIP_CONFIG"
+echo "  Dry Run:          $DRY_RUN"
+echo ""
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}  DRY RUN MODE - No changes will be made to the system${NC}"
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+fi
+
+# Confirmation
+if ! confirm "Proceed with restore?"; then
+    echo "Restore cancelled."
+    exit 0
+fi
+
+echo ""
+
+# ============================================================================
+# Step 1: Check and Install Docker (if needed)
+# ============================================================================
+
+if [[ "$SKIP_DOCKER" != "true" ]]; then
+    echo -e "${GREEN}Step 1: Checking Docker...${NC}"
+
+    if command -v docker &>/dev/null; then
+        docker_version=$(docker --version 2>/dev/null || echo "unknown")
+        log_success "Docker is installed: $docker_version"
+    else
+        log_warning "Docker is not installed"
+        if confirm "Install Docker?"; then
+            log_info "Installing Docker..."
+            if [[ "$DRY_RUN" != "true" ]]; then
+                curl -fsSL https://get.docker.com | sh
+                systemctl enable docker
+                systemctl start docker
+                log_success "Docker installed successfully"
+            else
+                echo -e "${CYAN}  [DRY-RUN] Would install Docker${NC}"
+            fi
+        fi
+    fi
+
+    if command -v docker-compose &>/dev/null; then
+        compose_version=$(docker-compose --version 2>/dev/null || echo "unknown")
+        log_success "Docker Compose is available: $compose_version"
+    elif docker compose version &>/dev/null; then
+        log_success "Docker Compose plugin is available"
+    else
+        log_warning "Docker Compose not found"
+    fi
+    echo ""
+fi
+
+# ============================================================================
+# Step 2: Check PostgreSQL Tools
+# ============================================================================
+
+if [[ "$SKIP_DB" != "true" ]]; then
+    echo -e "${GREEN}Step 2: Checking PostgreSQL tools...${NC}"
+
+    if command -v pg_restore &>/dev/null; then
+        pg_version=$(pg_restore --version 2>/dev/null | head -1 || echo "unknown")
+        log_success "pg_restore is available: $pg_version"
+    else
+        log_error "pg_restore is not installed"
+        log_info "Install with: apt-get install postgresql-client"
+        if ! confirm "Continue without database restore?"; then
+            exit 1
+        fi
+        SKIP_DB=true
+    fi
+    echo ""
+fi
+
+# ============================================================================
+# Step 3: Prompt for Database Password
+# ============================================================================
+
+if [[ "$SKIP_DB" != "true" && -z "$DB_PASS" ]]; then
+    echo -e "${GREEN}Step 3: Database credentials...${NC}"
+    read -sp "Enter PostgreSQL password for user $DB_USER: " DB_PASS
+    echo ""
+    echo ""
+fi
+
+# ============================================================================
+# Step 4: Create Target Directory
+# ============================================================================
+
+echo -e "${GREEN}Step 4: Preparing target directory...${NC}"
+run_cmd mkdir -p "$TARGET_DIR"
+log_success "Target directory ready: $TARGET_DIR"
+echo ""
+
+# ============================================================================
+# Step 5: Restore Databases
+# ============================================================================
+
+if [[ "$SKIP_DB" != "true" && -d "$SCRIPT_DIR/databases" ]]; then
+    echo -e "${GREEN}Step 5: Restoring databases...${NC}"
+
+    db_count=0
+    for db_file in "$SCRIPT_DIR/databases"/*.dump; do
+        if [[ -f "$db_file" ]]; then
+            db_name=$(basename "$db_file" .dump)
+            log_info "Restoring database: $db_name"
+
+            if [[ "$DRY_RUN" != "true" ]]; then
+                # Check if database exists, create if not
+                PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d postgres -tc \\
+                    "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -q 1 || \\
+                    PGPASSWORD="$DB_PASS" createdb -h "$DB_HOST" -U "$DB_USER" "$db_name" 2>/dev/null || true
+
+                # Restore the database
+                PGPASSWORD="$DB_PASS" pg_restore -h "$DB_HOST" -U "$DB_USER" -d "$db_name" \\
+                    --clean --if-exists --no-owner --no-acl "$db_file" 2>/dev/null || true
+
+                log_success "Database $db_name restored"
+            else
+                echo -e "${CYAN}  [DRY-RUN] Would restore database: $db_name${NC}"
+            fi
+            ((db_count++))
+        fi
+    done
+
+    if [[ $db_count -eq 0 ]]; then
+        log_warning "No database dumps found"
+    else
+        log_success "Restored $db_count database(s)"
+    fi
+    echo ""
+else
+    echo -e "${YELLOW}Step 5: Skipping database restoration${NC}"
+    echo ""
+fi
+
+# ============================================================================
+# Step 6: Restore Config Files
+# ============================================================================
+
+if [[ "$SKIP_CONFIG" != "true" && -d "$SCRIPT_DIR/config" ]]; then
+    echo -e "${GREEN}Step 6: Restoring config files...${NC}"
+
+    config_count=0
     for config_file in "$SCRIPT_DIR/config"/*; do
         if [[ -f "$config_file" ]]; then
             filename=$(basename "$config_file")
-            echo "  Restoring $filename..."
-            run_cmd cp "$config_file" "$TARGET_DIR/$filename"
+            target_path="$TARGET_DIR/$filename"
+
+            # Backup existing file if it exists
+            if [[ -f "$target_path" && "$DRY_RUN" != "true" ]]; then
+                backup_path="${target_path}.bak.$(date +%Y%m%d_%H%M%S)"
+                cp "$target_path" "$backup_path"
+                log_info "Backed up existing $filename to $backup_path"
+            fi
+
+            log_info "Restoring $filename"
+            run_cmd cp "$config_file" "$target_path"
+            ((config_count++))
         fi
     done
+
+    log_success "Restored $config_count config file(s)"
+    echo ""
+else
+    echo -e "${YELLOW}Step 6: Skipping config file restoration${NC}"
+    echo ""
 fi
 
-# Restore SSL certificates
+# ============================================================================
+# Step 7: Restore SSL Certificates
+# ============================================================================
+
 if [[ "$SKIP_SSL" != "true" && -d "$SCRIPT_DIR/ssl" ]]; then
-    echo -e "${GREEN}Restoring SSL certificates...${NC}"
+    echo -e "${GREEN}Step 7: Restoring SSL certificates...${NC}"
+
     run_cmd mkdir -p /etc/letsencrypt/live
+    ssl_count=0
+
     for domain_dir in "$SCRIPT_DIR/ssl"/*; do
         if [[ -d "$domain_dir" ]]; then
             domain=$(basename "$domain_dir")
-            echo "  Restoring certificates for $domain..."
+            log_info "Restoring certificates for: $domain"
             run_cmd cp -r "$domain_dir" "/etc/letsencrypt/live/"
+            ((ssl_count++))
         fi
     done
+
+    log_success "Restored SSL certificates for $ssl_count domain(s)"
+    echo ""
+else
+    echo -e "${YELLOW}Step 7: Skipping SSL certificate restoration${NC}"
+    echo ""
+fi
+
+# ============================================================================
+# Step 8: Post-Restore Validation
+# ============================================================================
+
+echo -e "${GREEN}Step 8: Post-restore validation...${NC}"
+
+validation_passed=true
+
+# Check config files exist
+if [[ -f "$TARGET_DIR/.env" ]]; then
+    log_success ".env file exists"
+else
+    log_warning ".env file not found at $TARGET_DIR/.env"
+    validation_passed=false
+fi
+
+if [[ -f "$TARGET_DIR/docker-compose.yaml" ]] || [[ -f "$TARGET_DIR/docker-compose.yml" ]]; then
+    log_success "docker-compose file exists"
+else
+    log_warning "docker-compose.yaml not found at $TARGET_DIR/"
+    validation_passed=false
+fi
+
+# Check database connectivity (if not skipped)
+if [[ "$SKIP_DB" != "true" && -n "$DB_PASS" && "$DRY_RUN" != "true" ]]; then
+    if PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d n8n -c "SELECT 1" &>/dev/null; then
+        log_success "Database connectivity verified"
+    else
+        log_warning "Could not connect to n8n database"
+        validation_passed=false
+    fi
 fi
 
 echo ""
-echo -e "${GREEN}Restore complete!${NC}"
+
+# ============================================================================
+# Completion Summary
+# ============================================================================
+
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo -e "${GREEN}║              DRY RUN COMPLETED SUCCESSFULLY                  ║${NC}"
+else
+    echo -e "${GREEN}║              RESTORE COMPLETED SUCCESSFULLY                  ║${NC}"
+fi
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo "Next steps:"
-echo "  1. Review restored configuration files in $TARGET_DIR"
-echo "  2. Update .env with any environment-specific settings"
-echo "  3. Start n8n with: docker-compose up -d"
-echo ""
+
+if [[ "$DRY_RUN" != "true" ]]; then
+    echo -e "${CYAN}Next Steps:${NC}"
+    echo "  1. Review restored configuration files in $TARGET_DIR"
+    echo "  2. Update .env with any environment-specific settings:"
+    echo "     - Database connection string"
+    echo "     - Domain name"
+    echo "     - API keys and secrets"
+    echo "  3. Navigate to the target directory:"
+    echo "     cd $TARGET_DIR"
+    echo "  4. Start the services:"
+    echo "     docker-compose up -d"
+    echo "  5. Verify services are running:"
+    echo "     docker-compose ps"
+    echo "  6. Check logs for any issues:"
+    echo "     docker-compose logs -f"
+    echo ""
+
+    if [[ "$validation_passed" != "true" ]]; then
+        echo -e "${YELLOW}Warning: Some validation checks failed. Please review above.${NC}"
+        echo ""
+    fi
+fi
+
+exit 0
 '''
 
     async def run_backup_with_metadata(
