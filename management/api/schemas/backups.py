@@ -337,6 +337,7 @@ class BackupConfigurationUpdate(BaseModel):
     nfs_storage_path: Optional[str] = Field(None, max_length=500)
     nfs_enabled: Optional[bool] = None
     storage_preference: Optional[str] = Field(None, pattern="^(local|nfs|both)$")
+    backup_workflow: Optional[str] = Field(None, pattern="^(direct|stage_then_copy)$")
 
     # Compression Settings
     compression_enabled: Optional[bool] = None
@@ -381,6 +382,7 @@ class BackupConfigurationResponse(BaseModel):
     nfs_storage_path: Optional[str] = None
     nfs_enabled: bool
     storage_preference: str
+    backup_workflow: str = "direct"
 
     # Compression Settings
     compression_enabled: bool
