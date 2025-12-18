@@ -69,9 +69,9 @@ class BackupService:
             history.progress = min(progress, 100)
             history.progress_message = message
             await self.db.commit()
-            logger.debug(f"Backup {history.id}: {progress}% - {message}")
+            logger.info(f"Backup {history.id}: {progress}% - {message}")
         except Exception as e:
-            logger.warning(f"Failed to update progress: {e}")
+            logger.error(f"Failed to update progress: {e}")
 
     # Schedule management
 
@@ -1437,6 +1437,8 @@ exit 0
         Execute a backup with full metadata capture.
         This is the enhanced version that creates complete archives.
         """
+        logger.info(f"run_backup_with_metadata called: type={backup_type}, n8n_db={'present' if n8n_db else 'None'}")
+
         # Create history record
         history = BackupHistory(
             backup_type=backup_type,

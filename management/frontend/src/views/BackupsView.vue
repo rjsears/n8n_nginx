@@ -10,6 +10,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ProgressModal from '@/components/backups/ProgressModal.vue'
 import {
   CircleStackIcon,
   PlayIcon,
@@ -39,6 +40,21 @@ const notificationStore = useNotificationStore()
 const loading = ref(true)
 const runningBackup = ref(false)
 const deleteDialog = ref({ open: false, backup: null, loading: false })
+
+// Progress Modal State
+const progressModal = ref({
+  show: false,
+  type: 'backup', // 'backup' or 'verify'
+  backupId: null,
+  status: 'running' // 'running', 'success', 'failed'
+})
+
+// Get progress data for the active operation
+const activeBackupProgress = computed(() => {
+  if (!progressModal.value.backupId) return { progress: 0, progress_message: '' }
+  const backup = backupStore.backups.find(b => b.id === progressModal.value.backupId)
+  return backup || { progress: 0, progress_message: '' }
+})
 
 // Collapsible state
 const sections = ref({
@@ -204,15 +220,88 @@ async function loadWorkflowsForBackup(backupId) {
 
 async function runBackupNow() {
   runningBackup.value = true
+
+  // Show progress modal
+  progressModal.value = {
+    show: true,
+    type: 'backup',
+    backupId: null,
+    status: 'running'
+  }
+
   try {
-    await backupStore.triggerBackup()
-    notificationStore.success('Backup started successfully')
-    await loadData()
+    const result = await backupStore.triggerBackup()
+    // Set the backup ID so we can track progress
+    if (result && result.backup_id) {
+      progressModal.value.backupId = result.backup_id
+    }
+
+    // Poll for completion
+    await pollForCompletion('backup')
+
   } catch (error) {
-    notificationStore.error('Failed to start backup')
+    progressModal.value.status = 'failed'
+    notificationStore.error('Failed to start backup: ' + (error.message || 'Unknown error'))
   } finally {
     runningBackup.value = false
   }
+}
+
+// Poll for backup/verification completion
+async function pollForCompletion(type) {
+  const maxAttempts = 300 // 5 minutes max
+  let attempts = 0
+
+  while (attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+    await backupStore.fetchBackups()
+
+    const backup = backupStore.backups.find(b => b.id === progressModal.value.backupId)
+    if (!backup) {
+      attempts++
+      continue
+    }
+
+    // Update modal with latest status
+    if (backup.status === 'success') {
+      progressModal.value.status = 'success'
+      if (type === 'backup') {
+        notificationStore.success('Backup completed successfully')
+      }
+      return
+    } else if (backup.status === 'failed') {
+      progressModal.value.status = 'failed'
+      if (type === 'backup') {
+        notificationStore.error('Backup failed: ' + (backup.error_message || 'Unknown error'))
+      }
+      return
+    }
+
+    // For verification, check verification_status
+    if (type === 'verify') {
+      if (backup.verification_status === 'passed') {
+        progressModal.value.status = 'success'
+        notificationStore.success('Backup verification passed')
+        return
+      } else if (backup.verification_status === 'failed') {
+        progressModal.value.status = 'failed'
+        notificationStore.error('Backup verification failed')
+        return
+      }
+    }
+
+    attempts++
+  }
+
+  // Timeout
+  progressModal.value.status = 'failed'
+  notificationStore.error('Operation timed out')
+}
+
+function closeProgressModal() {
+  progressModal.value.show = false
+  progressModal.value.backupId = null
+  loadData() // Refresh the list
 }
 
 // === BACKUP ACTIONS ===
@@ -220,22 +309,53 @@ async function runBackupNow() {
 // Verify Backup
 async function verifyBackup(backup) {
   verifyingBackup.value = backup.id
+
+  // Show progress modal
+  progressModal.value = {
+    show: true,
+    type: 'verify',
+    backupId: backup.id,
+    status: 'running'
+  }
+
   try {
+    // Start polling for progress updates in background
+    const pollPromise = pollForProgress()
+
+    // Call the verification API (this may block until complete)
     const result = await backupStore.verifyBackup(backup.id)
+
+    // Stop any ongoing polling
+    await pollPromise
+
+    // Update modal status based on result
     if (result.overall_status === 'passed') {
+      progressModal.value.status = 'success'
       notificationStore.success('Backup verification passed')
     } else if (result.overall_status === 'failed') {
+      progressModal.value.status = 'failed'
       const errorMsg = result.error || result.errors?.join(', ') || 'Unknown error'
       notificationStore.error(`Backup verification failed: ${errorMsg}`)
     } else {
+      progressModal.value.status = 'success' // Treat warnings as success
       const warnMsg = result.warnings?.join(', ') || ''
       notificationStore.warning(`Backup verification completed with warnings${warnMsg ? ': ' + warnMsg : ''}`)
     }
+
     await loadData()
   } catch (error) {
+    progressModal.value.status = 'failed'
     notificationStore.error('Failed to verify backup: ' + (error.message || 'Unknown error'))
   } finally {
     verifyingBackup.value = null
+  }
+}
+
+// Poll for progress updates during long-running operations
+async function pollForProgress() {
+  while (progressModal.value.status === 'running' && progressModal.value.show) {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    await backupStore.fetchBackups()
   }
 }
 
@@ -887,6 +1007,16 @@ onUnmounted(stopPolling)
       :loading="deleteDialog.loading"
       @confirm="confirmDelete"
       @cancel="deleteDialog.open = false"
+    />
+
+    <!-- Progress Modal -->
+    <ProgressModal
+      :show="progressModal.show"
+      :type="progressModal.type"
+      :progress="activeBackupProgress.progress || 0"
+      :progress-message="activeBackupProgress.progress_message || ''"
+      :status="progressModal.status"
+      @close="closeProgressModal"
     />
   </div>
 </template>

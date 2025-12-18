@@ -88,6 +88,8 @@ class VerificationService:
             else:
                 # Create new container
                 logger.info("Creating new verification container...")
+                # Get network name from environment or use default
+                docker_network = os.environ.get("DOCKER_NETWORK", "n8n_nginx_n8n_network")
                 create_cmd = [
                     "docker", "run", "-d",
                     "--name", VERIFY_CONTAINER_NAME,
@@ -95,9 +97,10 @@ class VerificationService:
                     "-e", f"POSTGRES_PASSWORD={VERIFY_DB_PASSWORD}",
                     "-e", f"POSTGRES_DB={VERIFY_DB_NAME}",
                     "-p", f"{VERIFY_DB_PORT}:5432",
-                    "--network", "n8n-network",
+                    "--network", docker_network,
                     VERIFY_CONTAINER_IMAGE,
                 ]
+                logger.info(f"Using Docker network: {docker_network}")
                 subprocess.run(create_cmd, capture_output=True, check=True)
 
             # Wait for PostgreSQL to be ready
