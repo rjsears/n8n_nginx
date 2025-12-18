@@ -32,6 +32,22 @@ RESTORE_DB_USER = "restore_user"
 RESTORE_DB_PASSWORD = "restore_temp_password"
 RESTORE_DB_NAME = "n8n_restore"
 
+# Module-level state for mounted backup
+_mounted_backup_id: Optional[int] = None
+_mounted_backup_info: Optional[Dict[str, Any]] = None
+
+
+def get_mounted_backup_status() -> Dict[str, Any]:
+    """Get the current mounted backup status (module-level function for easy access)."""
+    global _mounted_backup_id, _mounted_backup_info
+    if _mounted_backup_id is not None and _mounted_backup_info is not None:
+        return {
+            "mounted": True,
+            "backup_id": _mounted_backup_id,
+            "backup_info": _mounted_backup_info,
+        }
+    return {"mounted": False, "backup_id": None, "backup_info": None}
+
 
 class RestoreService:
     """Service for restoring workflows from backups."""
@@ -183,6 +199,126 @@ class RestoreService:
             return RESTORE_CONTAINER_NAME in result.stdout
         except Exception:
             return False
+
+    # ============================================================================
+    # Mount/Unmount Operations
+    # ============================================================================
+
+    async def mount_backup(self, backup_id: int) -> Dict[str, Any]:
+        """
+        Mount a backup for browsing and selective restore.
+
+        This spins up the restore container, loads the backup ONCE,
+        and keeps it available until unmounted.
+        """
+        global _mounted_backup_id, _mounted_backup_info
+
+        logger.info(f"Mounting backup {backup_id}...")
+
+        # Check if already mounted
+        if _mounted_backup_id is not None:
+            if _mounted_backup_id == backup_id:
+                # Same backup already mounted
+                return {
+                    "status": "success",
+                    "message": "Backup already mounted",
+                    "backup_id": backup_id,
+                    "backup_info": _mounted_backup_info,
+                }
+            else:
+                # Different backup mounted - unmount first
+                logger.info(f"Unmounting previous backup {_mounted_backup_id} before mounting {backup_id}")
+                await self.unmount_backup()
+
+        # Get backup info
+        backup = await self.backup_service.get_backup(backup_id)
+        if not backup:
+            return {"status": "failed", "error": f"Backup {backup_id} not found"}
+
+        if not os.path.exists(backup.filepath):
+            return {"status": "failed", "error": f"Backup file not found: {backup.filepath}"}
+
+        try:
+            # Spin up container
+            if not await self.spin_up_restore_container():
+                return {"status": "failed", "error": "Failed to start restore container"}
+
+            # Load the backup
+            if not await self.load_backup_to_restore_container(backup_id):
+                await self.teardown_restore_container()
+                return {"status": "failed", "error": "Failed to load backup into container"}
+
+            # Get workflow count for info
+            workflows = await self.list_workflows_in_restore_db()
+
+            # Store mounted state
+            _mounted_backup_id = backup_id
+            _mounted_backup_info = {
+                "backup_id": backup_id,
+                "filename": backup.filename,
+                "created_at": backup.created_at.isoformat() if backup.created_at else None,
+                "backup_type": backup.backup_type,
+                "workflow_count": len(workflows),
+                "mounted_at": datetime.now(UTC).isoformat(),
+            }
+
+            logger.info(f"Backup {backup_id} mounted successfully with {len(workflows)} workflows")
+
+            return {
+                "status": "success",
+                "message": f"Backup mounted with {len(workflows)} workflows",
+                "backup_id": backup_id,
+                "backup_info": _mounted_backup_info,
+                "workflows": workflows,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to mount backup: {e}")
+            await self.teardown_restore_container()
+            _mounted_backup_id = None
+            _mounted_backup_info = None
+            return {"status": "failed", "error": str(e)}
+
+    async def unmount_backup(self) -> Dict[str, Any]:
+        """
+        Unmount the currently mounted backup.
+
+        Tears down the restore container and cleans up.
+        """
+        global _mounted_backup_id, _mounted_backup_info
+
+        if _mounted_backup_id is None:
+            return {"status": "success", "message": "No backup was mounted"}
+
+        backup_id = _mounted_backup_id
+        logger.info(f"Unmounting backup {backup_id}...")
+
+        try:
+            # Tear down the container
+            await self.teardown_restore_container()
+
+            # Clear mounted state
+            _mounted_backup_id = None
+            _mounted_backup_info = None
+
+            logger.info(f"Backup {backup_id} unmounted successfully")
+            return {"status": "success", "message": f"Backup {backup_id} unmounted"}
+
+        except Exception as e:
+            logger.error(f"Failed to unmount backup: {e}")
+            # Clear state anyway
+            _mounted_backup_id = None
+            _mounted_backup_info = None
+            return {"status": "failed", "error": str(e)}
+
+    def get_mount_status(self) -> Dict[str, Any]:
+        """Get current mount status."""
+        return get_mounted_backup_status()
+
+    def is_backup_mounted(self, backup_id: int) -> bool:
+        """Check if a specific backup is currently mounted."""
+        global _mounted_backup_id
+        return _mounted_backup_id == backup_id
 
     # ============================================================================
     # Backup Loading
@@ -494,17 +630,23 @@ class RestoreService:
         Returns:
             Dict with status and details
         """
+        global _mounted_backup_id
         logger.info(f"Restoring workflow {workflow_id} from backup {backup_id}")
 
         try:
-            # Step 1: Ensure container is ready
-            if not await self.is_container_running():
-                if not await self.spin_up_restore_container():
-                    return {"status": "failed", "error": "Failed to start restore container"}
+            # Check if the correct backup is mounted
+            if not self.is_backup_mounted(backup_id):
+                return {
+                    "status": "failed",
+                    "error": f"Backup {backup_id} is not mounted. Please mount the backup first.",
+                }
 
-            # Step 2: Load backup into container
-            if not await self.load_backup_to_restore_container(backup_id):
-                return {"status": "failed", "error": "Failed to load backup"}
+            # Verify container is running
+            if not await self.is_container_running():
+                return {
+                    "status": "failed",
+                    "error": "Restore container is not running. Please remount the backup.",
+                }
 
             # Step 3: Extract the workflow
             workflow = await self.extract_workflow_from_restore_db(workflow_id)
@@ -564,15 +706,17 @@ class RestoreService:
     ) -> Optional[Dict[str, Any]]:
         """
         Extract a workflow from backup and return it as JSON for download.
+        Requires the backup to be mounted first.
         """
         try:
-            # Ensure container is ready
-            if not await self.is_container_running():
-                if not await self.spin_up_restore_container():
-                    return None
+            # Check if the correct backup is mounted
+            if not self.is_backup_mounted(backup_id):
+                logger.error(f"Backup {backup_id} is not mounted")
+                return None
 
-            # Load backup
-            if not await self.load_backup_to_restore_container(backup_id):
+            # Verify container is running
+            if not await self.is_container_running():
+                logger.error("Restore container is not running")
                 return None
 
             # Extract workflow

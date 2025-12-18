@@ -502,9 +502,88 @@ async def update_pruning_settings(
 # Phase 3: Selective Workflow Restore
 # ============================================================================
 
-from api.services.restore_service import RestoreService
+from api.services.restore_service import RestoreService, get_mounted_backup_status
 from pydantic import BaseModel, Field
 from typing import Optional as Opt
+
+
+class MountBackupResponse(BaseModel):
+    """Response from mounting a backup."""
+    status: str
+    message: Opt[str] = None
+    backup_id: Opt[int] = None
+    backup_info: Opt[Dict] = None
+    workflows: Opt[List[Dict]] = None
+    error: Opt[str] = None
+
+
+class MountStatusResponse(BaseModel):
+    """Response for mount status check."""
+    mounted: bool
+    backup_id: Opt[int] = None
+    backup_info: Opt[Dict] = None
+
+
+@router.post("/{backup_id}/mount", response_model=MountBackupResponse)
+async def mount_backup(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Mount a backup for browsing and selective restore.
+
+    This spins up a temporary container, extracts the backup archive,
+    and loads it into a PostgreSQL database for querying.
+
+    The backup remains mounted until explicitly unmounted, allowing
+    multiple restore operations without reloading.
+    """
+    service = RestoreService(db)
+
+    try:
+        result = await service.mount_backup(backup_id)
+        return MountBackupResponse(**result)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/{backup_id}/unmount")
+async def unmount_backup(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Unmount a currently mounted backup.
+
+    Tears down the restore container and cleans up resources.
+    """
+    service = RestoreService(db)
+
+    try:
+        result = await service.unmount_backup()
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/mount/status", response_model=MountStatusResponse)
+async def get_mount_status(
+    _=Depends(get_current_user),
+):
+    """
+    Get the current backup mount status.
+
+    Returns whether a backup is mounted and which one.
+    """
+    return MountStatusResponse(**get_mounted_backup_status())
 
 
 class WorkflowRestoreRequest(BaseModel):
