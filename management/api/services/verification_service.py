@@ -68,6 +68,34 @@ class VerificationService:
     # Container Management
     # ============================================================================
 
+    def _get_postgres_network(self) -> str:
+        """Get the Docker network name from the postgres container."""
+        try:
+            # Get network from POSTGRES_HOST container (e.g., n8n_postgres)
+            postgres_host = os.environ.get("POSTGRES_HOST", "n8n_postgres")
+            cmd = [
+                "docker", "inspect", postgres_host,
+                "--format", "{{range $key, $value := .NetworkSettings.Networks}}{{$key}}{{end}}"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception as e:
+            logger.warning(f"Failed to get network from postgres container: {e}")
+
+        # Fallback: try to find network with n8n in the name
+        try:
+            cmd = ["docker", "network", "ls", "--format", "{{.Name}}"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            for network in result.stdout.strip().split('\n'):
+                if 'n8n' in network.lower() and 'network' in network.lower():
+                    return network
+        except Exception:
+            pass
+
+        # Final fallback
+        return "n8n_nginx_n8n_network"
+
     async def spin_up_verify_container(self) -> bool:
         """
         Create and start a temporary PostgreSQL container for verification.
@@ -94,8 +122,9 @@ class VerificationService:
             else:
                 # Create new container
                 logger.info("Creating new verification container...")
-                # Get network name from environment or use default
-                docker_network = os.environ.get("DOCKER_NETWORK", "n8n_nginx_n8n_network")
+                # Get network name dynamically from postgres container
+                docker_network = self._get_postgres_network()
+                logger.info(f"Using Docker network: {docker_network}")
                 create_cmd = [
                     "docker", "run", "-d",
                     "--name", VERIFY_CONTAINER_NAME,
