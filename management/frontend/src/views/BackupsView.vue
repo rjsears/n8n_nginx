@@ -186,13 +186,15 @@ async function verifyBackup(backup) {
     if (result.overall_status === 'passed') {
       notificationStore.success('Backup verification passed')
     } else if (result.overall_status === 'failed') {
-      notificationStore.error('Backup verification failed')
+      const errorMsg = result.error || result.errors?.join(', ') || 'Unknown error'
+      notificationStore.error(`Backup verification failed: ${errorMsg}`)
     } else {
-      notificationStore.warning('Backup verification completed with warnings')
+      const warnMsg = result.warnings?.join(', ') || ''
+      notificationStore.warning(`Backup verification completed with warnings${warnMsg ? ': ' + warnMsg : ''}`)
     }
     await loadData()
   } catch (error) {
-    notificationStore.error('Failed to verify backup')
+    notificationStore.error('Failed to verify backup: ' + (error.message || 'Unknown error'))
   } finally {
     verifyingBackup.value = null
   }

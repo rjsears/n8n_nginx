@@ -896,6 +896,7 @@ class VerifyBackupResponse(BaseModel):
     backup_id: int
     status: str
     overall_status: Opt[str] = None
+    error: Opt[str] = None  # Single error message for early failures
     checks: Opt[Dict] = None
     errors: Opt[List[str]] = None
     warnings: Opt[List[str]] = None
@@ -939,6 +940,7 @@ async def verify_backup_comprehensive(
             backup_id=backup_id,
             status=result.get("overall_status", "unknown"),
             overall_status=result.get("overall_status"),
+            error=result.get("error"),
             checks=result.get("checks"),
             errors=result.get("errors"),
             warnings=result.get("warnings"),
