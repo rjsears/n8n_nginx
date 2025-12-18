@@ -189,44 +189,102 @@ class RestoreService:
                 logger.error(f"Failed to reset restore database: {e.stderr if hasattr(e, 'stderr') else e}")
                 return False
 
+            # Check if it's a tar archive or a legacy gzipped SQL file
+            is_tar_archive = False
+            try:
+                with tarfile.open(backup.filepath, "r:gz") as tar:
+                    # Check if it has our expected structure
+                    members = tar.getnames()
+                    is_tar_archive = True
+                    logger.info(f"Backup archive contains: {members[:10]}...")  # Log first 10 members
+            except tarfile.TarError:
+                logger.info("Not a tar archive, trying legacy format")
+                is_tar_archive = False
+
+            if not is_tar_archive:
+                # Legacy format: gzipped SQL file
+                logger.info("Legacy backup format detected")
+                return await self._load_legacy_backup(backup.filepath)
+
             # Extract backup archive to temp directory
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Extract tar.gz
                 with tarfile.open(backup.filepath, "r:gz") as tar:
                     tar.extractall(temp_dir)
 
-                # Find the n8n database dump
-                n8n_dump = os.path.join(temp_dir, "databases", "n8n.dump")
-                if not os.path.exists(n8n_dump):
-                    # Try alternate path for older backups
-                    n8n_dump = backup.filepath
-                    if backup.filepath.endswith('.gz'):
-                        # It's a gzipped SQL file, not our new format
-                        logger.info("Legacy backup format detected")
-                        return await self._load_legacy_backup(backup.filepath)
+                # Find the n8n database dump - check multiple possible locations
+                n8n_dump = None
+                possible_paths = [
+                    os.path.join(temp_dir, "databases", "n8n.dump"),
+                    os.path.join(temp_dir, "n8n.dump"),
+                    os.path.join(temp_dir, "databases", "n8n.sql"),
+                ]
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        n8n_dump = path
+                        logger.info(f"Found database dump at: {path}")
+                        break
+
+                if not n8n_dump:
+                    # List what we actually found
+                    for root, dirs, files in os.walk(temp_dir):
+                        for f in files:
+                            logger.info(f"Found in archive: {os.path.join(root, f)}")
+                    logger.error("No database dump found in backup archive")
+                    return False
 
                 # Copy dump file to container
                 copy_cmd = [
                     "docker", "cp", n8n_dump,
                     f"{RESTORE_CONTAINER_NAME}:/tmp/n8n.dump"
                 ]
-                subprocess.run(copy_cmd, capture_output=True, check=True)
+                result = subprocess.run(copy_cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.error(f"Failed to copy dump to container: {result.stderr}")
+                    return False
 
-                # Restore the dump
-                restore_cmd = [
-                    "docker", "exec", RESTORE_CONTAINER_NAME,
-                    "pg_restore",
-                    "-U", RESTORE_DB_USER,
-                    "-d", RESTORE_DB_NAME,
-                    "--clean", "--if-exists",
-                    "/tmp/n8n.dump"
-                ]
+                # Restore the dump using pg_restore (for custom format) or psql (for SQL)
+                if n8n_dump.endswith('.sql'):
+                    restore_cmd = [
+                        "docker", "exec", RESTORE_CONTAINER_NAME,
+                        "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                        "-f", "/tmp/n8n.dump"
+                    ]
+                else:
+                    restore_cmd = [
+                        "docker", "exec", RESTORE_CONTAINER_NAME,
+                        "pg_restore",
+                        "-U", RESTORE_DB_USER,
+                        "-d", RESTORE_DB_NAME,
+                        "--clean", "--if-exists",
+                        "--no-owner", "--no-acl",
+                        "/tmp/n8n.dump"
+                    ]
+
                 result = subprocess.run(restore_cmd, capture_output=True, text=True)
-                # pg_restore may return warnings, check for actual errors
-                if result.returncode != 0 and "ERROR" in result.stderr:
-                    logger.warning(f"pg_restore warnings: {result.stderr}")
+                logger.info(f"Restore command output: stdout={result.stdout[:500] if result.stdout else 'none'}, stderr={result.stderr[:500] if result.stderr else 'none'}")
 
-                logger.info(f"Backup {backup_id} loaded into restore container")
+                # pg_restore often returns non-zero for warnings, only fail on actual errors
+                if result.returncode != 0:
+                    if "ERROR" in result.stderr and "already exists" not in result.stderr:
+                        logger.error(f"pg_restore failed: {result.stderr}")
+                        return False
+                    else:
+                        logger.warning(f"pg_restore completed with warnings: {result.stderr[:200] if result.stderr else 'none'}")
+
+                # Verify the restore worked by checking for workflow_entity table
+                verify_cmd = [
+                    "docker", "exec", RESTORE_CONTAINER_NAME,
+                    "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                    "-t", "-c", "SELECT COUNT(*) FROM workflow_entity;"
+                ]
+                verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
+                if verify_result.returncode != 0:
+                    logger.error(f"Verification failed - workflow_entity table not found: {verify_result.stderr}")
+                    return False
+
+                workflow_count = verify_result.stdout.strip()
+                logger.info(f"Backup {backup_id} loaded successfully. Found {workflow_count} workflows.")
                 return True
 
         except Exception as e:
