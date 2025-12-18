@@ -579,9 +579,12 @@ onUnmounted(stopPolling)
         </Card>
       </div>
 
-      <!-- Schedule Card -->
+      <!-- Schedule Card (Clickable - navigates to settings) -->
       <Card :neon="true" :padding="false">
-        <div class="p-4">
+        <button
+          @click="router.push('/backup-settings')"
+          class="w-full p-4 text-left hover:bg-surface-hover transition-colors rounded-lg"
+        >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-gradient-to-br from-indigo-100 to-indigo-100 dark:from-indigo-500/20 dark:to-indigo-500/20">
@@ -596,7 +599,7 @@ onUnmounted(stopPolling)
             </div>
             <StatusBadge :status="schedule.enabled ? 'enabled' : 'disabled'" />
           </div>
-        </div>
+        </button>
       </Card>
 
       <!-- Backup History - Collapsible Section -->

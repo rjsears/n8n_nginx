@@ -636,7 +636,8 @@ class VerificationService:
         }
 
         try:
-            # Reset progress at the start of verification
+            # Reset progress and status at the start of verification
+            backup.verification_status = "running"
             await self._update_verification_progress(backup, 0, "Starting verification...")
 
             # Step 1: Archive Integrity (0-10%)
