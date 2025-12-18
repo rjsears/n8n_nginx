@@ -602,7 +602,7 @@ onUnmounted(stopPolling)
         </Card>
       </div>
 
-      <!-- Configuration Summary Card (Clickable - navigates to storage settings) -->
+      <!-- Backup Configuration Summary Card (Clickable - navigates to storage settings) -->
       <Card v-if="backupConfig" :neon="true" :padding="false" class="mt-4">
         <button
           @click="router.push('/backup-settings?tab=storage')"
@@ -610,7 +610,7 @@ onUnmounted(stopPolling)
         >
           <h4 class="font-semibold text-primary mb-3 flex items-center gap-2">
             <InformationCircleIcon class="h-4 w-4 text-gray-400" />
-            Configuration Summary
+            Backup Configuration Summary
           </h4>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <!-- Destination -->
