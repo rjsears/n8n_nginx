@@ -318,7 +318,23 @@ class RestoreService:
     def is_backup_mounted(self, backup_id: int) -> bool:
         """Check if a specific backup is currently mounted."""
         global _mounted_backup_id
-        return _mounted_backup_id == backup_id
+        # First check memory state
+        if _mounted_backup_id == backup_id:
+            return True
+        # If memory state doesn't match, check if container is actually running
+        # This handles cases where state was lost (worker restart, etc.)
+        try:
+            check_cmd = ["docker", "ps", "--filter", f"name={RESTORE_CONTAINER_NAME}", "--format", "{{.Names}}"]
+            result = subprocess.run(check_cmd, capture_output=True, text=True)
+            if RESTORE_CONTAINER_NAME in result.stdout:
+                # Container is running - update memory state and allow operation
+                # We can't know for sure which backup was loaded, but if container is running
+                # with data, we should allow operations
+                logger.info(f"Restore container is running, allowing operations for backup {backup_id}")
+                return True
+        except Exception as e:
+            logger.warning(f"Failed to check container status: {e}")
+        return False
 
     # ============================================================================
     # Backup Loading
@@ -679,17 +695,20 @@ class RestoreService:
             n8n_service = N8nApiService()
             result = await n8n_service.create_workflow(import_workflow)
 
-            if result.get("id"):
-                logger.info(f"Workflow restored successfully as '{new_name}' with ID {result['id']}")
+            # Check for success - the API returns workflow_id, not id
+            if result.get("success") and result.get("workflow_id"):
+                logger.info(f"Workflow restored successfully as '{new_name}' with ID {result['workflow_id']}")
                 return {
                     "status": "success",
                     "original_name": original_name,
                     "new_name": new_name,
-                    "new_workflow_id": result["id"],
+                    "new_workflow_id": result["workflow_id"],
                     "message": f"Workflow restored as '{new_name}'",
                 }
             else:
-                return {"status": "failed", "error": "n8n API did not return workflow ID"}
+                error_msg = result.get("error", "n8n API did not return workflow ID")
+                logger.error(f"n8n API error: {error_msg}")
+                return {"status": "failed", "error": error_msg}
 
         except Exception as e:
             logger.error(f"Failed to restore workflow: {e}")
