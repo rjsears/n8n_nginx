@@ -169,8 +169,8 @@ services:
       # NTFY public URL (if different from https://ntfy.${DOMAIN})
       - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
       # PostgreSQL connection for backups (pg_dump)
-      - POSTGRES_HOST=${POSTGRES_CONTAINER}
-      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       # Docker socket for container management (read-only)
