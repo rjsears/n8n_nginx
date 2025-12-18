@@ -99,6 +99,11 @@ const creatingBareMetal = ref(null)
 const restoringWorkflow = ref(null)
 const restoringConfig = ref(null)
 
+// Mount state
+const mountedBackup = ref(null)  // { backup_id, backup_info, workflows }
+const mountingBackup = ref(null)  // backup_id being mounted
+const unmountingBackup = ref(false)
+
 // Polling for running backups/verifications
 const pollingInterval = ref(null)
 const POLL_INTERVAL_MS = 2000
@@ -207,15 +212,8 @@ function toggleAction(backupId, action) {
     expandedAction.value[backupId] = null
   } else {
     expandedAction.value[backupId] = action
-    // Load workflows and config files if opening restore action
-    if (action === 'restore') {
-      if (!backupWorkflows.value[backupId]) {
-        loadWorkflowsForBackup(backupId)
-      }
-      if (!backupConfigFiles.value[backupId]) {
-        loadConfigFilesForBackup(backupId)
-      }
-    }
+    // Note: For 'restore' action, we no longer auto-load workflows/config
+    // User must click "Mount Backup" first to load the data
   }
 }
 
@@ -261,7 +259,65 @@ function isRestoreItemExpanded(backupId, itemId) {
   return !!expandedRestoreItem.value[`${backupId}-${itemId}`]
 }
 
+// Mount a backup for restore operations
+async function mountBackup(backupId) {
+  mountingBackup.value = backupId
+  try {
+    const response = await api.post(`/backups/${backupId}/mount`)
+    if (response.data.status === 'success') {
+      mountedBackup.value = {
+        backup_id: backupId,
+        backup_info: response.data.backup_info,
+        workflows: response.data.workflows || []
+      }
+      // Store workflows for this backup
+      backupWorkflows.value[backupId] = response.data.workflows || []
+      notificationStore.success(`Backup mounted with ${response.data.workflows?.length || 0} workflows`)
+      // Also load config files
+      await loadConfigFilesForBackup(backupId)
+    } else {
+      notificationStore.error(response.data.error || 'Failed to mount backup')
+    }
+  } catch (error) {
+    console.error('Failed to mount backup:', error)
+    notificationStore.error('Failed to mount backup: ' + (error.response?.data?.detail || error.message))
+  } finally {
+    mountingBackup.value = null
+  }
+}
+
+// Unmount the currently mounted backup
+async function unmountBackup() {
+  if (!mountedBackup.value) return
+
+  unmountingBackup.value = true
+  const backupId = mountedBackup.value.backup_id
+  try {
+    await api.post(`/backups/${backupId}/unmount`)
+    mountedBackup.value = null
+    // Clear the loaded data
+    delete backupWorkflows.value[backupId]
+    delete backupConfigFiles.value[backupId]
+    notificationStore.success('Backup unmounted')
+  } catch (error) {
+    console.error('Failed to unmount backup:', error)
+    notificationStore.error('Failed to unmount backup')
+  } finally {
+    unmountingBackup.value = false
+  }
+}
+
+// Check if a specific backup is mounted
+function isBackupMounted(backupId) {
+  return mountedBackup.value?.backup_id === backupId
+}
+
 async function loadWorkflowsForBackup(backupId) {
+  // If backup is mounted, workflows are already loaded
+  if (isBackupMounted(backupId) && backupWorkflows.value[backupId]) {
+    return
+  }
+  // Otherwise, they need to mount first
   loadingWorkflows.value.add(backupId)
   try {
     const response = await api.get(`/backups/${backupId}/restore/workflows`)
@@ -1135,99 +1191,151 @@ onUnmounted(stopPolling)
                   </div>
 
                   <!-- Selective Restore Panel -->
-                  <div v-if="expandedAction[backup.id] === 'restore'" class="p-4 space-y-2">
-                    <!-- Workflows Section (Collapsible) -->
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700 overflow-hidden">
-                      <!-- Section Header (Clickable) -->
-                      <button
-                        @click="toggleRestoreSection(backup.id, 'workflows')"
-                        class="w-full p-4 flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
-                      >
-                        <div class="flex items-center gap-2">
-                          <DocumentTextIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                          <span class="font-semibold text-primary">Workflows</span>
-                          <span v-if="backupWorkflows[backup.id]" class="text-xs text-secondary bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
-                            {{ backupWorkflows[backup.id].length }}
+                  <div v-if="expandedAction[backup.id] === 'restore'" class="p-4 space-y-4">
+                    <!-- Mount Required Message (if not mounted) -->
+                    <div v-if="!isBackupMounted(backup.id)" class="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700 p-6">
+                      <div class="flex items-start gap-4">
+                        <div class="flex-shrink-0">
+                          <ArchiveBoxIcon class="h-10 w-10 text-indigo-500" />
+                        </div>
+                        <div class="flex-1">
+                          <h4 class="font-semibold text-primary text-lg mb-2">Mount Backup for Restore</h4>
+                          <p class="text-secondary mb-4">
+                            To browse and restore individual items, the backup archive must first be mounted.
+                            This will extract and load the backup data into a temporary container.
+                          </p>
+                          <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-3 mb-4">
+                            <p class="text-sm text-amber-800 dark:text-amber-200 flex items-start gap-2">
+                              <InformationCircleIcon class="h-5 w-5 flex-shrink-0 mt-0.5" />
+                              <span><strong>Important:</strong> Please keep the backup mounted until you have completed all restore operations. Click "Unmount" when finished to free up resources.</span>
+                            </p>
+                          </div>
+                          <button
+                            @click="mountBackup(backup.id)"
+                            :disabled="mountingBackup === backup.id"
+                            class="btn-primary bg-indigo-600 hover:bg-indigo-700 flex items-center gap-2 px-6 py-2.5"
+                          >
+                            <LoadingSpinner v-if="mountingBackup === backup.id" size="sm" />
+                            <ArchiveBoxIcon v-else class="h-5 w-5" />
+                            {{ mountingBackup === backup.id ? 'Mounting Backup...' : 'Mount Backup' }}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Mounted State - Show Unmount + Content -->
+                    <template v-else>
+                      <!-- Mounted Status Bar -->
+                      <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg p-3 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                          <CheckCircleIcon class="h-5 w-5 text-green-600 dark:text-green-400" />
+                          <span class="text-green-800 dark:text-green-200 font-medium">
+                            Backup Mounted
+                            <span class="text-green-600 dark:text-green-400 font-normal ml-2">
+                              ({{ backupWorkflows[backup.id]?.length || 0 }} workflows available)
+                            </span>
                           </span>
                         </div>
-                        <ChevronDownIcon
-                          :class="[
-                            'h-5 w-5 text-gray-400 transition-transform duration-200',
-                            expandedRestoreSection[backup.id] === 'workflows' ? 'rotate-180' : ''
-                          ]"
-                        />
-                      </button>
+                        <button
+                          @click="unmountBackup()"
+                          :disabled="unmountingBackup"
+                          class="px-4 py-1.5 bg-white dark:bg-gray-800 border border-green-300 dark:border-green-600 rounded-lg text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/30 text-sm font-medium flex items-center gap-2"
+                        >
+                          <LoadingSpinner v-if="unmountingBackup" size="sm" />
+                          <XCircleIcon v-else class="h-4 w-4" />
+                          {{ unmountingBackup ? 'Unmounting...' : 'Unmount Backup' }}
+                        </button>
+                      </div>
 
-                      <!-- Section Content -->
-                      <div v-if="expandedRestoreSection[backup.id] === 'workflows'" class="border-t border-indigo-100 dark:border-indigo-800">
-                        <p class="text-sm text-secondary px-4 py-2 bg-indigo-50/50 dark:bg-indigo-900/10">
-                          Click a workflow to see restore options.
-                        </p>
+                      <!-- Workflows Section (Collapsible) -->
+                      <div class="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700 overflow-hidden">
+                        <!-- Section Header (Clickable) -->
+                        <button
+                          @click="toggleRestoreSection(backup.id, 'workflows')"
+                          class="w-full p-4 flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                        >
+                          <div class="flex items-center gap-2">
+                            <DocumentTextIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                            <span class="font-semibold text-primary">Workflows</span>
+                            <span v-if="backupWorkflows[backup.id]" class="text-xs text-secondary bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
+                              {{ backupWorkflows[backup.id].length }}
+                            </span>
+                          </div>
+                          <ChevronDownIcon
+                            :class="[
+                              'h-5 w-5 text-gray-400 transition-transform duration-200',
+                              expandedRestoreSection[backup.id] === 'workflows' ? 'rotate-180' : ''
+                            ]"
+                          />
+                        </button>
 
-                        <!-- Workflow List -->
-                        <div v-if="loadingWorkflows.has(backup.id)" class="py-4 text-center">
-                          <LoadingSpinner size="sm" text="Loading workflows..." />
-                        </div>
-                        <div v-else-if="!backupWorkflows[backup.id] || backupWorkflows[backup.id].length === 0" class="py-4 text-center text-secondary">
-                          No workflows found in this backup
-                        </div>
-                        <div v-else class="max-h-64 overflow-y-auto">
-                          <div
-                            v-for="workflow in backupWorkflows[backup.id]"
-                            :key="workflow.id"
-                            class="border-b border-gray-100 dark:border-gray-700 last:border-b-0"
-                          >
-                            <!-- Workflow Item (Clickable) -->
-                            <button
-                              @click="toggleRestoreItem(backup.id, `wf-${workflow.id}`)"
-                              class="w-full p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                            >
-                              <div class="flex items-center gap-3">
-                                <DocumentTextIcon class="h-5 w-5 text-indigo-500" />
-                                <div class="text-left">
-                                  <p class="font-medium text-primary">{{ workflow.name }}</p>
-                                  <p class="text-xs text-secondary">
-                                    {{ workflow.active ? 'Active' : 'Inactive' }}
-                                    <span v-if="workflow.updated_at"> • {{ new Date(workflow.updated_at).toLocaleDateString() }}</span>
-                                  </p>
-                                </div>
-                              </div>
-                              <ChevronDownIcon
-                                :class="[
-                                  'h-4 w-4 text-gray-400 transition-transform duration-200',
-                                  isRestoreItemExpanded(backup.id, `wf-${workflow.id}`) ? 'rotate-180' : ''
-                                ]"
-                              />
-                            </button>
+                        <!-- Section Content -->
+                        <div v-if="expandedRestoreSection[backup.id] === 'workflows'" class="border-t border-indigo-100 dark:border-indigo-800">
+                          <p class="text-sm text-secondary px-4 py-2 bg-indigo-50/50 dark:bg-indigo-900/10">
+                            Click a workflow to see restore options.
+                          </p>
 
-                            <!-- Workflow Actions (Expanded) -->
+                          <!-- Workflow List -->
+                          <div v-if="!backupWorkflows[backup.id] || backupWorkflows[backup.id].length === 0" class="py-4 text-center text-secondary">
+                            No workflows found in this backup
+                          </div>
+                          <div v-else class="max-h-64 overflow-y-auto">
                             <div
-                              v-if="isRestoreItemExpanded(backup.id, `wf-${workflow.id}`)"
-                              class="px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 flex items-center gap-3"
+                              v-for="workflow in backupWorkflows[backup.id]"
+                              :key="workflow.id"
+                              class="border-b border-gray-100 dark:border-gray-700 last:border-b-0"
                             >
+                              <!-- Workflow Item (Clickable) -->
                               <button
-                                @click.stop="downloadWorkflow(backup, workflow)"
-                                class="btn-secondary px-4 py-2 text-sm flex items-center gap-2 border border-blue-300 dark:border-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30"
-                                title="Download as JSON file"
+                                @click="toggleRestoreItem(backup.id, `wf-${workflow.id}`)"
+                                class="w-full p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
                               >
-                                <DocumentArrowDownIcon class="h-4 w-4 text-blue-600" />
-                                <span>Download JSON</span>
+                                <div class="flex items-center gap-3">
+                                  <DocumentTextIcon class="h-5 w-5 text-indigo-500" />
+                                  <div class="text-left">
+                                    <p class="font-medium text-primary">{{ workflow.name }}</p>
+                                    <p class="text-xs text-secondary">
+                                      {{ workflow.active ? 'Active' : 'Inactive' }}
+                                      <span v-if="workflow.updated_at"> • {{ new Date(workflow.updated_at).toLocaleDateString() }}</span>
+                                    </p>
+                                  </div>
+                                </div>
+                                <ChevronDownIcon
+                                  :class="[
+                                    'h-4 w-4 text-gray-400 transition-transform duration-200',
+                                    isRestoreItemExpanded(backup.id, `wf-${workflow.id}`) ? 'rotate-180' : ''
+                                  ]"
+                                />
                               </button>
-                              <button
-                                @click.stop="restoreWorkflowToN8n(backup, workflow)"
-                                :disabled="restoringWorkflow === `${backup.id}-${workflow.id}`"
-                                class="btn-primary px-4 py-2 text-sm flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white"
-                                title="Restore to n8n with new name"
+
+                              <!-- Workflow Actions (Expanded) -->
+                              <div
+                                v-if="isRestoreItemExpanded(backup.id, `wf-${workflow.id}`)"
+                                class="px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 flex items-center gap-3"
                               >
-                                <LoadingSpinner v-if="restoringWorkflow === `${backup.id}-${workflow.id}`" size="sm" />
-                                <CloudArrowUpIcon v-else class="h-4 w-4" />
-                                <span>Restore to n8n</span>
-                              </button>
+                                <button
+                                  @click.stop="downloadWorkflow(backup, workflow)"
+                                  class="btn-secondary px-4 py-2 text-sm flex items-center gap-2 border border-blue-300 dark:border-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                  title="Download as JSON file"
+                                >
+                                  <DocumentArrowDownIcon class="h-4 w-4 text-blue-600" />
+                                  <span>Download JSON</span>
+                                </button>
+                                <button
+                                  @click.stop="restoreWorkflowToN8n(backup, workflow)"
+                                  :disabled="restoringWorkflow === `${backup.id}-${workflow.id}`"
+                                  class="btn-primary px-4 py-2 text-sm flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white"
+                                  title="Restore to n8n with new name"
+                                >
+                                  <LoadingSpinner v-if="restoringWorkflow === `${backup.id}-${workflow.id}`" size="sm" />
+                                  <CloudArrowUpIcon v-else class="h-4 w-4" />
+                                  <span>Restore to n8n</span>
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
                     <!-- Config Files Section (Collapsible) -->
                     <div class="bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-700 overflow-hidden">
@@ -1327,6 +1435,7 @@ onUnmounted(stopPolling)
                         </div>
                       </div>
                     </div>
+                    </template>
                   </div>
 
                   <!-- Bare Metal Panel -->
