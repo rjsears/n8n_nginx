@@ -310,6 +310,16 @@ function closeProgressModal() {
 async function verifyBackup(backup) {
   verifyingBackup.value = backup.id
 
+  // Reset progress in local store to avoid showing stale data
+  const index = backupStore.history.findIndex(b => b.id === backup.id)
+  if (index > -1) {
+    backupStore.history[index] = {
+      ...backupStore.history[index],
+      progress: 0,
+      progress_message: 'Starting verification...'
+    }
+  }
+
   // Show progress modal
   progressModal.value = {
     show: true,
