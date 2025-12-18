@@ -169,7 +169,7 @@ services:
       # NTFY public URL (if different from https://ntfy.${DOMAIN})
       - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
       # PostgreSQL connection for backups (pg_dump)
-      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_HOST=${POSTGRES_CONTAINER}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
