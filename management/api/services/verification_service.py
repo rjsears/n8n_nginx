@@ -543,12 +543,12 @@ class VerificationService:
         # Get backup info
         backup = await self.backup_service.get_backup(backup_id)
         if not backup:
-            return {"status": "failed", "error": "Backup not found"}
+            return {"overall_status": "failed", "error": "Backup not found"}
 
         # Get stored backup contents (metadata)
         contents = await self._get_backup_contents(backup_id)
         if not contents:
-            return {"status": "failed", "error": "Backup metadata not found"}
+            return {"overall_status": "failed", "error": "Backup metadata not found"}
 
         results = {
             "backup_id": backup_id,
@@ -710,7 +710,7 @@ class VerificationService:
 
         backup = await self.backup_service.get_backup(backup_id)
         if not backup:
-            return {"status": "failed", "error": "Backup not found"}
+            return {"overall_status": "failed", "error": "Backup not found"}
 
         results = {
             "backup_id": backup_id,
