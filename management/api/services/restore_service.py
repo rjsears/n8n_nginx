@@ -746,6 +746,57 @@ class RestoreService:
             # Cleanup temp dir
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    async def extract_config_file_content(
+        self,
+        backup_id: int,
+        config_path: str,
+    ) -> Tuple[Optional[bytes], Optional[str]]:
+        """
+        Extract a specific config file's content from a backup archive.
+
+        Args:
+            backup_id: The backup to extract from
+            config_path: Path within backup (e.g., "config/.env" or "config/nginx.conf")
+
+        Returns:
+            Tuple of (file_content_bytes, filename) or (None, None) if not found
+        """
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            logger.error(f"Failed to extract backup archive: {metadata}")
+            return None, None
+
+        try:
+            # The config_path should be relative to the archive root
+            source_path = os.path.join(temp_dir, config_path)
+            logger.info(f"Looking for config file at: {source_path}")
+
+            if not os.path.exists(source_path):
+                logger.error(f"Config file not found: {source_path}")
+                # List what we have for debugging
+                for root, dirs, files in os.walk(temp_dir):
+                    for f in files:
+                        logger.debug(f"Available in archive: {os.path.join(root, f)}")
+                return None, None
+
+            # Read the file content
+            with open(source_path, 'rb') as f:
+                content = f.read()
+
+            # Get just the filename for the download
+            filename = os.path.basename(config_path)
+            logger.info(f"Extracted config file: {filename} ({len(content)} bytes)")
+
+            return content, filename
+
+        except Exception as e:
+            logger.error(f"Failed to extract config file content: {e}")
+            return None, None
+
+        finally:
+            # Cleanup temp dir
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     async def restore_config_file(
         self,
         backup_id: int,
