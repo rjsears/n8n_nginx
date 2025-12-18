@@ -78,6 +78,17 @@ const currentStage = computed(() => stages.value[currentStageIndex.value])
 function getSegmentStatus(stageIndex) {
   const stage = stages.value[stageIndex]
 
+  // When failed, show the failed stage differently
+  if (props.status === 'failed') {
+    if (props.progress >= stage.max) {
+      return 'complete' // Stages before failure
+    } else if (props.progress >= stage.min) {
+      return 'failed' // The stage where failure occurred
+    }
+    return 'pending' // Stages after failure
+  }
+
+  // Normal progress
   if (props.progress >= stage.max) {
     return 'complete' // Fully filled
   } else if (props.progress >= stage.min) {
@@ -97,6 +108,37 @@ function getSegmentFillPercent(stageIndex) {
     return Math.min(100, (progressInStage / stageRange) * 100)
   }
   return 0
+}
+
+// Get color class for segment based on status
+function getSegmentColor(stageIndex) {
+  const segmentStatus = getSegmentStatus(stageIndex)
+
+  if (segmentStatus === 'complete') {
+    return props.status === 'failed' ? 'bg-gray-400' : 'bg-emerald-500'
+  } else if (segmentStatus === 'failed') {
+    return 'bg-red-500'
+  } else if (segmentStatus === 'active') {
+    return props.type === 'backup' ? 'bg-blue-500' : 'bg-teal-500'
+  }
+  return 'bg-gray-300 dark:bg-gray-600'
+}
+
+function getIndicatorColor(stageIndex) {
+  const segmentStatus = getSegmentStatus(stageIndex)
+
+  if (segmentStatus === 'complete') {
+    return props.status === 'failed'
+      ? 'bg-gray-400 text-white'
+      : 'bg-emerald-500 text-white'
+  } else if (segmentStatus === 'failed') {
+    return 'bg-red-500 text-white'
+  } else if (segmentStatus === 'active') {
+    return props.type === 'backup'
+      ? 'bg-blue-500 text-white'
+      : 'bg-teal-500 text-white'
+  }
+  return 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
 }
 
 const statusColor = computed(() => {
@@ -234,14 +276,11 @@ const statusColor = computed(() => {
                   <div
                     :class="[
                       'flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300',
-                      getSegmentStatus(index) === 'complete'
-                        ? 'bg-emerald-500 text-white'
-                        : getSegmentStatus(index) === 'active'
-                          ? (type === 'backup' ? 'bg-blue-500 text-white' : 'bg-teal-500 text-white')
-                          : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                      getIndicatorColor(index)
                     ]"
                   >
                     <CheckCircleIcon v-if="getSegmentStatus(index) === 'complete'" class="h-4 w-4" />
+                    <ExclamationCircleIcon v-else-if="getSegmentStatus(index) === 'failed'" class="h-4 w-4" />
                     <span v-else>{{ index + 1 }}</span>
                   </div>
 
@@ -253,23 +292,21 @@ const statusColor = computed(() => {
                           'text-sm font-medium',
                           getSegmentStatus(index) === 'pending'
                             ? 'text-gray-400 dark:text-gray-500'
-                            : 'text-gray-700 dark:text-gray-300'
+                            : getSegmentStatus(index) === 'failed'
+                              ? 'text-red-600 dark:text-red-400'
+                              : 'text-gray-700 dark:text-gray-300'
                         ]"
                       >{{ stage.label }}</span>
                       <span
-                        v-if="getSegmentStatus(index) === 'active'"
-                        class="text-xs text-gray-500"
-                      >{{ Math.round(getSegmentFillPercent(index)) }}%</span>
+                        v-if="getSegmentStatus(index) === 'active' || getSegmentStatus(index) === 'failed'"
+                        :class="getSegmentStatus(index) === 'failed' ? 'text-xs text-red-500' : 'text-xs text-gray-500'"
+                      >{{ getSegmentStatus(index) === 'failed' ? 'FAILED' : Math.round(getSegmentFillPercent(index)) + '%' }}</span>
                     </div>
                     <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                       <div
                         :class="[
                           'h-full transition-all duration-300 rounded-full',
-                          getSegmentStatus(index) === 'complete'
-                            ? 'bg-emerald-500'
-                            : getSegmentStatus(index) === 'active'
-                              ? (type === 'backup' ? 'bg-blue-500' : 'bg-teal-500')
-                              : 'bg-gray-300 dark:bg-gray-600'
+                          getSegmentColor(index)
                         ]"
                         :style="{ width: `${getSegmentFillPercent(index)}%` }"
                       ></div>

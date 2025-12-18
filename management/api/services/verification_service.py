@@ -587,7 +587,8 @@ class VerificationService:
             if not archive_result.get("passed"):
                 results["overall_status"] = "failed"
                 results["errors"].append("Archive integrity check failed")
-                await self._update_verification_progress(backup, 100, "Verification failed: archive integrity")
+                # Don't set progress to 100 on failure - keep at current stage
+                await self._update_verification_progress(backup, 10, "Failed: archive integrity check")
                 return await self._store_verification_results(backup_id, results)
 
             # Step 2: Spin up container (10-25%)
@@ -596,7 +597,7 @@ class VerificationService:
             if not await self.spin_up_verify_container():
                 results["overall_status"] = "failed"
                 results["errors"].append("Failed to start verification container")
-                await self._update_verification_progress(backup, 100, "Verification failed: container startup")
+                await self._update_verification_progress(backup, 20, "Failed: container startup")
                 return await self._store_verification_results(backup_id, results)
 
             # Step 3: Load backup (25-40%)
@@ -606,7 +607,7 @@ class VerificationService:
             if not loaded:
                 results["overall_status"] = "failed"
                 results["errors"].append(f"Failed to load backup: {metadata.get('error')}")
-                await self._update_verification_progress(backup, 100, "Verification failed: loading backup")
+                await self._update_verification_progress(backup, 35, "Failed: loading backup")
                 return await self._store_verification_results(backup_id, results)
 
             # Step 4: Verify tables exist (40-55%)

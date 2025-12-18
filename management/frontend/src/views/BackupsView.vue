@@ -318,17 +318,14 @@ async function verifyBackup(backup) {
     status: 'running'
   }
 
-  try {
-    // Start polling for progress updates in background
-    const pollPromise = pollForProgress()
+  // Start polling for progress updates in background (don't await - runs independently)
+  pollForProgress()
 
+  try {
     // Call the verification API (this may block until complete)
     const result = await backupStore.verifyBackup(backup.id)
 
-    // Stop any ongoing polling
-    await pollPromise
-
-    // Update modal status based on result
+    // Update modal status based on result (this also stops polling)
     if (result.overall_status === 'passed') {
       progressModal.value.status = 'success'
       notificationStore.success('Backup verification passed')
@@ -342,7 +339,8 @@ async function verifyBackup(backup) {
       notificationStore.warning(`Backup verification completed with warnings${warnMsg ? ': ' + warnMsg : ''}`)
     }
 
-    await loadData()
+    // Final refresh to get latest data
+    await backupStore.fetchBackups()
   } catch (error) {
     progressModal.value.status = 'failed'
     notificationStore.error('Failed to verify backup: ' + (error.message || 'Unknown error'))
@@ -355,7 +353,11 @@ async function verifyBackup(backup) {
 async function pollForProgress() {
   while (progressModal.value.status === 'running' && progressModal.value.show) {
     await new Promise(resolve => setTimeout(resolve, 1000))
-    await backupStore.fetchBackups()
+    try {
+      await backupStore.fetchBackups()
+    } catch (e) {
+      // Ignore polling errors
+    }
   }
 }
 
