@@ -833,7 +833,7 @@ onUnmounted(stopPolling)
                           {{ verifyingBackup === backup.id ? 'Verifying...' : 'Start Verification' }}
                         </button>
                         <span
-                          v-if="backup.verification_status && backup.verification_status !== 'pending'"
+                          v-if="backup.verification_status && !['pending', 'running'].includes(backup.verification_status)"
                           :class="[
                             'text-sm px-3 py-1 rounded-full',
                             backup.verification_status === 'passed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' :

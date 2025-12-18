@@ -14,7 +14,9 @@ import {
   ExclamationTriangleIcon,
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
+  CalendarIcon,
 } from '@heroicons/vue/24/outline'
+import { useBackupStore } from '@/stores/backups'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -41,10 +43,14 @@ ChartJS.register(
 
 const router = useRouter()
 const themeStore = useThemeStore()
+const backupStore = useBackupStore()
 
 const loading = ref(true)
 const error = ref(null)
 const metricsAvailable = ref(false)
+
+// Backup schedule data
+const schedule = ref(null)
 
 // Metrics data from the cached SQL endpoint
 const metricsData = ref(null)
@@ -105,6 +111,15 @@ async function fetchMetrics() {
 async function loadData() {
   loading.value = true
   await fetchMetrics()
+  // Fetch backup schedule
+  try {
+    await backupStore.fetchSchedules()
+    if (backupStore.schedules.length > 0) {
+      schedule.value = backupStore.schedules[0]
+    }
+  } catch (err) {
+    console.error('Failed to fetch backup schedules:', err)
+  }
   loading.value = false
 }
 
@@ -441,6 +456,37 @@ const networkChartOptions = computed(() => ({
           </div>
         </Card>
       </div>
+
+      <!-- Backup Schedule Card (Clickable - navigates to backup settings) -->
+      <Card v-if="schedule" :neon="true" :padding="false" class="mt-4">
+        <button
+          @click="router.push('/backup-settings')"
+          class="w-full p-4 text-left hover:bg-surface-hover transition-colors rounded-lg"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="p-2 rounded-lg bg-gradient-to-br from-indigo-100 to-indigo-100 dark:from-indigo-500/20 dark:to-indigo-500/20">
+                <CalendarIcon class="h-5 w-5 text-indigo-500" />
+              </div>
+              <div>
+                <h3 class="font-semibold text-primary">Backup Schedule</h3>
+                <p class="text-sm text-secondary">
+                  {{ schedule.frequency }} at {{ schedule.time }} • {{ schedule.retention_days }} day retention
+                </p>
+              </div>
+            </div>
+            <span
+              :class="[
+                'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                schedule.enabled ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-400' :
+                'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-400'
+              ]"
+            >
+              {{ schedule.enabled ? 'Enabled' : 'Disabled' }}
+            </span>
+          </div>
+        </button>
+      </Card>
 
       <!-- Charts Row - CPU & Memory -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
