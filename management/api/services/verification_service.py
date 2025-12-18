@@ -99,48 +99,56 @@ class VerificationService:
     async def spin_up_verify_container(self) -> bool:
         """
         Create and start a temporary PostgreSQL container for verification.
-        Uses a separate container from restore to allow concurrent operations.
+        Always creates a fresh container to ensure clean state.
         """
         logger.info("Starting verification container...")
 
         try:
-            # Check if container already exists
+            # Always remove existing container first to ensure fresh state
             check_cmd = ["docker", "ps", "-a", "--filter", f"name={VERIFY_CONTAINER_NAME}", "--format", "{{.Names}}"]
             logger.info(f"Checking for existing container: {' '.join(check_cmd)}")
             result = subprocess.run(check_cmd, capture_output=True, text=True)
-            logger.info(f"Check result - stdout: {result.stdout}, stderr: {result.stderr}, returncode: {result.returncode}")
 
             if VERIFY_CONTAINER_NAME in result.stdout:
-                # Container exists, try to start it
-                logger.info("Verification container exists, starting it...")
-                start_cmd = ["docker", "start", VERIFY_CONTAINER_NAME]
-                start_result = subprocess.run(start_cmd, capture_output=True, text=True)
-                logger.info(f"Start result - stdout: {start_result.stdout}, stderr: {start_result.stderr}, returncode: {start_result.returncode}")
-                if start_result.returncode != 0:
-                    logger.error(f"Failed to start existing container: {start_result.stderr}")
-                    return False
-            else:
-                # Create new container
-                logger.info("Creating new verification container...")
-                # Get network name dynamically from postgres container
-                docker_network = self._get_postgres_network()
-                logger.info(f"Using Docker network: {docker_network}")
-                create_cmd = [
-                    "docker", "run", "-d",
-                    "--name", VERIFY_CONTAINER_NAME,
-                    "-e", f"POSTGRES_USER={VERIFY_DB_USER}",
-                    "-e", f"POSTGRES_PASSWORD={VERIFY_DB_PASSWORD}",
-                    "-e", f"POSTGRES_DB={VERIFY_DB_NAME}",
-                    "-p", f"{VERIFY_DB_PORT}:5432",
-                    "--network", docker_network,
-                    VERIFY_CONTAINER_IMAGE,
-                ]
-                logger.info(f"Running: {' '.join(create_cmd)}")
-                create_result = subprocess.run(create_cmd, capture_output=True, text=True)
-                logger.info(f"Create result - stdout: {create_result.stdout}, stderr: {create_result.stderr}, returncode: {create_result.returncode}")
-                if create_result.returncode != 0:
-                    logger.error(f"Failed to create container: {create_result.stderr}")
-                    return False
+                # Remove existing container
+                logger.info("Removing existing verification container for fresh start...")
+                subprocess.run(["docker", "rm", "-f", VERIFY_CONTAINER_NAME], capture_output=True)
+
+            # Create new container
+            logger.info("Creating new verification container...")
+            docker_network = self._get_postgres_network()
+            logger.info(f"Using Docker network: {docker_network}")
+            create_cmd = [
+                "docker", "run", "-d",
+                "--name", VERIFY_CONTAINER_NAME,
+                "-e", f"POSTGRES_USER={VERIFY_DB_USER}",
+                "-e", f"POSTGRES_PASSWORD={VERIFY_DB_PASSWORD}",
+                "-e", f"POSTGRES_DB={VERIFY_DB_NAME}",
+                "-p", f"{VERIFY_DB_PORT}:5432",
+                "--network", docker_network,
+                VERIFY_CONTAINER_IMAGE,
+            ]
+            logger.info(f"Running: {' '.join(create_cmd)}")
+            create_result = subprocess.run(create_cmd, capture_output=True, text=True)
+            logger.info(f"Create result - stdout: {create_result.stdout}, stderr: {create_result.stderr}, returncode: {create_result.returncode}")
+            if create_result.returncode != 0:
+                logger.error(f"Failed to create container: {create_result.stderr}")
+                return False
+
+            # Verify container is actually running
+            await asyncio.sleep(2)  # Give container a moment to start
+            check_running = subprocess.run(
+                ["docker", "ps", "--filter", f"name={VERIFY_CONTAINER_NAME}", "--format", "{{.Names}}"],
+                capture_output=True, text=True
+            )
+            if VERIFY_CONTAINER_NAME not in check_running.stdout:
+                # Container exited - check logs
+                logs_result = subprocess.run(
+                    ["docker", "logs", "--tail", "20", VERIFY_CONTAINER_NAME],
+                    capture_output=True, text=True
+                )
+                logger.error(f"Container exited immediately. Logs: {logs_result.stdout} {logs_result.stderr}")
+                return False
 
             # Wait for PostgreSQL to be ready
             logger.info("Waiting for PostgreSQL to be ready...")
