@@ -51,18 +51,18 @@ const notificationGroups = ref([])
 const loadingChannels = ref(false)
 
 
-// Collapsible sections state
+// Collapsible sections state - all start collapsed
 const sections = ref({
-  backupDestination: true,
-  backupWorkflow: true,
-  stagingArea: true,
+  backupDestination: false,
+  backupWorkflow: false,
+  stagingArea: false,
   localPaths: false,
-  scheduleConfig: true,
-  backupContents: true,
-  retentionPolicy: true,
-  compressionSettings: true,
-  notifySettings: true,
-  notifyChannels: true,
+  scheduleConfig: false,
+  backupContents: false,
+  retentionPolicy: false,
+  compressionSettings: false,
+  notifySettings: false,
+  notifyChannels: false,
 })
 
 // Watch for tab query changes
@@ -118,8 +118,9 @@ const compressionLevelMax = computed(() => {
 
 const hasNfsConfigured = computed(() => {
   return storageDetection.value?.has_nfs ||
-    (storageDetection.value?.environment?.nfs_mount_point &&
-     storageDetection.value?.environment?.nfs_mount_point !== '')
+    storageDetection.value?.environment?.nfs_configured ||
+    (storageDetection.value?.environment?.nfs_server &&
+     storageDetection.value?.environment?.nfs_server !== '')
 })
 
 const nfsMounts = computed(() => {
@@ -390,7 +391,40 @@ onMounted(() => {
       </div>
     </div>
 
-    <LoadingSpinner v-if="loading" size="lg" text="Loading configuration..." class="py-12" />
+    <!-- Cool Loading Animation -->
+    <div v-if="loading" class="py-16 flex flex-col items-center justify-center">
+      <div class="relative flex items-center gap-8">
+        <!-- Source Drive -->
+        <div class="relative">
+          <div class="w-16 h-20 rounded-lg bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/40 dark:to-blue-800/40 border-2 border-blue-300 dark:border-blue-700 flex items-center justify-center shadow-lg">
+            <CircleStackIcon class="h-8 w-8 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div class="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-blue-300 dark:bg-blue-700 rounded-full"></div>
+        </div>
+
+        <!-- Animated Files -->
+        <div class="relative w-24 h-8 overflow-hidden">
+          <div class="file-animation absolute flex items-center gap-1">
+            <DocumentTextIcon class="h-5 w-5 text-emerald-500" />
+            <DocumentTextIcon class="h-4 w-4 text-blue-500" />
+            <DocumentTextIcon class="h-5 w-5 text-purple-500" />
+          </div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <div class="w-full h-0.5 bg-gradient-to-r from-blue-300 via-emerald-300 to-blue-300 dark:from-blue-700 dark:via-emerald-700 dark:to-blue-700 opacity-50"></div>
+          </div>
+        </div>
+
+        <!-- Destination Drive -->
+        <div class="relative">
+          <div class="w-16 h-20 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 dark:from-emerald-900/40 dark:to-emerald-800/40 border-2 border-emerald-300 dark:border-emerald-700 flex items-center justify-center shadow-lg animate-pulse">
+            <FolderIcon class="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div class="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-emerald-300 dark:bg-emerald-700 rounded-full"></div>
+        </div>
+      </div>
+      <p class="mt-6 text-sm font-medium text-secondary">Loading backup configuration...</p>
+      <p class="mt-1 text-xs text-muted">Detecting storage locations</p>
+    </div>
 
     <template v-else>
       <!-- Tabs -->
@@ -479,10 +513,17 @@ onMounted(() => {
                   </div>
                   <div v-if="stagingArea" class="mt-3 ml-11 p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
                     <div class="flex items-center gap-2">
-                      <FolderIcon class="h-4 w-4 text-gray-500" />
+                      <FolderIcon class="h-4 w-4 text-blue-500" />
                       <code class="text-xs font-mono text-primary">{{ stagingArea.path }}</code>
-                      <span v-if="stagingArea.is_writable" class="px-1.5 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                      <span v-if="stagingArea.free_space_gb" class="px-1.5 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
                         {{ stagingArea.free_space_gb }} GB free
+                      </span>
+                      <span v-else-if="detectingStorage" class="px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 flex items-center gap-1">
+                        <ArrowPathIcon class="h-3 w-3 animate-spin" />
+                        Checking...
+                      </span>
+                      <span v-else class="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+                        Unknown
                       </span>
                     </div>
                   </div>
@@ -542,7 +583,26 @@ onMounted(() => {
                           </div>
                         </div>
                       </div>
-                      <p class="text-xs text-secondary mt-1 ml-6">{{ nfs.source }} ({{ nfs.fs_type }})</p>
+                      <p class="text-xs text-secondary mt-1 ml-6">
+                        {{ nfs.source }} ({{ nfs.fs_type }})
+                        <span v-if="nfs.host_mount" class="text-gray-400"> → {{ nfs.host_mount }}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- NFS configured via env but not mounted -->
+                  <div v-else-if="storageDetection?.environment?.nfs_configured" class="mt-3 ml-11 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <div class="flex items-start gap-2">
+                      <ExclamationTriangleIcon class="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div class="text-xs">
+                        <p class="font-medium text-amber-800 dark:text-amber-300">NFS Mount Issue</p>
+                        <p class="text-amber-700 dark:text-amber-400 mt-0.5">
+                          NFS is configured (<code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">{{ storageDetection?.environment?.nfs_server }}:{{ storageDetection?.environment?.nfs_path }}</code>)
+                          but the mount point is not accessible. Check that NFS is mounted on the host at
+                          <code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">{{ storageDetection?.environment?.nfs_local_mount || '/opt/n8n_backups' }}</code>
+                          and verify with <code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 font-mono">mount | grep nfs</code>.
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -756,29 +816,93 @@ onMounted(() => {
         </Transition>
 
         <!-- Summary Card -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <h4 class="font-semibold text-primary mb-3">Configuration Summary</h4>
+        <div class="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-800/50 dark:to-slate-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+          <h4 class="font-semibold text-primary mb-3 flex items-center gap-2">
+            <InformationCircleIcon class="h-4 w-4 text-gray-400" />
+            Configuration Summary
+          </h4>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-              <p class="text-xs font-medium text-secondary uppercase tracking-wide">Destination</p>
-              <p class="text-sm font-medium text-primary mt-1">
+            <!-- Destination -->
+            <div :class="[
+              'p-3 rounded-lg border',
+              form.storage_preference === 'nfs'
+                ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/50'
+                : 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800/50'
+            ]">
+              <div class="flex items-center gap-2 mb-1">
+                <component
+                  :is="form.storage_preference === 'nfs' ? CloudIcon : CircleStackIcon"
+                  :class="[
+                    'h-4 w-4',
+                    form.storage_preference === 'nfs' ? 'text-emerald-500' : 'text-blue-500'
+                  ]"
+                />
+                <p :class="[
+                  'text-xs font-medium uppercase tracking-wide',
+                  form.storage_preference === 'nfs' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'
+                ]">Destination</p>
+              </div>
+              <p class="text-sm font-medium text-primary">
                 {{ form.storage_preference === 'nfs' ? 'Network Storage (NFS)' : 'Local Storage' }}
               </p>
-              <p v-if="form.storage_preference === 'nfs' && form.nfs_storage_path" class="text-xs text-secondary mt-0.5 font-mono">
+              <p v-if="form.storage_preference === 'nfs' && form.nfs_storage_path" class="text-xs text-secondary mt-0.5 font-mono truncate">
                 {{ form.nfs_storage_path }}
               </p>
+              <p v-else-if="form.storage_preference === 'local' && stagingArea?.path" class="text-xs text-secondary mt-0.5 font-mono truncate">
+                {{ stagingArea.path }}
+              </p>
             </div>
-            <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-              <p class="text-xs font-medium text-secondary uppercase tracking-wide">Workflow</p>
-              <p class="text-sm font-medium text-primary mt-1">
+            <!-- Workflow -->
+            <div :class="[
+              'p-3 rounded-lg border',
+              form.storage_preference === 'nfs'
+                ? (form.backup_workflow === 'stage_then_copy'
+                    ? 'bg-indigo-50/50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800/50'
+                    : 'bg-purple-50/50 dark:bg-purple-900/10 border-purple-200 dark:border-purple-800/50')
+                : 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800/50'
+            ]">
+              <div class="flex items-center gap-2 mb-1">
+                <ArrowRightIcon :class="[
+                  'h-4 w-4',
+                  form.storage_preference === 'nfs'
+                    ? (form.backup_workflow === 'stage_then_copy' ? 'text-indigo-500' : 'text-purple-500')
+                    : 'text-blue-500'
+                ]" />
+                <p :class="[
+                  'text-xs font-medium uppercase tracking-wide',
+                  form.storage_preference === 'nfs'
+                    ? (form.backup_workflow === 'stage_then_copy' ? 'text-indigo-600 dark:text-indigo-400' : 'text-purple-600 dark:text-purple-400')
+                    : 'text-blue-600 dark:text-blue-400'
+                ]">Workflow</p>
+              </div>
+              <p class="text-sm font-medium text-primary">
                 <span v-if="form.storage_preference === 'local'">Direct to Local</span>
                 <span v-else-if="form.backup_workflow === 'stage_then_copy'">Stage & Copy</span>
                 <span v-else>Direct to NFS</span>
               </p>
             </div>
-            <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-              <p class="text-xs font-medium text-secondary uppercase tracking-wide">Staging</p>
-              <p class="text-sm font-medium text-primary mt-1">
+            <!-- Staging -->
+            <div :class="[
+              'p-3 rounded-lg border',
+              form.storage_preference === 'nfs' && form.backup_workflow === 'stage_then_copy'
+                ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/50'
+                : 'bg-gray-50/50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+            ]">
+              <div class="flex items-center gap-2 mb-1">
+                <FolderIcon :class="[
+                  'h-4 w-4',
+                  form.storage_preference === 'nfs' && form.backup_workflow === 'stage_then_copy'
+                    ? 'text-amber-500'
+                    : 'text-gray-400'
+                ]" />
+                <p :class="[
+                  'text-xs font-medium uppercase tracking-wide',
+                  form.storage_preference === 'nfs' && form.backup_workflow === 'stage_then_copy'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-gray-500 dark:text-gray-400'
+                ]">Staging</p>
+              </div>
+              <p class="text-sm font-medium text-primary">
                 <span v-if="form.storage_preference === 'nfs' && form.backup_workflow === 'stage_then_copy'">
                   Enabled
                 </span>
@@ -1277,5 +1401,27 @@ onMounted(() => {
 .slide-fade-leave-to {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+/* File transfer animation */
+.file-animation {
+  animation: moveFiles 1.5s ease-in-out infinite;
+}
+
+@keyframes moveFiles {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
 }
 </style>
