@@ -107,6 +107,10 @@ class BackupHistory(Base):
     status = Column(String(20), nullable=False, index=True)  # 'running', 'success', 'failed', 'partial'
     error_message = Column(Text, nullable=True)
 
+    # Progress tracking (0-100)
+    progress = Column(Integer, default=0)
+    progress_message = Column(String(200), nullable=True)
+
     # Verification
     verification_status = Column(String(20), default="pending")  # 'pending', 'passed', 'failed', 'skipped'
     verification_date = Column(DateTime(timezone=True), nullable=True)

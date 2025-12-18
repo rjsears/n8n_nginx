@@ -122,6 +122,8 @@ class BackupHistoryResponse(BaseModel):
     duration_seconds: Optional[int] = None
     status: str
     error_message: Optional[str] = None
+    progress: Optional[int] = 0
+    progress_message: Optional[str] = None
     verification_status: str
     verification_date: Optional[datetime] = None
     verification_details: Optional[Dict[str, Any]] = None

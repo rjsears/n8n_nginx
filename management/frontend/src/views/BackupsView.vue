@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useBackupStore } from '@/stores/backups'
@@ -63,6 +63,45 @@ const verifyingBackup = ref(null)
 const protectingBackup = ref(null)
 const creatingBareMetal = ref(null)
 const restoringWorkflow = ref(null)
+
+// Polling for running backups/verifications
+const pollingInterval = ref(null)
+const POLL_INTERVAL_MS = 2000
+
+// Check if any backup is in progress
+const hasRunningOperations = computed(() => {
+  return backupStore.backups.some(b => b.status === 'running') ||
+         verifyingBackup.value !== null ||
+         runningBackup.value
+})
+
+// Start/stop polling based on running operations
+function startPolling() {
+  if (pollingInterval.value) return
+  pollingInterval.value = setInterval(async () => {
+    if (hasRunningOperations.value) {
+      await backupStore.loadBackups()
+    } else {
+      stopPolling()
+    }
+  }, POLL_INTERVAL_MS)
+}
+
+function stopPolling() {
+  if (pollingInterval.value) {
+    clearInterval(pollingInterval.value)
+    pollingInterval.value = null
+  }
+}
+
+// Watch for running operations to start/stop polling
+watch(hasRunningOperations, (hasRunning) => {
+  if (hasRunning) {
+    startPolling()
+  } else {
+    stopPolling()
+  }
+})
 
 // Backup schedule (would come from API)
 const schedule = ref({
@@ -316,6 +355,7 @@ async function loadData() {
 }
 
 onMounted(loadData)
+onUnmounted(stopPolling)
 </script>
 
 <template>
@@ -535,7 +575,20 @@ onMounted(loadData)
                         Verified
                       </span>
                     </div>
-                    <p class="text-sm text-secondary mt-0.5">
+                    <!-- Progress Bar for Running Backups -->
+                    <div v-if="backup.status === 'running' && backup.progress !== undefined" class="mt-2 w-64">
+                      <div class="flex items-center justify-between text-xs text-secondary mb-1">
+                        <span>{{ backup.progress_message || 'In progress...' }}</span>
+                        <span>{{ backup.progress }}%</span>
+                      </div>
+                      <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div
+                          class="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                          :style="{ width: `${backup.progress}%` }"
+                        ></div>
+                      </div>
+                    </div>
+                    <p v-else class="text-sm text-secondary mt-0.5">
                       {{ new Date(backup.created_at).toLocaleString() }} • {{ formatBytes(backup.file_size) }}
                     </p>
                   </div>
@@ -664,6 +717,19 @@ onMounted(loadData)
                         >
                           Last result: {{ backup.verification_status }}
                         </span>
+                      </div>
+                      <!-- Verification Progress Bar -->
+                      <div v-if="verifyingBackup === backup.id && backup.progress !== undefined" class="mt-4">
+                        <div class="flex items-center justify-between text-xs text-secondary mb-1">
+                          <span>{{ backup.progress_message || 'Verifying...' }}</span>
+                          <span>{{ backup.progress }}%</span>
+                        </div>
+                        <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div
+                            class="bg-teal-500 h-2 rounded-full transition-all duration-300"
+                            :style="{ width: `${backup.progress}%` }"
+                          ></div>
+                        </div>
                       </div>
                     </div>
                   </div>
