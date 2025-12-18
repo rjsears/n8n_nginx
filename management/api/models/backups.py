@@ -304,6 +304,7 @@ class BackupConfiguration(Base):
     nfs_storage_path = Column(String(500), nullable=True)
     nfs_enabled = Column(Boolean, default=False)
     storage_preference = Column(String(20), default="local")  # 'local', 'nfs', 'both'
+    backup_workflow = Column(String(20), default="direct")  # 'direct', 'stage_then_copy'
 
     # Compression Settings
     compression_enabled = Column(Boolean, default=True)
