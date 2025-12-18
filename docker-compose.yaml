@@ -159,7 +159,7 @@ services:
       # NFS Configuration (optional)
       - NFS_SERVER=${NFS_SERVER:-}
       - NFS_PATH=${NFS_PATH:-}
-      - NFS_MOUNT_POINT=/mnt/backups
+      - NFS_LOCAL_MOUNT=${NFS_LOCAL_MOUNT:-}
       # Timezone
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # PostgreSQL version (for pg_dump compatibility)
@@ -170,6 +170,10 @@ services:
       - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
       # Docker network name (used for backup verification container)
       - DOCKER_NETWORK=n8n_nginx_n8n_network
+      # PostgreSQL connection for backups (pg_dump)
+      - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -183,6 +187,8 @@ services:
       - ./.env:/app/host_env/.env:rw
       # Nginx config for access control management (read-write)
       - ./nginx.conf:/app/host_config/nginx.conf:rw
+      # NFS backup mount (if configured)
+      - ${NFS_LOCAL_MOUNT:-/opt/n8n_backups}:/mnt/backups
     expose:
       - "80"
     depends_on:
