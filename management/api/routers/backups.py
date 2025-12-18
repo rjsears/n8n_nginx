@@ -741,6 +741,44 @@ async def list_config_files_in_backup(
         )
 
 
+@router.get("/{backup_id}/config-files/{config_path:path}/download")
+async def download_config_file_from_backup(
+    backup_id: int,
+    config_path: str,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Download a specific config file from a backup archive.
+
+    The config_path should match the path returned by list_config_files_in_backup,
+    e.g., "config/.env" or "ssl/domain.com/fullchain.pem"
+    """
+    service = RestoreService(db)
+
+    try:
+        file_content, filename = await service.extract_config_file_content(backup_id, config_path)
+        if file_content is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Config file not found in backup: {config_path}",
+            )
+
+        # Return as downloadable file
+        return StreamingResponse(
+            iter([file_content]),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
 class ConfigRestoreRequest(BaseModel):
     """Request to restore a specific config file."""
     config_path: str

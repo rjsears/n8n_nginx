@@ -100,7 +100,7 @@ class RestoreService:
             docker_network = self._get_postgres_network()
             logger.info(f"Using Docker network: {docker_network}")
 
-            # Create new container
+            # Create new container (no port binding needed - we use docker exec)
             logger.info("Creating new restore container...")
             create_cmd = [
                 "docker", "run", "-d",
@@ -108,14 +108,15 @@ class RestoreService:
                 "-e", f"POSTGRES_USER={RESTORE_DB_USER}",
                 "-e", f"POSTGRES_PASSWORD={RESTORE_DB_PASSWORD}",
                 "-e", f"POSTGRES_DB={RESTORE_DB_NAME}",
-                "-p", f"{RESTORE_DB_PORT}:5432",
                 "--network", docker_network,
                 RESTORE_CONTAINER_IMAGE,
             ]
+            logger.info(f"Running: {' '.join(create_cmd)}")
             result = subprocess.run(create_cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                logger.error(f"Docker run failed: stdout={result.stdout}, stderr={result.stderr}")
+                logger.error(f"Docker run failed (exit code {result.returncode}): stdout={result.stdout}, stderr={result.stderr}")
                 return False
+            logger.info(f"Container created: {result.stdout.strip()}")
 
             # Wait for PostgreSQL to be ready
             await self._wait_for_postgres_ready()
@@ -415,6 +416,16 @@ class RestoreService:
             return None
 
         try:
+            # First, list all workflow IDs to help debug
+            list_cmd = [
+                "docker", "exec", RESTORE_CONTAINER_NAME,
+                "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                "-t", "-A", "-c",
+                "SELECT id FROM workflow_entity"
+            ]
+            list_result = subprocess.run(list_cmd, capture_output=True, text=True)
+            logger.info(f"Available workflow IDs in restore DB: {list_result.stdout.strip()}")
+
             # Query workflow data
             query_cmd = [
                 "docker", "exec", RESTORE_CONTAINER_NAME,
@@ -423,10 +434,12 @@ class RestoreService:
                 f"SELECT id, name, active, nodes, connections, settings, \"staticData\", \"createdAt\", \"updatedAt\" "
                 f"FROM workflow_entity WHERE id = '{workflow_id}'"
             ]
+            logger.info(f"Extracting workflow with ID: {workflow_id}")
             result = subprocess.run(query_cmd, capture_output=True, text=True)
+            logger.info(f"Query result: stdout_len={len(result.stdout)}, stderr={result.stderr[:200] if result.stderr else 'none'}")
 
             if not result.stdout.strip():
-                logger.error(f"Workflow {workflow_id} not found in restore database")
+                logger.error(f"Workflow {workflow_id} not found in restore database. Available IDs: {list_result.stdout.strip()}")
                 return None
 
             # Parse the result - columns are pipe-separated
@@ -728,6 +741,57 @@ class RestoreService:
                                 })
 
             return config_files
+
+        finally:
+            # Cleanup temp dir
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def extract_config_file_content(
+        self,
+        backup_id: int,
+        config_path: str,
+    ) -> Tuple[Optional[bytes], Optional[str]]:
+        """
+        Extract a specific config file's content from a backup archive.
+
+        Args:
+            backup_id: The backup to extract from
+            config_path: Path within backup (e.g., "config/.env" or "config/nginx.conf")
+
+        Returns:
+            Tuple of (file_content_bytes, filename) or (None, None) if not found
+        """
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            logger.error(f"Failed to extract backup archive: {metadata}")
+            return None, None
+
+        try:
+            # The config_path should be relative to the archive root
+            source_path = os.path.join(temp_dir, config_path)
+            logger.info(f"Looking for config file at: {source_path}")
+
+            if not os.path.exists(source_path):
+                logger.error(f"Config file not found: {source_path}")
+                # List what we have for debugging
+                for root, dirs, files in os.walk(temp_dir):
+                    for f in files:
+                        logger.debug(f"Available in archive: {os.path.join(root, f)}")
+                return None, None
+
+            # Read the file content
+            with open(source_path, 'rb') as f:
+                content = f.read()
+
+            # Get just the filename for the download
+            filename = os.path.basename(config_path)
+            logger.info(f"Extracted config file: {filename} ({len(content)} bytes)")
+
+            return content, filename
+
+        except Exception as e:
+            logger.error(f"Failed to extract config file content: {e}")
+            return None, None
 
         finally:
             # Cleanup temp dir

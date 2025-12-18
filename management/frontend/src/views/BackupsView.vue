@@ -541,14 +541,26 @@ async function restoreConfigFile(backup, configFile) {
 // Download config file from backup
 async function downloadConfigFile(backup, configFile) {
   try {
-    // Use preview endpoint to get the file content
-    const response = await api.get(`/backups/${backup.id}/restore/preview`)
+    // Download the specific config file from the backup archive
+    const response = await api.get(`/backups/${backup.id}/config-files/${configFile.path}/download`, {
+      responseType: 'blob'
+    })
 
-    // For now, we'll download the entire backup and let user extract
-    // In the future, we could add a dedicated download endpoint
-    notificationStore.info(`To get ${configFile.name}, use 'Bare Metal Recovery' to download the full archive and extract the file.`)
+    // Create download link
+    const blob = new Blob([response.data], { type: 'application/octet-stream' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = configFile.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    notificationStore.success(`Downloaded ${configFile.name}`)
   } catch (error) {
-    notificationStore.error('Failed to download config file')
+    console.error('Failed to download config file:', error)
+    notificationStore.error(`Failed to download ${configFile.name}`)
   }
 }
 
