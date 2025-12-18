@@ -60,7 +60,7 @@ class VerificationService:
             backup.progress = min(progress, 100)
             backup.progress_message = message
             await self.db.commit()
-            logger.debug(f"Verification {backup.id}: {progress}% - {message}")
+            logger.info(f"Verification {backup.id}: {progress}% - {message}")
         except Exception as e:
             logger.warning(f"Failed to update verification progress: {e}")
 
@@ -592,6 +592,9 @@ class VerificationService:
         }
 
         try:
+            # Reset progress at the start of verification
+            await self._update_verification_progress(backup, 0, "Starting verification...")
+
             # Step 1: Archive Integrity (0-10%)
             await self._update_verification_progress(backup, 5, "Verifying archive integrity")
             logger.info("Step 1: Verifying archive integrity...")

@@ -168,6 +168,8 @@ services:
       - DOMAIN=${DOMAIN:-}
       # NTFY public URL (if different from https://ntfy.${DOMAIN})
       - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
+      # Docker network name (used for backup verification container)
+      - DOCKER_NETWORK=n8n_nginx_n8n_network
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
