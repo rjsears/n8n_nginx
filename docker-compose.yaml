@@ -187,8 +187,8 @@ services:
       - ./.env:/app/host_env/.env:rw
       # Nginx config for access control management (read-write)
       - ./nginx.conf:/app/host_config/nginx.conf:rw
-      # NFS backup mount (if configured)
-      - ${NFS_LOCAL_MOUNT:-/opt/n8n_backups}:/mnt/backups
+      # NFS backup mount (set NFS_LOCAL_MOUNT in .env)
+      - ${NFS_LOCAL_MOUNT}:/mnt/backups
     expose:
       - "80"
     depends_on:
