@@ -124,6 +124,7 @@ class BackupHistoryResponse(BaseModel):
     error_message: Optional[str] = None
     verification_status: str
     verification_date: Optional[datetime] = None
+    verification_details: Optional[Dict[str, Any]] = None
     retention_category: Optional[str] = None
     expires_at: Optional[datetime] = None
     postgres_version: Optional[str] = None
