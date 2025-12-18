@@ -168,11 +168,9 @@ services:
       - DOMAIN=${DOMAIN:-}
       # NTFY public URL (if different from https://ntfy.${DOMAIN})
       - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
-      # Docker network name (used for backup verification container)
-      - DOCKER_NETWORK=n8n_nginx_n8n_network
       # PostgreSQL connection for backups (pg_dump)
-      - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
-      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       # Docker socket for container management (read-only)
