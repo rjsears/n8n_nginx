@@ -116,15 +116,20 @@ async function fetchMetrics() {
 async function loadData() {
   loading.value = true
   await fetchMetrics()
-  // Fetch backup schedule and configuration
+  // Fetch backup schedule
   try {
     await backupStore.fetchSchedules()
     if (backupStore.schedules.length > 0) {
       schedule.value = backupStore.schedules[0]
     }
+  } catch (err) {
+    console.error('Failed to fetch backup schedules:', err)
+  }
+  // Fetch backup configuration separately
+  try {
     backupConfig.value = await backupStore.fetchConfiguration()
   } catch (err) {
-    console.error('Failed to fetch backup data:', err)
+    console.error('Failed to fetch backup configuration:', err)
   }
   loading.value = false
 }
