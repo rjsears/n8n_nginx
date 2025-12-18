@@ -129,7 +129,7 @@ class BackupHistoryResponse(BaseModel):
     postgres_version: Optional[str] = None
     database_name: Optional[str] = None
     table_count: Optional[int] = None
-    row_counts: Optional[Dict[str, int]] = None
+    row_counts: Optional[Dict[str, Any]] = None  # {db_name: {table_name: row_count}}
     created_at: datetime
 
     class Config:
