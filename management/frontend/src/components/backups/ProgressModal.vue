@@ -181,9 +181,52 @@ const statusColor = computed(() => {
                 >
                   <CheckCircleIcon v-if="status === 'success'" class="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
                   <ExclamationCircleIcon v-else-if="status === 'failed'" class="h-6 w-6 text-red-600 dark:text-red-400" />
-                  <svg v-else class="h-6 w-6 animate-spin" :class="type === 'backup' ? 'text-blue-600 dark:text-blue-400' : 'text-teal-600 dark:text-teal-400'" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <!-- Backup Animation: Files flowing to storage -->
+                  <svg v-else-if="type === 'backup'" class="h-8 w-8" viewBox="0 0 48 48" fill="none">
+                    <!-- Folder -->
+                    <path d="M4 12C4 10.8954 4.89543 10 6 10H16L20 14H42C43.1046 14 44 14.8954 44 16V36C44 37.1046 43.1046 38 42 38H6C4.89543 38 4 37.1046 4 36V12Z" fill="#3B82F6" opacity="0.3"/>
+                    <!-- Storage/Drive -->
+                    <rect x="30" y="22" width="14" height="12" rx="2" fill="#3B82F6" opacity="0.6"/>
+                    <circle cx="37" cy="28" r="1.5" fill="white"/>
+                    <!-- Flying Documents -->
+                    <g class="backup-doc-1">
+                      <rect x="12" y="18" width="8" height="10" rx="1" fill="#60A5FA"/>
+                      <line x1="14" y1="21" x2="18" y2="21" stroke="white" stroke-width="1"/>
+                      <line x1="14" y1="24" x2="18" y2="24" stroke="white" stroke-width="1"/>
+                    </g>
+                    <g class="backup-doc-2">
+                      <rect x="14" y="20" width="8" height="10" rx="1" fill="#93C5FD"/>
+                      <line x1="16" y1="23" x2="20" y2="23" stroke="white" stroke-width="1"/>
+                      <line x1="16" y1="26" x2="20" y2="26" stroke="white" stroke-width="1"/>
+                    </g>
+                    <g class="backup-doc-3">
+                      <rect x="16" y="22" width="8" height="10" rx="1" fill="#BFDBFE"/>
+                      <line x1="18" y1="25" x2="22" y2="25" stroke="white" stroke-width="1"/>
+                      <line x1="18" y1="28" x2="22" y2="28" stroke="white" stroke-width="1"/>
+                    </g>
+                    <!-- Arrow indicator -->
+                    <path class="backup-arrow" d="M24 28L28 28M28 28L26 26M28 28L26 30" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <!-- Verification Animation: Magnifying glass scanning files -->
+                  <svg v-else class="h-8 w-8" viewBox="0 0 48 48" fill="none">
+                    <!-- Documents stack -->
+                    <rect x="8" y="12" width="20" height="26" rx="2" fill="#14B8A6" opacity="0.2"/>
+                    <rect x="10" y="14" width="16" height="3" rx="1" fill="#14B8A6" opacity="0.4"/>
+                    <rect x="10" y="19" width="16" height="3" rx="1" fill="#14B8A6" opacity="0.4"/>
+                    <rect x="10" y="24" width="16" height="3" rx="1" fill="#14B8A6" opacity="0.4"/>
+                    <rect x="10" y="29" width="16" height="3" rx="1" fill="#14B8A6" opacity="0.4"/>
+                    <!-- Checkmarks that appear -->
+                    <path class="verify-check-1" d="M26 15.5L27.5 17L30 14" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path class="verify-check-2" d="M26 20.5L27.5 22L30 19" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path class="verify-check-3" d="M26 25.5L27.5 27L30 24" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path class="verify-check-4" d="M26 30.5L27.5 32L30 29" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <!-- Magnifying glass -->
+                    <g class="verify-magnifier">
+                      <circle cx="34" cy="22" r="8" stroke="#0D9488" stroke-width="3" fill="white" fill-opacity="0.3"/>
+                      <line x1="40" y1="28" x2="44" y2="32" stroke="#0D9488" stroke-width="3" stroke-linecap="round"/>
+                      <!-- Scan line inside magnifier -->
+                      <line class="verify-scan-line" x1="28" y1="22" x2="40" y2="22" stroke="#14B8A6" stroke-width="1.5" opacity="0.6"/>
+                    </g>
                   </svg>
                 </div>
                 <div>
@@ -354,5 +397,120 @@ const statusColor = computed(() => {
 .modal-enter-from .relative,
 .modal-leave-to .relative {
   transform: scale(0.95) translateY(10px);
+}
+
+/* Backup Animation - Documents flying to storage */
+.backup-doc-1 {
+  animation: flyToStorage 2s ease-in-out infinite;
+  animation-delay: 0s;
+}
+
+.backup-doc-2 {
+  animation: flyToStorage 2s ease-in-out infinite;
+  animation-delay: 0.3s;
+}
+
+.backup-doc-3 {
+  animation: flyToStorage 2s ease-in-out infinite;
+  animation-delay: 0.6s;
+}
+
+@keyframes flyToStorage {
+  0% {
+    transform: translateX(0) translateY(0) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateX(8px) translateY(-3px) scale(0.9);
+    opacity: 0.8;
+  }
+  80% {
+    transform: translateX(14px) translateY(0) scale(0.7);
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateX(16px) translateY(0) scale(0.5);
+    opacity: 0;
+  }
+}
+
+.backup-arrow {
+  animation: pulseArrow 1s ease-in-out infinite;
+}
+
+@keyframes pulseArrow {
+  0%, 100% {
+    opacity: 0.4;
+    transform: translateX(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(2px);
+  }
+}
+
+/* Verification Animation - Magnifying glass scanning */
+.verify-magnifier {
+  animation: scanMove 3s ease-in-out infinite;
+}
+
+@keyframes scanMove {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(5px);
+  }
+  50% {
+    transform: translateY(10px);
+  }
+  75% {
+    transform: translateY(15px);
+  }
+}
+
+.verify-scan-line {
+  animation: scanPulse 0.5s ease-in-out infinite;
+}
+
+@keyframes scanPulse {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* Checkmarks appearing sequentially */
+.verify-check-1 {
+  animation: checkAppear 3s ease-in-out infinite;
+  animation-delay: 0s;
+}
+
+.verify-check-2 {
+  animation: checkAppear 3s ease-in-out infinite;
+  animation-delay: 0.75s;
+}
+
+.verify-check-3 {
+  animation: checkAppear 3s ease-in-out infinite;
+  animation-delay: 1.5s;
+}
+
+.verify-check-4 {
+  animation: checkAppear 3s ease-in-out infinite;
+  animation-delay: 2.25s;
+}
+
+@keyframes checkAppear {
+  0%, 20% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  25%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 </style>
