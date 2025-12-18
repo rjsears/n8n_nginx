@@ -138,14 +138,16 @@ async def run_backup(
     data: BackupRunRequest,
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    n8n_db: AsyncSession = Depends(get_n8n_db),
 ):
-    """Trigger a manual backup."""
+    """Trigger a manual backup with full metadata capture."""
     service = BackupService(db)
 
     try:
-        history = await service.run_backup(
+        history = await service.run_backup_with_metadata(
             backup_type=data.backup_type.value,
             compression=data.compression.value,
+            n8n_db=n8n_db,
         )
 
         return BackupRunResponse(
