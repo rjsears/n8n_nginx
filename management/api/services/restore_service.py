@@ -416,6 +416,16 @@ class RestoreService:
             return None
 
         try:
+            # First, list all workflow IDs to help debug
+            list_cmd = [
+                "docker", "exec", RESTORE_CONTAINER_NAME,
+                "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                "-t", "-A", "-c",
+                "SELECT id FROM workflow_entity"
+            ]
+            list_result = subprocess.run(list_cmd, capture_output=True, text=True)
+            logger.info(f"Available workflow IDs in restore DB: {list_result.stdout.strip()}")
+
             # Query workflow data
             query_cmd = [
                 "docker", "exec", RESTORE_CONTAINER_NAME,
@@ -424,10 +434,12 @@ class RestoreService:
                 f"SELECT id, name, active, nodes, connections, settings, \"staticData\", \"createdAt\", \"updatedAt\" "
                 f"FROM workflow_entity WHERE id = '{workflow_id}'"
             ]
+            logger.info(f"Extracting workflow with ID: {workflow_id}")
             result = subprocess.run(query_cmd, capture_output=True, text=True)
+            logger.info(f"Query result: stdout_len={len(result.stdout)}, stderr={result.stderr[:200] if result.stderr else 'none'}")
 
             if not result.stdout.strip():
-                logger.error(f"Workflow {workflow_id} not found in restore database")
+                logger.error(f"Workflow {workflow_id} not found in restore database. Available IDs: {list_result.stdout.strip()}")
                 return None
 
             # Parse the result - columns are pipe-separated
