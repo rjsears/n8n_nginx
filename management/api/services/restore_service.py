@@ -46,6 +46,37 @@ class RestoreService:
     # Container Management
     # ============================================================================
 
+    def _get_postgres_network(self) -> str:
+        """Get the Docker network name from the postgres container."""
+        try:
+            # Get network from POSTGRES_HOST container (e.g., n8n_postgres)
+            postgres_host = os.environ.get("POSTGRES_HOST", "n8n_postgres")
+            cmd = [
+                "docker", "inspect", postgres_host,
+                "--format", "{{range $key, $value := .NetworkSettings.Networks}}{{$key}}{{end}}"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                logger.info(f"Found network from postgres container: {result.stdout.strip()}")
+                return result.stdout.strip()
+        except Exception as e:
+            logger.warning(f"Failed to get network from postgres container: {e}")
+
+        # Fallback: try to find network with n8n in the name
+        try:
+            cmd = ["docker", "network", "ls", "--format", "{{.Name}}"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            for network in result.stdout.strip().split('\n'):
+                if 'n8n' in network.lower() and 'network' in network.lower():
+                    logger.info(f"Found n8n network by search: {network}")
+                    return network
+        except Exception:
+            pass
+
+        # Final fallback
+        logger.warning("Using fallback network name: n8n_nginx_n8n_network")
+        return "n8n_nginx_n8n_network"
+
     async def spin_up_restore_container(self) -> bool:
         """
         Create and start a temporary PostgreSQL container for restore operations.
@@ -61,7 +92,13 @@ class RestoreService:
 
             if RESTORE_CONTAINER_NAME in result.stdout:
                 logger.info("Removing existing restore container...")
-                subprocess.run(["docker", "rm", "-f", RESTORE_CONTAINER_NAME], capture_output=True)
+                rm_result = subprocess.run(["docker", "rm", "-f", RESTORE_CONTAINER_NAME], capture_output=True, text=True)
+                if rm_result.returncode != 0:
+                    logger.warning(f"Failed to remove container: {rm_result.stderr}")
+
+            # Get the correct Docker network
+            docker_network = self._get_postgres_network()
+            logger.info(f"Using Docker network: {docker_network}")
 
             # Create new container
             logger.info("Creating new restore container...")
@@ -72,10 +109,13 @@ class RestoreService:
                 "-e", f"POSTGRES_PASSWORD={RESTORE_DB_PASSWORD}",
                 "-e", f"POSTGRES_DB={RESTORE_DB_NAME}",
                 "-p", f"{RESTORE_DB_PORT}:5432",
-                "--network", "n8n-network",  # Same network as other containers
+                "--network", docker_network,
                 RESTORE_CONTAINER_IMAGE,
             ]
-            subprocess.run(create_cmd, capture_output=True, check=True)
+            result = subprocess.run(create_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"Docker run failed: stdout={result.stdout}, stderr={result.stderr}")
+                return False
 
             # Wait for PostgreSQL to be ready
             await self._wait_for_postgres_ready()
@@ -84,10 +124,13 @@ class RestoreService:
             return True
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to start restore container: {e.stderr}")
+            stderr = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
+            logger.error(f"Failed to start restore container: {stderr}")
             return False
         except Exception as e:
             logger.error(f"Error starting restore container: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
 
     async def _wait_for_postgres_ready(self, timeout: int = 30) -> None:
