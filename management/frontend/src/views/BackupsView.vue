@@ -34,6 +34,10 @@ import {
   FolderIcon,
   ArrowRightIcon,
   InformationCircleIcon,
+  KeyIcon,
+  ServerIcon,
+  CubeIcon,
+  DocumentIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -78,11 +82,16 @@ const expandedWorkflowRestore = ref(new Set())
 const backupWorkflows = ref({})
 const loadingWorkflows = ref(new Set())
 
+// Config files loaded for each backup
+const backupConfigFiles = ref({})
+const loadingConfigFiles = ref(new Set())
+
 // Operation states
 const verifyingBackup = ref(null)
 const protectingBackup = ref(null)
 const creatingBareMetal = ref(null)
 const restoringWorkflow = ref(null)
+const restoringConfig = ref(null)
 
 // Polling for running backups/verifications
 const pollingInterval = ref(null)
@@ -192,9 +201,14 @@ function toggleAction(backupId, action) {
     expandedAction.value[backupId] = null
   } else {
     expandedAction.value[backupId] = action
-    // Load workflows if opening restore action
-    if (action === 'restore' && !backupWorkflows.value[backupId]) {
-      loadWorkflowsForBackup(backupId)
+    // Load workflows and config files if opening restore action
+    if (action === 'restore') {
+      if (!backupWorkflows.value[backupId]) {
+        loadWorkflowsForBackup(backupId)
+      }
+      if (!backupConfigFiles.value[backupId]) {
+        loadConfigFilesForBackup(backupId)
+      }
     }
   }
 }
@@ -222,6 +236,20 @@ async function loadWorkflowsForBackup(backupId) {
     backupWorkflows.value[backupId] = []
   } finally {
     loadingWorkflows.value.delete(backupId)
+  }
+}
+
+async function loadConfigFilesForBackup(backupId) {
+  loadingConfigFiles.value.add(backupId)
+  try {
+    const response = await api.get(`/backups/${backupId}/restore/config-files`)
+    backupConfigFiles.value[backupId] = response.data.config_files || []
+  } catch (error) {
+    console.error('Failed to load config files:', error)
+    notificationStore.error('Failed to load config files from backup')
+    backupConfigFiles.value[backupId] = []
+  } finally {
+    loadingConfigFiles.value.delete(backupId)
   }
 }
 
@@ -452,6 +480,58 @@ async function restoreWorkflowToN8n(backup, workflow) {
   } finally {
     restoringWorkflow.value = null
   }
+}
+
+// Restore Config File to system
+async function restoreConfigFile(backup, configFile) {
+  restoringConfig.value = `${backup.id}-${configFile.path}`
+  try {
+    const response = await api.post(`/backups/${backup.id}/restore/config`, {
+      config_path: configFile.path,
+      create_backup: true,
+    })
+    if (response.data.status === 'success') {
+      notificationStore.success(`Restored ${configFile.name}. Original backed up to ${response.data.backup_created || 'backup file'}`)
+    } else {
+      notificationStore.error(response.data.error || 'Failed to restore config file')
+    }
+  } catch (error) {
+    notificationStore.error('Failed to restore config file')
+  } finally {
+    restoringConfig.value = null
+  }
+}
+
+// Download config file from backup
+async function downloadConfigFile(backup, configFile) {
+  try {
+    // Use preview endpoint to get the file content
+    const response = await api.get(`/backups/${backup.id}/restore/preview`)
+
+    // For now, we'll download the entire backup and let user extract
+    // In the future, we could add a dedicated download endpoint
+    notificationStore.info(`To get ${configFile.name}, use 'Bare Metal Recovery' to download the full archive and extract the file.`)
+  } catch (error) {
+    notificationStore.error('Failed to download config file')
+  }
+}
+
+// Get icon component for config file type
+function getConfigFileIcon(configFile) {
+  if (configFile.is_ssl) return 'ShieldCheckIcon'
+  if (configFile.name.endsWith('.env')) return 'KeyIcon'
+  if (configFile.name.includes('nginx')) return 'ServerIcon'
+  if (configFile.name.includes('docker')) return 'CubeIcon'
+  return 'DocumentIcon'
+}
+
+// Format file size
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
 // Bare Metal Recovery - Create tar.gz
@@ -1007,11 +1087,12 @@ onUnmounted(stopPolling)
                   </div>
 
                   <!-- Selective Restore Panel -->
-                  <div v-if="expandedAction[backup.id] === 'restore'" class="p-4">
+                  <div v-if="expandedAction[backup.id] === 'restore'" class="p-4 space-y-4">
+                    <!-- Workflows Section -->
                     <div class="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700 p-4">
                       <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
-                        <ArrowPathIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                        Selective Workflow Restore
+                        <DocumentTextIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                        Workflows
                       </h4>
                       <p class="text-sm text-secondary mb-4">
                         Download individual workflows as JSON or push them directly to your n8n instance via API.
@@ -1024,7 +1105,7 @@ onUnmounted(stopPolling)
                       <div v-else-if="!backupWorkflows[backup.id] || backupWorkflows[backup.id].length === 0" class="py-4 text-center text-secondary">
                         No workflows found in this backup
                       </div>
-                      <div v-else class="space-y-2 max-h-64 overflow-y-auto">
+                      <div v-else class="space-y-2 max-h-48 overflow-y-auto">
                         <div
                           v-for="workflow in backupWorkflows[backup.id]"
                           :key="workflow.id"
@@ -1058,6 +1139,62 @@ onUnmounted(stopPolling)
                               <LoadingSpinner v-if="restoringWorkflow === `${backup.id}-${workflow.id}`" size="sm" />
                               <CloudArrowUpIcon v-else class="h-4 w-4" />
                               Push to n8n
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Config Files Section -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-700 p-4">
+                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
+                        <Cog6ToothIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                        Configuration Files
+                      </h4>
+                      <p class="text-sm text-secondary mb-4">
+                        Restore configuration files like .env, docker-compose.yaml, nginx.conf, and SSL certificates.
+                        <span class="text-amber-600 dark:text-amber-400 font-medium">Warning: Restoring will overwrite current files.</span>
+                      </p>
+
+                      <!-- Config Files List -->
+                      <div v-if="loadingConfigFiles.has(backup.id)" class="py-4 text-center">
+                        <LoadingSpinner size="sm" text="Loading config files..." />
+                      </div>
+                      <div v-else-if="!backupConfigFiles[backup.id] || backupConfigFiles[backup.id].length === 0" class="py-4 text-center text-secondary">
+                        No configuration files found in this backup
+                      </div>
+                      <div v-else class="space-y-2 max-h-48 overflow-y-auto">
+                        <div
+                          v-for="configFile in backupConfigFiles[backup.id]"
+                          :key="configFile.path"
+                          class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          <div class="flex items-center gap-3">
+                            <component
+                              :is="configFile.is_ssl ? ShieldCheckIcon : (configFile.name.endsWith('.env') ? KeyIcon : (configFile.name.includes('nginx') ? ServerIcon : (configFile.name.includes('docker') ? CubeIcon : DocumentIcon)))"
+                              :class="[
+                                'h-5 w-5',
+                                configFile.is_ssl ? 'text-green-500' : 'text-emerald-500'
+                              ]"
+                            />
+                            <div>
+                              <p class="font-medium text-primary">{{ configFile.name }}</p>
+                              <p class="text-xs text-secondary">
+                                {{ formatFileSize(configFile.size) }}
+                                <span v-if="configFile.is_ssl" class="ml-1 text-green-600 dark:text-green-400">SSL Certificate</span>
+                              </p>
+                            </div>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <button
+                              @click.stop="restoreConfigFile(backup, configFile)"
+                              :disabled="restoringConfig === `${backup.id}-${configFile.path}`"
+                              class="btn-primary px-3 py-1.5 text-sm flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700"
+                              title="Restore to system (creates backup of current file)"
+                            >
+                              <LoadingSpinner v-if="restoringConfig === `${backup.id}-${configFile.path}`" size="sm" />
+                              <ArrowPathIcon v-else class="h-4 w-4" />
+                              Restore
                             </button>
                           </div>
                         </div>
