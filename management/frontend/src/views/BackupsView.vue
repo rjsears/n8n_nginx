@@ -78,6 +78,12 @@ const expandedAction = ref({})
 // Expanded workflow restore sections within backups
 const expandedWorkflowRestore = ref(new Set())
 
+// Expanded restore sections per backup (backupId -> 'workflows'|'config'|null)
+const expandedRestoreSection = ref({})
+
+// Expanded individual items for actions (backupId-itemId -> true)
+const expandedRestoreItem = ref({})
+
 // Workflows loaded for each backup
 const backupWorkflows = ref({})
 const loadingWorkflows = ref(new Set())
@@ -223,6 +229,36 @@ function toggleWorkflowRestore(backupId) {
       loadWorkflowsForBackup(backupId)
     }
   }
+}
+
+// Toggle restore section (workflows or config files)
+function toggleRestoreSection(backupId, section) {
+  if (expandedRestoreSection.value[backupId] === section) {
+    expandedRestoreSection.value[backupId] = null
+  } else {
+    expandedRestoreSection.value[backupId] = section
+  }
+}
+
+// Toggle individual item expansion (for showing action buttons)
+function toggleRestoreItem(backupId, itemId) {
+  const key = `${backupId}-${itemId}`
+  if (expandedRestoreItem.value[key]) {
+    delete expandedRestoreItem.value[key]
+  } else {
+    // Close other expanded items for this backup
+    Object.keys(expandedRestoreItem.value).forEach(k => {
+      if (k.startsWith(`${backupId}-`)) {
+        delete expandedRestoreItem.value[k]
+      }
+    })
+    expandedRestoreItem.value[key] = true
+  }
+}
+
+// Check if an item is expanded
+function isRestoreItemExpanded(backupId, itemId) {
+  return !!expandedRestoreItem.value[`${backupId}-${itemId}`]
 }
 
 async function loadWorkflowsForBackup(backupId) {
@@ -1087,115 +1123,194 @@ onUnmounted(stopPolling)
                   </div>
 
                   <!-- Selective Restore Panel -->
-                  <div v-if="expandedAction[backup.id] === 'restore'" class="p-4 space-y-4">
-                    <!-- Workflows Section -->
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700 p-4">
-                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
-                        <DocumentTextIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                        Workflows
-                      </h4>
-                      <p class="text-sm text-secondary mb-4">
-                        Download individual workflows as JSON or push them directly to your n8n instance via API.
-                      </p>
+                  <div v-if="expandedAction[backup.id] === 'restore'" class="p-4 space-y-2">
+                    <!-- Workflows Section (Collapsible) -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700 overflow-hidden">
+                      <!-- Section Header (Clickable) -->
+                      <button
+                        @click="toggleRestoreSection(backup.id, 'workflows')"
+                        class="w-full p-4 flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                      >
+                        <div class="flex items-center gap-2">
+                          <DocumentTextIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                          <span class="font-semibold text-primary">Workflows</span>
+                          <span v-if="backupWorkflows[backup.id]" class="text-xs text-secondary bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
+                            {{ backupWorkflows[backup.id].length }}
+                          </span>
+                        </div>
+                        <ChevronDownIcon
+                          :class="[
+                            'h-5 w-5 text-gray-400 transition-transform duration-200',
+                            expandedRestoreSection[backup.id] === 'workflows' ? 'rotate-180' : ''
+                          ]"
+                        />
+                      </button>
 
-                      <!-- Workflow List -->
-                      <div v-if="loadingWorkflows.has(backup.id)" class="py-4 text-center">
-                        <LoadingSpinner size="sm" text="Loading workflows..." />
-                      </div>
-                      <div v-else-if="!backupWorkflows[backup.id] || backupWorkflows[backup.id].length === 0" class="py-4 text-center text-secondary">
-                        No workflows found in this backup
-                      </div>
-                      <div v-else class="space-y-2 max-h-48 overflow-y-auto">
-                        <div
-                          v-for="workflow in backupWorkflows[backup.id]"
-                          :key="workflow.id"
-                          class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700"
-                        >
-                          <div class="flex items-center gap-3">
-                            <DocumentTextIcon class="h-5 w-5 text-indigo-500" />
-                            <div>
-                              <p class="font-medium text-primary">{{ workflow.name }}</p>
-                              <p class="text-xs text-secondary">
-                                {{ workflow.active ? 'Active' : 'Inactive' }}
-                                <span v-if="workflow.updated_at"> • {{ new Date(workflow.updated_at).toLocaleDateString() }}</span>
-                              </p>
+                      <!-- Section Content -->
+                      <div v-if="expandedRestoreSection[backup.id] === 'workflows'" class="border-t border-indigo-100 dark:border-indigo-800">
+                        <p class="text-sm text-secondary px-4 py-2 bg-indigo-50/50 dark:bg-indigo-900/10">
+                          Click a workflow to see restore options.
+                        </p>
+
+                        <!-- Workflow List -->
+                        <div v-if="loadingWorkflows.has(backup.id)" class="py-4 text-center">
+                          <LoadingSpinner size="sm" text="Loading workflows..." />
+                        </div>
+                        <div v-else-if="!backupWorkflows[backup.id] || backupWorkflows[backup.id].length === 0" class="py-4 text-center text-secondary">
+                          No workflows found in this backup
+                        </div>
+                        <div v-else class="max-h-64 overflow-y-auto">
+                          <div
+                            v-for="workflow in backupWorkflows[backup.id]"
+                            :key="workflow.id"
+                            class="border-b border-gray-100 dark:border-gray-700 last:border-b-0"
+                          >
+                            <!-- Workflow Item (Clickable) -->
+                            <button
+                              @click="toggleRestoreItem(backup.id, `wf-${workflow.id}`)"
+                              class="w-full p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                            >
+                              <div class="flex items-center gap-3">
+                                <DocumentTextIcon class="h-5 w-5 text-indigo-500" />
+                                <div class="text-left">
+                                  <p class="font-medium text-primary">{{ workflow.name }}</p>
+                                  <p class="text-xs text-secondary">
+                                    {{ workflow.active ? 'Active' : 'Inactive' }}
+                                    <span v-if="workflow.updated_at"> • {{ new Date(workflow.updated_at).toLocaleDateString() }}</span>
+                                  </p>
+                                </div>
+                              </div>
+                              <ChevronDownIcon
+                                :class="[
+                                  'h-4 w-4 text-gray-400 transition-transform duration-200',
+                                  isRestoreItemExpanded(backup.id, `wf-${workflow.id}`) ? 'rotate-180' : ''
+                                ]"
+                              />
+                            </button>
+
+                            <!-- Workflow Actions (Expanded) -->
+                            <div
+                              v-if="isRestoreItemExpanded(backup.id, `wf-${workflow.id}`)"
+                              class="px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 flex items-center gap-3"
+                            >
+                              <button
+                                @click.stop="downloadWorkflow(backup, workflow)"
+                                class="btn-secondary px-4 py-2 text-sm flex items-center gap-2 border border-blue-300 dark:border-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                title="Download as JSON file"
+                              >
+                                <DocumentArrowDownIcon class="h-4 w-4 text-blue-600" />
+                                <span>Download JSON</span>
+                              </button>
+                              <button
+                                @click.stop="restoreWorkflowToN8n(backup, workflow)"
+                                :disabled="restoringWorkflow === `${backup.id}-${workflow.id}`"
+                                class="btn-primary px-4 py-2 text-sm flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white"
+                                title="Restore to n8n with new name"
+                              >
+                                <LoadingSpinner v-if="restoringWorkflow === `${backup.id}-${workflow.id}`" size="sm" />
+                                <CloudArrowUpIcon v-else class="h-4 w-4" />
+                                <span>Restore to n8n</span>
+                              </button>
                             </div>
-                          </div>
-                          <div class="flex items-center gap-2">
-                            <button
-                              @click.stop="downloadWorkflow(backup, workflow)"
-                              class="btn-secondary px-3 py-1.5 text-sm flex items-center gap-1 text-blue-600 hover:text-blue-700"
-                              title="Download JSON"
-                            >
-                              <DocumentArrowDownIcon class="h-4 w-4" />
-                              Download
-                            </button>
-                            <button
-                              @click.stop="restoreWorkflowToN8n(backup, workflow)"
-                              :disabled="restoringWorkflow === `${backup.id}-${workflow.id}`"
-                              class="btn-primary px-3 py-1.5 text-sm flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700"
-                              title="Push to n8n"
-                            >
-                              <LoadingSpinner v-if="restoringWorkflow === `${backup.id}-${workflow.id}`" size="sm" />
-                              <CloudArrowUpIcon v-else class="h-4 w-4" />
-                              Push to n8n
-                            </button>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <!-- Config Files Section -->
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-700 p-4">
-                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
-                        <Cog6ToothIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                        Configuration Files
-                      </h4>
-                      <p class="text-sm text-secondary mb-4">
-                        Restore configuration files like .env, docker-compose.yaml, nginx.conf, and SSL certificates.
-                        <span class="text-amber-600 dark:text-amber-400 font-medium">Warning: Restoring will overwrite current files.</span>
-                      </p>
+                    <!-- Config Files Section (Collapsible) -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-700 overflow-hidden">
+                      <!-- Section Header (Clickable) -->
+                      <button
+                        @click="toggleRestoreSection(backup.id, 'config')"
+                        class="w-full p-4 flex items-center justify-between hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+                      >
+                        <div class="flex items-center gap-2">
+                          <Cog6ToothIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                          <span class="font-semibold text-primary">Configuration Files</span>
+                          <span v-if="backupConfigFiles[backup.id]" class="text-xs text-secondary bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
+                            {{ backupConfigFiles[backup.id].length }}
+                          </span>
+                        </div>
+                        <ChevronDownIcon
+                          :class="[
+                            'h-5 w-5 text-gray-400 transition-transform duration-200',
+                            expandedRestoreSection[backup.id] === 'config' ? 'rotate-180' : ''
+                          ]"
+                        />
+                      </button>
 
-                      <!-- Config Files List -->
-                      <div v-if="loadingConfigFiles.has(backup.id)" class="py-4 text-center">
-                        <LoadingSpinner size="sm" text="Loading config files..." />
-                      </div>
-                      <div v-else-if="!backupConfigFiles[backup.id] || backupConfigFiles[backup.id].length === 0" class="py-4 text-center text-secondary">
-                        No configuration files found in this backup
-                      </div>
-                      <div v-else class="space-y-2 max-h-48 overflow-y-auto">
-                        <div
-                          v-for="configFile in backupConfigFiles[backup.id]"
-                          :key="configFile.path"
-                          class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700"
-                        >
-                          <div class="flex items-center gap-3">
-                            <component
-                              :is="configFile.is_ssl ? ShieldCheckIcon : (configFile.name.endsWith('.env') ? KeyIcon : (configFile.name.includes('nginx') ? ServerIcon : (configFile.name.includes('docker') ? CubeIcon : DocumentIcon)))"
-                              :class="[
-                                'h-5 w-5',
-                                configFile.is_ssl ? 'text-green-500' : 'text-emerald-500'
-                              ]"
-                            />
-                            <div>
-                              <p class="font-medium text-primary">{{ configFile.name }}</p>
-                              <p class="text-xs text-secondary">
-                                {{ formatFileSize(configFile.size) }}
-                                <span v-if="configFile.is_ssl" class="ml-1 text-green-600 dark:text-green-400">SSL Certificate</span>
-                              </p>
-                            </div>
-                          </div>
-                          <div class="flex items-center gap-2">
+                      <!-- Section Content -->
+                      <div v-if="expandedRestoreSection[backup.id] === 'config'" class="border-t border-emerald-100 dark:border-emerald-800">
+                        <p class="text-sm text-secondary px-4 py-2 bg-emerald-50/50 dark:bg-emerald-900/10">
+                          Click a file to see restore options. <span class="text-amber-600 dark:text-amber-400 font-medium">Restoring will backup existing files first.</span>
+                        </p>
+
+                        <!-- Config Files List -->
+                        <div v-if="loadingConfigFiles.has(backup.id)" class="py-4 text-center">
+                          <LoadingSpinner size="sm" text="Loading config files..." />
+                        </div>
+                        <div v-else-if="!backupConfigFiles[backup.id] || backupConfigFiles[backup.id].length === 0" class="py-4 text-center text-secondary">
+                          No configuration files found in this backup
+                        </div>
+                        <div v-else class="max-h-64 overflow-y-auto">
+                          <div
+                            v-for="configFile in backupConfigFiles[backup.id]"
+                            :key="configFile.path"
+                            class="border-b border-gray-100 dark:border-gray-700 last:border-b-0"
+                          >
+                            <!-- Config File Item (Clickable) -->
                             <button
-                              @click.stop="restoreConfigFile(backup, configFile)"
-                              :disabled="restoringConfig === `${backup.id}-${configFile.path}`"
-                              class="btn-primary px-3 py-1.5 text-sm flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700"
-                              title="Restore to system (creates backup of current file)"
+                              @click="toggleRestoreItem(backup.id, `cfg-${configFile.path}`)"
+                              class="w-full p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
                             >
-                              <LoadingSpinner v-if="restoringConfig === `${backup.id}-${configFile.path}`" size="sm" />
-                              <ArrowPathIcon v-else class="h-4 w-4" />
-                              Restore
+                              <div class="flex items-center gap-3">
+                                <component
+                                  :is="configFile.is_ssl ? ShieldCheckIcon : (configFile.name.endsWith('.env') ? KeyIcon : (configFile.name.includes('nginx') ? ServerIcon : (configFile.name.includes('docker') ? CubeIcon : DocumentIcon)))"
+                                  :class="[
+                                    'h-5 w-5',
+                                    configFile.is_ssl ? 'text-green-500' : 'text-emerald-500'
+                                  ]"
+                                />
+                                <div class="text-left">
+                                  <p class="font-medium text-primary">{{ configFile.name }}</p>
+                                  <p class="text-xs text-secondary">
+                                    {{ formatFileSize(configFile.size) }}
+                                    <span v-if="configFile.is_ssl" class="ml-1 text-green-600 dark:text-green-400">SSL Certificate</span>
+                                  </p>
+                                </div>
+                              </div>
+                              <ChevronDownIcon
+                                :class="[
+                                  'h-4 w-4 text-gray-400 transition-transform duration-200',
+                                  isRestoreItemExpanded(backup.id, `cfg-${configFile.path}`) ? 'rotate-180' : ''
+                                ]"
+                              />
                             </button>
+
+                            <!-- Config File Actions (Expanded) -->
+                            <div
+                              v-if="isRestoreItemExpanded(backup.id, `cfg-${configFile.path}`)"
+                              class="px-4 py-3 bg-emerald-50 dark:bg-emerald-900/20 flex items-center gap-3"
+                            >
+                              <button
+                                @click.stop="downloadConfigFile(backup, configFile)"
+                                class="btn-secondary px-4 py-2 text-sm flex items-center gap-2 border border-blue-300 dark:border-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                title="Download file"
+                              >
+                                <DocumentArrowDownIcon class="h-4 w-4 text-blue-600" />
+                                <span>Download</span>
+                              </button>
+                              <button
+                                @click.stop="restoreConfigFile(backup, configFile)"
+                                :disabled="restoringConfig === `${backup.id}-${configFile.path}`"
+                                class="btn-primary px-4 py-2 text-sm flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white"
+                                title="Restore to system (backs up existing file first)"
+                              >
+                                <LoadingSpinner v-if="restoringConfig === `${backup.id}-${configFile.path}`" size="sm" />
+                                <ArrowPathIcon v-else class="h-4 w-4" />
+                                <span>Restore File</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>

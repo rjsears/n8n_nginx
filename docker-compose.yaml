@@ -185,6 +185,10 @@ services:
       - ./.env:/app/host_env/.env:rw
       # Nginx config for access control management (read-write)
       - ./nginx.conf:/app/host_config/nginx.conf:rw
+      # Docker-compose file for backup/restore (read-only)
+      - ./docker-compose.yaml:/app/host_config/docker-compose.yaml:ro
+      # Cloudflare credentials for SSL/DNS management (read-only)
+      - ./cloudflare.ini:/app/host_config/cloudflare.ini:ro
       # NFS backup mount (set NFS_LOCAL_MOUNT in .env)
       - ${NFS_LOCAL_MOUNT}:/mnt/backups
     expose:
