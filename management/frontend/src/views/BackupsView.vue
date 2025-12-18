@@ -30,6 +30,10 @@ import {
   ArrowPathIcon,
   DocumentTextIcon,
   CloudArrowUpIcon,
+  CloudIcon,
+  FolderIcon,
+  ArrowRightIcon,
+  InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -126,6 +130,9 @@ const schedule = ref({
   frequency: 'daily',
   retention_days: 30,
 })
+
+// Backup configuration
+const backupConfig = ref(null)
 
 // Filter and sort
 const filterStatus = ref('all')
@@ -479,6 +486,12 @@ async function loadData() {
   loading.value = true
   try {
     await backupStore.fetchBackups()
+    // Fetch backup configuration
+    try {
+      backupConfig.value = await backupStore.fetchConfiguration()
+    } catch (err) {
+      console.error('Failed to fetch backup configuration:', err)
+    }
   } catch (error) {
     notificationStore.error('Failed to load backups')
   } finally {
@@ -588,6 +601,102 @@ onUnmounted(stopPolling)
           </div>
         </Card>
       </div>
+
+      <!-- Configuration Summary Card (Clickable - navigates to storage settings) -->
+      <Card v-if="backupConfig" :neon="true" :padding="false" class="mt-4">
+        <button
+          @click="router.push('/backup-settings?tab=storage')"
+          class="w-full p-4 text-left hover:bg-surface-hover transition-colors rounded-lg"
+        >
+          <h4 class="font-semibold text-primary mb-3 flex items-center gap-2">
+            <InformationCircleIcon class="h-4 w-4 text-gray-400" />
+            Configuration Summary
+          </h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Destination -->
+            <div :class="[
+              'p-3 rounded-lg border',
+              backupConfig.storage_preference === 'nfs'
+                ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/50'
+                : 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800/50'
+            ]">
+              <div class="flex items-center gap-2 mb-1">
+                <component
+                  :is="backupConfig.storage_preference === 'nfs' ? CloudIcon : CircleStackIcon"
+                  :class="[
+                    'h-4 w-4',
+                    backupConfig.storage_preference === 'nfs' ? 'text-emerald-500' : 'text-blue-500'
+                  ]"
+                />
+                <p :class="[
+                  'text-xs font-medium uppercase tracking-wide',
+                  backupConfig.storage_preference === 'nfs' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'
+                ]">Destination</p>
+              </div>
+              <p class="text-sm font-medium text-primary">
+                {{ backupConfig.storage_preference === 'nfs' ? 'Network Storage (NFS)' : 'Local Storage' }}
+              </p>
+              <p v-if="backupConfig.storage_preference === 'nfs' && backupConfig.nfs_storage_path" class="text-xs text-secondary mt-0.5 font-mono truncate">
+                {{ backupConfig.nfs_storage_path }}
+              </p>
+            </div>
+            <!-- Workflow -->
+            <div :class="[
+              'p-3 rounded-lg border',
+              backupConfig.storage_preference === 'nfs'
+                ? (backupConfig.backup_workflow === 'stage_then_copy'
+                    ? 'bg-indigo-50/50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800/50'
+                    : 'bg-purple-50/50 dark:bg-purple-900/10 border-purple-200 dark:border-purple-800/50')
+                : 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800/50'
+            ]">
+              <div class="flex items-center gap-2 mb-1">
+                <ArrowRightIcon :class="[
+                  'h-4 w-4',
+                  backupConfig.storage_preference === 'nfs'
+                    ? (backupConfig.backup_workflow === 'stage_then_copy' ? 'text-indigo-500' : 'text-purple-500')
+                    : 'text-blue-500'
+                ]" />
+                <p :class="[
+                  'text-xs font-medium uppercase tracking-wide',
+                  backupConfig.storage_preference === 'nfs'
+                    ? (backupConfig.backup_workflow === 'stage_then_copy' ? 'text-indigo-600 dark:text-indigo-400' : 'text-purple-600 dark:text-purple-400')
+                    : 'text-blue-600 dark:text-blue-400'
+                ]">Workflow</p>
+              </div>
+              <p class="text-sm font-medium text-primary">
+                <span v-if="backupConfig.storage_preference === 'local'">Direct to Local</span>
+                <span v-else-if="backupConfig.backup_workflow === 'stage_then_copy'">Stage & Copy</span>
+                <span v-else>Direct to NFS</span>
+              </p>
+            </div>
+            <!-- Staging -->
+            <div :class="[
+              'p-3 rounded-lg border',
+              backupConfig.storage_preference === 'nfs' && backupConfig.backup_workflow === 'stage_then_copy'
+                ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/50'
+                : 'bg-gray-50/50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+            ]">
+              <div class="flex items-center gap-2 mb-1">
+                <FolderIcon :class="[
+                  'h-4 w-4',
+                  backupConfig.storage_preference === 'nfs' && backupConfig.backup_workflow === 'stage_then_copy'
+                    ? 'text-amber-500'
+                    : 'text-gray-400'
+                ]" />
+                <p :class="[
+                  'text-xs font-medium uppercase tracking-wide',
+                  backupConfig.storage_preference === 'nfs' && backupConfig.backup_workflow === 'stage_then_copy'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-gray-500 dark:text-gray-400'
+                ]">Staging</p>
+              </div>
+              <p class="text-sm font-medium text-primary">
+                {{ backupConfig.storage_preference === 'nfs' && backupConfig.backup_workflow === 'stage_then_copy' ? 'Enabled' : 'Disabled' }}
+              </p>
+            </div>
+          </div>
+        </button>
+      </Card>
 
       <!-- Schedule Card (Clickable - navigates to schedule settings) -->
       <Card :neon="true" :padding="false">
