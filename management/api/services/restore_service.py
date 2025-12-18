@@ -100,7 +100,7 @@ class RestoreService:
             docker_network = self._get_postgres_network()
             logger.info(f"Using Docker network: {docker_network}")
 
-            # Create new container
+            # Create new container (no port binding needed - we use docker exec)
             logger.info("Creating new restore container...")
             create_cmd = [
                 "docker", "run", "-d",
@@ -108,14 +108,15 @@ class RestoreService:
                 "-e", f"POSTGRES_USER={RESTORE_DB_USER}",
                 "-e", f"POSTGRES_PASSWORD={RESTORE_DB_PASSWORD}",
                 "-e", f"POSTGRES_DB={RESTORE_DB_NAME}",
-                "-p", f"{RESTORE_DB_PORT}:5432",
                 "--network", docker_network,
                 RESTORE_CONTAINER_IMAGE,
             ]
+            logger.info(f"Running: {' '.join(create_cmd)}")
             result = subprocess.run(create_cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                logger.error(f"Docker run failed: stdout={result.stdout}, stderr={result.stderr}")
+                logger.error(f"Docker run failed (exit code {result.returncode}): stdout={result.stdout}, stderr={result.stderr}")
                 return False
+            logger.info(f"Container created: {result.stdout.strip()}")
 
             # Wait for PostgreSQL to be ready
             await self._wait_for_postgres_ready()
