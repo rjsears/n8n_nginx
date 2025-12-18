@@ -579,10 +579,10 @@ onUnmounted(stopPolling)
         </Card>
       </div>
 
-      <!-- Schedule Card (Clickable - navigates to settings) -->
+      <!-- Schedule Card (Clickable - navigates to schedule settings) -->
       <Card :neon="true" :padding="false">
         <button
-          @click="router.push('/backup-settings')"
+          @click="router.push('/backup-settings?tab=schedule')"
           class="w-full p-4 text-left hover:bg-surface-hover transition-colors rounded-lg"
         >
           <div class="flex items-center justify-between">
