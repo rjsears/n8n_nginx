@@ -135,6 +135,21 @@ class VerificationService:
                 logger.error(f"Failed to create container: {create_result.stderr}")
                 return False
 
+            # Verify container is actually running
+            await asyncio.sleep(2)  # Give container a moment to start
+            check_running = subprocess.run(
+                ["docker", "ps", "--filter", f"name={VERIFY_CONTAINER_NAME}", "--format", "{{.Names}}"],
+                capture_output=True, text=True
+            )
+            if VERIFY_CONTAINER_NAME not in check_running.stdout:
+                # Container exited - check logs
+                logs_result = subprocess.run(
+                    ["docker", "logs", "--tail", "20", VERIFY_CONTAINER_NAME],
+                    capture_output=True, text=True
+                )
+                logger.error(f"Container exited immediately. Logs: {logs_result.stdout} {logs_result.stderr}")
+                return False
+
             # Wait for PostgreSQL to be ready
             logger.info("Waiting for PostgreSQL to be ready...")
             await self._wait_for_postgres_ready()
