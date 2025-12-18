@@ -80,7 +80,7 @@ function startPolling() {
   if (pollingInterval.value) return
   pollingInterval.value = setInterval(async () => {
     if (hasRunningOperations.value) {
-      await backupStore.loadBackups()
+      await backupStore.fetchBackups()
     } else {
       stopPolling()
     }
