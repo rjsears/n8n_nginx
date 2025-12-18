@@ -266,13 +266,20 @@ class VerificationService:
                 ]
                 subprocess.run(copy_cmd, capture_output=True, check=True)
 
-                # Reset database (drop and recreate)
-                reset_cmd = [
+                # Reset database (drop and recreate) - separate commands to avoid transaction block
+                drop_cmd = [
                     "docker", "exec", VERIFY_CONTAINER_NAME,
                     "psql", "-U", VERIFY_DB_USER, "-d", "postgres",
-                    "-c", f"DROP DATABASE IF EXISTS {VERIFY_DB_NAME}; CREATE DATABASE {VERIFY_DB_NAME};"
+                    "-c", f"DROP DATABASE IF EXISTS {VERIFY_DB_NAME};"
                 ]
-                subprocess.run(reset_cmd, capture_output=True, check=True)
+                subprocess.run(drop_cmd, capture_output=True, check=True)
+
+                create_cmd = [
+                    "docker", "exec", VERIFY_CONTAINER_NAME,
+                    "psql", "-U", VERIFY_DB_USER, "-d", "postgres",
+                    "-c", f"CREATE DATABASE {VERIFY_DB_NAME};"
+                ]
+                subprocess.run(create_cmd, capture_output=True, check=True)
 
                 # Restore the dump
                 restore_cmd = [
