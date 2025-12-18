@@ -49,34 +49,33 @@ class RestoreService:
     async def spin_up_restore_container(self) -> bool:
         """
         Create and start a temporary PostgreSQL container for restore operations.
+        Always removes existing container and creates fresh to avoid stale state.
         Returns True if successful.
         """
         logger.info("Starting restore container...")
 
         try:
-            # Check if container already exists
+            # Always remove existing container and create fresh
             check_cmd = ["docker", "ps", "-a", "--filter", f"name={RESTORE_CONTAINER_NAME}", "--format", "{{.Names}}"]
             result = subprocess.run(check_cmd, capture_output=True, text=True)
 
             if RESTORE_CONTAINER_NAME in result.stdout:
-                # Container exists, try to start it
-                logger.info("Restore container exists, starting it...")
-                start_cmd = ["docker", "start", RESTORE_CONTAINER_NAME]
-                subprocess.run(start_cmd, capture_output=True, check=True)
-            else:
-                # Create new container
-                logger.info("Creating new restore container...")
-                create_cmd = [
-                    "docker", "run", "-d",
-                    "--name", RESTORE_CONTAINER_NAME,
-                    "-e", f"POSTGRES_USER={RESTORE_DB_USER}",
-                    "-e", f"POSTGRES_PASSWORD={RESTORE_DB_PASSWORD}",
-                    "-e", f"POSTGRES_DB={RESTORE_DB_NAME}",
-                    "-p", f"{RESTORE_DB_PORT}:5432",
-                    "--network", "n8n-network",  # Same network as other containers
-                    RESTORE_CONTAINER_IMAGE,
-                ]
-                subprocess.run(create_cmd, capture_output=True, check=True)
+                logger.info("Removing existing restore container...")
+                subprocess.run(["docker", "rm", "-f", RESTORE_CONTAINER_NAME], capture_output=True)
+
+            # Create new container
+            logger.info("Creating new restore container...")
+            create_cmd = [
+                "docker", "run", "-d",
+                "--name", RESTORE_CONTAINER_NAME,
+                "-e", f"POSTGRES_USER={RESTORE_DB_USER}",
+                "-e", f"POSTGRES_PASSWORD={RESTORE_DB_PASSWORD}",
+                "-e", f"POSTGRES_DB={RESTORE_DB_NAME}",
+                "-p", f"{RESTORE_DB_PORT}:5432",
+                "--network", "n8n-network",  # Same network as other containers
+                RESTORE_CONTAINER_IMAGE,
+            ]
+            subprocess.run(create_cmd, capture_output=True, check=True)
 
             # Wait for PostgreSQL to be ready
             await self._wait_for_postgres_ready()
@@ -168,6 +167,28 @@ class RestoreService:
                 return False
 
         try:
+            # Reset the database before loading (use separate commands to avoid transaction block error)
+            logger.info("Resetting restore database...")
+            try:
+                drop_cmd = [
+                    "docker", "exec", RESTORE_CONTAINER_NAME,
+                    "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
+                    "-c", f"DROP DATABASE IF EXISTS {RESTORE_DB_NAME};"
+                ]
+                result = subprocess.run(drop_cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.warning(f"DROP DATABASE warning: {result.stderr}")
+
+                create_cmd = [
+                    "docker", "exec", RESTORE_CONTAINER_NAME,
+                    "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
+                    "-c", f"CREATE DATABASE {RESTORE_DB_NAME};"
+                ]
+                result = subprocess.run(create_cmd, capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to reset restore database: {e.stderr if hasattr(e, 'stderr') else e}")
+                return False
+
             # Extract backup archive to temp directory
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Extract tar.gz
