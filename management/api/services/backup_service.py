@@ -113,6 +113,42 @@ class BackupService:
         """Execute a backup."""
         logger.info(f"Starting backup: type={backup_type}, compression={compression}")
 
+        # Pre-flight validation
+        preflight_errors = []
+
+        # Check PostgreSQL credentials
+        pg_host = os.environ.get("POSTGRES_HOST", "")
+        pg_user = os.environ.get("POSTGRES_USER", "")
+        pg_password = os.environ.get("POSTGRES_PASSWORD", "")
+
+        if not pg_host:
+            preflight_errors.append("POSTGRES_HOST environment variable is not set")
+        if not pg_user:
+            preflight_errors.append("POSTGRES_USER environment variable is not set")
+        if not pg_password:
+            preflight_errors.append("POSTGRES_PASSWORD environment variable is not set")
+
+        if preflight_errors:
+            error_msg = "Backup pre-flight check failed: " + "; ".join(preflight_errors)
+            logger.error(error_msg)
+            # Create a failed history record
+            history = BackupHistory(
+                backup_type=backup_type,
+                schedule_id=schedule_id,
+                filename="",
+                filepath="",
+                started_at=datetime.now(UTC),
+                completed_at=datetime.now(UTC),
+                status="failed",
+                error_message=error_msg,
+                compression=compression,
+                storage_location="unknown",
+            )
+            self.db.add(history)
+            await self.db.commit()
+            await self.db.refresh(history)
+            raise Exception(error_msg)
+
         # Create history record
         history = BackupHistory(
             backup_type=backup_type,
@@ -205,19 +241,31 @@ class BackupService:
             return history
 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            error_msg = f"{str(e)}\n\nTraceback:\n{error_details}"
+
             history.status = "failed"
-            history.error_message = str(e)
+            history.error_message = error_msg
             history.completed_at = datetime.now(UTC)
-            await self.db.commit()
+            history.duration_seconds = int((history.completed_at - history.started_at).total_seconds())
+
+            try:
+                await self.db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to save error to database: {db_error}")
 
             # Notify failure
-            await dispatch_notification("backup.failed", {
-                "backup_type": backup_type,
-                "backup_id": history.id,
-                "error": str(e),
-            }, severity="error")
+            try:
+                await dispatch_notification("backup.failed", {
+                    "backup_type": backup_type,
+                    "backup_id": history.id,
+                    "error": str(e),
+                }, severity="error")
+            except Exception as notif_error:
+                logger.error(f"Failed to send failure notification: {notif_error}")
 
-            logger.error(f"Backup failed: {e}")
+            logger.error(f"Backup failed (id={history.id}): {e}\n{error_details}")
             raise
 
     async def _execute_pg_dump(self, database: str, filepath: str, compression: str) -> None:
@@ -1448,19 +1496,31 @@ exit 0
             return history
 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            error_msg = f"{str(e)}\n\nTraceback:\n{error_details}"
+
             history.status = "failed"
-            history.error_message = str(e)
+            history.error_message = error_msg
             history.completed_at = datetime.now(UTC)
-            await self.db.commit()
+            history.duration_seconds = int((history.completed_at - history.started_at).total_seconds())
+
+            try:
+                await self.db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to save error to database: {db_error}")
 
             # Notify failure
-            await dispatch_notification("backup.failed", {
-                "backup_type": backup_type,
-                "backup_id": history.id,
-                "error": str(e),
-            }, severity="error")
+            try:
+                await dispatch_notification("backup.failed", {
+                    "backup_type": backup_type,
+                    "backup_id": history.id,
+                    "error": str(e),
+                }, severity="error")
+            except Exception as notif_error:
+                logger.error(f"Failed to send failure notification: {notif_error}")
 
-            logger.error(f"Backup failed: {e}")
+            logger.error(f"Archive backup failed (id={history.id}): {e}\n{error_details}")
             raise
 
     async def _simple_backup(
