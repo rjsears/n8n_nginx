@@ -60,7 +60,7 @@ class VerificationService:
             backup.progress = min(progress, 100)
             backup.progress_message = message
             await self.db.commit()
-            logger.debug(f"Verification {backup.id}: {progress}% - {message}")
+            logger.info(f"Verification {backup.id}: {progress}% - {message}")
         except Exception as e:
             logger.warning(f"Failed to update verification progress: {e}")
 
@@ -78,13 +78,19 @@ class VerificationService:
         try:
             # Check if container already exists
             check_cmd = ["docker", "ps", "-a", "--filter", f"name={VERIFY_CONTAINER_NAME}", "--format", "{{.Names}}"]
+            logger.info(f"Checking for existing container: {' '.join(check_cmd)}")
             result = subprocess.run(check_cmd, capture_output=True, text=True)
+            logger.info(f"Check result - stdout: {result.stdout}, stderr: {result.stderr}, returncode: {result.returncode}")
 
             if VERIFY_CONTAINER_NAME in result.stdout:
                 # Container exists, try to start it
                 logger.info("Verification container exists, starting it...")
                 start_cmd = ["docker", "start", VERIFY_CONTAINER_NAME]
-                subprocess.run(start_cmd, capture_output=True, check=True)
+                start_result = subprocess.run(start_cmd, capture_output=True, text=True)
+                logger.info(f"Start result - stdout: {start_result.stdout}, stderr: {start_result.stderr}, returncode: {start_result.returncode}")
+                if start_result.returncode != 0:
+                    logger.error(f"Failed to start existing container: {start_result.stderr}")
+                    return False
             else:
                 # Create new container
                 logger.info("Creating new verification container...")
@@ -100,20 +106,27 @@ class VerificationService:
                     "--network", docker_network,
                     VERIFY_CONTAINER_IMAGE,
                 ]
-                logger.info(f"Using Docker network: {docker_network}")
-                subprocess.run(create_cmd, capture_output=True, check=True)
+                logger.info(f"Running: {' '.join(create_cmd)}")
+                create_result = subprocess.run(create_cmd, capture_output=True, text=True)
+                logger.info(f"Create result - stdout: {create_result.stdout}, stderr: {create_result.stderr}, returncode: {create_result.returncode}")
+                if create_result.returncode != 0:
+                    logger.error(f"Failed to create container: {create_result.stderr}")
+                    return False
 
             # Wait for PostgreSQL to be ready
+            logger.info("Waiting for PostgreSQL to be ready...")
             await self._wait_for_postgres_ready()
             self._container_ready = True
             logger.info("Verification container is ready")
             return True
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to start verification container: {e.stderr}")
+            stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr
+            logger.error(f"Failed to start verification container (CalledProcessError): {stderr}")
             return False
         except Exception as e:
-            logger.error(f"Error starting verification container: {e}")
+            import traceback
+            logger.error(f"Error starting verification container: {e}\n{traceback.format_exc()}")
             return False
 
     async def _wait_for_postgres_ready(self, timeout: int = 30) -> None:
@@ -579,6 +592,9 @@ class VerificationService:
         }
 
         try:
+            # Reset progress at the start of verification
+            await self._update_verification_progress(backup, 0, "Starting verification...")
+
             # Step 1: Archive Integrity (0-10%)
             await self._update_verification_progress(backup, 5, "Verifying archive integrity")
             logger.info("Step 1: Verifying archive integrity...")
@@ -587,7 +603,8 @@ class VerificationService:
             if not archive_result.get("passed"):
                 results["overall_status"] = "failed"
                 results["errors"].append("Archive integrity check failed")
-                await self._update_verification_progress(backup, 100, "Verification failed: archive integrity")
+                # Don't set progress to 100 on failure - keep at current stage
+                await self._update_verification_progress(backup, 10, "Failed: archive integrity check")
                 return await self._store_verification_results(backup_id, results)
 
             # Step 2: Spin up container (10-25%)
@@ -596,7 +613,7 @@ class VerificationService:
             if not await self.spin_up_verify_container():
                 results["overall_status"] = "failed"
                 results["errors"].append("Failed to start verification container")
-                await self._update_verification_progress(backup, 100, "Verification failed: container startup")
+                await self._update_verification_progress(backup, 20, "Failed: container startup")
                 return await self._store_verification_results(backup_id, results)
 
             # Step 3: Load backup (25-40%)
@@ -606,7 +623,7 @@ class VerificationService:
             if not loaded:
                 results["overall_status"] = "failed"
                 results["errors"].append(f"Failed to load backup: {metadata.get('error')}")
-                await self._update_verification_progress(backup, 100, "Verification failed: loading backup")
+                await self._update_verification_progress(backup, 35, "Failed: loading backup")
                 return await self._store_verification_results(backup_id, results)
 
             # Step 4: Verify tables exist (40-55%)
