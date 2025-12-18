@@ -189,6 +189,8 @@ services:
       - ./docker-compose.yaml:/app/host_config/docker-compose.yaml:ro
       # Cloudflare credentials for SSL/DNS management (read-only)
       - ./cloudflare.ini:/app/host_config/cloudflare.ini:ro
+      # SSL certificates for backup/restore (read-only)
+      - letsencrypt:/etc/letsencrypt:ro
       # NFS backup mount (set NFS_LOCAL_MOUNT in .env)
       - ${NFS_LOCAL_MOUNT}:/mnt/backups
     expose:
