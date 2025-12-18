@@ -1465,22 +1465,27 @@ exit 0
             await self.db.refresh(history)
 
             # Store backup contents metadata
-            contents = BackupContents(
-                backup_id=history.id,
-                workflow_count=metadata.get("workflow_count", 0),
-                credential_count=metadata.get("credential_count", 0),
-                config_file_count=metadata.get("config_file_count", 0),
-                workflows_manifest=metadata.get("workflows_manifest"),
-                credentials_manifest=metadata.get("credentials_manifest"),
-                config_files_manifest=metadata.get("config_files_manifest"),
-                database_schema_manifest=metadata.get("database_schema_manifest"),
-                verification_checksums={
-                    "archive": checksum,
-                    "created_at": datetime.now(UTC).isoformat(),
-                },
-            )
-            self.db.add(contents)
-            await self.db.commit()
+            try:
+                contents = BackupContents(
+                    backup_id=history.id,
+                    workflow_count=metadata.get("workflow_count", 0),
+                    credential_count=metadata.get("credential_count", 0),
+                    config_file_count=metadata.get("config_file_count", 0),
+                    workflows_manifest=metadata.get("workflows_manifest"),
+                    credentials_manifest=metadata.get("credentials_manifest"),
+                    config_files_manifest=metadata.get("config_files_manifest"),
+                    database_schema_manifest=metadata.get("database_schema_manifest"),
+                    verification_checksums={
+                        "archive": checksum,
+                        "created_at": datetime.now(UTC).isoformat(),
+                    },
+                )
+                self.db.add(contents)
+                await self.db.commit()
+                logger.info(f"Stored backup contents metadata for backup {history.id}")
+            except Exception as contents_error:
+                logger.error(f"Failed to store backup contents metadata: {contents_error}")
+                # Don't fail the whole backup - it succeeded, just metadata storage failed
 
             # Notify success
             await dispatch_notification("backup.success", {
