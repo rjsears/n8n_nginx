@@ -54,6 +54,25 @@ class BackupService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    # ============================================================================
+    # Progress Tracking
+    # ============================================================================
+
+    async def _update_progress(
+        self,
+        history: BackupHistory,
+        progress: int,
+        message: str
+    ) -> None:
+        """Update backup progress in database."""
+        try:
+            history.progress = min(progress, 100)
+            history.progress_message = message
+            await self.db.commit()
+            logger.debug(f"Backup {history.id}: {progress}% - {message}")
+        except Exception as e:
+            logger.warning(f"Failed to update progress: {e}")
+
     # Schedule management
 
     async def get_schedules(self) -> List[BackupSchedule]:
@@ -831,6 +850,7 @@ class BackupService:
         databases: List[str],
         n8n_db: AsyncSession,
         compression: str = "gzip",
+        history: Optional[BackupHistory] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Create complete backup archive with all components.
@@ -844,6 +864,13 @@ class BackupService:
         os.makedirs(type_dir, exist_ok=True)
         archive_path = os.path.join(type_dir, archive_name)
 
+        # Progress update helper
+        async def update_progress(pct: int, msg: str):
+            if history:
+                await self._update_progress(history, pct, msg)
+
+        await update_progress(5, "Initializing backup")
+
         # Create temp directory for staging
         with tempfile.TemporaryDirectory() as temp_dir:
             metadata = {
@@ -854,19 +881,24 @@ class BackupService:
                 "postgres_version": await self._get_postgres_version(),
             }
 
-            # 1. Dump databases
+            # 1. Dump databases (5-40%)
+            await update_progress(10, "Dumping databases")
             db_dir = os.path.join(temp_dir, "databases")
             os.makedirs(db_dir)
 
             row_counts = {}
-            for db_name in databases:
+            db_count = len(databases)
+            for idx, db_name in enumerate(databases):
+                progress = 10 + int((idx / max(db_count, 1)) * 30)
+                await update_progress(progress, f"Dumping database: {db_name}")
                 db_file = os.path.join(db_dir, f"{db_name}.dump")
                 await self._execute_pg_dump_to_file(db_name, db_file)
                 row_counts[db_name] = await self._get_row_counts(db_name)
 
             metadata["row_counts"] = row_counts
 
-            # 2. Copy config files
+            # 2. Copy config files (40-50%)
+            await update_progress(45, "Copying config files")
             config_dir = os.path.join(temp_dir, "config")
             os.makedirs(config_dir)
 
@@ -876,15 +908,23 @@ class BackupService:
                     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                     shutil.copy2(config["host_path"], dest_path)
 
-            # 3. Copy SSL certificates if they exist
+            # 3. Copy SSL certificates if they exist (50-55%)
+            await update_progress(50, "Copying SSL certificates")
             if os.path.exists(SSL_CERT_PATH):
                 ssl_dir = os.path.join(temp_dir, "ssl")
                 shutil.copytree(SSL_CERT_PATH, ssl_dir)
 
-            # 4. Capture manifests
+            # 4. Capture manifests (55-75%)
+            await update_progress(55, "Capturing workflow manifest")
             workflow_count, workflows_manifest = await self.capture_workflow_manifest(n8n_db)
+
+            await update_progress(60, "Capturing credential manifest")
             credential_count, credentials_manifest = await self.capture_credential_manifest(n8n_db)
+
+            await update_progress(65, "Capturing config file manifest")
             config_count, config_manifest = await self.capture_config_file_manifest()
+
+            await update_progress(70, "Capturing database schema manifest")
             schema_manifest = await self.capture_database_schema_manifest(databases)
 
             metadata["workflow_count"] = workflow_count
@@ -895,23 +935,27 @@ class BackupService:
             metadata["config_files_manifest"] = config_manifest
             metadata["database_schema_manifest"] = schema_manifest
 
-            # 5. Write metadata.json
+            # 5. Write metadata.json (75-80%)
+            await update_progress(75, "Writing metadata")
             metadata_path = os.path.join(temp_dir, "metadata.json")
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=2, default=str)
 
-            # 6. Write restore.sh
+            # 6. Write restore.sh (80-85%)
+            await update_progress(80, "Writing restore script")
             restore_script = self._generate_restore_script()
             restore_path = os.path.join(temp_dir, "restore.sh")
             with open(restore_path, 'w') as f:
                 f.write(restore_script)
             os.chmod(restore_path, 0o755)
 
-            # 7. Create tar.gz archive
+            # 7. Create tar.gz archive (85-95%)
+            await update_progress(85, "Creating archive")
             with tarfile.open(archive_path, "w:gz") as tar:
                 for item in os.listdir(temp_dir):
                     tar.add(os.path.join(temp_dir, item), arcname=item)
 
+            await update_progress(95, "Finalizing")
             logger.info(f"Created complete archive: {archive_path}")
 
         return archive_path, metadata
@@ -1427,7 +1471,7 @@ exit 0
             # Create complete archive with metadata
             if n8n_db:
                 filepath, metadata = await self.create_complete_archive(
-                    backup_type, databases, n8n_db, compression
+                    backup_type, databases, n8n_db, compression, history
                 )
             else:
                 # Fallback to simple backup if no n8n_db session
@@ -1436,6 +1480,7 @@ exit 0
                 )
 
             # Calculate checksum and file size
+            await self._update_progress(history, 96, "Calculating checksum")
             file_size = os.path.getsize(filepath)
             checksum = hash_file_sha256(filepath)
             filename = os.path.basename(filepath)
@@ -1444,6 +1489,7 @@ exit 0
             pg_version = await self._get_postgres_version()
 
             # Update history
+            await self._update_progress(history, 98, "Saving backup record")
             history.filename = filename
             history.filepath = filepath
             history.file_size = file_size
@@ -1457,6 +1503,8 @@ exit 0
                 for db_info in metadata.get("database_schema_manifest", [])
             )
             history.status = "success"
+            history.progress = 100
+            history.progress_message = "Backup completed"
             history.completed_at = datetime.now(UTC)
             history.duration_seconds = int((history.completed_at - history.started_at).total_seconds())
             history.storage_location = "nfs" if "/mnt/backups" in filepath else "local"

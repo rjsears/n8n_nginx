@@ -49,6 +49,21 @@ class VerificationService:
         self.backup_service = BackupService(db)
         self._container_ready = False
 
+    async def _update_verification_progress(
+        self,
+        backup: BackupHistory,
+        progress: int,
+        message: str
+    ) -> None:
+        """Update verification progress in backup record."""
+        try:
+            backup.progress = min(progress, 100)
+            backup.progress_message = message
+            await self.db.commit()
+            logger.debug(f"Verification {backup.id}: {progress}% - {message}")
+        except Exception as e:
+            logger.warning(f"Failed to update verification progress: {e}")
+
     # ============================================================================
     # Container Management
     # ============================================================================
@@ -561,32 +576,38 @@ class VerificationService:
         }
 
         try:
-            # Step 1: Archive Integrity
+            # Step 1: Archive Integrity (0-10%)
+            await self._update_verification_progress(backup, 5, "Verifying archive integrity")
             logger.info("Step 1: Verifying archive integrity...")
             archive_result = await self.verify_backup_archive_integrity(backup_id)
             results["checks"]["archive_integrity"] = archive_result
             if not archive_result.get("passed"):
                 results["overall_status"] = "failed"
                 results["errors"].append("Archive integrity check failed")
-                # Can't continue if archive is invalid
+                await self._update_verification_progress(backup, 100, "Verification failed: archive integrity")
                 return await self._store_verification_results(backup_id, results)
 
-            # Step 2: Spin up container
+            # Step 2: Spin up container (10-25%)
+            await self._update_verification_progress(backup, 15, "Starting verification container")
             logger.info("Step 2: Starting verification container...")
             if not await self.spin_up_verify_container():
                 results["overall_status"] = "failed"
                 results["errors"].append("Failed to start verification container")
+                await self._update_verification_progress(backup, 100, "Verification failed: container startup")
                 return await self._store_verification_results(backup_id, results)
 
-            # Step 3: Load backup
+            # Step 3: Load backup (25-40%)
+            await self._update_verification_progress(backup, 30, "Loading backup into container")
             logger.info("Step 3: Loading backup into container...")
             loaded, metadata = await self.load_backup_to_verify_container(backup_id)
             if not loaded:
                 results["overall_status"] = "failed"
                 results["errors"].append(f"Failed to load backup: {metadata.get('error')}")
+                await self._update_verification_progress(backup, 100, "Verification failed: loading backup")
                 return await self._store_verification_results(backup_id, results)
 
-            # Step 4: Verify tables exist
+            # Step 4: Verify tables exist (40-55%)
+            await self._update_verification_progress(backup, 45, "Verifying database tables")
             logger.info("Step 4: Verifying tables exist...")
             if contents.database_schema_manifest:
                 expected_tables = []
@@ -602,7 +623,8 @@ class VerificationService:
                         results["overall_status"] = "failed"
                         results["errors"].append("Table verification failed")
 
-            # Step 5: Verify row counts
+            # Step 5: Verify row counts (55-70%)
+            await self._update_verification_progress(backup, 60, "Verifying row counts")
             logger.info("Step 5: Verifying row counts...")
             if contents.database_schema_manifest:
                 expected_counts = {}
@@ -620,7 +642,8 @@ class VerificationService:
                         results["warnings"].append("Row count mismatches detected")
                         # Row count mismatches might be warnings, not failures
 
-            # Step 6: Verify workflow checksums
+            # Step 6: Verify workflow checksums (70-85%)
+            await self._update_verification_progress(backup, 75, "Verifying workflow checksums")
             logger.info("Step 6: Verifying workflow checksums...")
             if contents.verification_checksums:
                 sample = None if verify_all_workflows else workflow_sample_size
@@ -633,7 +656,8 @@ class VerificationService:
                     results["overall_status"] = "failed"
                     results["errors"].append("Workflow checksum verification failed")
 
-            # Step 7: Verify config file checksums
+            # Step 7: Verify config file checksums (85-95%)
+            await self._update_verification_progress(backup, 90, "Verifying config file checksums")
             logger.info("Step 7: Verifying config file checksums...")
             if contents.config_files_manifest:
                 config_result = await self.verify_config_file_checksums(
@@ -644,13 +668,16 @@ class VerificationService:
                 if not config_result.get("passed"):
                     results["warnings"].append("Config file checksum issues")
 
-            # Final status
+            # Final status (95-100%)
+            await self._update_verification_progress(backup, 98, "Finalizing verification")
             results["completed_at"] = datetime.now(UTC).isoformat()
             results["duration_seconds"] = (
                 datetime.fromisoformat(results["completed_at"]) -
                 datetime.fromisoformat(results["started_at"])
             ).total_seconds()
 
+            status_msg = "Verification passed" if results["overall_status"] == "passed" else "Verification completed with issues"
+            await self._update_verification_progress(backup, 100, status_msg)
             logger.info(f"Verification completed: {results['overall_status']}")
 
             return await self._store_verification_results(backup_id, results)
