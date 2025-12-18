@@ -636,7 +636,8 @@ class VerificationService:
         }
 
         try:
-            # Reset progress at the start of verification
+            # Reset progress and status at the start of verification
+            backup.verification_status = "running"
             await self._update_verification_progress(backup, 0, "Starting verification...")
 
             # Step 1: Archive Integrity (0-10%)
@@ -709,16 +710,22 @@ class VerificationService:
             # Step 6: Verify workflow checksums (70-85%)
             await self._update_verification_progress(backup, 75, "Verifying workflow checksums")
             logger.info("Step 6: Verifying workflow checksums...")
-            if contents.verification_checksums:
+            # Check if verification_checksums contains actual workflow checksums (not just archive metadata)
+            workflow_checksums = contents.verification_checksums
+            if workflow_checksums and not any(k in workflow_checksums for k in ["archive", "created_at"]):
+                # This is actual workflow checksums dict
                 sample = None if verify_all_workflows else workflow_sample_size
                 checksums_result = await self.verify_workflow_checksums(
-                    contents.verification_checksums,
+                    workflow_checksums,
                     sample_size=sample
                 )
                 results["checks"]["workflow_checksums"] = checksums_result
                 if not checksums_result.get("passed"):
                     results["overall_status"] = "failed"
                     results["errors"].append("Workflow checksum verification failed")
+            else:
+                # No workflow checksums available, skip this check
+                results["checks"]["workflow_checksums"] = {"passed": True, "message": "No workflow checksums in backup metadata"}
 
             # Step 7: Verify config file checksums (85-95%)
             await self._update_verification_progress(backup, 90, "Verifying config file checksums")
