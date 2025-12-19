@@ -1660,43 +1660,42 @@ Created new `SystemMetricsLoader.vue` component with:
 *Added Backup Configuration Page documentation*
 *Added Backup History UI (Collapsible Design) documentation*
 
-### December 19, 2024 - Dashboard vs Containers Tab Count Mismatch
+### December 19, 2024 - Show ALL Containers with Filter Buttons
 
 **Issue Reported:**
-Dashboard shows 8 stopped containers, Containers tab shows 0 stopped - counts should match.
+Dashboard shows 8 stopped containers, Containers tab shows 0 stopped. User wants to see ALL containers on the system, not just n8n_* containers, with the ability to filter.
 
-**Root Cause:**
-The Dashboard gets container counts from the **host metrics scheduler** which was counting ALL Docker containers on the system. The Containers tab uses the **/containers/ API** which only returns project-prefixed containers (`n8n_*`).
+**Requirements:**
+- Show ALL containers on the system (n8n and non-n8n)
+- Add filter buttons: "N8N Containers", "Non-N8N Containers", "All Containers"
+- Only show filter buttons if there are non-n8n containers on the system
+- Stat boxes (Total, Running, Stopped, Unhealthy) should always show ALL containers
+- Allow management (start/stop/restart/remove/logs) of all containers
 
-The scheduler code was:
-```python
-all_containers = docker_client.containers.list(all=True)
-containers_total = len(all_containers)  # Counted ALL containers
-```
+**Implementation:**
 
-But the containers API filters using `_is_project_container()` which only includes containers starting with `n8n_` or named exactly `n8n`.
+1. **Backend - container_service.py:**
+   - Updated `list_containers()` to return ALL containers with `is_project` flag
+   - Updated `get_container()` and `get_stats()` to work with all containers
+   - Removed project-container restrictions from start/stop/restart/remove/logs
+   - Notifications still only sent for n8n project containers
 
-**Fix Applied:**
-Updated `scheduler.py` to filter containers by the project prefix, matching the containers API behavior:
+2. **Frontend - ContainersView.vue:**
+   - Added `containerTypeFilter` state ('all', 'n8n', 'non-n8n')
+   - Added `hasNonProjectContainers` computed to conditionally show buttons
+   - Added three filter buttons above stats grid (indigo/amber/emerald colors)
+   - Stats always show ALL containers
+   - Container list filters by both type and status
+   - Added N8N/External badge to each container card
 
-```python
-# Helper to check if container belongs to this project
-def is_project_container(name: str) -> bool:
-    prefix = settings.container_prefix.rstrip("_")  # "n8n_" -> "n8n"
-    return name.startswith(settings.container_prefix) or name == prefix
-
-for container in all_containers:
-    # Only count project containers
-    if not is_project_container(container.name):
-        continue
-    containers_total += 1
-    # ... rest of counting logic
-```
-
-Now both Dashboard and Containers tab will show the same container counts (only n8n project containers).
+3. **Dashboard:**
+   - Scheduler continues to count ALL containers (as designed)
+   - Dashboard and Containers tab now both show all containers
 
 **Files Modified:**
-- `management/api/tasks/scheduler.py`
+- `management/api/tasks/scheduler.py` - Reverted to count ALL containers
+- `management/api/services/container_service.py` - Added is_project flag, removed restrictions
+- `management/frontend/src/views/ContainersView.vue` - Added filter buttons and badges
 
 **Status:** ✅ Fixed
 
@@ -1711,4 +1710,4 @@ Now both Dashboard and Containers tab will show the same container counts (only 
 *Fixed Containers tab stopped count and added remove container popup*
 *Removed redundant Settings => Backup tab*
 *Added cool animated loading graphic for Dashboard metrics*
-*Fixed Dashboard vs Containers tab count mismatch (project prefix filtering)*
+*Added ALL containers view with N8N/Non-N8N/All filter buttons*
