@@ -189,6 +189,7 @@ class BackupService:
             await dispatch_notification("backup_started", {
                 "backup_type": backup_type,
                 "backup_id": history.id,
+                "started_at": history.started_at.strftime("%Y-%m-%d %H:%M:%S"),
             })
 
             # Determine database(s)
@@ -254,6 +255,9 @@ class BackupService:
                 "filename": filename,
                 "size_mb": round(file_size / 1024 / 1024, 2),
                 "duration_seconds": history.duration_seconds,
+                "workflow_count": 0,  # Simple backup doesn't extract workflow count
+                "config_file_count": 0,  # Simple backup doesn't include config files
+                "completed_at": history.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
             })
 
             logger.info(f"Backup completed: {filename} ({file_size} bytes)")
@@ -274,12 +278,13 @@ class BackupService:
             except Exception as db_error:
                 logger.error(f"Failed to save error to database: {db_error}")
 
-            # Notify failure (uses BackupConfiguration settings)
+            # Notify failure
             try:
                 await dispatch_notification("backup_failure", {
                     "backup_type": backup_type,
                     "backup_id": history.id,
                     "error": str(e),
+                    "failed_at": history.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
                 }, severity="error")
             except Exception as notif_error:
                 logger.error(f"Failed to send failure notification: {notif_error}")
@@ -1458,6 +1463,7 @@ exit 0
             await dispatch_notification("backup_started", {
                 "backup_type": backup_type,
                 "backup_id": history.id,
+                "started_at": history.started_at.strftime("%Y-%m-%d %H:%M:%S"),
             })
 
             # Determine database(s)
@@ -1545,6 +1551,8 @@ exit 0
                 "size_mb": round(file_size / 1024 / 1024, 2),
                 "duration_seconds": history.duration_seconds,
                 "workflow_count": metadata.get("workflow_count", 0),
+                "config_file_count": metadata.get("config_file_count", 0),
+                "completed_at": history.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
             })
 
             logger.info(f"Backup completed: {filename} ({file_size} bytes)")
@@ -1565,12 +1573,13 @@ exit 0
             except Exception as db_error:
                 logger.error(f"Failed to save error to database: {db_error}")
 
-            # Notify failure (uses BackupConfiguration settings)
+            # Notify failure
             try:
                 await dispatch_notification("backup_failure", {
                     "backup_type": backup_type,
                     "backup_id": history.id,
                     "error": str(e),
+                    "failed_at": history.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
                 }, severity="error")
             except Exception as notif_error:
                 logger.error(f"Failed to send failure notification: {notif_error}")

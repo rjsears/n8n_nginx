@@ -1482,6 +1482,12 @@ onUnmounted(() => {
                     {{ new Date(healthData.checks?.backups?.details?.last_backup).toLocaleString() }}
                   </span>
                 </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-secondary">Total Size</span>
+                  <span class="font-medium text-primary">
+                    {{ healthData.checks?.backups?.details?.total_size_display || '0 B' }}
+                  </span>
+                </div>
               </div>
             </div>
           </Card>

@@ -1138,71 +1138,91 @@ async def dispatch_notification(
 
 def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> str:
     """Build a human-readable notification message from event data."""
+    import socket
+    from datetime import datetime
+
+    hostname = event_data.get("hostname") or socket.gethostname()
+
     # Backup events
     if event_type == "backup_success":
         backup_type = event_data.get("backup_type", "unknown")
         size_mb = event_data.get("size_mb", 0)
         duration = event_data.get("duration_seconds", 0)
         workflow_count = event_data.get("workflow_count", 0)
+        config_count = event_data.get("config_file_count", 0)
+        completed_at = event_data.get("completed_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         return (
-            f"Backup completed successfully.\n\n"
+            f"Host: {hostname}\n"
+            f"Completed: {completed_at}\n\n"
             f"Type: {backup_type}\n"
             f"Size: {size_mb} MB\n"
             f"Duration: {duration}s\n"
-            f"Workflows: {workflow_count}"
+            f"Workflows: {workflow_count}\n"
+            f"Config Files: {config_count}"
         )
     elif event_type == "backup_failure":
         backup_type = event_data.get("backup_type", "unknown")
         error = event_data.get("error", "Unknown error")
+        failed_at = event_data.get("failed_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         return (
-            f"Backup failed!\n\n"
+            f"Host: {hostname}\n"
+            f"Failed: {failed_at}\n\n"
             f"Type: {backup_type}\n"
             f"Error: {error}"
         )
     elif event_type == "backup_started":
         backup_type = event_data.get("backup_type", "unknown")
-        return f"Backup started: {backup_type}"
+        started_at = event_data.get("started_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        return (
+            f"Host: {hostname}\n"
+            f"Started: {started_at}\n\n"
+            f"Type: {backup_type}"
+        )
 
     # Container events
     elif event_type == "container_unhealthy":
         container = event_data.get("container", "unknown")
-        return f"Container '{container}' is unhealthy!\n\nPlease check the container health."
+        return f"Host: {hostname}\n\nContainer '{container}' is unhealthy!\n\nPlease check the container health."
     elif event_type == "container_stopped":
         container = event_data.get("container", "unknown")
-        return f"Container '{container}' has stopped.\n\nThis may indicate an issue."
+        return f"Host: {hostname}\n\nContainer '{container}' has stopped.\n\nThis may indicate an issue."
     elif event_type == "container_restart":
         container = event_data.get("container", "unknown")
-        return f"Container '{container}' was restarted."
+        return f"Host: {hostname}\n\nContainer '{container}' was restarted."
     elif event_type == "container_started":
         container = event_data.get("container", "unknown")
-        return f"Container '{container}' started."
+        return f"Host: {hostname}\n\nContainer '{container}' started."
 
     # System events
     elif event_type == "disk_space_low":
         percent = event_data.get("percent", 0)
         path = event_data.get("path", "/")
-        return f"Disk space is low!\n\nPath: {path}\nUsage: {percent}%"
+        return f"Host: {hostname}\n\nDisk space is low!\n\nPath: {path}\nUsage: {percent}%"
     elif event_type == "high_memory":
         percent = event_data.get("percent", 0)
-        return f"High memory usage detected: {percent}%"
+        return f"Host: {hostname}\n\nHigh memory usage detected: {percent}%"
     elif event_type == "high_cpu":
         percent = event_data.get("percent", 0)
-        return f"High CPU usage detected: {percent}%"
+        return f"Host: {hostname}\n\nHigh CPU usage detected: {percent}%"
 
     # Pruning events
     elif event_type == "backup_pending_deletion":
         count = event_data.get("count", 0)
         reason = event_data.get("reason", "unknown")
         hours = event_data.get("hours_until_deletion", 0)
-        return f"{count} backup(s) scheduled for deletion.\n\nReason: {reason}\nDeletion in: {hours} hours"
+        return f"Host: {hostname}\n\n{count} backup(s) scheduled for deletion.\n\nReason: {reason}\nDeletion in: {hours} hours"
     elif event_type == "backup_critical_space":
         free_percent = event_data.get("free_percent", 0)
         action = event_data.get("action", "unknown")
-        return f"Critical disk space alert!\n\nFree space: {free_percent}%\nAction: {action}"
+        return f"Host: {hostname}\n\nCritical disk space alert!\n\nFree space: {free_percent}%\nAction: {action}"
 
     else:
         # Generic message with event data
-        lines = [f"Event: {event_type}"]
+        lines = [f"Host: {hostname}", f"Event: {event_type}"]
         for key, value in event_data.items():
-            lines.append(f"{key}: {value}")
+            if key != "hostname":
+                lines.append(f"{key}: {value}")
         return "\n".join(lines)
