@@ -315,7 +315,7 @@ class PruningService:
 
             # Send notification
             if marked:
-                await dispatch_notification("backup.pending_deletion", {
+                await dispatch_notification("backup_pending_deletion", {
                     "count": len(marked),
                     "backup_ids": marked,
                     "reason": "time_based_pruning",
@@ -390,7 +390,7 @@ class PruningService:
             )
             marked.append(backup.id)
 
-        await dispatch_notification("backup.pending_deletion", {
+        await dispatch_notification("backup_pending_deletion", {
             "count": len(marked),
             "backup_ids": marked,
             "reason": "space_based_pruning",
@@ -445,7 +445,7 @@ class PruningService:
             freed_bytes += backup.file_size or 0
 
         if marked:
-            await dispatch_notification("backup.pending_deletion", {
+            await dispatch_notification("backup_pending_deletion", {
                 "count": len(marked),
                 "backup_ids": marked,
                 "reason": "size_based_pruning",
@@ -469,7 +469,7 @@ class PruningService:
 
         if settings.critical_space_action == "stop_and_alert":
             # Send emergency notification
-            await dispatch_notification("backup.critical_space", {
+            await dispatch_notification("backup_critical_space", {
                 "free_percent": free_percent,
                 "threshold": settings.critical_space_threshold,
                 "action": "stopped",
@@ -492,7 +492,7 @@ class PruningService:
                 if await self.execute_deletion(backup):
                     deleted.append(backup.id)
 
-            await dispatch_notification("backup.critical_space", {
+            await dispatch_notification("backup_critical_space", {
                 "free_percent": free_percent,
                 "threshold": settings.critical_space_threshold,
                 "action": "emergency_deletion",
