@@ -67,6 +67,20 @@ const sections = ref({
 
 // Time picker state
 const showTimePicker = ref(false)
+const timePickerButton = ref(null)
+const timePickerPosition = ref({ top: 0, left: 0, width: 0 })
+
+function toggleTimePicker() {
+  if (!showTimePicker.value && timePickerButton.value) {
+    const rect = timePickerButton.value.getBoundingClientRect()
+    timePickerPosition.value = {
+      top: rect.bottom + window.scrollY + 4,
+      left: rect.left + window.scrollX,
+      width: rect.width
+    }
+  }
+  showTimePicker.value = !showTimePicker.value
+}
 
 // Computed properties for time picker
 const scheduleHour = computed({
@@ -1030,8 +1044,9 @@ onMounted(() => {
                 <label class="block text-sm font-medium text-primary mb-2">Time</label>
                 <div class="relative">
                   <button
+                    ref="timePickerButton"
                     type="button"
-                    @click="showTimePicker = !showTimePicker"
+                    @click="toggleTimePicker"
                     class="input-field w-full flex items-center justify-between gap-2 cursor-pointer"
                   >
                     <div class="flex items-center gap-2">
@@ -1041,68 +1056,80 @@ onMounted(() => {
                     <ChevronDownIcon :class="['h-4 w-4 text-gray-400 transition-transform', showTimePicker ? 'rotate-180' : '']" />
                   </button>
 
-                  <!-- Time Picker Dropdown -->
-                  <div
-                    v-if="showTimePicker"
-                    class="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3"
-                  >
-                    <div class="flex gap-4">
-                      <!-- Hour Selector -->
-                      <div class="flex-1">
-                        <p class="text-xs font-medium text-secondary mb-2 text-center">Hour</p>
-                        <div class="h-40 overflow-y-auto scrollbar-thin">
-                          <div class="space-y-1">
-                            <button
-                              v-for="h in 24"
-                              :key="h - 1"
-                              type="button"
-                              @click="scheduleHour = h - 1"
-                              :class="[
-                                'w-full py-1.5 px-2 rounded text-sm font-medium transition-colors',
-                                scheduleHour === h - 1
-                                  ? 'bg-emerald-500 text-white'
-                                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-primary'
-                              ]"
-                            >
-                              {{ h - 1 === 0 ? '12 AM' : h - 1 < 12 ? `${h - 1} AM` : h - 1 === 12 ? '12 PM' : `${h - 1 - 12} PM` }}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Minute Selector -->
-                      <div class="flex-1">
-                        <p class="text-xs font-medium text-secondary mb-2 text-center">Minute</p>
-                        <div class="h-40 overflow-y-auto scrollbar-thin">
-                          <div class="space-y-1">
-                            <button
-                              v-for="m in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]"
-                              :key="m"
-                              type="button"
-                              @click="scheduleMinute = m"
-                              :class="[
-                                'w-full py-1.5 px-2 rounded text-sm font-medium transition-colors',
-                                scheduleMinute === m
-                                  ? 'bg-emerald-500 text-white'
-                                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-primary'
-                              ]"
-                            >
-                              :{{ String(m).padStart(2, '0') }}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Done Button -->
-                    <button
-                      type="button"
+                  <!-- Time Picker Dropdown (Teleported to body) -->
+                  <Teleport to="body">
+                    <div
+                      v-if="showTimePicker"
+                      class="fixed inset-0 z-40"
                       @click="showTimePicker = false"
-                      class="mt-3 w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+                    ></div>
+                    <div
+                      v-if="showTimePicker"
+                      class="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3"
+                      :style="{
+                        top: timePickerPosition.top + 'px',
+                        left: timePickerPosition.left + 'px',
+                        width: timePickerPosition.width + 'px'
+                      }"
                     >
-                      Done
-                    </button>
-                  </div>
+                      <div class="flex gap-4">
+                        <!-- Hour Selector -->
+                        <div class="flex-1">
+                          <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 text-center">Hour</p>
+                          <div class="h-40 overflow-y-auto scrollbar-thin">
+                            <div class="space-y-1">
+                              <button
+                                v-for="h in 24"
+                                :key="h - 1"
+                                type="button"
+                                @click="scheduleHour = h - 1"
+                                :class="[
+                                  'w-full py-1.5 px-2 rounded text-sm font-medium transition-colors',
+                                  scheduleHour === h - 1
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100'
+                                ]"
+                              >
+                                {{ h - 1 === 0 ? '12 AM' : h - 1 < 12 ? `${h - 1} AM` : h - 1 === 12 ? '12 PM' : `${h - 1 - 12} PM` }}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Minute Selector -->
+                        <div class="flex-1">
+                          <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 text-center">Minute</p>
+                          <div class="h-40 overflow-y-auto scrollbar-thin">
+                            <div class="space-y-1">
+                              <button
+                                v-for="m in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]"
+                                :key="m"
+                                type="button"
+                                @click="scheduleMinute = m"
+                                :class="[
+                                  'w-full py-1.5 px-2 rounded text-sm font-medium transition-colors',
+                                  scheduleMinute === m
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100'
+                                ]"
+                              >
+                                :{{ String(m).padStart(2, '0') }}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Done Button -->
+                      <button
+                        type="button"
+                        @click="showTimePicker = false"
+                        class="mt-3 w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </Teleport>
                 </div>
               </div>
 
