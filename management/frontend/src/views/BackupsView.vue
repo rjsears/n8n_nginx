@@ -821,24 +821,6 @@ onUnmounted(stopPolling)
         </Card>
       </div>
 
-      <!-- Important Backup Notice -->
-      <div class="mt-4 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
-        <div class="flex gap-3">
-          <div class="flex-shrink-0">
-            <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-800/50">
-              <ExclamationTriangleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            </div>
-          </div>
-          <div>
-            <h4 class="font-semibold text-amber-800 dark:text-amber-300 mb-1">Important Backup Information</h4>
-            <p class="text-sm text-amber-700 dark:text-amber-400">
-              This backup system only backs up <span class="font-semibold">N8N workflows</span> and <span class="font-semibold">N8N Management configuration files</span>.
-              It does <span class="font-semibold">NOT</span> backup any other data, additional containers, or configuration files you may have added to the system.
-            </p>
-          </div>
-        </div>
-      </div>
-
       <!-- Backup Configuration Summary Card (Clickable - navigates to storage settings) -->
       <Card v-if="backupConfig" :neon="true" :padding="false" class="mt-4">
         <button
@@ -929,6 +911,9 @@ onUnmounted(stopPolling)
               </div>
               <p class="text-sm font-medium text-primary">
                 {{ backupConfig.storage_preference === 'nfs' && backupConfig.backup_workflow === 'stage_then_copy' ? 'Enabled' : 'Disabled' }}
+              </p>
+              <p v-if="backupConfig.storage_preference === 'nfs' && backupConfig.backup_workflow === 'stage_then_copy' && backupConfig.primary_storage_path" class="text-xs text-secondary mt-0.5 font-mono truncate">
+                {{ backupConfig.primary_storage_path }}
               </p>
             </div>
           </div>

@@ -447,6 +447,24 @@ onMounted(() => {
 
       <!-- Storage Tab - 3-Step Configuration Flow -->
       <div v-if="activeTab === 'storage'" class="space-y-4">
+        <!-- Important Backup Notice -->
+        <div class="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
+          <div class="flex gap-3">
+            <div class="flex-shrink-0">
+              <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-800/50">
+                <ExclamationTriangleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              </div>
+            </div>
+            <div>
+              <h4 class="font-semibold text-amber-800 dark:text-amber-300 mb-1">Important Backup Information</h4>
+              <p class="text-sm text-amber-700 dark:text-amber-400">
+                This backup system only backs up <span class="font-semibold">N8N workflows</span> and <span class="font-semibold">N8N Management configuration files</span>.
+                It does <span class="font-semibold">NOT</span> backup any other data, additional containers, or configuration files you may have added to the system.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <!-- Introduction -->
         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-200 dark:border-blue-800 p-4">
           <div class="flex items-start gap-3">
@@ -907,6 +925,9 @@ onMounted(() => {
                   Enabled
                 </span>
                 <span v-else class="text-secondary">Not Used</span>
+              </p>
+              <p v-if="form.storage_preference === 'nfs' && form.backup_workflow === 'stage_then_copy' && stagingArea?.path" class="text-xs text-secondary mt-0.5 font-mono truncate">
+                {{ stagingArea.path }}
               </p>
             </div>
           </div>
