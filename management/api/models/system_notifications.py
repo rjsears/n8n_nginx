@@ -377,9 +377,9 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "certificate_expiring",
         "display_name": "Certificate Expiring",
-        "description": "Notification when SSL certificates are about to expire. Configure how many days in advance you want to be notified (default: 14 days).",
+        "description": "Notification when SSL certificates are about to expire. Only applies if using Let's Encrypt/certbot. Configure days before expiration (default: 14 days).",
         "icon": "ShieldCheckIcon",
-        "category": "security",
+        "category": "ssl",
         "severity": "warning",
         "frequency": "once_per_day",
         "thresholds": {"days": 14},
