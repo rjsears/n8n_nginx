@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import Card from '@/components/common/Card.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import SystemMetricsLoader from '@/components/common/SystemMetricsLoader.vue'
 import { systemApi } from '@/services/api'
 import {
