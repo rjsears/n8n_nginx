@@ -286,7 +286,7 @@ async def remove_backup_job(schedule_id: int) -> None:
 
 async def _run_scheduled_backup(schedule_id: int) -> None:
     """Execute a scheduled backup."""
-    from api.database import async_session_maker
+    from api.database import async_session_maker, n8n_session_maker
     from api.services.backup_service import BackupService
     from api.models.backups import BackupSchedule
     from sqlalchemy import select, update
@@ -304,14 +304,17 @@ async def _run_scheduled_backup(schedule_id: int) -> None:
             logger.warning(f"Schedule {schedule_id} not found or disabled")
             return
 
-        # Run backup
+        # Run backup with metadata (same as manual backup)
         service = BackupService(db)
         try:
-            await service.run_backup(
-                backup_type=schedule.backup_type,
-                schedule_id=schedule_id,
-                compression=schedule.compression,
-            )
+            # Get n8n database session for metadata capture
+            async with n8n_session_maker() as n8n_db:
+                await service.run_backup_with_metadata(
+                    backup_type=schedule.backup_type,
+                    schedule_id=schedule_id,
+                    compression=schedule.compression,
+                    n8n_db=n8n_db,
+                )
 
             # Update last run
             await db.execute(
