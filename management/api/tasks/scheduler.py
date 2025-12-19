@@ -618,6 +618,7 @@ async def _collect_host_metrics() -> None:
 
         # ========================================
         # Container Metrics (via Docker API)
+        # Only count project containers (matching container_prefix)
         # ========================================
         containers_total = 0
         containers_running = 0
@@ -625,12 +626,21 @@ async def _collect_host_metrics() -> None:
         containers_healthy = 0
         containers_unhealthy = 0
 
+        # Helper to check if container belongs to this project
+        def is_project_container(name: str) -> bool:
+            prefix = settings.container_prefix.rstrip("_")  # "n8n_" -> "n8n"
+            return name.startswith(settings.container_prefix) or name == prefix
+
         try:
             docker_client = docker.from_env()
             all_containers = docker_client.containers.list(all=True)
-            containers_total = len(all_containers)
 
             for container in all_containers:
+                # Only count project containers
+                if not is_project_container(container.name):
+                    continue
+
+                containers_total += 1
                 if container.status == "running":
                     containers_running += 1
                     # Check health status

@@ -1660,6 +1660,48 @@ Created new `SystemMetricsLoader.vue` component with:
 *Added Backup Configuration Page documentation*
 *Added Backup History UI (Collapsible Design) documentation*
 
+### December 19, 2024 - Dashboard vs Containers Tab Count Mismatch
+
+**Issue Reported:**
+Dashboard shows 8 stopped containers, Containers tab shows 0 stopped - counts should match.
+
+**Root Cause:**
+The Dashboard gets container counts from the **host metrics scheduler** which was counting ALL Docker containers on the system. The Containers tab uses the **/containers/ API** which only returns project-prefixed containers (`n8n_*`).
+
+The scheduler code was:
+```python
+all_containers = docker_client.containers.list(all=True)
+containers_total = len(all_containers)  # Counted ALL containers
+```
+
+But the containers API filters using `_is_project_container()` which only includes containers starting with `n8n_` or named exactly `n8n`.
+
+**Fix Applied:**
+Updated `scheduler.py` to filter containers by the project prefix, matching the containers API behavior:
+
+```python
+# Helper to check if container belongs to this project
+def is_project_container(name: str) -> bool:
+    prefix = settings.container_prefix.rstrip("_")  # "n8n_" -> "n8n"
+    return name.startswith(settings.container_prefix) or name == prefix
+
+for container in all_containers:
+    # Only count project containers
+    if not is_project_container(container.name):
+        continue
+    containers_total += 1
+    # ... rest of counting logic
+```
+
+Now both Dashboard and Containers tab will show the same container counts (only n8n project containers).
+
+**Files Modified:**
+- `management/api/tasks/scheduler.py`
+
+**Status:** ✅ Fixed
+
+---
+
 *Document updated on December 19, 2024*
 *Added Session Updates section for tracking fixes between chat sessions*
 *Added fix for config backup files going to wrong location*
@@ -1669,3 +1711,4 @@ Created new `SystemMetricsLoader.vue` component with:
 *Fixed Containers tab stopped count and added remove container popup*
 *Removed redundant Settings => Backup tab*
 *Added cool animated loading graphic for Dashboard metrics*
+*Fixed Dashboard vs Containers tab count mismatch (project prefix filtering)*
