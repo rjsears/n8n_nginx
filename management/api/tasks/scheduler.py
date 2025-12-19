@@ -171,26 +171,33 @@ async def add_backup_job(schedule) -> None:
 
     job_id = f"backup_{schedule.id}"
 
+    # Use schedule's timezone (default to UTC if not set)
+    schedule_tz = schedule.timezone or "UTC"
+
     # Build trigger based on frequency
     if schedule.frequency == "hourly":
-        trigger = CronTrigger(minute=schedule.minute)
+        trigger = CronTrigger(minute=schedule.minute, timezone=schedule_tz)
     elif schedule.frequency == "daily":
-        trigger = CronTrigger(hour=schedule.hour, minute=schedule.minute)
+        trigger = CronTrigger(hour=schedule.hour, minute=schedule.minute, timezone=schedule_tz)
     elif schedule.frequency == "weekly":
         trigger = CronTrigger(
             day_of_week=schedule.day_of_week,
             hour=schedule.hour,
             minute=schedule.minute,
+            timezone=schedule_tz,
         )
     elif schedule.frequency == "monthly":
         trigger = CronTrigger(
             day=schedule.day_of_month,
             hour=schedule.hour,
             minute=schedule.minute,
+            timezone=schedule_tz,
         )
     else:
         logger.warning(f"Unknown frequency: {schedule.frequency}")
         return
+
+    logger.info(f"Adding backup job {job_id}: {schedule.frequency} at {schedule.hour}:{schedule.minute:02d} ({schedule_tz})")
 
     scheduler.add_job(
         _run_scheduled_backup,

@@ -233,13 +233,24 @@ class RestoreService:
         logger.info("Tearing down restore container...")
 
         try:
-            # Stop container
-            stop_cmd = ["docker", "stop", RESTORE_CONTAINER_NAME]
-            subprocess.run(stop_cmd, capture_output=True)
+            # Stop container (with timeout)
+            stop_cmd = ["docker", "stop", "-t", "10", RESTORE_CONTAINER_NAME]
+            stop_result = await asyncio.to_thread(
+                subprocess.run, stop_cmd, capture_output=True, text=True
+            )
+            if stop_result.returncode != 0:
+                logger.warning(f"Failed to stop container: {stop_result.stderr}")
 
-            # Remove container
-            rm_cmd = ["docker", "rm", RESTORE_CONTAINER_NAME]
-            subprocess.run(rm_cmd, capture_output=True)
+            # Remove container (force to ensure cleanup)
+            rm_cmd = ["docker", "rm", "-f", RESTORE_CONTAINER_NAME]
+            rm_result = await asyncio.to_thread(
+                subprocess.run, rm_cmd, capture_output=True, text=True
+            )
+            if rm_result.returncode != 0:
+                logger.warning(f"Failed to remove container: {rm_result.stderr}")
+                # If the container doesn't exist, that's fine
+                if "No such container" not in rm_result.stderr:
+                    return False
 
             self._container_ready = False
             logger.info("Restore container removed")
