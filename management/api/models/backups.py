@@ -315,11 +315,16 @@ class BackupConfiguration(Base):
     compression_algorithm = Column(String(20), default="gzip")  # 'gzip', 'zstd', 'none'
     compression_level = Column(Integer, default=6)  # 1-9 for gzip, 1-22 for zstd
 
-    # Retention Settings
+    # Retention Settings - Tiered GFS (Grandfather-Father-Son) strategy
     retention_enabled = Column(Boolean, default=True)
-    retention_days = Column(Integer, default=30)  # Keep backups for X days
-    retention_count = Column(Integer, default=10)  # Keep at least X backups
-    retention_min_count = Column(Integer, default=3)  # Never delete below X backups
+    # Keep daily backups for X days (default: 7 days = last week of dailies)
+    retention_daily_count = Column(Integer, default=7)
+    # Keep weekly backups for X weeks (default: 4 weeks = ~1 month of weeklies)
+    retention_weekly_count = Column(Integer, default=4)
+    # Keep monthly backups for X months (default: 6 months of monthlies)
+    retention_monthly_count = Column(Integer, default=6)
+    # Minimum backups to always keep regardless of age (safety net)
+    retention_min_count = Column(Integer, default=3)
 
     # Schedule Settings
     schedule_enabled = Column(Boolean, default=True)

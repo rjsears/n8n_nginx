@@ -347,11 +347,12 @@ class BackupConfigurationUpdate(BaseModel):
     compression_algorithm: Optional[str] = Field(None, pattern="^(gzip|zstd|none)$")
     compression_level: Optional[int] = Field(None, ge=1, le=22)
 
-    # Retention Settings
+    # Retention Settings - Tiered GFS (Grandfather-Father-Son) strategy
     retention_enabled: Optional[bool] = None
-    retention_days: Optional[int] = Field(None, ge=1, le=365)
-    retention_count: Optional[int] = Field(None, ge=1, le=100)
-    retention_min_count: Optional[int] = Field(None, ge=1, le=50)
+    retention_daily_count: Optional[int] = Field(None, ge=1, le=30)  # Keep daily backups for X days
+    retention_weekly_count: Optional[int] = Field(None, ge=1, le=52)  # Keep weekly backups for X weeks
+    retention_monthly_count: Optional[int] = Field(None, ge=1, le=24)  # Keep monthly backups for X months
+    retention_min_count: Optional[int] = Field(None, ge=1, le=50)  # Safety net minimum
 
     # Schedule Settings
     schedule_enabled: Optional[bool] = None
@@ -392,10 +393,11 @@ class BackupConfigurationResponse(BaseModel):
     compression_algorithm: str
     compression_level: int
 
-    # Retention Settings
+    # Retention Settings - Tiered GFS (Grandfather-Father-Son) strategy
     retention_enabled: bool
-    retention_days: int
-    retention_count: int
+    retention_daily_count: int
+    retention_weekly_count: int
+    retention_monthly_count: int
     retention_min_count: int
 
     # Schedule Settings
