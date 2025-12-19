@@ -539,7 +539,7 @@ async function toggleProtection(backup) {
 async function downloadWorkflow(backup, workflow) {
   try {
     const response = await api.get(`/backups/${backup.id}/workflows/${workflow.id}/download`)
-    const blob = new Blob([JSON.stringify(response.data.workflow, null, 2)], { type: 'application/json' })
+    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
