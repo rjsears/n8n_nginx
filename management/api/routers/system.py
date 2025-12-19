@@ -1708,6 +1708,8 @@ async def get_full_health_check(
         backups_details = {
             "recent_count": 0,
             "failed_count": 0,
+            "total_size_bytes": 0,
+            "total_size_display": "0 B",
         }
         backups_status = "healthy"
 
@@ -1744,8 +1746,30 @@ async def get_full_health_check(
             )
             last_backup = last_backup_result.scalar_one_or_none()
 
+            # Calculate total size of all successful backups
+            total_size_result = await db.execute(
+                select(func.sum(BackupHistory.file_size)).where(
+                    BackupHistory.status == "success",
+                    BackupHistory.deleted_at.is_(None)
+                )
+            )
+            total_size_bytes = total_size_result.scalar() or 0
+
+            # Format size for display
+            def format_size(size_bytes):
+                if size_bytes < 1024:
+                    return f"{size_bytes} B"
+                elif size_bytes < 1024 * 1024:
+                    return f"{size_bytes / 1024:.1f} KB"
+                elif size_bytes < 1024 * 1024 * 1024:
+                    return f"{size_bytes / (1024 * 1024):.1f} MB"
+                else:
+                    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
             backups_details["recent_count"] = recent_success_count
             backups_details["failed_count"] = recent_failed_count
+            backups_details["total_size_bytes"] = total_size_bytes
+            backups_details["total_size_display"] = format_size(total_size_bytes)
 
             if last_backup:
                 backups_details["last_backup"] = last_backup.created_at.isoformat()
