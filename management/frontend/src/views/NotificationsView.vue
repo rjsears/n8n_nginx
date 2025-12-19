@@ -22,6 +22,7 @@ import ServerSettings from '@/components/ntfy/ServerSettings.vue'
 import IntegrationHub from '@/components/ntfy/IntegrationHub.vue'
 import {
   BellIcon,
+  BellAlertIcon,
   PlusIcon,
   PencilSquareIcon,
   TrashIcon,
@@ -825,7 +826,22 @@ async function handleNtfyUpdateConfig(config) {
 
     <!-- Channels Tab Content -->
     <template v-if="mainTab === 'channels'">
-      <LoadingSpinner v-if="loading" size="lg" text="Loading notifications..." class="py-12" />
+      <!-- Notification Loading Animation -->
+      <div v-if="loading" class="py-16 flex flex-col items-center justify-center">
+        <div class="relative">
+          <!-- Bell with ring animation -->
+          <div class="notification-bell">
+            <BellIcon class="h-12 w-12 text-blue-500" />
+          </div>
+          <!-- Notification waves -->
+          <div class="absolute -top-1 -right-1">
+            <div class="notification-wave w-4 h-4 rounded-full bg-emerald-400"></div>
+            <div class="notification-wave animation-delay-1 w-4 h-4 rounded-full bg-emerald-400 absolute top-0 left-0"></div>
+          </div>
+        </div>
+        <p class="mt-6 text-sm font-medium text-secondary">Loading notifications...</p>
+        <p class="mt-1 text-xs text-muted">Fetching notification channels</p>
+      </div>
 
       <template v-else>
       <!-- Stats Grid -->
@@ -1535,7 +1551,20 @@ async function handleNtfyUpdateConfig(config) {
 
     <!-- Groups Tab Content -->
     <template v-else-if="mainTab === 'groups'">
-      <LoadingSpinner v-if="loading" size="lg" text="Loading groups..." class="py-12" />
+      <!-- Groups Loading Animation -->
+      <div v-if="loading" class="py-16 flex flex-col items-center justify-center">
+        <div class="relative">
+          <div class="notification-bell">
+            <HashtagIcon class="h-12 w-12 text-indigo-500" />
+          </div>
+          <div class="absolute -top-1 -right-1">
+            <div class="notification-wave w-4 h-4 rounded-full bg-indigo-400"></div>
+            <div class="notification-wave animation-delay-1 w-4 h-4 rounded-full bg-indigo-400 absolute top-0 left-0"></div>
+          </div>
+        </div>
+        <p class="mt-6 text-sm font-medium text-secondary">Loading groups...</p>
+        <p class="mt-1 text-xs text-muted">Fetching notification groups</p>
+      </div>
 
       <template v-else>
         <!-- Groups Stats -->
@@ -1796,7 +1825,20 @@ async function handleNtfyUpdateConfig(config) {
 
     <!-- NTFY Push Tab Content -->
     <template v-else-if="mainTab === 'ntfy'">
-      <LoadingSpinner v-if="ntfyLoading" size="lg" text="Loading NTFY..." class="py-12" />
+      <!-- NTFY Loading Animation -->
+      <div v-if="ntfyLoading" class="py-16 flex flex-col items-center justify-center">
+        <div class="relative">
+          <div class="notification-bell">
+            <BellAlertIcon class="h-12 w-12 text-rose-500" />
+          </div>
+          <div class="absolute -top-1 -right-1">
+            <div class="notification-wave w-4 h-4 rounded-full bg-rose-400"></div>
+            <div class="notification-wave animation-delay-1 w-4 h-4 rounded-full bg-rose-400 absolute top-0 left-0"></div>
+          </div>
+        </div>
+        <p class="mt-6 text-sm font-medium text-secondary">Loading NTFY...</p>
+        <p class="mt-1 text-xs text-muted">Fetching push notification service</p>
+      </div>
 
       <template v-else>
         <!-- NTFY Stats Cards -->
@@ -1991,5 +2033,42 @@ async function handleNtfyUpdateConfig(config) {
 .collapse-leave-from {
   opacity: 1;
   max-height: 800px;
+}
+
+/* Notification loading animation */
+.notification-bell {
+  animation: bellSwing 1s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+@keyframes bellSwing {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(15deg);
+  }
+  75% {
+    transform: rotate(-15deg);
+  }
+}
+
+.notification-wave {
+  animation: waveExpand 1.5s ease-out infinite;
+}
+
+.notification-wave.animation-delay-1 {
+  animation-delay: 0.5s;
+}
+
+@keyframes waveExpand {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
 }
 </style>
