@@ -560,7 +560,7 @@ async function restoreWorkflowToN8n(backup, workflow) {
   try {
     const response = await api.post(`/backups/${backup.id}/restore/workflow`, {
       workflow_id: workflow.id,
-      rename_format: 'backup_date',
+      rename_format: '{name}_backup_{date}',
     })
     if (response.data.success) {
       notificationStore.success(`Restored workflow: ${response.data.new_name}`)
