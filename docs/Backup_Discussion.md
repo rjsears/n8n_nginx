@@ -1487,6 +1487,55 @@ The `n8n_postgres_restore` container stays running if user navigates away from t
 
 ---
 
+### December 19, 2024 - Health Dashboard Shows Wrong Backup Count
+
+**Issue Reported:**
+Health dashboard (System => Health) shows WARNING status with "Recent (24h): 0" even though 2 successful backups exist.
+
+**Root Cause:**
+The health check endpoint was looking for **files on disk** with patterns like `.sql`, `.tar`, `.gz` in the filename, rather than querying the **BackupHistory database table** where actual backup records are stored.
+
+```python
+# Before (broken): looking for files on disk
+backup_files = [f for f in files if any(x in f.lower() for x in ['backup', '.sql', '.tar', '.gz'])]
+backups_details["recent_count"] = len(backup_files)
+```
+
+**Fix Applied:**
+Changed `system.py:get_full_health_check()` to query the BackupHistory database table:
+
+```python
+# After (fixed): query database for backup records
+from api.models.backups import BackupHistory
+
+cutoff_24h = datetime.now(UTC) - timedelta(hours=24)
+
+# Count recent successful backups
+recent_success_result = await db.execute(
+    select(func.count(BackupHistory.id)).where(
+        BackupHistory.created_at >= cutoff_24h,
+        BackupHistory.status == "success"
+    )
+)
+recent_success_count = recent_success_result.scalar() or 0
+
+# Count recent failed backups
+recent_failed_result = await db.execute(
+    select(func.count(BackupHistory.id)).where(
+        BackupHistory.created_at >= cutoff_24h,
+        BackupHistory.status == "failed"
+    )
+)
+recent_failed_count = recent_failed_result.scalar() or 0
+```
+
+**Files Modified:**
+- `management/api/routers/system.py`
+
+**Status:** ✅ Fixed
+
+---
+
 *Document updated on December 17, 2024*
 *Added Phase 7: Pruning & Retention System*
 *Added Backup Configuration Page documentation*
@@ -1496,3 +1545,4 @@ The `n8n_postgres_restore` container stays running if user navigates away from t
 *Added Session Updates section for tracking fixes between chat sessions*
 *Added fix for config backup files going to wrong location*
 *Added global Unmount button to Backups page header*
+*Fixed Health Dashboard showing incorrect backup count*
