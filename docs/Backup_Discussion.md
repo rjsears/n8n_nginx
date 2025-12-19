@@ -1536,6 +1536,35 @@ recent_failed_count = recent_failed_result.scalar() or 0
 
 ---
 
+### December 19, 2024 - Container Restart 404 Error (Cloudflare/Tailscale)
+
+**Issue Reported:**
+```
+POST https://loftai7.loft.aero/management/api/settings/container/restart 404 (Not Found)
+```
+Restart buttons for Cloudflare Tunnel and Tailscale VPN on System => Network page returned 404.
+
+**Root Cause:**
+The frontend `api.js` defined `settingsApi.restartContainer()` to call `/settings/container/restart`, but this endpoint doesn't exist. The correct endpoint is `/containers/{name}/restart` in the containers router.
+
+**Fix Applied:**
+Updated `api.js` to use the correct containers endpoint:
+
+```javascript
+// Before (broken):
+restartContainer: (containerName, reason) => api.post('/settings/container/restart', { container_name: containerName, reason }),
+
+// After (fixed):
+restartContainer: (containerName, reason) => api.post(`/containers/${containerName}/restart`),
+```
+
+**Files Modified:**
+- `management/frontend/src/services/api.js`
+
+**Status:** ✅ Fixed
+
+---
+
 *Document updated on December 17, 2024*
 *Added Phase 7: Pruning & Retention System*
 *Added Backup Configuration Page documentation*
@@ -1546,3 +1575,4 @@ recent_failed_count = recent_failed_result.scalar() or 0
 *Added fix for config backup files going to wrong location*
 *Added global Unmount button to Backups page header*
 *Fixed Health Dashboard showing incorrect backup count*
+*Fixed container restart 404 error (Cloudflare/Tailscale restart buttons)*

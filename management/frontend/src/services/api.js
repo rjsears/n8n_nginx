@@ -181,8 +181,8 @@ export const settingsApi = {
   // Debug mode
   getDebugMode: () => api.get('/settings/debug'),
   setDebugMode: (enabled) => api.put('/settings/debug', { enabled }),
-  // Container restart
-  restartContainer: (containerName, reason) => api.post('/settings/container/restart', { container_name: containerName, reason }),
+  // Container restart (uses containers API)
+  restartContainer: (containerName, reason) => api.post(`/containers/${containerName}/restart`),
   // Access Control
   getAccessControl: () => api.get('/settings/access-control'),
   updateAccessControl: (data) => api.put('/settings/access-control', data),
