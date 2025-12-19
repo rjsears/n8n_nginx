@@ -124,10 +124,19 @@ class SystemNotificationContainerConfig(Base):
     id = Column(Integer, primary_key=True)
     container_name = Column(String(100), nullable=False, unique=True, index=True)
 
+    # Master enable/disable for this container's notifications
+    enabled = Column(Boolean, default=True)
+
     # Which events to monitor for this container
     monitor_unhealthy = Column(Boolean, default=True)
     monitor_restart = Column(Boolean, default=True)
     monitor_stopped = Column(Boolean, default=True)
+
+    # Resource threshold monitoring
+    monitor_high_cpu = Column(Boolean, default=False)
+    cpu_threshold = Column(Integer, default=80)  # percentage
+    monitor_high_memory = Column(Boolean, default=False)
+    memory_threshold = Column(Integer, default=80)  # percentage
 
     # Custom targets override (optional, JSON array of {type, id} objects)
     # If null, uses default targets from the event configuration
@@ -139,7 +148,7 @@ class SystemNotificationContainerConfig(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     def __repr__(self):
-        return f"<SystemNotificationContainerConfig(container='{self.container_name}', unhealthy={self.monitor_unhealthy}, restart={self.monitor_restart}, stopped={self.monitor_stopped})>"
+        return f"<SystemNotificationContainerConfig(container='{self.container_name}', enabled={self.enabled}, unhealthy={self.monitor_unhealthy}, restart={self.monitor_restart}, stopped={self.monitor_stopped})>"
 
 
 class SystemNotificationState(Base):
