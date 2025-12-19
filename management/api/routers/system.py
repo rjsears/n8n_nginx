@@ -2039,3 +2039,35 @@ async def get_host_metrics_cached(
             "tx_bytes_per_sec": current_tx_rate,
         },
     }
+
+
+@router.get("/scheduler/status")
+async def get_scheduler_status(
+    _=Depends(get_current_user),
+):
+    """Get scheduler status and list all scheduled jobs."""
+    from api.tasks.scheduler import get_scheduler
+
+    scheduler = get_scheduler()
+    if scheduler is None:
+        return {
+            "running": False,
+            "message": "Scheduler not initialized",
+            "jobs": [],
+        }
+
+    jobs = []
+    for job in scheduler.get_jobs():
+        jobs.append({
+            "id": job.id,
+            "name": job.name,
+            "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+            "trigger": str(job.trigger),
+        })
+
+    return {
+        "running": scheduler.running,
+        "timezone": str(scheduler.timezone),
+        "job_count": len(jobs),
+        "jobs": jobs,
+    }

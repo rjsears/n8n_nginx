@@ -1418,6 +1418,7 @@ async def update_backup_configuration(
 
             if not schedule:
                 # Create new schedule
+                from api.config import settings
                 schedule = BackupSchedule(
                     name="Default Schedule",
                     backup_type=config.default_backup_type or "postgres_full",
@@ -1428,12 +1429,14 @@ async def update_backup_configuration(
                     day_of_week=config.schedule_day_of_week,
                     day_of_month=config.schedule_day_of_month,
                     compression=config.compression_algorithm or "gzip",
+                    timezone=settings.timezone,
                 )
                 db.add(schedule)
                 await db.commit()
                 await db.refresh(schedule)
             else:
                 # Update existing schedule
+                from api.config import settings
                 schedule.enabled = True
                 schedule.frequency = config.schedule_frequency or "daily"
                 schedule.hour = hour
@@ -1442,6 +1445,7 @@ async def update_backup_configuration(
                 schedule.day_of_month = config.schedule_day_of_month
                 schedule.compression = config.compression_algorithm or "gzip"
                 schedule.backup_type = config.default_backup_type or "postgres_full"
+                schedule.timezone = settings.timezone
                 await db.commit()
                 await db.refresh(schedule)
 
