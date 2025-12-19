@@ -647,12 +647,16 @@ class RestoreService:
             return []
 
         try:
-            # Query ALL workflow data at once
+            # Use row_to_json to output each row as JSON - avoids delimiter issues
             query_cmd = [
                 "docker", "exec", RESTORE_CONTAINER_NAME,
                 "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
                 "-t", "-A", "-c",
-                'SELECT id, name, active, nodes, connections, settings, "staticData", "createdAt", "updatedAt" FROM workflow_entity ORDER BY name'
+                '''SELECT row_to_json(t) FROM (
+                    SELECT id, name, active, nodes, connections, settings,
+                           "staticData", "createdAt", "updatedAt"
+                    FROM workflow_entity ORDER BY name
+                ) t'''
             ]
             result = subprocess.run(query_cmd, capture_output=True, text=True)
 
@@ -662,37 +666,24 @@ class RestoreService:
 
             workflows = []
             for line in result.stdout.strip().split('\n'):
-                if '|' in line:
-                    try:
-                        parts = line.split('|')
-                        if len(parts) < 6:
-                            continue
-
-                        # Parse JSON fields
-                        nodes = json.loads(parts[3]) if parts[3] else []
-                        connections = json.loads(parts[4]) if parts[4] else {}
-                        settings = json.loads(parts[5]) if parts[5] else {}
-                        static_data = None
-                        if len(parts) > 6 and parts[6] and parts[6] != '\\N':
-                            try:
-                                static_data = json.loads(parts[6])
-                            except:
-                                pass
-
-                        workflows.append({
-                            "id": parts[0],
-                            "name": parts[1],
-                            "active": parts[2] == 't',
-                            "nodes": nodes,
-                            "connections": connections,
-                            "settings": settings,
-                            "staticData": static_data,
-                            "created_at": parts[7] if len(parts) > 7 else None,
-                            "updated_at": parts[8] if len(parts) > 8 else None,
-                        })
-                    except Exception as e:
-                        logger.warning(f"Failed to parse workflow line: {e}")
-                        continue
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                    workflows.append({
+                        "id": row.get("id"),
+                        "name": row.get("name"),
+                        "active": row.get("active", False),
+                        "nodes": row.get("nodes") or [],
+                        "connections": row.get("connections") or {},
+                        "settings": row.get("settings") or {},
+                        "staticData": row.get("staticData"),
+                        "created_at": row.get("createdAt"),
+                        "updated_at": row.get("updatedAt"),
+                    })
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse workflow JSON: {e}, line: {line[:100]}...")
+                    continue
 
             logger.info(f"Loaded full data for {len(workflows)} workflows")
             return workflows
@@ -721,13 +712,16 @@ class RestoreService:
         logger.info(f"Cache miss for workflow {workflow_id}, querying database...")
 
         try:
-            # Query workflow data from restore container
+            # Use row_to_json to output as JSON - avoids delimiter issues
             query_cmd = [
                 "docker", "exec", RESTORE_CONTAINER_NAME,
                 "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
                 "-t", "-A", "-c",
-                f"SELECT id, name, active, nodes, connections, settings, \"staticData\", \"createdAt\", \"updatedAt\" "
-                f"FROM workflow_entity WHERE id = '{workflow_id}'"
+                f'''SELECT row_to_json(t) FROM (
+                    SELECT id, name, active, nodes, connections, settings,
+                           "staticData", "createdAt", "updatedAt"
+                    FROM workflow_entity WHERE id = '{workflow_id}'
+                ) t'''
             ]
             result = subprocess.run(query_cmd, capture_output=True, text=True)
 
@@ -744,28 +738,18 @@ class RestoreService:
                 logger.error(f"Workflow {workflow_id} not found in database. Available IDs: {available_ids}")
                 return None
 
-            # Parse the result - columns are pipe-separated
-            parts = result.stdout.strip().split('|')
-            if len(parts) < 6:
-                logger.error(f"Invalid workflow data format")
-                return None
-
-            # Parse JSON fields
-            nodes = json.loads(parts[3]) if parts[3] else []
-            connections = json.loads(parts[4]) if parts[4] else {}
-            workflow_settings = json.loads(parts[5]) if parts[5] else {}
-            static_data = json.loads(parts[6]) if parts[6] and parts[6] != '\\N' else None
-
+            # Parse JSON output
+            row = json.loads(result.stdout.strip())
             workflow = {
-                "id": parts[0],
-                "name": parts[1],
-                "active": parts[2] == 't',
-                "nodes": nodes,
-                "connections": connections,
-                "settings": workflow_settings,
-                "staticData": static_data,
-                "createdAt": parts[7] if len(parts) > 7 else None,
-                "updatedAt": parts[8] if len(parts) > 8 else None,
+                "id": row.get("id"),
+                "name": row.get("name"),
+                "active": row.get("active", False),
+                "nodes": row.get("nodes") or [],
+                "connections": row.get("connections") or {},
+                "settings": row.get("settings") or {},
+                "staticData": row.get("staticData"),
+                "createdAt": row.get("createdAt"),
+                "updatedAt": row.get("updatedAt"),
             }
 
             return workflow
