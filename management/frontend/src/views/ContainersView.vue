@@ -652,14 +652,26 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- Health Badge -->
-              <span
-                v-if="container.health && container.health !== 'none'"
-                :class="['px-2 py-1 text-xs font-medium rounded-full flex items-center gap-1', getHealthBadgeClass(container.health)]"
-              >
-                <HeartIcon class="h-3 w-3" />
-                {{ container.health }}
-              </span>
+              <!-- Health Badge / Remove Button -->
+              <div class="flex items-center gap-2">
+                <span
+                  v-if="container.health && container.health !== 'none'"
+                  :class="['px-2 py-1 text-xs font-medium rounded-full flex items-center gap-1', getHealthBadgeClass(container.health)]"
+                >
+                  <HeartIcon class="h-3 w-3" />
+                  {{ container.health }}
+                </span>
+                <!-- Remove Button for stopped containers -->
+                <button
+                  v-if="container.status !== 'running'"
+                  @click="promptRemoveContainer(container)"
+                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30 transition-colors flex items-center gap-1.5"
+                  title="Remove this container"
+                >
+                  <TrashIcon class="h-4 w-4" />
+                  Remove
+                </button>
+              </div>
             </div>
           </div>
 
