@@ -618,6 +618,7 @@ async def _collect_host_metrics() -> None:
 
         # ========================================
         # Container Metrics (via Docker API)
+        # Count ALL containers on the system
         # ========================================
         containers_total = 0
         containers_running = 0

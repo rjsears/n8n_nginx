@@ -103,8 +103,9 @@ function shuffleContainerMessages() {
   containerLoadingMessages.value = shuffled.slice(0, 12)
 }
 
-// Filter
+// Filters
 const filterStatus = ref('all')
+const containerTypeFilter = ref('all')  // 'all', 'n8n', 'non-n8n'
 
 // Merge containers with their stats
 const containersWithStats = computed(() => {
@@ -123,18 +124,40 @@ const containersWithStats = computed(() => {
   })
 })
 
-const filteredContainers = computed(() => {
-  if (filterStatus.value === 'all') return containersWithStats.value
-  return containersWithStats.value.filter((c) => c.status === filterStatus.value)
+// Check if there are any non-project containers
+const hasNonProjectContainers = computed(() => {
+  return containersWithStats.value.some(c => !c.is_project)
 })
 
-// Stats
-const stats = computed(() => ({
-  total: containerStore.containers.length,
-  running: containerStore.runningCount,
-  stopped: containerStore.stoppedCount,
-  unhealthy: containerStore.unhealthyCount,
-}))
+// Filter containers by type first, then by status
+const filteredContainers = computed(() => {
+  let filtered = containersWithStats.value
+
+  // Filter by container type
+  if (containerTypeFilter.value === 'n8n') {
+    filtered = filtered.filter(c => c.is_project)
+  } else if (containerTypeFilter.value === 'non-n8n') {
+    filtered = filtered.filter(c => !c.is_project)
+  }
+
+  // Then filter by status
+  if (filterStatus.value !== 'all') {
+    filtered = filtered.filter(c => c.status === filterStatus.value)
+  }
+
+  return filtered
+})
+
+// Stats - always show ALL containers (no filtering)
+const stats = computed(() => {
+  const all = containersWithStats.value
+  return {
+    total: all.length,
+    running: all.filter(c => c.status === 'running').length,
+    stopped: all.filter(c => c.status !== 'running').length,
+    unhealthy: all.filter(c => c.health === 'unhealthy').length,
+  }
+})
 
 // Get list of stopped containers
 const stoppedContainers = computed(() => {
@@ -450,6 +473,46 @@ onUnmounted(() => {
     <ContainerStackLoader v-if="loading" :text="containerLoadingMessages[containerLoadingMessageIndex]" class="py-16 mt-8" />
 
     <template v-else>
+      <!-- Container Type Filter Buttons (only shown if non-n8n containers exist) -->
+      <div v-if="hasNonProjectContainers" class="flex items-center gap-3">
+        <button
+          @click="containerTypeFilter = 'n8n'"
+          :class="[
+            'px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2',
+            containerTypeFilter === 'n8n'
+              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
+              : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-400 dark:hover:bg-indigo-500/30'
+          ]"
+        >
+          <Square3Stack3DIcon class="h-4 w-4" />
+          N8N Containers
+        </button>
+        <button
+          @click="containerTypeFilter = 'non-n8n'"
+          :class="[
+            'px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2',
+            containerTypeFilter === 'non-n8n'
+              ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/25'
+              : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/30'
+          ]"
+        >
+          <ServerIcon class="h-4 w-4" />
+          Non-N8N Containers
+        </button>
+        <button
+          @click="containerTypeFilter = 'all'"
+          :class="[
+            'px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2',
+            containerTypeFilter === 'all'
+              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/25'
+              : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-400 dark:hover:bg-emerald-500/30'
+          ]"
+        >
+          <CheckCircleIcon class="h-4 w-4" />
+          All Containers
+        </button>
+      </div>
+
       <!-- Stats Grid -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card :neon="true" :padding="false">
@@ -522,12 +585,15 @@ onUnmounted(() => {
       <!-- Filters -->
       <div class="flex items-center gap-4">
         <select v-model="filterStatus" class="select-field">
-          <option value="all">All Containers</option>
+          <option value="all">All Statuses</option>
           <option value="running">Running Only</option>
           <option value="exited">Stopped Only</option>
         </select>
         <p class="text-sm text-muted">
           Showing {{ filteredContainers.length }} of {{ containerStore.containers.length }} containers
+          <span v-if="containerTypeFilter !== 'all'" class="font-medium">
+            ({{ containerTypeFilter === 'n8n' ? 'N8N only' : 'Non-N8N only' }})
+          </span>
         </p>
       </div>
 
@@ -562,9 +628,20 @@ onUnmounted(() => {
                   />
                 </div>
                 <div>
-                  <div class="flex items-center gap-2">
+                  <div class="flex items-center gap-2 flex-wrap">
                     <h3 class="font-semibold text-primary text-lg">{{ container.name }}</h3>
                     <StatusBadge :status="container.status" size="sm" />
+                    <span
+                      v-if="hasNonProjectContainers"
+                      :class="[
+                        'px-1.5 py-0.5 text-xs font-medium rounded',
+                        container.is_project
+                          ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400'
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                      ]"
+                    >
+                      {{ container.is_project ? 'N8N' : 'External' }}
+                    </span>
                   </div>
                   <p class="text-sm text-muted mt-0.5 font-mono">{{ container.image }}</p>
                 </div>

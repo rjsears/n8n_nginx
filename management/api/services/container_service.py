@@ -102,14 +102,11 @@ class ContainerService:
             return None
 
     async def list_containers(self, all: bool = True) -> List[Dict[str, Any]]:
-        """List all project containers."""
+        """List all containers on the system with is_project flag."""
         containers = await asyncio.to_thread(self.client.containers.list, all=all)
 
         result = []
         for c in containers:
-            if not self._is_project_container(c.name):
-                continue
-
             health = "none"
             if c.attrs.get("State", {}).get("Health"):
                 health = c.attrs["State"]["Health"].get("Status", "none")
@@ -126,19 +123,18 @@ class ContainerService:
                 "created": c.attrs.get("Created"),
                 "started_at": started_at,
                 "uptime": uptime,
+                "is_project": self._is_project_container(c.name),
             })
 
-        # Update cache if db available
+        # Update cache if db available (only project containers)
         if self.db:
-            await self._update_cache(result)
+            project_containers = [c for c in result if c["is_project"]]
+            await self._update_cache(project_containers)
 
         return result
 
     async def get_container(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get container details."""
-        if not self._is_project_container(name):
-            return None
-
+        """Get container details for any container."""
         try:
             container = await asyncio.to_thread(self.client.containers.get, name)
 
@@ -158,20 +154,18 @@ class ContainerService:
                 "labels": container.labels,
                 "environment": [e for e in container.attrs.get("Config", {}).get("Env", [])
                                if not any(s in e for s in ["PASSWORD", "SECRET", "KEY", "TOKEN"])],
+                "is_project": self._is_project_container(container.name),
             }
         except Exception as e:
             logger.error(f"Failed to get container {name}: {e}")
             return None
 
     async def get_stats(self) -> List[Dict[str, Any]]:
-        """Get resource usage stats for all containers."""
+        """Get resource usage stats for all running containers."""
         containers = await asyncio.to_thread(self.client.containers.list)
 
         stats = []
         for c in containers:
-            if not self._is_project_container(c.name):
-                continue
-
             try:
                 s = await asyncio.to_thread(c.stats, stream=False)
 
@@ -204,6 +198,7 @@ class ContainerService:
                     "memory_percent": round((memory_usage / memory_limit) * 100, 2) if memory_limit else 0,
                     "network_rx": network_rx,
                     "network_tx": network_tx,
+                    "is_project": self._is_project_container(c.name),
                 })
             except Exception as e:
                 logger.warning(f"Failed to get stats for {c.name}: {e}")
@@ -212,14 +207,13 @@ class ContainerService:
 
     async def start_container(self, name: str) -> bool:
         """Start a container."""
-        if not self._is_project_container(name):
-            raise ValueError("Can only manage project containers")
-
         try:
             container = await asyncio.to_thread(self.client.containers.get, name)
             await asyncio.to_thread(container.start)
 
-            await dispatch_notification("container.started", {"container": name})
+            # Only send notifications for project containers
+            if self._is_project_container(name):
+                await dispatch_notification("container.started", {"container": name})
             logger.info(f"Started container: {name}")
             return True
         except Exception as e:
@@ -228,14 +222,13 @@ class ContainerService:
 
     async def stop_container(self, name: str, timeout: int = 30) -> bool:
         """Stop a container."""
-        if not self._is_project_container(name):
-            raise ValueError("Can only manage project containers")
-
         try:
             container = await asyncio.to_thread(self.client.containers.get, name)
             await asyncio.to_thread(container.stop, timeout=timeout)
 
-            await dispatch_notification("container.stopped", {"container": name})
+            # Only send notifications for project containers
+            if self._is_project_container(name):
+                await dispatch_notification("container.stopped", {"container": name})
             logger.info(f"Stopped container: {name}")
             return True
         except Exception as e:
@@ -244,14 +237,13 @@ class ContainerService:
 
     async def restart_container(self, name: str, timeout: int = 30) -> bool:
         """Restart a container."""
-        if not self._is_project_container(name):
-            raise ValueError("Can only manage project containers")
-
         try:
             container = await asyncio.to_thread(self.client.containers.get, name)
             await asyncio.to_thread(container.restart, timeout=timeout)
 
-            await dispatch_notification("container.restarted", {"container": name})
+            # Only send notifications for project containers
+            if self._is_project_container(name):
+                await dispatch_notification("container.restarted", {"container": name})
             logger.info(f"Restarted container: {name}")
             return True
         except Exception as e:
@@ -260,9 +252,6 @@ class ContainerService:
 
     async def remove_container(self, name: str, force: bool = False) -> bool:
         """Remove a stopped container."""
-        if not self._is_project_container(name):
-            raise ValueError("Can only manage project containers")
-
         try:
             container = await asyncio.to_thread(self.client.containers.get, name)
 
@@ -272,7 +261,9 @@ class ContainerService:
 
             await asyncio.to_thread(container.remove, force=force)
 
-            await dispatch_notification("container.removed", {"container": name})
+            # Only send notifications for project containers
+            if self._is_project_container(name):
+                await dispatch_notification("container.removed", {"container": name})
             logger.info(f"Removed container: {name}")
             return True
         except Exception as e:
@@ -287,9 +278,6 @@ class ContainerService:
         timestamps: bool = True,
     ) -> str:
         """Get container logs."""
-        if not self._is_project_container(name):
-            raise ValueError("Can only manage project containers")
-
         try:
             container = await asyncio.to_thread(self.client.containers.get, name)
 

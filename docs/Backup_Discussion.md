@@ -1660,6 +1660,47 @@ Created new `SystemMetricsLoader.vue` component with:
 *Added Backup Configuration Page documentation*
 *Added Backup History UI (Collapsible Design) documentation*
 
+### December 19, 2024 - Show ALL Containers with Filter Buttons
+
+**Issue Reported:**
+Dashboard shows 8 stopped containers, Containers tab shows 0 stopped. User wants to see ALL containers on the system, not just n8n_* containers, with the ability to filter.
+
+**Requirements:**
+- Show ALL containers on the system (n8n and non-n8n)
+- Add filter buttons: "N8N Containers", "Non-N8N Containers", "All Containers"
+- Only show filter buttons if there are non-n8n containers on the system
+- Stat boxes (Total, Running, Stopped, Unhealthy) should always show ALL containers
+- Allow management (start/stop/restart/remove/logs) of all containers
+
+**Implementation:**
+
+1. **Backend - container_service.py:**
+   - Updated `list_containers()` to return ALL containers with `is_project` flag
+   - Updated `get_container()` and `get_stats()` to work with all containers
+   - Removed project-container restrictions from start/stop/restart/remove/logs
+   - Notifications still only sent for n8n project containers
+
+2. **Frontend - ContainersView.vue:**
+   - Added `containerTypeFilter` state ('all', 'n8n', 'non-n8n')
+   - Added `hasNonProjectContainers` computed to conditionally show buttons
+   - Added three filter buttons above stats grid (indigo/amber/emerald colors)
+   - Stats always show ALL containers
+   - Container list filters by both type and status
+   - Added N8N/External badge to each container card
+
+3. **Dashboard:**
+   - Scheduler continues to count ALL containers (as designed)
+   - Dashboard and Containers tab now both show all containers
+
+**Files Modified:**
+- `management/api/tasks/scheduler.py` - Reverted to count ALL containers
+- `management/api/services/container_service.py` - Added is_project flag, removed restrictions
+- `management/frontend/src/views/ContainersView.vue` - Added filter buttons and badges
+
+**Status:** ✅ Fixed
+
+---
+
 *Document updated on December 19, 2024*
 *Added Session Updates section for tracking fixes between chat sessions*
 *Added fix for config backup files going to wrong location*
@@ -1669,3 +1710,4 @@ Created new `SystemMetricsLoader.vue` component with:
 *Fixed Containers tab stopped count and added remove container popup*
 *Removed redundant Settings => Backup tab*
 *Added cool animated loading graphic for Dashboard metrics*
+*Added ALL containers view with N8N/Non-N8N/All filter buttons*
