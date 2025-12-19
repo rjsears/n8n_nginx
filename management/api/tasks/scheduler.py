@@ -387,7 +387,7 @@ async def _check_container_health() -> None:
         # Alert for unhealthy containers
         for container in health.get("unhealthy", []):
             await dispatch_notification(
-                "container.unhealthy",
+                "container_unhealthy",
                 {"container": container},
                 severity="critical",
             )
@@ -397,7 +397,7 @@ async def _check_container_health() -> None:
             # Skip optional containers
             if container not in ["n8n_cloudflared", "n8n_tailscale"]:
                 await dispatch_notification(
-                    "container.stopped",
+                    "container_stopped",
                     {"container": container},
                     severity="warning",
                 )

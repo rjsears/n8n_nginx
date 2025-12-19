@@ -213,7 +213,7 @@ class ContainerService:
 
             # Only send notifications for project containers
             if self._is_project_container(name):
-                await dispatch_notification("container.started", {"container": name})
+                await dispatch_notification("container_started", {"container": name})
             logger.info(f"Started container: {name}")
             return True
         except Exception as e:
@@ -228,7 +228,7 @@ class ContainerService:
 
             # Only send notifications for project containers
             if self._is_project_container(name):
-                await dispatch_notification("container.stopped", {"container": name})
+                await dispatch_notification("container_stopped", {"container": name})
             logger.info(f"Stopped container: {name}")
             return True
         except Exception as e:
@@ -243,7 +243,7 @@ class ContainerService:
 
             # Only send notifications for project containers
             if self._is_project_container(name):
-                await dispatch_notification("container.restarted", {"container": name})
+                await dispatch_notification("container_restart", {"container": name})
             logger.info(f"Restarted container: {name}")
             return True
         except Exception as e:
@@ -263,7 +263,7 @@ class ContainerService:
 
             # Only send notifications for project containers
             if self._is_project_container(name):
-                await dispatch_notification("container.removed", {"container": name})
+                await dispatch_notification("container_removed", {"container": name})
             logger.info(f"Removed container: {name}")
             return True
         except Exception as e:

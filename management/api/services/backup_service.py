@@ -186,7 +186,7 @@ class BackupService:
 
         try:
             # Notify start
-            await dispatch_notification("backup.started", {
+            await dispatch_notification("backup_started", {
                 "backup_type": backup_type,
                 "backup_id": history.id,
             })
@@ -248,7 +248,7 @@ class BackupService:
             await self.db.commit()
 
             # Notify success
-            await dispatch_notification("backup.success", {
+            await dispatch_notification("backup_success", {
                 "backup_type": backup_type,
                 "backup_id": history.id,
                 "filename": filename,
@@ -276,7 +276,7 @@ class BackupService:
 
             # Notify failure
             try:
-                await dispatch_notification("backup.failed", {
+                await dispatch_notification("backup_failure", {
                     "backup_type": backup_type,
                     "backup_id": history.id,
                     "error": str(e),
@@ -1455,7 +1455,7 @@ exit 0
 
         try:
             # Notify start
-            await dispatch_notification("backup.started", {
+            await dispatch_notification("backup_started", {
                 "backup_type": backup_type,
                 "backup_id": history.id,
             })
@@ -1538,7 +1538,7 @@ exit 0
                 # Don't fail the whole backup - it succeeded, just metadata storage failed
 
             # Notify success
-            await dispatch_notification("backup.success", {
+            await dispatch_notification("backup_success", {
                 "backup_type": backup_type,
                 "backup_id": history.id,
                 "filename": filename,
@@ -1567,7 +1567,7 @@ exit 0
 
             # Notify failure
             try:
-                await dispatch_notification("backup.failed", {
+                await dispatch_notification("backup_failure", {
                     "backup_type": backup_type,
                     "backup_id": history.id,
                     "error": str(e),
