@@ -154,6 +154,174 @@ async def _add_maintenance_jobs() -> None:
     logger.info("Maintenance jobs added")
 
 
+async def schedule_l2_escalation(
+    event_type: str,
+    event_data: dict,
+    event_id: int,
+    target_id: str,
+    timeout_minutes: int,
+) -> None:
+    """
+    Schedule an L2 escalation notification to be sent after a timeout.
+
+    Args:
+        event_type: The notification event type
+        event_data: The original event data
+        event_id: The SystemNotificationEvent ID
+        target_id: Target identifier (e.g., container name)
+        timeout_minutes: Minutes to wait before escalating
+    """
+    from apscheduler.triggers.date import DateTrigger
+    from datetime import timedelta
+
+    if scheduler is None:
+        logger.error("Cannot schedule L2 escalation - scheduler not initialized")
+        return
+
+    run_at = datetime.now(UTC) + timedelta(minutes=timeout_minutes)
+    job_id = f"l2_escalation_{event_type}_{target_id}_{int(datetime.now(UTC).timestamp())}"
+
+    scheduler.add_job(
+        _send_l2_escalation,
+        trigger=DateTrigger(run_date=run_at),
+        id=job_id,
+        name=f"L2 Escalation: {event_type}",
+        kwargs={
+            "event_type": event_type,
+            "event_data": event_data,
+            "event_id": event_id,
+            "target_id": target_id,
+        },
+        replace_existing=False,
+    )
+
+    logger.info(f"Scheduled L2 escalation for '{event_type}' in {timeout_minutes} minutes (job: {job_id})")
+
+
+async def _send_l2_escalation(
+    event_type: str,
+    event_data: dict,
+    event_id: int,
+    target_id: str,
+) -> None:
+    """
+    Send L2 escalation notifications.
+    Called by the scheduler after the escalation timeout.
+    """
+    from api.database import async_session_maker
+    from api.models.system_notifications import (
+        SystemNotificationEvent,
+        SystemNotificationTarget,
+        SystemNotificationState,
+        SystemNotificationHistory,
+    )
+    from api.services.notification_service import NotificationService, _build_notification_message
+    from sqlalchemy import select
+
+    logger.info(f"Executing L2 escalation for '{event_type}' (target: {target_id})")
+
+    async with async_session_maker() as db:
+        # Check if escalation was already sent (e.g., by critical event trigger)
+        state_result = await db.execute(
+            select(SystemNotificationState).where(
+                SystemNotificationState.event_type == event_type,
+                SystemNotificationState.target_id == target_id
+            )
+        )
+        state = state_result.scalar_one_or_none()
+
+        if state and state.escalation_sent:
+            logger.debug(f"L2 escalation already sent for '{event_type}', skipping")
+            return
+
+        # Get the event
+        event_result = await db.execute(
+            select(SystemNotificationEvent).where(SystemNotificationEvent.id == event_id)
+        )
+        event = event_result.scalar_one_or_none()
+
+        if not event:
+            logger.error(f"Event {event_id} not found for L2 escalation")
+            return
+
+        # Get L2 targets
+        targets_result = await db.execute(
+            select(SystemNotificationTarget).where(
+                SystemNotificationTarget.event_id == event_id,
+                SystemNotificationTarget.escalation_level == 2
+            )
+        )
+        l2_targets = targets_result.scalars().all()
+
+        if not l2_targets:
+            logger.debug(f"No L2 targets for event {event_id}")
+            return
+
+        # Build notification
+        title = f"[ESCALATED] {event.display_name}"
+        message = _build_notification_message(event_type, event_data)
+
+        notification_service = NotificationService(db)
+        sent_count = 0
+        channels_sent = []
+
+        for target in l2_targets:
+            try:
+                if target.target_type == "channel" and target.channel_id:
+                    result = await notification_service.send_to_service(
+                        target.channel_id, title, message, "critical"
+                    )
+                    if result.get("success"):
+                        sent_count += 1
+                        channels_sent.append({"type": "channel", "id": target.channel_id, "level": 2})
+                        logger.info(f"L2 escalation sent to channel {target.channel_id}")
+
+                elif target.target_type == "group" and target.group_id:
+                    result = await notification_service.send_to_group(
+                        target.group_id, title, message, "critical"
+                    )
+                    if result.get("success"):
+                        sent_count += result.get("sent_count", 1)
+                        channels_sent.append({"type": "group", "id": target.group_id, "level": 2})
+                        logger.info(f"L2 escalation sent to group {target.group_id}")
+
+            except Exception as e:
+                logger.error(f"Failed to send L2 escalation to target {target.id}: {e}")
+
+        # Update state
+        if state:
+            state.escalation_sent = True
+            state.escalation_triggered_at = datetime.now(UTC)
+        else:
+            state = SystemNotificationState(
+                event_type=event_type,
+                target_id=target_id,
+                escalation_sent=True,
+                escalation_triggered_at=datetime.now(UTC),
+            )
+            db.add(state)
+
+        # Log to history
+        now = datetime.now(UTC)
+        history = SystemNotificationHistory(
+            event_type=event_type,
+            event_id=event_id,
+            target_id=target_id,
+            target_label=f"L2 Escalation: {event_data.get('container', event_type)}",
+            severity="critical",
+            event_data=event_data,
+            channels_sent=channels_sent,
+            escalation_level=2,
+            status="sent" if sent_count > 0 else "failed",
+            triggered_at=now,
+            sent_at=now if sent_count > 0 else None,
+        )
+        db.add(history)
+
+        await db.commit()
+        logger.info(f"L2 escalation completed for '{event_type}' - sent to {sent_count} channel(s)")
+
+
 async def _sync_backup_schedules() -> None:
     """Sync backup schedules from database to APScheduler."""
     from api.database import async_session_maker
