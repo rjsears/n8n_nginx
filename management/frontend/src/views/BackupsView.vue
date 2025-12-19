@@ -562,7 +562,7 @@ async function restoreWorkflowToN8n(backup, workflow) {
       workflow_id: workflow.id,
       rename_format: '{name}_backup_{date}',
     })
-    if (response.data.success) {
+    if (response.data.status === 'success') {
       notificationStore.success(`Restored workflow: ${response.data.new_name}`)
     } else {
       notificationStore.error(response.data.error || 'Failed to restore workflow')
