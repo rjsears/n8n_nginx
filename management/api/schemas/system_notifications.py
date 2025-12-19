@@ -113,8 +113,14 @@ class EventResponse(BaseModel):
 
 # Container config schemas
 class ContainerConfigBase(BaseModel):
+    enabled: Optional[bool] = True
     monitor_unhealthy: Optional[bool] = True
     monitor_restart: Optional[bool] = True
+    monitor_stopped: Optional[bool] = True
+    monitor_high_cpu: Optional[bool] = False
+    cpu_threshold: Optional[int] = Field(default=80, ge=1, le=100)
+    monitor_high_memory: Optional[bool] = False
+    memory_threshold: Optional[int] = Field(default=80, ge=1, le=100)
     custom_targets: Optional[List[Dict[str, Any]]] = None
 
 
@@ -129,8 +135,14 @@ class ContainerConfigUpdate(ContainerConfigBase):
 class ContainerConfigResponse(BaseModel):
     id: int
     container_name: str
+    enabled: bool
     monitor_unhealthy: bool
     monitor_restart: bool
+    monitor_stopped: bool
+    monitor_high_cpu: bool
+    cpu_threshold: int
+    monitor_high_memory: bool
+    memory_threshold: int
     custom_targets: Optional[List[Dict[str, Any]]] = None
     created_at: datetime
     updated_at: datetime

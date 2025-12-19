@@ -142,6 +142,15 @@ async def _add_maintenance_jobs() -> None:
         replace_existing=True,
     )
 
+    # Orphaned alpine container cleanup - run every 10 minutes
+    scheduler.add_job(
+        _cleanup_orphaned_alpine_containers,
+        CronTrigger(minute="*/10"),
+        id="maintenance_alpine_cleanup",
+        name="Orphaned Alpine Container Cleanup",
+        replace_existing=True,
+    )
+
     logger.info("Maintenance jobs added")
 
 
@@ -485,6 +494,100 @@ async def _cleanup_notification_history() -> None:
             logger.info(f"Cleaned up {result.rowcount} old notification records")
 
 
+def _run_alpine_container(docker_client, command: list, **kwargs) -> bytes:
+    """
+    Run an alpine container with guaranteed cleanup.
+
+    Uses detach mode with manual cleanup to ensure containers don't get orphaned
+    even if remove=True fails due to exceptions or timeouts.
+    """
+    container = None
+    try:
+        # Don't use remove=True - we'll handle cleanup manually
+        kwargs.pop("remove", None)
+
+        container = docker_client.containers.run(
+            "alpine:latest",
+            command=command,
+            detach=True,
+            **kwargs
+        )
+
+        # Wait for container to complete (timeout after 30 seconds)
+        result = container.wait(timeout=30)
+
+        # Get logs before removing
+        output = container.logs(stdout=True, stderr=False)
+
+        return output
+
+    except Exception as e:
+        logger.debug(f"Alpine container error: {e}")
+        raise
+
+    finally:
+        # Always try to clean up the container
+        if container:
+            try:
+                container.remove(force=True)
+            except Exception as cleanup_err:
+                logger.debug(f"Failed to remove container {container.short_id}: {cleanup_err}")
+
+
+async def _cleanup_orphaned_alpine_containers() -> None:
+    """
+    Clean up any orphaned alpine containers that weren't properly removed.
+    This runs periodically to catch any containers that slipped through.
+    """
+    import docker
+
+    try:
+        client = docker.from_env()
+
+        # Find exited alpine containers
+        containers = client.containers.list(
+            all=True,
+            filters={
+                "status": "exited",
+                "ancestor": "alpine:latest"
+            }
+        )
+
+        removed_count = 0
+        for container in containers:
+            try:
+                # Check if it's been exited for more than 5 minutes
+                # to avoid removing containers that are just finishing up
+                attrs = container.attrs
+                finished_at = attrs.get("State", {}).get("FinishedAt", "")
+                if finished_at and "0001-01-01" not in finished_at:
+                    from datetime import datetime, timezone
+                    import re
+                    # Parse Docker timestamp (e.g., "2024-01-15T10:30:00.123456789Z")
+                    # Truncate nanoseconds to microseconds
+                    finished_at_clean = re.sub(r'\.(\d{6})\d*Z', r'.\1Z', finished_at)
+                    try:
+                        finished_time = datetime.fromisoformat(finished_at_clean.replace("Z", "+00:00"))
+                        age_seconds = (datetime.now(timezone.utc) - finished_time).total_seconds()
+
+                        if age_seconds > 300:  # 5 minutes
+                            container.remove(force=True)
+                            removed_count += 1
+                            logger.debug(f"Cleaned up orphaned alpine container: {container.short_id}")
+                    except ValueError:
+                        # If we can't parse the timestamp, remove it anyway if it's exited
+                        container.remove(force=True)
+                        removed_count += 1
+            except Exception as e:
+                logger.debug(f"Failed to clean up container {container.short_id}: {e}")
+
+        if removed_count > 0:
+            logger.info(f"Cleaned up {removed_count} orphaned alpine container(s)")
+
+    except Exception as e:
+        logger.debug(f"Error during alpine container cleanup: {e}")
+
+
 async def _collect_host_metrics() -> None:
     """
     Collect system metrics directly using psutil and Docker API.
@@ -514,8 +617,8 @@ async def _collect_host_metrics() -> None:
         try:
             # Method 1: Calculate PID 1 start time from /proc/1/stat and /proc/stat
             # This works in LXC because it measures when the LXC's init process started
-            result = docker_client.containers.run(
-                "alpine:latest",
+            result = _run_alpine_container(
+                docker_client,
                 command=["sh", "-c", """
                     # Get boot time (btime) from /proc/stat
                     btime=$(grep -m1 '^btime ' /proc/stat | awk '{print $2}')
@@ -527,9 +630,6 @@ async def _collect_host_metrics() -> None:
                     echo $(( btime + starttime / clk_tck ))
                 """],
                 pid_mode="host",
-                remove=True,
-                stdout=True,
-                stderr=False,
             )
             pid1_start_epoch = int(result.decode("utf-8").strip())
             import time
@@ -540,13 +640,10 @@ async def _collect_host_metrics() -> None:
         # Fallback: try to get uptime from systemd if available
         if uptime_seconds <= 0 or uptime_seconds > 86400 * 365:  # Sanity check: > 1 year is suspicious
             try:
-                result = docker_client.containers.run(
-                    "alpine:latest",
+                result = _run_alpine_container(
+                    docker_client,
                     command=["cat", "/proc/1/stat"],
                     pid_mode="host",
-                    remove=True,
-                    stdout=True,
-                    stderr=False,
                 )
                 # Parse field 22 (starttime) - if we can at least get relative time
                 stat_parts = result.decode("utf-8").strip().split()
@@ -632,13 +729,10 @@ async def _collect_host_metrics() -> None:
         try:
             # Get host network stats by running alpine with host network namespace
             # This gives us the actual Docker host's network I/O, not the container's
-            result = docker_client.containers.run(
-                "alpine:latest",
+            result = _run_alpine_container(
+                docker_client,
                 command=["cat", "/proc/net/dev"],
                 network_mode="host",
-                remove=True,
-                stdout=True,
-                stderr=False,
             )
             net_dev = result.decode("utf-8")
             # Parse /proc/net/dev - format:

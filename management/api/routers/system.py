@@ -1556,8 +1556,23 @@ async def get_full_health_check(
         ssl_certs = []
 
         if quick:
-            ssl_details["message"] = "Skipped in quick mode"
+            # Quick mode: just check if SSL is configured without full cert details
+            ssl_details["message"] = "Skipped detailed check in quick mode"
             ssl_status = "skipped"
+            try:
+                if nginx_container:
+                    # Quick check for Let's Encrypt certificates
+                    exit_code, output = nginx_container.exec_run(
+                        "test -d /etc/letsencrypt/live && ls /etc/letsencrypt/live 2>/dev/null | head -1",
+                        demux=True
+                    )
+                    if exit_code == 0 and output[0]:
+                        domain = output[0].decode("utf-8").strip()
+                        if domain and domain != "README":
+                            health_data["ssl_configured"] = True
+                            ssl_details["domain"] = domain
+            except Exception:
+                pass  # ssl_configured stays False
         else:
             try:
                 if nginx_container:

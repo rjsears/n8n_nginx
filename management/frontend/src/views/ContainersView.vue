@@ -49,12 +49,12 @@ const notifyDialog = ref({
   saving: false,
   config: {
     enabled: true,
-    notify_on_stop: true,
-    notify_on_unhealthy: true,
-    notify_on_restart: true,
-    notify_on_high_cpu: false,
+    monitor_stopped: true,
+    monitor_unhealthy: true,
+    monitor_restart: true,
+    monitor_high_cpu: false,
     cpu_threshold: 80,
-    notify_on_high_memory: false,
+    monitor_high_memory: false,
     memory_threshold: 80,
   }
 })
@@ -308,12 +308,12 @@ async function openNotifySettings(container) {
     saving: false,
     config: {
       enabled: true,
-      notify_on_stop: true,
-      notify_on_unhealthy: true,
-      notify_on_restart: true,
-      notify_on_high_cpu: false,
+      monitor_stopped: true,
+      monitor_unhealthy: true,
+      monitor_restart: true,
+      monitor_high_cpu: false,
       cpu_threshold: 80,
-      notify_on_high_memory: false,
+      monitor_high_memory: false,
       memory_threshold: 80,
     }
   }
@@ -324,12 +324,12 @@ async function openNotifySettings(container) {
     if (response.data) {
       notifyDialog.value.config = {
         enabled: response.data.enabled ?? true,
-        notify_on_stop: response.data.notify_on_stop ?? true,
-        notify_on_unhealthy: response.data.notify_on_unhealthy ?? true,
-        notify_on_restart: response.data.notify_on_restart ?? true,
-        notify_on_high_cpu: response.data.notify_on_high_cpu ?? false,
+        monitor_stopped: response.data.monitor_stopped ?? true,
+        monitor_unhealthy: response.data.monitor_unhealthy ?? true,
+        monitor_restart: response.data.monitor_restart ?? true,
+        monitor_high_cpu: response.data.monitor_high_cpu ?? false,
         cpu_threshold: response.data.cpu_threshold ?? 80,
-        notify_on_high_memory: response.data.notify_on_high_memory ?? false,
+        monitor_high_memory: response.data.monitor_high_memory ?? false,
         memory_threshold: response.data.memory_threshold ?? 80,
       }
     }
@@ -938,7 +938,7 @@ onUnmounted(() => {
                   <h4 class="font-medium text-gray-900 dark:text-white text-sm">Status Events</h4>
 
                   <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-                    <input type="checkbox" v-model="notifyDialog.config.notify_on_stop" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                    <input type="checkbox" v-model="notifyDialog.config.monitor_stopped" class="form-checkbox h-4 w-4 text-blue-600 rounded">
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Container Stopped</p>
                       <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container stops unexpectedly</p>
@@ -946,7 +946,7 @@ onUnmounted(() => {
                   </label>
 
                   <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-                    <input type="checkbox" v-model="notifyDialog.config.notify_on_unhealthy" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                    <input type="checkbox" v-model="notifyDialog.config.monitor_unhealthy" class="form-checkbox h-4 w-4 text-blue-600 rounded">
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Health Check Failed</p>
                       <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container becomes unhealthy</p>
@@ -954,7 +954,7 @@ onUnmounted(() => {
                   </label>
 
                   <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-                    <input type="checkbox" v-model="notifyDialog.config.notify_on_restart" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                    <input type="checkbox" v-model="notifyDialog.config.monitor_restart" class="form-checkbox h-4 w-4 text-blue-600 rounded">
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Container Restarted</p>
                       <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container restarts automatically</p>
@@ -968,13 +968,13 @@ onUnmounted(() => {
 
                   <div class="p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <label class="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" v-model="notifyDialog.config.notify_on_high_cpu" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                      <input type="checkbox" v-model="notifyDialog.config.monitor_high_cpu" class="form-checkbox h-4 w-4 text-blue-600 rounded">
                       <div class="flex-1">
                         <p class="text-sm font-medium text-gray-900 dark:text-white">High CPU Usage</p>
                         <p class="text-xs text-gray-500 dark:text-gray-400">Alert when CPU exceeds threshold</p>
                       </div>
                     </label>
-                    <div v-if="notifyDialog.config.notify_on_high_cpu" class="mt-3 ml-7">
+                    <div v-if="notifyDialog.config.monitor_high_cpu" class="mt-3 ml-7">
                       <div class="flex items-center gap-2">
                         <input
                           type="range"
@@ -993,13 +993,13 @@ onUnmounted(() => {
 
                   <div class="p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <label class="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" v-model="notifyDialog.config.notify_on_high_memory" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                      <input type="checkbox" v-model="notifyDialog.config.monitor_high_memory" class="form-checkbox h-4 w-4 text-blue-600 rounded">
                       <div class="flex-1">
                         <p class="text-sm font-medium text-gray-900 dark:text-white">High Memory Usage</p>
                         <p class="text-xs text-gray-500 dark:text-gray-400">Alert when memory exceeds threshold</p>
                       </div>
                     </label>
-                    <div v-if="notifyDialog.config.notify_on_high_memory" class="mt-3 ml-7">
+                    <div v-if="notifyDialog.config.monitor_high_memory" class="mt-3 ml-7">
                       <div class="flex items-center gap-2">
                         <input
                           type="range"

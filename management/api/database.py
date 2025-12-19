@@ -198,6 +198,13 @@ async def run_schema_migrations() -> None:
         ("notification_services", "slug", "VARCHAR(100)"),
         # system_notification_container_configs.monitor_stopped for container stopped events
         ("system_notification_container_configs", "monitor_stopped", "BOOLEAN DEFAULT TRUE"),
+        # system_notification_container_configs.enabled for master enable/disable
+        ("system_notification_container_configs", "enabled", "BOOLEAN DEFAULT TRUE"),
+        # system_notification_container_configs resource monitoring fields
+        ("system_notification_container_configs", "monitor_high_cpu", "BOOLEAN DEFAULT FALSE"),
+        ("system_notification_container_configs", "cpu_threshold", "INTEGER DEFAULT 80"),
+        ("system_notification_container_configs", "monitor_high_memory", "BOOLEAN DEFAULT FALSE"),
+        ("system_notification_container_configs", "memory_threshold", "INTEGER DEFAULT 80"),
         # system_notification_targets.escalation_timeout_minutes for per-target L2 timeout
         ("system_notification_targets", "escalation_timeout_minutes", "INTEGER"),
         # backup_history protection and pending deletion columns (Phase 7)
