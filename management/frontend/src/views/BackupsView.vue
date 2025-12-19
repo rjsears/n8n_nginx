@@ -194,6 +194,16 @@ function formatBytes(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
+function formatScheduleTime(time) {
+  if (!time) return '00:00'
+  const [h, m] = time.split(':')
+  const hour = parseInt(h, 10)
+  const minute = m || '00'
+  const period = hour >= 12 ? 'PM' : 'AM'
+  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+  return `${displayHour}:${minute} ${period}`
+}
+
 function toggleSection(section) {
   sections.value[section] = !sections.value[section]
 }
@@ -761,7 +771,40 @@ onUnmounted(stopPolling)
       </div>
     </div>
 
-    <LoadingSpinner v-if="loading" size="lg" text="Loading backups..." class="py-12" />
+    <!-- Cool Backup Loading Animation -->
+    <div v-if="loading" class="py-16 flex flex-col items-center justify-center">
+      <div class="relative flex items-center gap-8">
+        <!-- Source Database -->
+        <div class="relative">
+          <div class="w-16 h-20 rounded-lg bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/40 dark:to-blue-800/40 border-2 border-blue-300 dark:border-blue-700 flex items-center justify-center shadow-lg">
+            <CircleStackIcon class="h-8 w-8 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div class="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-blue-300 dark:bg-blue-700 rounded-full"></div>
+        </div>
+
+        <!-- Animated Files -->
+        <div class="relative w-24 h-8 overflow-hidden">
+          <div class="backup-file-animation absolute flex items-center gap-1">
+            <DocumentTextIcon class="h-5 w-5 text-emerald-500" />
+            <DocumentTextIcon class="h-4 w-4 text-blue-500" />
+            <DocumentTextIcon class="h-5 w-5 text-purple-500" />
+          </div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <div class="w-full h-0.5 bg-gradient-to-r from-blue-300 via-emerald-300 to-blue-300 dark:from-blue-700 dark:via-emerald-700 dark:to-blue-700 opacity-50"></div>
+          </div>
+        </div>
+
+        <!-- Destination Drive -->
+        <div class="relative">
+          <div class="w-16 h-20 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 dark:from-emerald-900/40 dark:to-emerald-800/40 border-2 border-emerald-300 dark:border-emerald-700 flex items-center justify-center shadow-lg animate-pulse">
+            <ArchiveBoxIcon class="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div class="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-emerald-300 dark:bg-emerald-700 rounded-full"></div>
+        </div>
+      </div>
+      <p class="mt-6 text-sm font-medium text-secondary">Loading backups...</p>
+      <p class="mt-1 text-xs text-muted">Fetching backup history</p>
+    </div>
 
     <template v-else>
       <!-- Stats Grid -->
@@ -923,7 +966,7 @@ onUnmounted(stopPolling)
       </Card>
 
       <!-- Schedule Card (Clickable - navigates to schedule settings) -->
-      <Card :neon="true" :padding="false">
+      <Card v-if="backupConfig" :neon="true" :padding="false">
         <button
           @click="router.push('/backup-settings?tab=schedule')"
           class="w-full p-4 text-left hover:bg-surface-hover transition-colors rounded-lg"
@@ -936,11 +979,11 @@ onUnmounted(stopPolling)
               <div>
                 <h3 class="font-semibold text-primary">Backup Schedule</h3>
                 <p class="text-sm text-secondary">
-                  {{ schedule.frequency }} at {{ schedule.time }} • {{ schedule.retention_days }} day retention
+                  {{ backupConfig.schedule_frequency }} at {{ formatScheduleTime(backupConfig.schedule_time) }} • {{ backupConfig.retention_days }} day retention
                 </p>
               </div>
             </div>
-            <StatusBadge :status="schedule.enabled ? 'enabled' : 'disabled'" />
+            <StatusBadge :status="backupConfig.schedule_enabled ? 'enabled' : 'disabled'" />
           </div>
         </button>
       </Card>
@@ -1627,3 +1670,27 @@ onUnmounted(stopPolling)
     />
   </div>
 </template>
+
+<style scoped>
+/* Backup file animation */
+.backup-file-animation {
+  animation: moveBackupFiles 1.8s ease-in-out infinite;
+}
+
+@keyframes moveBackupFiles {
+  0% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+</style>
