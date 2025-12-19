@@ -65,6 +65,59 @@ const sections = ref({
   notifyChannels: false,
 })
 
+// Time picker state
+const showTimePicker = ref(false)
+const timePickerButton = ref(null)
+const timePickerPosition = ref({ top: 0, left: 0, width: 0 })
+
+function toggleTimePicker() {
+  if (!showTimePicker.value && timePickerButton.value) {
+    const rect = timePickerButton.value.getBoundingClientRect()
+    timePickerPosition.value = {
+      top: rect.bottom + window.scrollY + 4,
+      left: rect.left + window.scrollX,
+      width: rect.width
+    }
+  }
+  showTimePicker.value = !showTimePicker.value
+}
+
+// Computed properties for time picker
+const scheduleHour = computed({
+  get: () => {
+    const [h] = (form.value.schedule_time || '00:00').split(':')
+    return parseInt(h, 10)
+  },
+  set: (val) => {
+    const [, m] = (form.value.schedule_time || '00:00').split(':')
+    form.value.schedule_time = `${String(val).padStart(2, '0')}:${m}`
+  }
+})
+
+const scheduleMinute = computed({
+  get: () => {
+    const [, m] = (form.value.schedule_time || '00:00').split(':')
+    return parseInt(m, 10)
+  },
+  set: (val) => {
+    const [h] = (form.value.schedule_time || '00:00').split(':')
+    form.value.schedule_time = `${h}:${String(val).padStart(2, '0')}`
+  }
+})
+
+const formattedTime = computed(() => {
+  const h = scheduleHour.value
+  const m = scheduleMinute.value
+  const period = h >= 12 ? 'PM' : 'AM'
+  const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${displayHour}:${String(m).padStart(2, '0')} ${period}`
+})
+
+function setTime(hour, minute) {
+  form.value.schedule_time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  showTimePicker.value = false
+}
+
 // Watch for tab query changes
 watch(() => route.query.tab, (newTab) => {
   if (newTab) activeTab.value = newTab
@@ -989,7 +1042,95 @@ onMounted(() => {
 
               <div>
                 <label class="block text-sm font-medium text-primary mb-2">Time</label>
-                <input v-model="form.schedule_time" type="time" class="input-field w-full" />
+                <div class="relative">
+                  <button
+                    ref="timePickerButton"
+                    type="button"
+                    @click="toggleTimePicker"
+                    class="input-field w-full flex items-center justify-between gap-2 cursor-pointer"
+                  >
+                    <div class="flex items-center gap-2">
+                      <ClockIcon class="h-4 w-4 text-emerald-500" />
+                      <span class="font-medium">{{ formattedTime }}</span>
+                    </div>
+                    <ChevronDownIcon :class="['h-4 w-4 text-gray-400 transition-transform', showTimePicker ? 'rotate-180' : '']" />
+                  </button>
+
+                  <!-- Time Picker Dropdown (Teleported to body) -->
+                  <Teleport to="body">
+                    <div
+                      v-if="showTimePicker"
+                      class="fixed inset-0 z-40"
+                      @click="showTimePicker = false"
+                    ></div>
+                    <div
+                      v-if="showTimePicker"
+                      class="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3"
+                      :style="{
+                        top: timePickerPosition.top + 'px',
+                        left: timePickerPosition.left + 'px',
+                        width: timePickerPosition.width + 'px'
+                      }"
+                    >
+                      <div class="flex gap-4">
+                        <!-- Hour Selector -->
+                        <div class="flex-1">
+                          <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 text-center">Hour</p>
+                          <div class="h-40 overflow-y-auto scrollbar-thin">
+                            <div class="space-y-1">
+                              <button
+                                v-for="h in 24"
+                                :key="h - 1"
+                                type="button"
+                                @click="scheduleHour = h - 1"
+                                :class="[
+                                  'w-full py-1.5 px-2 rounded text-sm font-medium transition-colors',
+                                  scheduleHour === h - 1
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100'
+                                ]"
+                              >
+                                {{ h - 1 === 0 ? '12 AM' : h - 1 < 12 ? `${h - 1} AM` : h - 1 === 12 ? '12 PM' : `${h - 1 - 12} PM` }}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Minute Selector -->
+                        <div class="flex-1">
+                          <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 text-center">Minute</p>
+                          <div class="h-40 overflow-y-auto scrollbar-thin">
+                            <div class="space-y-1">
+                              <button
+                                v-for="m in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]"
+                                :key="m"
+                                type="button"
+                                @click="scheduleMinute = m"
+                                :class="[
+                                  'w-full py-1.5 px-2 rounded text-sm font-medium transition-colors',
+                                  scheduleMinute === m
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100'
+                                ]"
+                              >
+                                :{{ String(m).padStart(2, '0') }}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Done Button -->
+                      <button
+                        type="button"
+                        @click="showTimePicker = false"
+                        class="mt-3 w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </Teleport>
+                </div>
               </div>
 
               <div v-if="form.schedule_frequency === 'weekly'">
@@ -1444,5 +1585,27 @@ onMounted(() => {
     transform: translateX(100%);
     opacity: 0;
   }
+}
+
+/* Time picker scrollbar */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 3px;
+}
+.dark .scrollbar-thin {
+  scrollbar-color: #4b5563 transparent;
+}
+.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #4b5563;
 }
 </style>
