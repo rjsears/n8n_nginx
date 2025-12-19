@@ -452,7 +452,7 @@ onUnmounted(() => {
 <template>
   <div class="space-y-6">
     <!-- Page Header -->
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between flex-wrap gap-4">
       <div>
         <h1
           :class="[
@@ -464,58 +464,60 @@ onUnmounted(() => {
         </h1>
         <p class="text-secondary mt-1">Manage Docker containers</p>
       </div>
-      <button
-        @click="loadData"
-        class="btn-secondary flex items-center gap-2"
-      >
-        <ArrowPathIcon class="h-4 w-4" />
-        Refresh
-      </button>
+      <div class="flex items-center gap-3">
+        <!-- Container Type Filter Buttons (only shown if non-n8n containers exist) -->
+        <template v-if="hasNonProjectContainers && !loading">
+          <button
+            @click="containerTypeFilter = 'n8n'"
+            :class="[
+              'px-3 py-1.5 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 text-sm',
+              containerTypeFilter === 'n8n'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
+                : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-400 dark:hover:bg-indigo-500/30'
+            ]"
+          >
+            <Square3Stack3DIcon class="h-4 w-4" />
+            N8N
+          </button>
+          <button
+            @click="containerTypeFilter = 'non-n8n'"
+            :class="[
+              'px-3 py-1.5 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 text-sm',
+              containerTypeFilter === 'non-n8n'
+                ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/25'
+                : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/30'
+            ]"
+          >
+            <ServerIcon class="h-4 w-4" />
+            Non-N8N
+          </button>
+          <button
+            @click="containerTypeFilter = 'all'"
+            :class="[
+              'px-3 py-1.5 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 text-sm',
+              containerTypeFilter === 'all'
+                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/25'
+                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-400 dark:hover:bg-emerald-500/30'
+            ]"
+          >
+            <CheckCircleIcon class="h-4 w-4" />
+            All
+          </button>
+          <div class="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
+        </template>
+        <button
+          @click="loadData"
+          class="btn-secondary flex items-center gap-2"
+        >
+          <ArrowPathIcon class="h-4 w-4" />
+          Refresh
+        </button>
+      </div>
     </div>
 
     <ContainerStackLoader v-if="loading" :text="containerLoadingMessages[containerLoadingMessageIndex]" class="py-16 mt-8" />
 
     <template v-else>
-      <!-- Container Type Filter Buttons (only shown if non-n8n containers exist) -->
-      <div v-if="hasNonProjectContainers" class="flex items-center gap-3">
-        <button
-          @click="containerTypeFilter = 'n8n'"
-          :class="[
-            'px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2',
-            containerTypeFilter === 'n8n'
-              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
-              : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-400 dark:hover:bg-indigo-500/30'
-          ]"
-        >
-          <Square3Stack3DIcon class="h-4 w-4" />
-          N8N Containers
-        </button>
-        <button
-          @click="containerTypeFilter = 'non-n8n'"
-          :class="[
-            'px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2',
-            containerTypeFilter === 'non-n8n'
-              ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/25'
-              : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/30'
-          ]"
-        >
-          <ServerIcon class="h-4 w-4" />
-          Non-N8N Containers
-        </button>
-        <button
-          @click="containerTypeFilter = 'all'"
-          :class="[
-            'px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2',
-            containerTypeFilter === 'all'
-              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/25'
-              : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-400 dark:hover:bg-emerald-500/30'
-          ]"
-        >
-          <CheckCircleIcon class="h-4 w-4" />
-          All Containers
-        </button>
-      </div>
-
       <!-- Stats Grid -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card :neon="true" :padding="false">
