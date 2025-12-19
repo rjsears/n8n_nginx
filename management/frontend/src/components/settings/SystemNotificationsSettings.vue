@@ -792,7 +792,28 @@ onMounted(() => {
       </button>
     </div>
 
-    <LoadingSpinner v-if="loading" size="lg" text="Loading notification settings..." class="py-12" />
+    <!-- Skeleton Loader for Events Section -->
+    <div v-if="loading" class="space-y-4">
+      <!-- Skeleton for Category Cards -->
+      <div v-for="i in 4" :key="i" class="rounded-2xl shadow-lg overflow-hidden bg-white dark:bg-gray-800">
+        <!-- Skeleton Header -->
+        <div class="flex items-center justify-between p-5 bg-gray-50 dark:bg-gray-800/50">
+          <div class="flex items-center gap-4">
+            <div class="p-3 rounded-xl bg-gray-200 dark:bg-gray-700 animate-pulse">
+              <div class="h-6 w-6"></div>
+            </div>
+            <div class="space-y-2">
+              <div class="h-5 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+              <div class="h-3 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="h-6 w-16 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse"></div>
+            <div class="h-5 w-5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <template v-else>
       <!-- Events Section -->
