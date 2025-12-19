@@ -140,6 +140,7 @@ const tabs = [
   { id: 'schedule', name: 'Schedule', icon: ClockIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
   { id: 'retention', name: 'Retention', icon: TrashIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
   { id: 'compression', name: 'Compression', icon: ServerIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
+  { id: 'notifications', name: 'Notifications', icon: BellIcon, iconColor: 'text-pink-500', bgActive: 'bg-pink-500/15 dark:bg-pink-500/20', textActive: 'text-pink-700 dark:text-pink-400', borderActive: 'border-pink-500/30' },
 ]
 
 const compressionLevelMax = computed(() => {
@@ -1323,25 +1324,27 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Notifications Link Card (at bottom of compression tab) -->
-      <div v-if="activeTab === 'compression'" class="mt-4">
-        <button
-          @click="router.push('/notifications?tab=backup')"
-          class="w-full p-4 rounded-xl bg-gradient-to-r from-pink-50 to-rose-50 dark:from-pink-900/20 dark:to-rose-900/20 border border-pink-200 dark:border-pink-800 hover:border-pink-300 dark:hover:border-pink-700 transition-all text-left"
-        >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-pink-100 dark:bg-pink-900/40">
-                <BellIcon class="h-5 w-5 text-pink-600 dark:text-pink-400" />
-              </div>
-              <div>
-                <h3 class="font-semibold text-pink-800 dark:text-pink-300">Backup Notifications</h3>
-                <p class="text-sm text-pink-700 dark:text-pink-400">Configure backup event notifications in System Notifications</p>
-              </div>
+      <!-- Notifications Tab -->
+      <div v-if="activeTab === 'notifications'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+          <div class="text-center py-8">
+            <div class="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-pink-100 to-rose-100 dark:from-pink-900/30 dark:to-rose-900/30 flex items-center justify-center mb-4">
+              <BellIcon class="h-8 w-8 text-pink-600 dark:text-pink-400" />
             </div>
-            <ArrowRightIcon class="h-5 w-5 text-pink-500" />
+            <h3 class="text-lg font-semibold text-primary mb-2">Backup Notifications</h3>
+            <p class="text-secondary mb-6 max-w-md mx-auto">
+              Configure when and how you receive notifications about backup events like successful completions or failures.
+            </p>
+            <button
+              @click="router.push('/settings?tab=notifications&section=backup')"
+              class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white rounded-lg font-medium transition-all shadow-lg shadow-pink-500/25"
+            >
+              <Cog6ToothIcon class="h-5 w-5" />
+              Open System Notifications
+              <ArrowRightIcon class="h-4 w-4" />
+            </button>
           </div>
-        </button>
+        </div>
       </div>
     </template>
   </div>

@@ -46,8 +46,9 @@ async def init_scheduler() -> None:
         jobstores=jobstores,
         executors=executors,
         job_defaults=job_defaults,
-        timezone="UTC",
+        timezone=settings.timezone,
     )
+    logger.info(f"Scheduler configured with timezone: {settings.timezone}")
 
     # Add built-in maintenance jobs
     await _add_maintenance_jobs()
@@ -185,6 +186,7 @@ async def _sync_backup_schedules() -> None:
                         day_of_week=config.schedule_day_of_week,
                         day_of_month=config.schedule_day_of_month,
                         compression=config.compression_algorithm or "gzip",
+                        timezone=settings.timezone,
                     )
                     db.add(schedule)
                     await db.commit()
@@ -209,8 +211,8 @@ async def add_backup_job(schedule) -> None:
 
     job_id = f"backup_{schedule.id}"
 
-    # Use schedule's timezone (default to UTC if not set)
-    schedule_tz = schedule.timezone or "UTC"
+    # Use schedule's timezone (default to system timezone if not set)
+    schedule_tz = schedule.timezone or settings.timezone
 
     # Build trigger based on frequency
     if schedule.frequency == "hourly":

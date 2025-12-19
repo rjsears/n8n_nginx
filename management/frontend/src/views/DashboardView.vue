@@ -15,9 +15,7 @@ import {
   ExclamationTriangleIcon,
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
-  CalendarIcon,
 } from '@heroicons/vue/24/outline'
-import { useBackupStore } from '@/stores/backups'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -44,14 +42,10 @@ ChartJS.register(
 
 const router = useRouter()
 const themeStore = useThemeStore()
-const backupStore = useBackupStore()
 
 const loading = ref(true)
 const error = ref(null)
 const metricsAvailable = ref(false)
-
-// Backup schedule data
-const schedule = ref(null)
 
 // Metrics data from the cached SQL endpoint
 const metricsData = ref(null)
@@ -112,15 +106,6 @@ async function fetchMetrics() {
 async function loadData() {
   loading.value = true
   await fetchMetrics()
-  // Fetch backup schedule
-  try {
-    await backupStore.fetchSchedules()
-    if (backupStore.schedules.length > 0) {
-      schedule.value = backupStore.schedules[0]
-    }
-  } catch (err) {
-    console.error('Failed to fetch backup schedules:', err)
-  }
   loading.value = false
 }
 
@@ -238,12 +223,12 @@ const networkRxChartData = computed(() => {
     }
   }
 
-  // Convert to MB/s for display (matches the current rate display)
+  // Convert to KB/s for display (better visibility for small values)
   return {
     labels: hist.map(h => h.time),
     datasets: [{
-      label: 'Download (MB/s)',
-      data: hist.map(h => ((h.network_rx_rate || 0) / (1024 * 1024)).toFixed(2)),
+      label: 'Download (KB/s)',
+      data: hist.map(h => ((h.network_rx_rate || 0) / 1024).toFixed(1)),
       borderColor: 'rgb(20, 184, 166)',
       backgroundColor: 'rgba(20, 184, 166, 0.1)',
       fill: true,
@@ -254,7 +239,7 @@ const networkRxChartData = computed(() => {
   }
 })
 
-// Network TX chart data (teal) - showing rate in MB/s
+// Network TX chart data (teal) - showing rate in KB/s
 const networkTxChartData = computed(() => {
   const hist = history.value
   if (!hist.length) {
@@ -273,12 +258,12 @@ const networkTxChartData = computed(() => {
     }
   }
 
-  // Convert to MB/s for display (matches the current rate display)
+  // Convert to KB/s for display (better visibility for small values)
   return {
     labels: hist.map(h => h.time),
     datasets: [{
-      label: 'Upload (MB/s)',
-      data: hist.map(h => ((h.network_tx_rate || 0) / (1024 * 1024)).toFixed(2)),
+      label: 'Upload (KB/s)',
+      data: hist.map(h => ((h.network_tx_rate || 0) / 1024).toFixed(1)),
       borderColor: 'rgb(20, 184, 166)',
       backgroundColor: 'rgba(20, 184, 166, 0.1)',
       fill: true,
@@ -331,7 +316,7 @@ const networkChartOptions = computed(() => ({
       grid: { color: themeStore.colorMode === 'dark' ? 'rgba(75, 85, 99, 0.3)' : 'rgba(107, 114, 128, 0.1)' },
       ticks: {
         color: themeStore.colorMode === 'dark' ? '#9ca3af' : '#6b7280',
-        callback: (value) => value + ' MB/s',
+        callback: (value) => value + ' KB/s',
       },
       min: 0,
     },
@@ -457,37 +442,6 @@ const networkChartOptions = computed(() => ({
           </div>
         </Card>
       </div>
-
-      <!-- Backup Schedule Card (Clickable - navigates to schedule settings) -->
-      <Card v-if="schedule" :neon="true" :padding="false" class="mt-4">
-        <button
-          @click="router.push('/backup-settings?tab=schedule')"
-          class="w-full p-4 text-left hover:bg-surface-hover transition-colors rounded-lg"
-        >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <div class="p-2 rounded-lg bg-gradient-to-br from-indigo-100 to-indigo-100 dark:from-indigo-500/20 dark:to-indigo-500/20">
-                <CalendarIcon class="h-5 w-5 text-indigo-500" />
-              </div>
-              <div>
-                <h3 class="font-semibold text-primary">Backup Schedule</h3>
-                <p class="text-sm text-secondary">
-                  {{ schedule.frequency }} at {{ schedule.time }} • {{ schedule.retention_days }} day retention
-                </p>
-              </div>
-            </div>
-            <span
-              :class="[
-                'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                schedule.enabled ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-400' :
-                'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-400'
-              ]"
-            >
-              {{ schedule.enabled ? 'Enabled' : 'Disabled' }}
-            </span>
-          </div>
-        </button>
-      </Card>
 
       <!-- Charts Row - CPU & Memory -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
