@@ -58,6 +58,7 @@ const activeSection = ref('events') // 'events', 'containers', 'history', 'globa
 const expandedCategories = ref(new Set())
 const expandedEvents = ref(new Set())
 const expandedContainers = ref(new Set())
+const expandedContainerConfigs = ref(new Set())
 const showMaintenanceModal = ref(false)
 const showQuietHoursModal = ref(false)
 const showAddTargetModal = ref(false)
@@ -342,6 +343,61 @@ async function loadContainerConfigs() {
   } catch (error) {
     console.error('Failed to load container configs:', error)
     containerConfigs.value = []
+  }
+}
+
+function toggleContainerConfig(configId) {
+  if (expandedContainerConfigs.value.has(configId)) {
+    expandedContainerConfigs.value.delete(configId)
+  } else {
+    expandedContainerConfigs.value.add(configId)
+  }
+  expandedContainerConfigs.value = new Set(expandedContainerConfigs.value)
+}
+
+function getContainerConfigSummary(config) {
+  const monitors = []
+  if (config.monitor_stopped) monitors.push('Stopped')
+  if (config.monitor_unhealthy) monitors.push('Unhealthy')
+  if (config.monitor_restart) monitors.push('Restarts')
+  if (config.monitor_high_cpu) monitors.push(`CPU >${config.cpu_threshold}%`)
+  if (config.monitor_high_memory) monitors.push(`Memory >${config.memory_threshold}%`)
+
+  if (monitors.length === 0) return 'No events monitored'
+  return monitors.join(' • ')
+}
+
+async function updateContainerConfig(config, updates) {
+  try {
+    const response = await api.put(`/system-notifications/container-configs/${config.container_name}`, {
+      ...config,
+      ...updates
+    })
+    // Update local state
+    const index = containerConfigs.value.findIndex(c => c.id === config.id)
+    if (index !== -1) {
+      containerConfigs.value[index] = response.data
+    }
+    notificationStore.success('Container config updated')
+  } catch (error) {
+    console.error('Failed to update container config:', error)
+    notificationStore.error('Failed to update config')
+  }
+}
+
+async function deleteContainerConfig(config) {
+  if (!confirm(`Remove custom notification settings for ${config.container_name}? This will revert to default settings.`)) {
+    return
+  }
+
+  try {
+    await api.delete(`/system-notifications/container-configs/${config.container_name}`)
+    containerConfigs.value = containerConfigs.value.filter(c => c.id !== config.id)
+    expandedContainerConfigs.value.delete(config.id)
+    notificationStore.success('Container config removed')
+  } catch (error) {
+    console.error('Failed to delete container config:', error)
+    notificationStore.error('Failed to remove config')
   }
 }
 
@@ -1433,50 +1489,250 @@ onMounted(() => {
 
       <!-- Container Config Section -->
       <div v-if="activeSection === 'containers'" class="space-y-4">
-        <div class="p-4 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+        <!-- Info Banner -->
+        <div class="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border border-blue-200 dark:border-blue-500/30">
           <div class="flex gap-3">
-            <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0" />
-            <div class="text-sm text-blue-700 dark:text-blue-400">
-              <p class="font-medium">Per-Container Configuration</p>
-              <p class="mt-1">Configure which containers should be monitored and optionally override their notification targets. Containers without custom configuration will use the default event targets.</p>
+            <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
+              <CubeIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div class="text-sm">
+              <p class="font-semibold text-blue-800 dark:text-blue-300">Per-Container Notification Settings</p>
+              <p class="mt-1 text-blue-700 dark:text-blue-400">Customize monitoring and alert thresholds for individual containers. Changes here sync with the container's Alerts settings.</p>
             </div>
           </div>
         </div>
 
-        <div v-if="containerConfigs.length === 0" class="text-center py-8 text-secondary">
-          <CubeIcon class="h-12 w-12 mx-auto mb-3 text-gray-300" />
-          <p>No container-specific configurations yet.</p>
-          <p class="text-sm">Container configs will appear here when customized from the Containers view.</p>
+        <!-- Empty State -->
+        <div v-if="containerConfigs.length === 0" class="text-center py-12">
+          <div class="inline-flex p-4 rounded-full bg-gray-100 dark:bg-gray-800 mb-4">
+            <CubeIcon class="h-12 w-12 text-gray-400" />
+          </div>
+          <p class="text-lg font-medium text-primary">No Container Configurations</p>
+          <p class="text-sm text-secondary mt-1 max-w-md mx-auto">
+            Container configs will appear here when you customize notification settings from the Containers view.
+          </p>
+          <router-link to="/containers" class="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors">
+            <CubeIcon class="h-4 w-4" />
+            Go to Containers
+          </router-link>
         </div>
 
-        <div v-else class="space-y-2">
+        <!-- Container Cards -->
+        <div v-else class="space-y-3">
           <div v-for="config in containerConfigs" :key="config.id"
-            class="bg-surface rounded-lg border border-[var(--color-border)] p-4"
+            class="bg-surface rounded-2xl border border-[var(--color-border)] overflow-hidden shadow-sm hover:shadow-md transition-shadow"
           >
-            <div class="flex items-center justify-between">
+            <!-- Card Header - Clickable -->
+            <button
+              @click="toggleContainerConfig(config.id)"
+              class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+            >
+              <div class="flex items-center gap-4">
+                <div :class="[
+                  'p-3 rounded-xl',
+                  config.enabled ? 'bg-blue-100 dark:bg-blue-500/20' : 'bg-gray-100 dark:bg-gray-700'
+                ]">
+                  <CubeIcon :class="[
+                    'h-6 w-6',
+                    config.enabled ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'
+                  ]" />
+                </div>
+                <div class="text-left">
+                  <h3 class="font-semibold text-primary">{{ config.container_name }}</h3>
+                  <p class="text-sm text-secondary">
+                    {{ getContainerConfigSummary(config) }}
+                  </p>
+                </div>
+              </div>
               <div class="flex items-center gap-3">
-                <CubeIcon class="h-5 w-5 text-blue-500" />
-                <span class="font-medium text-primary">{{ config.container_name }}</span>
+                <!-- Status Badge -->
+                <span :class="[
+                  'px-3 py-1 rounded-full text-xs font-semibold',
+                  config.enabled
+                    ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+                    : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                ]">
+                  {{ config.enabled ? 'Monitoring' : 'Disabled' }}
+                </span>
+                <ChevronDownIcon
+                  :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedContainerConfigs.has(config.id) ? 'rotate-180' : '']"
+                />
               </div>
-              <div class="flex items-center gap-4 text-sm">
-                <label class="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    :checked="config.monitor_unhealthy"
-                    class="w-4 h-4 rounded border-gray-400 text-blue-500"
-                  />
-                  <span class="text-secondary">Unhealthy</span>
-                </label>
-                <label class="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    :checked="config.monitor_restart"
-                    class="w-4 h-4 rounded border-gray-400 text-blue-500"
-                  />
-                  <span class="text-secondary">Restarts</span>
-                </label>
+            </button>
+
+            <!-- Expanded Content -->
+            <Transition name="collapse">
+              <div v-if="expandedContainerConfigs.has(config.id)" class="border-t border-[var(--color-border)]">
+                <div class="p-5 bg-gray-50/50 dark:bg-gray-800/30 space-y-6">
+                  <!-- Master Toggle -->
+                  <div class="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-gray-800 border border-[var(--color-border)]">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
+                        <BellIcon class="h-5 w-5 text-green-600 dark:text-green-400" />
+                      </div>
+                      <div>
+                        <p class="font-medium text-primary">Enable Notifications</p>
+                        <p class="text-sm text-secondary">Master switch for all alerts on this container</p>
+                      </div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        :checked="config.enabled"
+                        @change="updateContainerConfig(config, { enabled: $event.target.checked })"
+                        class="sr-only peer"
+                      />
+                      <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-500"></div>
+                    </label>
+                  </div>
+
+                  <!-- Status Events Section -->
+                  <div :class="[!config.enabled && 'opacity-50 pointer-events-none']">
+                    <h4 class="text-sm font-semibold text-primary mb-3 flex items-center gap-2">
+                      <HeartIcon class="h-4 w-4 text-rose-500" />
+                      Status Events
+                    </h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <!-- Stopped -->
+                      <label class="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-800 border border-[var(--color-border)] cursor-pointer hover:border-blue-300 dark:hover:border-blue-500 transition-colors">
+                        <input
+                          type="checkbox"
+                          :checked="config.monitor_stopped"
+                          @change="updateContainerConfig(config, { monitor_stopped: $event.target.checked })"
+                          class="w-4 h-4 rounded border-gray-400 text-blue-500 focus:ring-blue-500"
+                        />
+                        <div>
+                          <p class="text-sm font-medium text-primary">Stopped</p>
+                          <p class="text-xs text-secondary">Container exits</p>
+                        </div>
+                      </label>
+
+                      <!-- Unhealthy -->
+                      <label class="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-800 border border-[var(--color-border)] cursor-pointer hover:border-blue-300 dark:hover:border-blue-500 transition-colors">
+                        <input
+                          type="checkbox"
+                          :checked="config.monitor_unhealthy"
+                          @change="updateContainerConfig(config, { monitor_unhealthy: $event.target.checked })"
+                          class="w-4 h-4 rounded border-gray-400 text-blue-500 focus:ring-blue-500"
+                        />
+                        <div>
+                          <p class="text-sm font-medium text-primary">Unhealthy</p>
+                          <p class="text-xs text-secondary">Health check fails</p>
+                        </div>
+                      </label>
+
+                      <!-- Restart -->
+                      <label class="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-gray-800 border border-[var(--color-border)] cursor-pointer hover:border-blue-300 dark:hover:border-blue-500 transition-colors">
+                        <input
+                          type="checkbox"
+                          :checked="config.monitor_restart"
+                          @change="updateContainerConfig(config, { monitor_restart: $event.target.checked })"
+                          class="w-4 h-4 rounded border-gray-400 text-blue-500 focus:ring-blue-500"
+                        />
+                        <div>
+                          <p class="text-sm font-medium text-primary">Restarts</p>
+                          <p class="text-xs text-secondary">Auto-restarts</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- Resource Thresholds Section -->
+                  <div :class="[!config.enabled && 'opacity-50 pointer-events-none']">
+                    <h4 class="text-sm font-semibold text-primary mb-3 flex items-center gap-2">
+                      <CpuChipIcon class="h-4 w-4 text-purple-500" />
+                      Resource Thresholds
+                    </h4>
+                    <div class="space-y-4">
+                      <!-- CPU Threshold -->
+                      <div class="p-4 rounded-xl bg-white dark:bg-gray-800 border border-[var(--color-border)]">
+                        <div class="flex items-center justify-between mb-3">
+                          <label class="flex items-center gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              :checked="config.monitor_high_cpu"
+                              @change="updateContainerConfig(config, { monitor_high_cpu: $event.target.checked })"
+                              class="w-4 h-4 rounded border-gray-400 text-purple-500 focus:ring-purple-500"
+                            />
+                            <div>
+                              <p class="text-sm font-medium text-primary">High CPU Usage</p>
+                              <p class="text-xs text-secondary">Alert when CPU exceeds threshold</p>
+                            </div>
+                          </label>
+                          <span class="text-lg font-bold text-purple-600 dark:text-purple-400">
+                            {{ config.cpu_threshold }}%
+                          </span>
+                        </div>
+                        <div v-if="config.monitor_high_cpu" class="mt-2">
+                          <input
+                            type="range"
+                            :value="config.cpu_threshold"
+                            @input="updateContainerConfig(config, { cpu_threshold: parseInt($event.target.value) })"
+                            min="50"
+                            max="100"
+                            step="5"
+                            class="w-full h-2 rounded-full appearance-none cursor-pointer bg-gradient-to-r from-green-400 via-yellow-400 to-red-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-purple-400 [&::-webkit-slider-thumb]:cursor-pointer"
+                          />
+                          <div class="flex justify-between text-xs text-secondary mt-1">
+                            <span>50%</span>
+                            <span>75%</span>
+                            <span>100%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Memory Threshold -->
+                      <div class="p-4 rounded-xl bg-white dark:bg-gray-800 border border-[var(--color-border)]">
+                        <div class="flex items-center justify-between mb-3">
+                          <label class="flex items-center gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              :checked="config.monitor_high_memory"
+                              @change="updateContainerConfig(config, { monitor_high_memory: $event.target.checked })"
+                              class="w-4 h-4 rounded border-gray-400 text-amber-500 focus:ring-amber-500"
+                            />
+                            <div>
+                              <p class="text-sm font-medium text-primary">High Memory Usage</p>
+                              <p class="text-xs text-secondary">Alert when memory exceeds threshold</p>
+                            </div>
+                          </label>
+                          <span class="text-lg font-bold text-amber-600 dark:text-amber-400">
+                            {{ config.memory_threshold }}%
+                          </span>
+                        </div>
+                        <div v-if="config.monitor_high_memory" class="mt-2">
+                          <input
+                            type="range"
+                            :value="config.memory_threshold"
+                            @input="updateContainerConfig(config, { memory_threshold: parseInt($event.target.value) })"
+                            min="50"
+                            max="100"
+                            step="5"
+                            class="w-full h-2 rounded-full appearance-none cursor-pointer bg-gradient-to-r from-green-400 via-yellow-400 to-red-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-400 [&::-webkit-slider-thumb]:cursor-pointer"
+                          />
+                          <div class="flex justify-between text-xs text-secondary mt-1">
+                            <span>50%</span>
+                            <span>75%</span>
+                            <span>100%</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Delete Config Button -->
+                  <div class="pt-4 border-t border-[var(--color-border)] flex justify-end">
+                    <button
+                      @click="deleteContainerConfig(config)"
+                      class="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                    >
+                      <TrashIcon class="h-4 w-4" />
+                      Remove Custom Config
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </Transition>
           </div>
         </div>
       </div>
