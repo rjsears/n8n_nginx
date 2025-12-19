@@ -39,7 +39,8 @@ export const useContainerStore = defineStore('containers', () => {
     error.value = null
 
     try {
-      const response = await api.get('/containers/')
+      // Explicitly pass all=true to include stopped containers
+      const response = await api.get('/containers/', { params: { all: true } })
       containers.value = Array.isArray(response.data) ? response.data : []
       lastUpdated.value = new Date()
     } catch (err) {
@@ -92,6 +93,17 @@ export const useContainerStore = defineStore('containers', () => {
     }
   }
 
+  async function removeContainer(name) {
+    try {
+      await api.delete(`/containers/${name}`)
+      await fetchContainers()
+      return true
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to remove container'
+      return false
+    }
+  }
+
   async function getLogs(name, tail = 100) {
     try {
       const response = await api.get(`/containers/${name}/logs`, {
@@ -130,6 +142,7 @@ export const useContainerStore = defineStore('containers', () => {
     startContainer,
     stopContainer,
     restartContainer,
+    removeContainer,
     getLogs,
     getContainerLogs: getLogs,  // Alias for ContainersView compatibility
     getContainerByName,

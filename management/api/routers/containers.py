@@ -164,3 +164,27 @@ async def get_container_logs(
         )
 
 
+@router.delete("/{name}", response_model=SuccessResponse)
+async def remove_container(
+    name: str,
+    force: bool = False,
+    _=Depends(get_current_user),
+):
+    """Remove a stopped container."""
+    service = ContainerService()
+
+    try:
+        await service.remove_container(name, force=force)
+        return SuccessResponse(message=f"Container {name} removed")
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+

@@ -258,6 +258,27 @@ class ContainerService:
             logger.error(f"Failed to restart container {name}: {e}")
             raise
 
+    async def remove_container(self, name: str, force: bool = False) -> bool:
+        """Remove a stopped container."""
+        if not self._is_project_container(name):
+            raise ValueError("Can only manage project containers")
+
+        try:
+            container = await asyncio.to_thread(self.client.containers.get, name)
+
+            # Check if container is running (unless force=True)
+            if container.status == "running" and not force:
+                raise ValueError(f"Container {name} is still running. Stop it first or use force=True")
+
+            await asyncio.to_thread(container.remove, force=force)
+
+            await dispatch_notification("container.removed", {"container": name})
+            logger.info(f"Removed container: {name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to remove container {name}: {e}")
+            raise
+
     async def get_logs(
         self,
         name: str,

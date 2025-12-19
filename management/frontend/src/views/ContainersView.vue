@@ -30,6 +30,7 @@ import {
   HeartIcon,
   BellIcon,
   BellSlashIcon,
+  TrashIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -59,6 +60,10 @@ const notifyDialog = ref({
 })
 const containerConfigs = ref({})  // Cache of container notification configs
 const hasContainerEventTargets = ref(false)  // Track if any container events have targets configured
+
+// Stopped containers popup
+const stoppedContainersDialog = ref({ open: false })
+const removeConfirmDialog = ref({ open: false, container: null, loading: false })
 
 let statsInterval = null
 
@@ -130,6 +135,44 @@ const stats = computed(() => ({
   stopped: containerStore.stoppedCount,
   unhealthy: containerStore.unhealthyCount,
 }))
+
+// Get list of stopped containers
+const stoppedContainers = computed(() => {
+  return containersWithStats.value.filter(c => c.status !== 'running')
+})
+
+// Open stopped containers popup
+function openStoppedContainersDialog() {
+  if (stats.value.stopped > 0) {
+    stoppedContainersDialog.value.open = true
+  }
+}
+
+// Prompt to remove a container
+function promptRemoveContainer(container) {
+  removeConfirmDialog.value = { open: true, container, loading: false }
+}
+
+// Confirm and remove container
+async function confirmRemoveContainer() {
+  const container = removeConfirmDialog.value.container
+  if (!container) return
+
+  removeConfirmDialog.value.loading = true
+  try {
+    await containerStore.removeContainer(container.name)
+    notificationStore.success(`Container ${container.name} removed successfully`)
+    removeConfirmDialog.value.open = false
+    // If no more stopped containers, close the stopped dialog too
+    if (stoppedContainers.value.length <= 1) {
+      stoppedContainersDialog.value.open = false
+    }
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || `Failed to remove ${container.name}`)
+  } finally {
+    removeConfirmDialog.value.loading = false
+  }
+}
 
 function getStatusIcon(container) {
   if (container.health === 'unhealthy') return ExclamationTriangleIcon
@@ -438,7 +481,14 @@ onUnmounted(() => {
         </Card>
 
         <Card :neon="true" :padding="false">
-          <div class="p-4">
+          <button
+            @click="openStoppedContainersDialog"
+            :disabled="stats.stopped === 0"
+            :class="[
+              'w-full p-4 text-left transition-colors rounded-lg',
+              stats.stopped > 0 ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer' : 'cursor-default'
+            ]"
+          >
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-gray-100 dark:bg-gray-500/20">
                 <XCircleIcon class="h-5 w-5 text-gray-500" />
@@ -447,8 +497,11 @@ onUnmounted(() => {
                 <p class="text-sm text-secondary">Stopped</p>
                 <p class="text-xl font-bold text-gray-500">{{ stats.stopped }}</p>
               </div>
+              <div v-if="stats.stopped > 0" class="ml-auto text-xs text-gray-400">
+                Click to manage
+              </div>
             </div>
-          </div>
+          </button>
         </Card>
 
         <Card :neon="true" :padding="false">
@@ -896,6 +949,154 @@ onUnmounted(() => {
                   <span v-else>Save Settings</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Stopped Containers Dialog -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="stoppedContainersDialog.open"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/50" @click="stoppedContainersDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col border border-gray-400 dark:border-gray-700">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-t-lg">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-lg bg-gray-100 dark:bg-gray-700">
+                  <XCircleIcon class="h-5 w-5 text-gray-500" />
+                </div>
+                <div>
+                  <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                    Stopped Containers
+                  </h3>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ stoppedContainers.length }} container{{ stoppedContainers.length !== 1 ? 's' : '' }} stopped
+                  </p>
+                </div>
+              </div>
+              <button
+                @click="stoppedContainersDialog.open = false"
+                class="p-1 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                ×
+              </button>
+            </div>
+
+            <!-- Content -->
+            <div class="flex-1 overflow-auto p-4 bg-white dark:bg-gray-800">
+              <div v-if="stoppedContainers.length === 0" class="text-center py-8 text-gray-500">
+                No stopped containers
+              </div>
+              <div v-else class="space-y-3">
+                <div
+                  v-for="container in stoppedContainers"
+                  :key="container.id"
+                  class="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600"
+                >
+                  <div class="flex items-center gap-3">
+                    <div class="p-2 rounded-lg bg-gray-200 dark:bg-gray-600">
+                      <ServerIcon class="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                    </div>
+                    <div>
+                      <p class="font-medium text-gray-900 dark:text-white">{{ container.name }}</p>
+                      <p class="text-xs text-gray-500 dark:text-gray-400 font-mono">{{ container.image }}</p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      @click="performAction(container, 'start')"
+                      class="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors"
+                      title="Start container"
+                    >
+                      <PlayIcon class="h-5 w-5" />
+                    </button>
+                    <button
+                      @click="promptRemoveContainer(container)"
+                      class="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                      title="Remove container"
+                    >
+                      <TrashIcon class="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-6 py-4 border-t border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-b-lg">
+              <button
+                @click="stoppedContainersDialog.open = false"
+                class="w-full btn-secondary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Remove Container Confirmation Dialog (Skull and Crossbones) -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="removeConfirmDialog.open"
+          class="fixed inset-0 z-[110] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/60" @click="removeConfirmDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border-2 border-red-500 dark:border-red-600">
+            <!-- Header with skull -->
+            <div class="px-6 py-5 bg-red-50 dark:bg-red-900/30 rounded-t-lg border-b border-red-200 dark:border-red-800">
+              <div class="flex items-center justify-center mb-3">
+                <div class="p-4 rounded-full bg-red-100 dark:bg-red-900/50">
+                  <!-- Skull and Crossbones SVG -->
+                  <svg class="h-12 w-12 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm-2 15v-1h4v1h-4zm5.55-5.46l-.55.39V14h-6v-2.07l-.55-.39C7.51 10.85 7 9.47 7 8c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.47-.51 2.85-1.45 3.54zM9 9c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm6 0c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm-7 9h8l-1 3h-6l-1-3z"/>
+                  </svg>
+                </div>
+              </div>
+              <h3 class="text-xl font-bold text-red-700 dark:text-red-400 text-center">
+                Danger Zone
+              </h3>
+              <p class="text-sm text-red-600 dark:text-red-500 text-center mt-1">
+                This action cannot be undone!
+              </p>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 bg-white dark:bg-gray-800">
+              <p class="text-gray-700 dark:text-gray-300 text-center">
+                Are you sure you want to permanently remove the container
+                <span class="font-bold text-gray-900 dark:text-white">{{ removeConfirmDialog.container?.name }}</span>?
+              </p>
+              <p class="text-sm text-gray-500 dark:text-gray-400 text-center mt-2">
+                All container data will be lost forever.
+              </p>
+            </div>
+
+            <!-- Actions -->
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 rounded-b-lg flex gap-3">
+              <button
+                @click="removeConfirmDialog.open = false"
+                :disabled="removeConfirmDialog.loading"
+                class="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="confirmRemoveContainer"
+                :disabled="removeConfirmDialog.loading"
+                class="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <LoadingSpinner v-if="removeConfirmDialog.loading" size="sm" />
+                <TrashIcon v-else class="h-4 w-4" />
+                {{ removeConfirmDialog.loading ? 'Removing...' : 'Remove Forever' }}
+              </button>
             </div>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import SystemMetricsLoader from '@/components/common/SystemMetricsLoader.vue'
 import { systemApi } from '@/services/api'
 import {
   ServerIcon,
@@ -358,7 +359,7 @@ const networkChartOptions = computed(() => ({
       </p>
     </div>
 
-    <LoadingSpinner v-if="loading" size="lg" text="Loading system metrics..." class="py-12" />
+    <SystemMetricsLoader v-if="loading" />
 
     <!-- Error State -->
     <Card v-else-if="error && !metricsAvailable" class="border-red-300 dark:border-red-900">
