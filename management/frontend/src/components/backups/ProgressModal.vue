@@ -182,7 +182,7 @@ const statusColor = computed(() => {
                   <CheckCircleIcon v-if="status === 'success'" class="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
                   <ExclamationCircleIcon v-else-if="status === 'failed'" class="h-6 w-6 text-red-600 dark:text-red-400" />
                   <!-- Backup Animation: Files flowing to storage -->
-                  <svg v-else-if="type === 'backup'" class="h-8 w-8" viewBox="0 0 48 48" fill="none">
+                  <svg v-else-if="type === 'backup'" class="h-16 w-16" viewBox="0 0 48 48" fill="none">
                     <!-- Folder -->
                     <path d="M4 12C4 10.8954 4.89543 10 6 10H16L20 14H42C43.1046 14 44 14.8954 44 16V36C44 37.1046 43.1046 38 42 38H6C4.89543 38 4 37.1046 4 36V12Z" fill="#3B82F6" opacity="0.3"/>
                     <!-- Storage/Drive -->
@@ -208,7 +208,7 @@ const statusColor = computed(() => {
                     <path class="backup-arrow" d="M24 28L28 28M28 28L26 26M28 28L26 30" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                   <!-- Verification Animation: Magnifying glass scanning files -->
-                  <svg v-else class="h-8 w-8" viewBox="0 0 48 48" fill="none">
+                  <svg v-else class="h-16 w-16" viewBox="0 0 48 48" fill="none">
                     <!-- Documents stack -->
                     <rect x="8" y="12" width="20" height="26" rx="2" fill="#14B8A6" opacity="0.2"/>
                     <rect x="10" y="14" width="16" height="3" rx="1" fill="#14B8A6" opacity="0.4"/>
