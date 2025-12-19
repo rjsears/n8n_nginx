@@ -73,6 +73,84 @@ class BackupService:
         except Exception as e:
             logger.error(f"Failed to update progress: {e}")
 
+    async def _send_backup_notification(
+        self,
+        event_type: str,
+        event_data: Dict[str, Any],
+        severity: str = "info"
+    ) -> None:
+        """
+        Send backup notification based on BackupConfiguration settings.
+        Checks notify_on_success/notify_on_failure and sends to configured channels.
+        """
+        try:
+            # Get backup configuration
+            result = await self.db.execute(select(BackupConfiguration).limit(1))
+            config = result.scalar_one_or_none()
+
+            if not config:
+                logger.debug("No backup configuration found, skipping notification")
+                return
+
+            # Check if notification should be sent based on event type
+            is_success = event_type == "backup.success"
+            is_failure = event_type == "backup.failed"
+
+            if is_success and not config.notify_on_success:
+                logger.debug("Success notifications disabled, skipping")
+                return
+            if is_failure and not config.notify_on_failure:
+                logger.debug("Failure notifications disabled, skipping")
+                return
+
+            # If no channel configured, skip (don't fall back to rules for backup events)
+            if not config.notification_channel_id:
+                logger.debug("No notification channel configured for backups")
+                return
+
+            # Send directly to the configured channel
+            from api.services.notification_service import NotificationService
+
+            notif_service = NotificationService(self.db)
+
+            # Build title and message
+            titles = {
+                "backup.success": "✅ Backup Completed Successfully",
+                "backup.failed": "❌ Backup Failed",
+                "backup.started": "🔄 Backup Started",
+            }
+            title = titles.get(event_type, f"Backup Event: {event_type}")
+
+            # Build message based on event data
+            if is_success:
+                message = f"Backup completed: {event_data.get('filename', 'unknown')}\n"
+                message += f"Size: {event_data.get('size_mb', 0):.2f} MB\n"
+                message += f"Duration: {event_data.get('duration_seconds', 0)} seconds"
+                if event_data.get('workflow_count'):
+                    message += f"\nWorkflows: {event_data.get('workflow_count')}"
+            elif is_failure:
+                message = f"Backup failed!\n"
+                message += f"Type: {event_data.get('backup_type', 'unknown')}\n"
+                message += f"Error: {event_data.get('error', 'Unknown error')}"
+            else:
+                message = f"Backup type: {event_data.get('backup_type', 'unknown')}"
+
+            # Send to the configured service
+            result = await notif_service.send_to_service(
+                service_id=config.notification_channel_id,
+                title=title,
+                message=message,
+                priority="high" if is_failure else "normal"
+            )
+
+            if result.get("success"):
+                logger.info(f"Backup notification sent to channel {config.notification_channel_id}")
+            else:
+                logger.warning(f"Failed to send backup notification: {result.get('error')}")
+
+        except Exception as e:
+            logger.error(f"Error sending backup notification: {e}")
+
     # Schedule management
 
     async def get_schedules(self) -> List[BackupSchedule]:
@@ -247,8 +325,8 @@ class BackupService:
 
             await self.db.commit()
 
-            # Notify success
-            await dispatch_notification("backup.success", {
+            # Notify success (uses BackupConfiguration settings)
+            await self._send_backup_notification("backup.success", {
                 "backup_type": backup_type,
                 "backup_id": history.id,
                 "filename": filename,
@@ -274,9 +352,9 @@ class BackupService:
             except Exception as db_error:
                 logger.error(f"Failed to save error to database: {db_error}")
 
-            # Notify failure
+            # Notify failure (uses BackupConfiguration settings)
             try:
-                await dispatch_notification("backup.failed", {
+                await self._send_backup_notification("backup.failed", {
                     "backup_type": backup_type,
                     "backup_id": history.id,
                     "error": str(e),
@@ -1537,8 +1615,8 @@ exit 0
                 logger.error(f"Failed to store backup contents metadata: {contents_error}")
                 # Don't fail the whole backup - it succeeded, just metadata storage failed
 
-            # Notify success
-            await dispatch_notification("backup.success", {
+            # Notify success (uses BackupConfiguration settings)
+            await self._send_backup_notification("backup.success", {
                 "backup_type": backup_type,
                 "backup_id": history.id,
                 "filename": filename,
@@ -1565,9 +1643,9 @@ exit 0
             except Exception as db_error:
                 logger.error(f"Failed to save error to database: {db_error}")
 
-            # Notify failure
+            # Notify failure (uses BackupConfiguration settings)
             try:
-                await dispatch_notification("backup.failed", {
+                await self._send_backup_notification("backup.failed", {
                     "backup_type": backup_type,
                     "backup_id": history.id,
                     "error": str(e),
