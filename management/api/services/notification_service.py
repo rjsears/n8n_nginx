@@ -1220,33 +1220,55 @@ async def dispatch_notification(
             except Exception as e:
                 logger.error(f"Error sending notification to L1 target {target.id}: {e}")
 
-        # If L2 targets exist and escalation timeout is set, schedule L2 escalation
-        # For now, we'll also send to L2 for critical events or if no L1 targets succeeded
-        if l2_targets and (event.severity == "critical" or sent_count == 0):
-            for target in l2_targets:
+        # Handle L2 escalation
+        if l2_targets:
+            # For critical events or L1 failures, send L2 immediately
+            if event.severity == "critical" or sent_count == 0:
+                for target in l2_targets:
+                    try:
+                        if target.target_type == "channel" and target.channel_id:
+                            escalation_title = f"[ESCALATED] {title}"
+                            result = await notification_service.send_to_service(
+                                target.channel_id, escalation_title, message, "critical"
+                            )
+                            if result.get("success"):
+                                sent_count += 1
+                                channels_sent.append({"type": "channel", "id": target.channel_id, "level": 2})
+                                logger.info(f"Sent '{event_type}' escalation to L2 channel {target.channel_id}")
+
+                        elif target.target_type == "group" and target.group_id:
+                            escalation_title = f"[ESCALATED] {title}"
+                            result = await notification_service.send_to_group(
+                                target.group_id, escalation_title, message, "critical"
+                            )
+                            if result.get("success"):
+                                sent_count += result.get("sent_count", 1)
+                                channels_sent.append({"type": "group", "id": target.group_id, "level": 2})
+                                logger.info(f"Sent '{event_type}' escalation to L2 group {target.group_id}")
+
+                    except Exception as e:
+                        logger.error(f"Error sending notification to L2 target {target.id}: {e}")
+
+                # Mark escalation as sent immediately
+                if state:
+                    state.escalation_sent = True
+                    state.escalation_triggered_at = now
+            else:
+                # Schedule L2 escalation for later (time-delayed)
+                # Get timeout from first L2 target or use event default
+                timeout_minutes = l2_targets[0].escalation_timeout_minutes or event.escalation_timeout_minutes or 30
                 try:
-                    if target.target_type == "channel" and target.channel_id:
-                        escalation_title = f"[ESCALATED] {title}"
-                        result = await notification_service.send_to_service(
-                            target.channel_id, escalation_title, message, "critical"
-                        )
-                        if result.get("success"):
-                            sent_count += 1
-                            channels_sent.append({"type": "channel", "id": target.channel_id, "level": 2})
-                            logger.info(f"Sent '{event_type}' escalation to L2 channel {target.channel_id}")
-
-                    elif target.target_type == "group" and target.group_id:
-                        escalation_title = f"[ESCALATED] {title}"
-                        result = await notification_service.send_to_group(
-                            target.group_id, escalation_title, message, "critical"
-                        )
-                        if result.get("success"):
-                            sent_count += result.get("sent_count", 1)
-                            channels_sent.append({"type": "group", "id": target.group_id, "level": 2})
-                            logger.info(f"Sent '{event_type}' escalation to L2 group {target.group_id}")
-
+                    from api.tasks.scheduler import schedule_l2_escalation
+                    await schedule_l2_escalation(
+                        event_type=event_type,
+                        event_data=event_data,
+                        event_id=event.id,
+                        target_id=target_id,
+                        timeout_minutes=timeout_minutes,
+                    )
+                    logger.info(f"L2 escalation scheduled for '{event_type}' in {timeout_minutes} minutes")
                 except Exception as e:
-                    logger.error(f"Error sending notification to L2 target {target.id}: {e}")
+                    logger.error(f"Failed to schedule L2 escalation: {e}")
 
         # Update state for cooldown tracking
         if state:
