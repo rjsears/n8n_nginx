@@ -1044,12 +1044,15 @@ async def dispatch_notification(
 
     This looks up the event in SystemNotificationEvent and sends to all
     configured targets (channels/groups) in SystemNotificationTarget.
+
+    For container events, also checks per-container configuration.
     """
     from api.database import async_session_maker
     from api.models.system_notifications import (
         SystemNotificationEvent,
         SystemNotificationTarget,
         SystemNotificationGlobalSettings,
+        SystemNotificationContainerConfig,
     )
 
     async with async_session_maker() as db:
@@ -1062,6 +1065,36 @@ async def dispatch_notification(
         if global_settings and global_settings.maintenance_mode:
             logger.debug(f"Notifications suppressed - maintenance mode active")
             return
+
+        # For container events, check per-container configuration
+        container_name = event_data.get("container") or event_data.get("container_name")
+        if container_name and event_type.startswith("container_"):
+            config_result = await db.execute(
+                select(SystemNotificationContainerConfig).where(
+                    SystemNotificationContainerConfig.container_name == container_name
+                )
+            )
+            container_config = config_result.scalar_one_or_none()
+
+            if container_config:
+                # Check if monitoring is enabled for this container
+                if not container_config.enabled:
+                    logger.debug(f"Notifications disabled for container '{container_name}'")
+                    return
+
+                # Check specific event type settings
+                event_checks = {
+                    "container_stopped": container_config.monitor_stopped,
+                    "container_unhealthy": container_config.monitor_unhealthy,
+                    "container_restart": container_config.monitor_restart,
+                    "container_restarted": container_config.monitor_restart,
+                    "container_high_cpu": container_config.monitor_high_cpu,
+                    "container_high_memory": container_config.monitor_high_memory,
+                }
+
+                if event_type in event_checks and not event_checks[event_type]:
+                    logger.debug(f"Event '{event_type}' disabled for container '{container_name}'")
+                    return
 
         # Look up the system notification event
         result = await db.execute(
@@ -1184,17 +1217,35 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
 
     # Container events
     elif event_type == "container_unhealthy":
-        container = event_data.get("container", "unknown")
-        return f"Host: {hostname}\n\nContainer '{container}' is unhealthy!\n\nPlease check the container health."
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
+        message = event_data.get("message", "")
+        return f"Host: {hostname}\n\nContainer '{container}' is unhealthy!\n\n{message}" if message else f"Host: {hostname}\n\nContainer '{container}' is unhealthy!\n\nPlease check the container health."
+    elif event_type == "container_healthy":
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
+        return f"Host: {hostname}\n\nContainer '{container}' has recovered and is now healthy."
     elif event_type == "container_stopped":
-        container = event_data.get("container", "unknown")
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
         return f"Host: {hostname}\n\nContainer '{container}' has stopped.\n\nThis may indicate an issue."
-    elif event_type == "container_restart":
-        container = event_data.get("container", "unknown")
-        return f"Host: {hostname}\n\nContainer '{container}' was restarted."
+    elif event_type in ("container_restart", "container_restarted"):
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
+        restart_count = event_data.get("restart_count", "")
+        return f"Host: {hostname}\n\nContainer '{container}' was restarted.{f' (Total restarts: {restart_count})' if restart_count else ''}"
     elif event_type == "container_started":
-        container = event_data.get("container", "unknown")
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
         return f"Host: {hostname}\n\nContainer '{container}' started."
+    elif event_type == "container_removed":
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
+        return f"Host: {hostname}\n\nContainer '{container}' was removed."
+    elif event_type == "container_high_cpu":
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
+        percent = event_data.get("percent", event_data.get("cpu_percent", 0))
+        threshold = event_data.get("threshold", 80)
+        return f"Host: {hostname}\n\nContainer '{container}' high CPU usage!\n\nCurrent: {percent}%\nThreshold: {threshold}%"
+    elif event_type == "container_high_memory":
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
+        percent = event_data.get("percent", event_data.get("memory_percent", 0))
+        threshold = event_data.get("threshold", 80)
+        return f"Host: {hostname}\n\nContainer '{container}' high memory usage!\n\nCurrent: {percent}%\nThreshold: {threshold}%"
 
     # System events
     elif event_type == "disk_space_low":
