@@ -141,8 +141,11 @@ const filteredContainers = computed(() => {
   }
 
   // Then filter by status
-  if (filterStatus.value !== 'all') {
-    filtered = filtered.filter(c => c.status === filterStatus.value)
+  if (filterStatus.value === 'running') {
+    filtered = filtered.filter(c => c.status === 'running')
+  } else if (filterStatus.value === 'stopped') {
+    // "Stopped" means any non-running status (exited, created, dead, paused, etc.)
+    filtered = filtered.filter(c => c.status !== 'running')
   }
 
   return filtered
@@ -587,7 +590,7 @@ onUnmounted(() => {
         <select v-model="filterStatus" class="select-field">
           <option value="all">All Statuses</option>
           <option value="running">Running Only</option>
-          <option value="exited">Stopped Only</option>
+          <option value="stopped">Stopped Only</option>
         </select>
         <p class="text-sm text-muted">
           Showing {{ filteredContainers.length }} of {{ containerStore.containers.length }} containers
