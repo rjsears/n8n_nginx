@@ -1142,9 +1142,21 @@ class RestoreService:
                     return {"status": "failed", "error": f"No target path for: {config_path}"}
 
             # Create backup of existing file
+            # NOTE: Config files are bind-mounted as individual files, not directories.
+            # So we must save backups to /app/backups/config_backups/ (which IS mounted)
+            # rather than alongside the original file (which would go to container FS)
             backup_created = None
             if create_backup and os.path.exists(target_path):
-                backup_path = f"{target_path}.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                # Save to mounted backup volume
+                config_backup_dir = "/app/backups/config_backups"
+                os.makedirs(config_backup_dir, exist_ok=True)
+
+                # Create backup filename: original_name.bak.TIMESTAMP
+                original_filename = os.path.basename(target_path)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                backup_filename = f"{original_filename}.bak.{timestamp}"
+                backup_path = os.path.join(config_backup_dir, backup_filename)
+
                 shutil.copy2(target_path, backup_path)
                 backup_created = backup_path
                 logger.info(f"Created backup: {backup_created}")

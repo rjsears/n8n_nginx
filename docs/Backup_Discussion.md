@@ -1440,6 +1440,53 @@ docker compose up -d n8n_management
 
 ---
 
+### December 19, 2024 - Config Backup Files Go to Container Instead of Host
+
+**Issue Reported:**
+```
+cloudflare.ini.bak.20251218_173322 (the backup created by restore) this file is NOT on the HOST where it should be, it is ONLY on the n8n_management
+```
+
+**Root Cause:**
+Config files are bind-mounted as **individual files**, not directories:
+```yaml
+- ./cloudflare.ini:/app/host_config/cloudflare.ini:rw
+```
+
+When the restore service creates a backup file at `/app/host_config/cloudflare.ini.bak.TIMESTAMP`, it goes into the container's filesystem (not the host) because only the specific file is mounted, not the directory.
+
+**Fix Applied:**
+Changed `restore_service.py` to save config backups to `/app/backups/config_backups/` (which IS mounted via the `mgmt_backup_staging` volume) instead of alongside the original file.
+
+```python
+# Before (broken): backup goes to container filesystem
+backup_path = f"{target_path}.bak.{timestamp}"
+
+# After (fixed): backup goes to mounted volume
+config_backup_dir = "/app/backups/config_backups"
+backup_path = os.path.join(config_backup_dir, f"{original_filename}.bak.{timestamp}")
+```
+
+**Status:** ✅ Fixed
+
+---
+
+### December 19, 2024 - Add Global Unmount Button to Backups Page
+
+**Issue Reported:**
+The `n8n_postgres_restore` container stays running if user navigates away from the backup page, with no easy way to unmount it.
+
+**Fix Applied:**
+1. Added "Unmount Backup" button to the page header (next to Configure button) that shows when any backup is mounted
+2. Added mount status check on page load to detect already-mounted backups from previous sessions
+
+**Files Modified:**
+- `management/frontend/src/views/BackupsView.vue`
+
+**Status:** ✅ Fixed
+
+---
+
 *Document updated on December 17, 2024*
 *Added Phase 7: Pruning & Retention System*
 *Added Backup Configuration Page documentation*
@@ -1447,3 +1494,5 @@ docker compose up -d n8n_management
 
 *Document updated on December 19, 2024*
 *Added Session Updates section for tracking fixes between chat sessions*
+*Added fix for config backup files going to wrong location*
+*Added global Unmount button to Backups page header*
