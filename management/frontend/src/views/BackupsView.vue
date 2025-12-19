@@ -38,6 +38,7 @@ import {
   ServerIcon,
   CubeIcon,
   DocumentIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -48,6 +49,7 @@ const notificationStore = useNotificationStore()
 const loading = ref(true)
 const runningBackup = ref(false)
 const deleteDialog = ref({ open: false, backup: null, loading: false })
+const backupConfirmDialog = ref({ open: false })
 
 // Progress Modal State
 const progressModal = ref({
@@ -345,7 +347,12 @@ async function loadConfigFilesForBackup(backupId) {
   }
 }
 
+function promptBackupNow() {
+  backupConfirmDialog.value.open = true
+}
+
 async function runBackupNow() {
+  backupConfirmDialog.value.open = false
   runningBackup.value = true
 
   // Show progress modal
@@ -739,7 +746,7 @@ onUnmounted(stopPolling)
           Configure
         </button>
         <button
-          @click="runBackupNow"
+          @click="promptBackupNow"
           :disabled="runningBackup"
           :class="[
             'btn-primary flex items-center gap-2',
@@ -812,6 +819,24 @@ onUnmounted(stopPolling)
             </div>
           </div>
         </Card>
+      </div>
+
+      <!-- Important Backup Notice -->
+      <div class="mt-4 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
+        <div class="flex gap-3">
+          <div class="flex-shrink-0">
+            <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-800/50">
+              <ExclamationTriangleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+          </div>
+          <div>
+            <h4 class="font-semibold text-amber-800 dark:text-amber-300 mb-1">Important Backup Information</h4>
+            <p class="text-sm text-amber-700 dark:text-amber-400">
+              This backup system only backs up <span class="font-semibold">N8N workflows</span> and <span class="font-semibold">N8N Management configuration files</span>.
+              It does <span class="font-semibold">NOT</span> backup any other data, additional containers, or configuration files you may have added to the system.
+            </p>
+          </div>
+        </div>
       </div>
 
       <!-- Backup Configuration Summary Card (Clickable - navigates to storage settings) -->
@@ -1533,6 +1558,76 @@ onUnmounted(stopPolling)
       @confirm="confirmDelete"
       @cancel="deleteDialog.open = false"
     />
+
+    <!-- Backup Confirmation Dialog -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="backupConfirmDialog.open"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/50" @click="backupConfirmDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border border-amber-400 dark:border-amber-500">
+            <!-- Header with warning icon -->
+            <div class="px-6 py-5 bg-amber-50 dark:bg-amber-900/30 rounded-t-lg border-b border-amber-200 dark:border-amber-700">
+              <div class="flex items-center justify-center mb-3">
+                <div class="p-4 rounded-full bg-amber-100 dark:bg-amber-800/50">
+                  <!-- Warning Triangle with Exclamation -->
+                  <svg class="h-12 w-12" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L1 21h22L12 2z" fill="#FCD34D" stroke="#F59E0B" stroke-width="1.5"/>
+                    <path d="M12 9v5" stroke="#DC2626" stroke-width="2.5" stroke-linecap="round"/>
+                    <circle cx="12" cy="17" r="1.25" fill="#DC2626"/>
+                  </svg>
+                </div>
+              </div>
+              <h3 class="text-xl font-bold text-amber-800 dark:text-amber-300 text-center">
+                Backup Notice
+              </h3>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 bg-white dark:bg-gray-800">
+              <p class="text-gray-700 dark:text-gray-300 text-center">
+                This backup system only backs up:
+              </p>
+              <ul class="mt-3 space-y-2 text-sm">
+                <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Workflows</span> and credentials</span>
+                </li>
+                <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Management</span> configuration files</span>
+                </li>
+              </ul>
+              <div class="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700">
+                <p class="text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <XCircleIcon class="h-5 w-5 flex-shrink-0 mt-0.5" />
+                  <span>Does <span class="font-bold">NOT</span> backup other data, additional containers, or custom configuration files you may have added.</span>
+                </p>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 rounded-b-lg flex gap-3">
+              <button
+                @click="backupConfirmDialog.open = false"
+                class="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="runBackupNow"
+                class="flex-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <PlayIcon class="h-4 w-4" />
+                Start Backup
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Progress Modal -->
     <ProgressModal
