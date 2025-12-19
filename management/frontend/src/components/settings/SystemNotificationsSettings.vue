@@ -115,13 +115,21 @@ const categoryInfo = {
   backup: { label: 'Backup Events', icon: CircleStackIcon, color: 'emerald', description: 'Notifications for backup operations' },
   container: { label: 'Container Events', icon: CubeIcon, color: 'blue', description: 'Docker container health and status alerts' },
   system: { label: 'System Events', icon: CpuChipIcon, color: 'purple', description: 'Host system resource monitoring' },
-  security: { label: 'Security Events', icon: ShieldCheckIcon, color: 'red', description: 'Security and access notifications' },
+  ssl: { label: 'SSL Certificate Events', icon: ShieldCheckIcon, color: 'amber', description: 'SSL/TLS certificate expiration monitoring' },
+  security: { label: 'Security Events', icon: ShieldExclamationIcon, color: 'red', description: 'Security and access notifications' },
 }
+
+// SSL configuration status
+const sslConfigured = ref(false)
 
 // Computed
 const eventsByCategory = computed(() => {
   const grouped = {}
   for (const event of events.value) {
+    // Hide ssl category if SSL is not configured
+    if (event.category === 'ssl' && !sslConfigured.value) {
+      continue
+    }
     if (!grouped[event.category]) {
       grouped[event.category] = []
     }
@@ -261,12 +269,24 @@ async function loadData() {
       loadGlobalSettings(),
       loadContainerConfigs(),
       loadChannelsAndGroups(),
+      loadSslStatus(),
     ])
   } catch (error) {
     console.error('Failed to load system notifications data:', error)
     notificationStore.error('Failed to load notification settings')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadSslStatus() {
+  try {
+    // Check if SSL is configured via the health endpoint
+    const response = await api.get('/system/health/full?quick=true')
+    sslConfigured.value = response.data.ssl_configured || false
+  } catch (error) {
+    console.error('Failed to load SSL status:', error)
+    sslConfigured.value = false
   }
 }
 
@@ -804,6 +824,7 @@ onMounted(() => {
                     ? (category === 'backup' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-b border-emerald-200 dark:border-emerald-500/20'
                         : category === 'container' ? 'bg-blue-50 dark:bg-blue-500/10 border-b border-blue-200 dark:border-blue-500/20'
                         : category === 'security' ? 'bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/20'
+                        : category === 'ssl' ? 'bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/20'
                         : 'bg-purple-50 dark:bg-purple-500/10 border-b border-purple-200 dark:border-purple-500/20')
                     : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
             ]"
@@ -815,6 +836,7 @@ onMounted(() => {
                   ? category === 'backup' ? 'bg-emerald-100 dark:bg-emerald-500/20'
                     : category === 'container' ? 'bg-blue-100 dark:bg-blue-500/20'
                     : category === 'security' ? 'bg-red-100 dark:bg-red-500/20'
+                    : category === 'ssl' ? 'bg-amber-100 dark:bg-amber-500/20'
                     : 'bg-purple-100 dark:bg-purple-500/20'
                   : 'bg-gray-100 dark:bg-gray-700'
               ]">
@@ -825,6 +847,7 @@ onMounted(() => {
                     category === 'backup' ? 'text-emerald-500'
                       : category === 'container' ? 'text-blue-500'
                       : category === 'security' ? 'text-red-500'
+                      : category === 'ssl' ? 'text-amber-500'
                       : 'text-purple-500'
                   ]"
                 />
@@ -836,6 +859,7 @@ onMounted(() => {
                     ? category === 'backup' ? 'text-emerald-700 dark:text-emerald-400'
                       : category === 'container' ? 'text-blue-700 dark:text-blue-400'
                       : category === 'security' ? 'text-red-700 dark:text-red-400'
+                      : category === 'ssl' ? 'text-amber-700 dark:text-amber-400'
                       : 'text-purple-700 dark:text-purple-400'
                     : 'text-primary'
                 ]">
@@ -852,6 +876,7 @@ onMounted(() => {
                 category === 'backup' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
                   : category === 'container' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
                   : category === 'security' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                  : category === 'ssl' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
                   : 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400'
               ]">
                 {{ getCategoryEventCounts(category).enabled }}/{{ getCategoryEventCounts(category).total }} enabled
@@ -966,6 +991,7 @@ onMounted(() => {
                               event.category === 'backup' ? 'border-t-4 border-t-emerald-400'
                                 : event.category === 'container' ? 'border-t-4 border-t-blue-400'
                                 : event.category === 'security' ? 'border-t-4 border-t-red-400'
+                                : event.category === 'ssl' ? 'border-t-4 border-t-amber-400'
                                 : 'border-t-4 border-t-purple-400'
                             ]">
                               <h4 class="font-semibold flex items-center gap-2 text-primary">
@@ -976,6 +1002,7 @@ onMounted(() => {
                                     event.category === 'backup' ? 'text-emerald-500'
                                       : event.category === 'container' ? 'text-blue-500'
                                       : event.category === 'security' ? 'text-red-500'
+                                      : event.category === 'ssl' ? 'text-amber-500'
                                       : 'text-purple-500'
                                   ]"
                                 />
@@ -1032,6 +1059,7 @@ onMounted(() => {
                                       event.category === 'backup' ? 'border-gray-400 dark:border-gray-600 focus:border-emerald-400 focus:ring-emerald-400'
                                         : event.category === 'container' ? 'border-gray-400 dark:border-gray-600 focus:border-blue-400 focus:ring-blue-400'
                                         : event.category === 'security' ? 'border-gray-400 dark:border-gray-600 focus:border-red-400 focus:ring-red-400'
+                                        : event.category === 'ssl' ? 'border-gray-400 dark:border-gray-600 focus:border-amber-400 focus:ring-amber-400'
                                         : 'border-gray-400 dark:border-gray-600 focus:border-purple-400 focus:ring-purple-400'
                                     ]"
                                   >
@@ -1056,6 +1084,7 @@ onMounted(() => {
                                         event.category === 'backup' ? 'accent-emerald-500'
                                           : event.category === 'container' ? 'accent-blue-500'
                                           : event.category === 'security' ? 'accent-red-500'
+                                          : event.category === 'ssl' ? 'accent-amber-500'
                                           : 'accent-purple-500'
                                       ]"
                                     />
@@ -1066,6 +1095,7 @@ onMounted(() => {
                                         event.category === 'backup' ? 'text-emerald-600 dark:text-emerald-400'
                                           : event.category === 'container' ? 'text-blue-600 dark:text-blue-400'
                                           : event.category === 'security' ? 'text-red-600 dark:text-red-400'
+                                          : event.category === 'ssl' ? 'text-amber-600 dark:text-amber-400'
                                           : 'text-purple-600 dark:text-purple-400'
                                       ]">{{ event.cooldown_minutes }} min</span>
                                       <span class="text-xs text-secondary">120 min</span>
@@ -1089,6 +1119,7 @@ onMounted(() => {
                                       event.category === 'backup' ? 'bg-emerald-500 hover:bg-emerald-600'
                                         : event.category === 'container' ? 'bg-blue-500 hover:bg-blue-600'
                                         : event.category === 'security' ? 'bg-red-500 hover:bg-red-600'
+                                        : event.category === 'ssl' ? 'bg-amber-500 hover:bg-amber-600'
                                         : 'bg-purple-500 hover:bg-purple-600'
                                     ]"
                                   >
@@ -1122,6 +1153,7 @@ onMounted(() => {
                                           ? event.category === 'backup' ? 'bg-emerald-500'
                                             : event.category === 'container' ? 'bg-blue-500'
                                             : event.category === 'security' ? 'bg-red-500'
+                                            : event.category === 'ssl' ? 'bg-amber-500'
                                             : 'bg-purple-500'
                                           : 'bg-orange-500'
                                       ]">

@@ -1256,6 +1256,7 @@ async def get_full_health_check(
         "checks": {},
         "container_memory": {},
         "ssl_certificates": [],
+        "ssl_configured": False,
         "docker_disk_usage_gb": 0,
     }
 
@@ -1655,6 +1656,7 @@ async def get_full_health_check(
                         ssl_status = "warning"
 
                     health_data["ssl_certificates"] = ssl_certs
+                    health_data["ssl_configured"] = len(ssl_certs) > 0
 
             except Exception as e:
                 ssl_details["error"] = str(e)
