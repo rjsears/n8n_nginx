@@ -1338,7 +1338,7 @@ async def execute_pending_deletions(
 # ============================================================================
 
 from api.schemas.backups import BackupConfigurationUpdate, BackupConfigurationResponse
-from api.models.backups import BackupConfiguration
+from api.models.backups import BackupConfiguration, BackupSchedule
 from sqlalchemy import select
 
 
@@ -1374,7 +1374,10 @@ async def update_backup_configuration(
 ):
     """
     Update backup configuration settings.
+    Also syncs schedule changes to APScheduler.
     """
+    from api.tasks.scheduler import add_backup_job, remove_backup_job
+
     # Get or create singleton configuration
     stmt = select(BackupConfiguration).limit(1)
     result = await db.execute(stmt)
@@ -1386,12 +1389,70 @@ async def update_backup_configuration(
 
     # Update fields
     updates = data.model_dump(exclude_unset=True)
+    schedule_changed = any(k.startswith('schedule_') for k in updates.keys())
+
     for key, value in updates.items():
         if hasattr(config, key):
             setattr(config, key, value)
 
     await db.commit()
     await db.refresh(config)
+
+    # Sync schedule to APScheduler if schedule-related fields changed
+    if schedule_changed:
+        # Get or create the default backup schedule
+        schedule_stmt = select(BackupSchedule).where(BackupSchedule.name == "Default Schedule").limit(1)
+        schedule_result = await db.execute(schedule_stmt)
+        schedule = schedule_result.scalar_one_or_none()
+
+        if config.schedule_enabled:
+            # Parse time from "HH:MM" format
+            hour, minute = 2, 0  # defaults
+            if config.schedule_time:
+                try:
+                    parts = config.schedule_time.split(':')
+                    hour = int(parts[0])
+                    minute = int(parts[1]) if len(parts) > 1 else 0
+                except (ValueError, IndexError):
+                    pass
+
+            if not schedule:
+                # Create new schedule
+                schedule = BackupSchedule(
+                    name="Default Schedule",
+                    backup_type=config.default_backup_type or "postgres_full",
+                    enabled=True,
+                    frequency=config.schedule_frequency or "daily",
+                    hour=hour,
+                    minute=minute,
+                    day_of_week=config.schedule_day_of_week,
+                    day_of_month=config.schedule_day_of_month,
+                    compression=config.compression_algorithm or "gzip",
+                )
+                db.add(schedule)
+                await db.commit()
+                await db.refresh(schedule)
+            else:
+                # Update existing schedule
+                schedule.enabled = True
+                schedule.frequency = config.schedule_frequency or "daily"
+                schedule.hour = hour
+                schedule.minute = minute
+                schedule.day_of_week = config.schedule_day_of_week
+                schedule.day_of_month = config.schedule_day_of_month
+                schedule.compression = config.compression_algorithm or "gzip"
+                schedule.backup_type = config.default_backup_type or "postgres_full"
+                await db.commit()
+                await db.refresh(schedule)
+
+            # Add/update job in APScheduler
+            await add_backup_job(schedule)
+        else:
+            # Schedule disabled - remove job if exists
+            if schedule:
+                schedule.enabled = False
+                await db.commit()
+                await remove_backup_job(schedule.id)
 
     return BackupConfigurationResponse.model_validate(config)
 

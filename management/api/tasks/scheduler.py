@@ -147,14 +147,49 @@ async def _add_maintenance_jobs() -> None:
 async def _sync_backup_schedules() -> None:
     """Sync backup schedules from database to APScheduler."""
     from api.database import async_session_maker
-    from api.models.backups import BackupSchedule
+    from api.models.backups import BackupSchedule, BackupConfiguration
     from sqlalchemy import select
 
     async with async_session_maker() as db:
+        # First check if we have any schedules
         result = await db.execute(
             select(BackupSchedule).where(BackupSchedule.enabled == True)
         )
         schedules = result.scalars().all()
+
+        # If no schedules, check BackupConfiguration and create one
+        if not schedules:
+            config_result = await db.execute(select(BackupConfiguration).limit(1))
+            config = config_result.scalar_one_or_none()
+
+            if config and config.schedule_enabled:
+                # Parse time from "HH:MM" format
+                hour, minute = 2, 0
+                if config.schedule_time:
+                    try:
+                        parts = config.schedule_time.split(':')
+                        hour = int(parts[0])
+                        minute = int(parts[1]) if len(parts) > 1 else 0
+                    except (ValueError, IndexError):
+                        pass
+
+                # Create default schedule from configuration
+                schedule = BackupSchedule(
+                    name="Default Schedule",
+                    backup_type=config.default_backup_type or "postgres_full",
+                    enabled=True,
+                    frequency=config.schedule_frequency or "daily",
+                    hour=hour,
+                    minute=minute,
+                    day_of_week=config.schedule_day_of_week,
+                    day_of_month=config.schedule_day_of_month,
+                    compression=config.compression_algorithm or "gzip",
+                )
+                db.add(schedule)
+                await db.commit()
+                await db.refresh(schedule)
+                schedules = [schedule]
+                logger.info(f"Created default schedule from configuration: {config.schedule_frequency} at {hour}:{minute:02d}")
 
         for schedule in schedules:
             await add_backup_job(schedule)
