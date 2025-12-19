@@ -90,15 +90,6 @@ const n8nApiKeyEditing = ref(false)
 
 // Settings
 const settings = ref({
-  backup: {
-    enabled: true,
-    schedule: '02:00',
-    retention_days: 30,
-    include_workflows: true,
-    include_credentials: true,
-    nfs_enabled: false,
-    nfs_path: '',
-  },
   notifications: {
     backup_success: true,
     backup_failure: true,
@@ -221,7 +212,6 @@ const availableDefaultRanges = computed(() => {
 
 const tabs = [
   { id: 'appearance', name: 'Appearance', icon: PaintBrushIcon, iconColor: 'text-pink-500', bgActive: 'bg-pink-500/15 dark:bg-pink-500/20', textActive: 'text-pink-700 dark:text-pink-400', borderActive: 'border-pink-500/30' },
-  { id: 'backup', name: 'Backup', icon: CircleStackIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
   { id: 'notifications', name: 'System Notifications', icon: BellIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
   { id: 'security', name: 'Security', icon: ShieldCheckIcon, iconColor: 'text-red-500', bgActive: 'bg-red-500/15 dark:bg-red-500/20', textActive: 'text-red-700 dark:text-red-400', borderActive: 'border-red-500/30' },
   { id: 'access-control', name: 'Access Control', icon: GlobeAltIcon, iconColor: 'text-blue-500', bgActive: 'bg-blue-500/15 dark:bg-blue-500/20', textActive: 'text-blue-700 dark:text-blue-400', borderActive: 'border-blue-500/30' },
@@ -783,117 +773,6 @@ watch(activeTab, (newTab) => {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <!-- Backup Tab -->
-      <div v-if="activeTab === 'backup'" class="space-y-6">
-        <Card title="Backup Configuration" :neon="true">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Automatic Backups</p>
-                <p class="text-sm text-secondary">Enable scheduled backups</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="settings.backup.enabled" class="sr-only peer" />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Backup Time</p>
-                <p class="text-sm text-secondary">Daily backup schedule</p>
-              </div>
-              <input
-                type="time"
-                v-model="settings.backup.schedule"
-                class="input-field w-32"
-              />
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Retention Period</p>
-                <p class="text-sm text-secondary">Days to keep backups</p>
-              </div>
-              <input
-                type="number"
-                v-model="settings.backup.retention_days"
-                min="1"
-                max="365"
-                class="input-field w-24"
-              />
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Include Workflows</p>
-                <p class="text-sm text-secondary">Back up n8n workflows</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="settings.backup.include_workflows" class="sr-only peer" />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Include Credentials</p>
-                <p class="text-sm text-secondary">Back up encrypted credentials</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="settings.backup.include_credentials" class="sr-only peer" />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
-          </div>
-
-          <template #footer>
-            <div class="flex justify-end">
-              <button
-                @click="saveSettings('backup')"
-                :disabled="saving"
-                class="btn-primary"
-              >
-                {{ saving ? 'Saving...' : 'Save Changes' }}
-              </button>
-            </div>
-          </template>
-        </Card>
-
-        <Card title="NFS Storage" subtitle="Remote backup storage configuration" :neon="true">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <p class="font-medium text-primary">Enable NFS</p>
-                <p class="text-sm text-secondary">Store backups on NFS share</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="settings.backup.nfs_enabled" class="sr-only peer" />
-                <div
-                  class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
-                ></div>
-              </label>
-            </div>
-
-            <div v-if="settings.backup.nfs_enabled">
-              <label class="block text-sm font-medium text-primary mb-1.5">NFS Path</label>
-              <input
-                type="text"
-                v-model="settings.backup.nfs_path"
-                placeholder="server:/path/to/share"
-                class="input-field w-full"
-              />
             </div>
           </div>
         </Card>
