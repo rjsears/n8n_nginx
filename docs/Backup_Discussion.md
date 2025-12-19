@@ -20,6 +20,7 @@
 - [Progress Tracking](#progress-tracking)
 - [Backup Configuration Page](#backup-configuration-page)
 - [Backup History UI](#backup-history-ui-collapsible-design)
+- [Session Updates](#session-updates) ← **Start here when resuming**
 
 ---
 
@@ -1404,7 +1405,45 @@ const backupWorkflows = ref({})
 
 ---
 
+## Session Updates
+
+### December 19, 2024 - Config File Restore Fix
+
+**Issue Reported:**
+```
+[Errno 30] Read-only file system: '/app/host_config/cloudflare.ini'
+```
+
+**Root Cause:**
+The `n8n_management` container had config file volume mounts set as read-only (`:ro`) but the restore service needs to write to them.
+
+**Fix Applied (commit 008392d):**
+Changed volume mounts from read-only to read-write in `docker-compose.yaml`:
+
+```yaml
+# Before (broken):
+- ./docker-compose.yaml:/app/host_config/docker-compose.yaml:ro
+- ./cloudflare.ini:/app/host_config/cloudflare.ini:ro
+
+# After (fixed):
+- ./docker-compose.yaml:/app/host_config/docker-compose.yaml:rw
+- ./cloudflare.ini:/app/host_config/cloudflare.ini:rw
+```
+
+**To Apply Fix:**
+```bash
+git pull
+docker compose up -d n8n_management
+```
+
+**Status:** ✅ Fixed
+
+---
+
 *Document updated on December 17, 2024*
 *Added Phase 7: Pruning & Retention System*
 *Added Backup Configuration Page documentation*
 *Added Backup History UI (Collapsible Design) documentation*
+
+*Document updated on December 19, 2024*
+*Added Session Updates section for tracking fixes between chat sessions*
