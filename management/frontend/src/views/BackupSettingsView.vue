@@ -65,23 +65,6 @@ const sections = ref({
   notifyChannels: false,
 })
 
-// Time picker state
-const showTimePicker = ref(false)
-const timePickerButton = ref(null)
-const timePickerPosition = ref({ top: 0, left: 0, width: 0 })
-
-function toggleTimePicker() {
-  if (!showTimePicker.value && timePickerButton.value) {
-    const rect = timePickerButton.value.getBoundingClientRect()
-    timePickerPosition.value = {
-      top: rect.bottom + window.scrollY + 4,
-      left: rect.left + window.scrollX,
-      width: rect.width
-    }
-  }
-  showTimePicker.value = !showTimePicker.value
-}
-
 // Computed properties for time picker
 const scheduleHour = computed({
   get: () => {
@@ -112,11 +95,6 @@ const formattedTime = computed(() => {
   const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h
   return `${displayHour}:${String(m).padStart(2, '0')} ${period}`
 })
-
-function setTime(hour, minute) {
-  form.value.schedule_time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-  showTimePicker.value = false
-}
 
 // Watch for tab query changes
 watch(() => route.query.tab, (newTab) => {
@@ -162,7 +140,6 @@ const tabs = [
   { id: 'schedule', name: 'Schedule', icon: ClockIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
   { id: 'retention', name: 'Retention', icon: TrashIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
   { id: 'compression', name: 'Compression', icon: ServerIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
-  { id: 'notifications', name: 'Notifications', icon: BellIcon, iconColor: 'text-pink-500', bgActive: 'bg-pink-500/15 dark:bg-pink-500/20', textActive: 'text-pink-700 dark:text-pink-400', borderActive: 'border-pink-500/30' },
 ]
 
 const compressionLevelMax = computed(() => {
@@ -1001,7 +978,12 @@ onMounted(() => {
               </div>
               <div class="text-left">
                 <h3 class="font-semibold text-primary">Backup Schedule</h3>
-                <p class="text-sm text-secondary">Configure automatic backup timing</p>
+                <p class="text-sm text-secondary">
+                  <span v-if="form.schedule_enabled">
+                    {{ form.schedule_frequency.charAt(0).toUpperCase() + form.schedule_frequency.slice(1) }} at {{ formattedTime }}
+                  </span>
+                  <span v-else>Disabled</span>
+                </p>
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -1029,107 +1011,115 @@ onMounted(() => {
               </button>
             </div>
 
-            <div v-if="form.schedule_enabled" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div v-if="form.schedule_enabled" class="mt-4 space-y-4">
+              <!-- Frequency Selection - Colored Boxes -->
               <div>
-                <label class="block text-sm font-medium text-primary mb-2">Frequency</label>
-                <select v-model="form.schedule_frequency" class="input-field w-full">
-                  <option value="hourly">Hourly</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
+                <label class="block text-sm font-medium text-primary mb-3">Frequency</label>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <button
+                    type="button"
+                    @click="form.schedule_frequency = 'hourly'"
+                    :class="[
+                      'p-3 rounded-lg border-2 transition-all text-center',
+                      form.schedule_frequency === 'hourly'
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700'
+                    ]"
+                  >
+                    <ClockIcon :class="['h-5 w-5 mx-auto mb-1', form.schedule_frequency === 'hourly' ? 'text-blue-500' : 'text-gray-400']" />
+                    <p :class="['text-sm font-medium', form.schedule_frequency === 'hourly' ? 'text-blue-700 dark:text-blue-300' : 'text-primary']">Hourly</p>
+                  </button>
+                  <button
+                    type="button"
+                    @click="form.schedule_frequency = 'daily'"
+                    :class="[
+                      'p-3 rounded-lg border-2 transition-all text-center',
+                      form.schedule_frequency === 'daily'
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-emerald-300 dark:hover:border-emerald-700'
+                    ]"
+                  >
+                    <CalendarIcon :class="['h-5 w-5 mx-auto mb-1', form.schedule_frequency === 'daily' ? 'text-emerald-500' : 'text-gray-400']" />
+                    <p :class="['text-sm font-medium', form.schedule_frequency === 'daily' ? 'text-emerald-700 dark:text-emerald-300' : 'text-primary']">Daily</p>
+                  </button>
+                  <button
+                    type="button"
+                    @click="form.schedule_frequency = 'weekly'"
+                    :class="[
+                      'p-3 rounded-lg border-2 transition-all text-center',
+                      form.schedule_frequency === 'weekly'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/30'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-700'
+                    ]"
+                  >
+                    <CalendarIcon :class="['h-5 w-5 mx-auto mb-1', form.schedule_frequency === 'weekly' ? 'text-purple-500' : 'text-gray-400']" />
+                    <p :class="['text-sm font-medium', form.schedule_frequency === 'weekly' ? 'text-purple-700 dark:text-purple-300' : 'text-primary']">Weekly</p>
+                  </button>
+                  <button
+                    type="button"
+                    @click="form.schedule_frequency = 'monthly'"
+                    :class="[
+                      'p-3 rounded-lg border-2 transition-all text-center',
+                      form.schedule_frequency === 'monthly'
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/30'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-amber-300 dark:hover:border-amber-700'
+                    ]"
+                  >
+                    <CalendarIcon :class="['h-5 w-5 mx-auto mb-1', form.schedule_frequency === 'monthly' ? 'text-amber-500' : 'text-gray-400']" />
+                    <p :class="['text-sm font-medium', form.schedule_frequency === 'monthly' ? 'text-amber-700 dark:text-amber-300' : 'text-primary']">Monthly</p>
+                  </button>
+                </div>
               </div>
 
+              <!-- Time Selection - Simple Hour/Minute -->
               <div>
-                <label class="block text-sm font-medium text-primary mb-2">Time</label>
-                <div class="relative">
-                  <button
-                    ref="timePickerButton"
-                    type="button"
-                    @click="toggleTimePicker"
-                    class="input-field w-full flex items-center justify-between gap-2 cursor-pointer"
-                  >
-                    <div class="flex items-center gap-2">
-                      <ClockIcon class="h-4 w-4 text-emerald-500" />
-                      <span class="font-medium">{{ formattedTime }}</span>
-                    </div>
-                    <ChevronDownIcon :class="['h-4 w-4 text-gray-400 transition-transform', showTimePicker ? 'rotate-180' : '']" />
-                  </button>
-
-                  <!-- Time Picker Dropdown (Teleported to body) -->
-                  <Teleport to="body">
-                    <div
-                      v-if="showTimePicker"
-                      class="fixed inset-0 z-40"
-                      @click="showTimePicker = false"
-                    ></div>
-                    <div
-                      v-if="showTimePicker"
-                      class="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3"
-                      :style="{
-                        top: timePickerPosition.top + 'px',
-                        left: timePickerPosition.left + 'px',
-                        width: timePickerPosition.width + 'px'
-                      }"
-                    >
-                      <div class="flex gap-4">
-                        <!-- Hour Selector -->
-                        <div class="flex-1">
-                          <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 text-center">Hour</p>
-                          <div class="h-40 overflow-y-auto scrollbar-thin">
-                            <div class="space-y-1">
-                              <button
-                                v-for="h in 24"
-                                :key="h - 1"
-                                type="button"
-                                @click="scheduleHour = h - 1"
-                                :class="[
-                                  'w-full py-1.5 px-2 rounded text-sm font-medium transition-colors',
-                                  scheduleHour === h - 1
-                                    ? 'bg-emerald-500 text-white'
-                                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100'
-                                ]"
-                              >
-                                {{ h - 1 === 0 ? '12 AM' : h - 1 < 12 ? `${h - 1} AM` : h - 1 === 12 ? '12 PM' : `${h - 1 - 12} PM` }}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <!-- Minute Selector -->
-                        <div class="flex-1">
-                          <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 text-center">Minute</p>
-                          <div class="h-40 overflow-y-auto scrollbar-thin">
-                            <div class="space-y-1">
-                              <button
-                                v-for="m in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]"
-                                :key="m"
-                                type="button"
-                                @click="scheduleMinute = m"
-                                :class="[
-                                  'w-full py-1.5 px-2 rounded text-sm font-medium transition-colors',
-                                  scheduleMinute === m
-                                    ? 'bg-emerald-500 text-white'
-                                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100'
-                                ]"
-                              >
-                                :{{ String(m).padStart(2, '0') }}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Done Button -->
+                <label class="block text-sm font-medium text-primary mb-3">Time</label>
+                <div class="flex items-center gap-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+                  <ClockIcon class="h-5 w-5 text-emerald-500" />
+                  <div class="flex items-center gap-2">
+                    <!-- Hour -->
+                    <div class="flex items-center gap-1">
                       <button
                         type="button"
-                        @click="showTimePicker = false"
-                        class="mt-3 w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+                        @click="scheduleHour = (scheduleHour - 1 + 24) % 24"
+                        class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
                       >
-                        Done
+                        <ChevronDownIcon class="h-4 w-4 text-gray-600 dark:text-gray-300 rotate-90" />
+                      </button>
+                      <div class="w-16 text-center py-2 px-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 font-mono text-lg font-semibold text-primary">
+                        {{ String(scheduleHour).padStart(2, '0') }}
+                      </div>
+                      <button
+                        type="button"
+                        @click="scheduleHour = (scheduleHour + 1) % 24"
+                        class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        <ChevronDownIcon class="h-4 w-4 text-gray-600 dark:text-gray-300 -rotate-90" />
                       </button>
                     </div>
-                  </Teleport>
+                    <span class="text-2xl font-bold text-gray-400">:</span>
+                    <!-- Minute -->
+                    <div class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        @click="scheduleMinute = (scheduleMinute - 5 + 60) % 60"
+                        class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        <ChevronDownIcon class="h-4 w-4 text-gray-600 dark:text-gray-300 rotate-90" />
+                      </button>
+                      <div class="w-16 text-center py-2 px-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 font-mono text-lg font-semibold text-primary">
+                        {{ String(scheduleMinute).padStart(2, '0') }}
+                      </div>
+                      <button
+                        type="button"
+                        @click="scheduleMinute = (scheduleMinute + 5) % 60"
+                        class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        <ChevronDownIcon class="h-4 w-4 text-gray-600 dark:text-gray-300 -rotate-90" />
+                      </button>
+                    </div>
+                  </div>
+                  <span class="text-sm text-secondary ml-2">({{ formattedTime }})</span>
                 </div>
               </div>
 
@@ -1333,216 +1323,25 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Notifications Tab -->
-      <div v-if="activeTab === 'notifications'" class="space-y-4">
-        <!-- Channel Selection (Multi-select) -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('notifyChannels')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
+      <!-- Notifications Link Card (at bottom of compression tab) -->
+      <div v-if="activeTab === 'compression'" class="mt-4">
+        <button
+          @click="router.push('/notifications?tab=backup')"
+          class="w-full p-4 rounded-xl bg-gradient-to-r from-pink-50 to-rose-50 dark:from-pink-900/20 dark:to-rose-900/20 border border-pink-200 dark:border-pink-800 hover:border-pink-300 dark:hover:border-pink-700 transition-all text-left"
+        >
+          <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30">
-                <ServerIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Notification Channels</h3>
-                <p class="text-sm text-secondary">Select channels to receive backup notifications</p>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span v-if="selectedChannelCount > 0" class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">
-                {{ selectedChannelCount }} selected
-              </span>
-              <span v-else class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                None selected
-              </span>
-              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.notifyChannels ? 'rotate-180' : '']" />
-            </div>
-          </button>
-
-          <div v-if="sections.notifyChannels" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <!-- Configure Notifications Button -->
-            <div class="mt-4 flex items-center justify-between">
-              <p class="text-sm text-secondary">Select one or more channels to receive notifications</p>
-              <button
-                @click="router.push('/notifications')"
-                class="btn-secondary text-sm flex items-center gap-2"
-              >
-                <Cog6ToothIcon class="h-4 w-4" />
-                Manage Channels
-              </button>
-            </div>
-
-            <div v-if="loadingChannels" class="mt-4 flex justify-center py-8">
-              <LoadingSpinner text="Loading notification channels..." />
-            </div>
-
-            <div v-else-if="allNotificationChannels.length > 0" class="mt-4 space-y-4">
-              <!-- Services (Checkboxes) -->
-              <div v-if="notificationServices.length > 0">
-                <p class="text-xs font-medium text-muted uppercase tracking-wide mb-2">Channels</p>
-                <div class="space-y-2">
-                  <label
-                    v-for="channel in allNotificationChannels.filter(c => c.type === 'service')"
-                    :key="`service-${channel.id}`"
-                    :class="[
-                      'flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all',
-                      isChannelSelected(channel)
-                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
-                    ]"
-                  >
-                    <input
-                      type="checkbox"
-                      :checked="isChannelSelected(channel)"
-                      @change="toggleNotificationChannel(channel)"
-                      class="h-4 w-4 rounded border-gray-300 text-indigo-500 focus:ring-indigo-500"
-                    />
-                    <div class="flex items-center gap-3 flex-1">
-                      <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/40">
-                        <BellIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                      </div>
-                      <div>
-                        <p class="font-medium text-primary">{{ channel.name }}</p>
-                        <p class="text-xs text-secondary">{{ channel.description }}</p>
-                      </div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <!-- Groups (Checkboxes) -->
-              <div v-if="notificationGroups.length > 0">
-                <p class="text-xs font-medium text-muted uppercase tracking-wide mb-2">Groups</p>
-                <div class="space-y-2">
-                  <label
-                    v-for="channel in allNotificationChannels.filter(c => c.type === 'group')"
-                    :key="`group-${channel.id}`"
-                    :class="[
-                      'flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all',
-                      isChannelSelected(channel)
-                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
-                    ]"
-                  >
-                    <input
-                      type="checkbox"
-                      :checked="isChannelSelected(channel)"
-                      @change="toggleNotificationChannel(channel)"
-                      class="h-4 w-4 rounded border-gray-300 text-purple-500 focus:ring-purple-500"
-                    />
-                    <div class="flex items-center gap-3 flex-1">
-                      <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/40">
-                        <FolderIcon class="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                      </div>
-                      <div>
-                        <p class="font-medium text-primary">{{ channel.name }}</p>
-                        <p class="text-xs text-secondary">{{ channel.description }}</p>
-                      </div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <button
-                v-if="selectedChannelCount > 0"
-                @click="clearAllNotificationChannels"
-                class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-              >
-                Clear all selections
-              </button>
-            </div>
-
-            <div v-else class="mt-4 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-              <div class="flex items-start gap-3">
-                <ExclamationTriangleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                <div class="text-sm">
-                  <p class="font-medium text-amber-800 dark:text-amber-300">No Notification Channels Configured</p>
-                  <p class="text-amber-700 dark:text-amber-400 mt-1">
-                    You need to configure at least one notification channel (NTFY, email, etc.) before enabling backup notifications.
-                  </p>
-                  <button
-                    @click="router.push('/notifications')"
-                    class="mt-3 btn-primary text-sm"
-                  >
-                    Configure Notifications
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Notification Triggers -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('notifySettings')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-pink-100 to-rose-100 dark:from-pink-900/30 dark:to-rose-900/30">
+              <div class="p-2.5 rounded-xl bg-pink-100 dark:bg-pink-900/40">
                 <BellIcon class="h-5 w-5 text-pink-600 dark:text-pink-400" />
               </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Notification Triggers</h3>
-                <p class="text-sm text-secondary">When to send backup notifications</p>
+              <div>
+                <h3 class="font-semibold text-pink-800 dark:text-pink-300">Backup Notifications</h3>
+                <p class="text-sm text-pink-700 dark:text-pink-400">Configure backup event notifications in System Notifications</p>
               </div>
             </div>
-            <div class="flex items-center gap-2">
-              <span v-if="!canEnableNotifications" class="text-xs text-amber-600 dark:text-amber-400">Select channels first</span>
-              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.notifySettings ? 'rotate-180' : '']" />
-            </div>
-          </button>
-
-          <div v-if="sections.notifySettings" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div v-if="!canEnableNotifications" class="mt-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-              <p class="text-sm text-amber-700 dark:text-amber-400">
-                Please select at least one notification channel above before enabling notifications.
-              </p>
-            </div>
-
-            <div class="mt-4 space-y-3" :class="{ 'opacity-50 pointer-events-none': !canEnableNotifications }">
-              <div class="flex items-center justify-between p-4 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
-                <div class="flex items-center gap-3">
-                  <CheckCircleIcon class="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                  <div>
-                    <p class="font-medium text-emerald-800 dark:text-emerald-300">Notify on Success</p>
-                    <p class="text-sm text-emerald-700 dark:text-emerald-400">When backup completes successfully</p>
-                  </div>
-                </div>
-                <button
-                  @click="tryEnableNotification('success')"
-                  :class="[
-                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                    form.notify_on_success ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'
-                  ]"
-                >
-                  <span :class="['inline-block h-4 w-4 transform rounded-full bg-white transition-transform', form.notify_on_success ? 'translate-x-6' : 'translate-x-1']" />
-                </button>
-              </div>
-
-              <div class="flex items-center justify-between p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <div class="flex items-center gap-3">
-                  <XMarkIcon class="h-5 w-5 text-red-600 dark:text-red-400" />
-                  <div>
-                    <p class="font-medium text-red-800 dark:text-red-300">Notify on Failure</p>
-                    <p class="text-sm text-red-700 dark:text-red-400">When backup fails</p>
-                  </div>
-                </div>
-                <button
-                  @click="tryEnableNotification('failure')"
-                  :class="[
-                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                    form.notify_on_failure ? 'bg-red-500' : 'bg-gray-300 dark:bg-gray-600'
-                  ]"
-                >
-                  <span :class="['inline-block h-4 w-4 transform rounded-full bg-white transition-transform', form.notify_on_failure ? 'translate-x-6' : 'translate-x-1']" />
-                </button>
-              </div>
-            </div>
+            <ArrowRightIcon class="h-5 w-5 text-pink-500" />
           </div>
-        </div>
+        </button>
       </div>
     </template>
   </div>
