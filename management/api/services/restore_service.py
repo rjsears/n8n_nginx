@@ -576,7 +576,15 @@ class RestoreService:
                 "SELECT id FROM workflow_entity"
             ]
             list_result = subprocess.run(list_cmd, capture_output=True, text=True)
-            logger.info(f"Available workflow IDs in restore DB: {list_result.stdout.strip()}")
+            available_ids = [id.strip() for id in list_result.stdout.strip().split('\n') if id.strip()]
+            logger.warning(f"EXTRACT DEBUG: Requested ID: '{workflow_id}', Available IDs: {available_ids}")
+
+            # Check if the requested ID is in the list
+            if workflow_id not in available_ids:
+                logger.warning(f"EXTRACT DEBUG: ID '{workflow_id}' NOT in available list. Checking for similar...")
+                for aid in available_ids:
+                    if workflow_id in aid or aid in workflow_id:
+                        logger.warning(f"EXTRACT DEBUG: Found similar ID: '{aid}'")
 
             # Query workflow data
             query_cmd = [
@@ -586,12 +594,12 @@ class RestoreService:
                 f"SELECT id, name, active, nodes, connections, settings, \"staticData\", \"createdAt\", \"updatedAt\" "
                 f"FROM workflow_entity WHERE id = '{workflow_id}'"
             ]
-            logger.info(f"Extracting workflow with ID: {workflow_id}")
+            logger.warning(f"EXTRACT DEBUG: Extracting workflow with ID: '{workflow_id}'")
             result = subprocess.run(query_cmd, capture_output=True, text=True)
-            logger.info(f"Query result: stdout_len={len(result.stdout)}, stderr={result.stderr[:200] if result.stderr else 'none'}")
+            logger.warning(f"EXTRACT DEBUG: Query stdout_len={len(result.stdout)}, stderr={result.stderr[:200] if result.stderr else 'none'}")
 
             if not result.stdout.strip():
-                logger.error(f"Workflow {workflow_id} not found in restore database. Available IDs: {list_result.stdout.strip()}")
+                logger.error(f"Workflow {workflow_id} not found in restore database. Available IDs: {available_ids}")
                 return None
 
             # Parse the result - columns are pipe-separated
@@ -683,12 +691,12 @@ class RestoreService:
             workflow["name"] = new_name
 
             # Step 6: Prepare workflow for import (remove ID, dates, etc.)
+            # Note: Don't include 'active' field - n8n API treats it as read-only
             import_workflow = {
                 "name": new_name,
                 "nodes": workflow["nodes"],
                 "connections": workflow["connections"],
                 "settings": workflow.get("settings", {}),
-                "active": False,  # Always start inactive
             }
 
             # Step 7: Push to n8n via API
