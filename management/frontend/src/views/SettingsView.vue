@@ -618,7 +618,21 @@ watch(activeTab, (newTab) => {
       <p class="text-secondary mt-1">Configure your management console</p>
     </div>
 
-    <LoadingSpinner v-if="loading" size="lg" text="Loading settings..." class="py-12" />
+    <!-- Settings Loading Animation -->
+    <div v-if="loading" class="py-16 flex flex-col items-center justify-center">
+      <div class="relative flex items-center gap-2">
+        <!-- Main Gear -->
+        <div class="settings-gear">
+          <Cog6ToothIcon class="h-14 w-14 text-blue-500" />
+        </div>
+        <!-- Small Gear -->
+        <div class="settings-gear-small">
+          <Cog6ToothIcon class="h-8 w-8 text-indigo-400" />
+        </div>
+      </div>
+      <p class="mt-6 text-sm font-medium text-secondary">Loading settings...</p>
+      <p class="mt-1 text-xs text-muted">Fetching configuration options</p>
+    </div>
 
     <template v-else>
       <!-- Tabs - Matching style with colored icons -->
@@ -855,7 +869,19 @@ watch(activeTab, (newTab) => {
 
       <!-- Access Control Tab -->
       <div v-if="activeTab === 'access-control'" class="space-y-6">
-        <LoadingSpinner v-if="accessControlLoading" size="lg" text="Loading access control..." class="py-12" />
+        <!-- Access Control Loading Animation -->
+        <div v-if="accessControlLoading" class="py-16 flex flex-col items-center justify-center">
+          <div class="relative">
+            <div class="settings-shield">
+              <ShieldCheckIcon class="h-14 w-14 text-emerald-500" />
+            </div>
+            <div class="absolute inset-0 settings-shield-pulse">
+              <ShieldCheckIcon class="h-14 w-14 text-emerald-300 dark:text-emerald-700" />
+            </div>
+          </div>
+          <p class="mt-6 text-sm font-medium text-secondary">Loading access control...</p>
+          <p class="mt-1 text-xs text-muted">Fetching security settings</p>
+        </div>
 
         <template v-else>
           <!-- External Access Info (show if Cloudflare tunnel is configured) -->
@@ -1757,5 +1783,62 @@ watch(activeTab, (newTab) => {
 .expand-leave-from {
   opacity: 1;
   max-height: 200px;
+}
+
+/* Settings loading animations */
+.settings-gear {
+  animation: gearSpin 3s linear infinite;
+}
+
+.settings-gear-small {
+  animation: gearSpinReverse 2s linear infinite;
+  margin-left: -8px;
+  margin-top: 16px;
+}
+
+@keyframes gearSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes gearSpinReverse {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+.settings-shield {
+  animation: shieldPulse 2s ease-in-out infinite;
+}
+
+.settings-shield-pulse {
+  animation: shieldWave 2s ease-out infinite;
+}
+
+@keyframes shieldPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes shieldWave {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
 }
 </style>

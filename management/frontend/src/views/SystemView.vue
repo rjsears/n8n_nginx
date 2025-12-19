@@ -968,8 +968,6 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <LoadingSpinner v-if="loading && activeTab === 'overview'" size="lg" text="Loading system info..." class="py-12" />
-
     <!-- Health Tab -->
     <template v-if="activeTab === 'health'">
       <HeartbeatLoader v-if="healthLoading" :text="healthLoadingMessages[healthLoadingMessageIndex]" color="emerald" class="py-16 mt-8" />
