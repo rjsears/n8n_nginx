@@ -422,7 +422,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "backup_pending_deletion",
         "display_name": "Backup Pending Deletion",
-        "description": "Notification when backups are scheduled for deletion due to retention policy",
+        "description": "Notification when backups are scheduled for deletion due to retention policy. Retention rules are configured in Backup Settings → Pruning.",
         "icon": "TrashIcon",
         "category": "backup",
         "severity": "warning",
@@ -433,7 +433,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "backup_critical_space",
         "display_name": "Backup Critical Space",
-        "description": "Emergency notification when disk space is critically low for backups",
+        "description": "Emergency notification when disk space is critically low for backups. Threshold is configured in Backup Settings → Pruning (default: 5% free space).",
         "icon": "ExclamationTriangleIcon",
         "category": "backup",
         "severity": "critical",
