@@ -5,7 +5,6 @@ import { useNotificationStore } from '@/stores/notifications'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import {
@@ -288,7 +287,45 @@ onMounted(loadData)
       </button>
     </div>
 
-    <LoadingSpinner v-if="loading" size="lg" text="Loading workflows..." class="py-12" />
+    <!-- Workflow Loading Animation -->
+    <div v-if="loading" class="py-16 flex flex-col items-center justify-center">
+      <div class="relative flex items-center gap-4">
+        <!-- Trigger Node -->
+        <div class="workflow-node">
+          <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-amber-100 to-amber-200 dark:from-amber-900/40 dark:to-amber-800/40 border-2 border-amber-300 dark:border-amber-700 flex items-center justify-center shadow-lg">
+            <BoltIcon class="h-6 w-6 text-amber-600 dark:text-amber-400" />
+          </div>
+        </div>
+
+        <!-- Connection Line 1 -->
+        <div class="relative w-12 h-1">
+          <div class="absolute inset-0 bg-gradient-to-r from-amber-300 to-blue-300 dark:from-amber-700 dark:to-blue-700 rounded-full opacity-50"></div>
+          <div class="workflow-data-pulse absolute h-2 w-2 bg-emerald-500 rounded-full top-1/2 -translate-y-1/2"></div>
+        </div>
+
+        <!-- Process Node -->
+        <div class="workflow-node animation-delay-1">
+          <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/40 dark:to-blue-800/40 border-2 border-blue-300 dark:border-blue-700 flex items-center justify-center shadow-lg">
+            <PlayIcon class="h-6 w-6 text-blue-600 dark:text-blue-400" />
+          </div>
+        </div>
+
+        <!-- Connection Line 2 -->
+        <div class="relative w-12 h-1">
+          <div class="absolute inset-0 bg-gradient-to-r from-blue-300 to-emerald-300 dark:from-blue-700 dark:to-emerald-700 rounded-full opacity-50"></div>
+          <div class="workflow-data-pulse animation-delay-2 absolute h-2 w-2 bg-emerald-500 rounded-full top-1/2 -translate-y-1/2"></div>
+        </div>
+
+        <!-- Output Node -->
+        <div class="workflow-node animation-delay-2">
+          <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 dark:from-emerald-900/40 dark:to-emerald-800/40 border-2 border-emerald-300 dark:border-emerald-700 flex items-center justify-center shadow-lg">
+            <CheckCircleIcon class="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+          </div>
+        </div>
+      </div>
+      <p class="mt-6 text-sm font-medium text-secondary">Loading workflows...</p>
+      <p class="mt-1 text-xs text-muted">Fetching workflow data from n8n</p>
+    </div>
 
     <template v-else>
       <!-- Stats Grid -->
@@ -790,5 +827,54 @@ onMounted(loadData)
 .collapse-leave-from {
   opacity: 1;
   max-height: 800px;
+}
+
+/* Workflow loading animation */
+.workflow-node {
+  animation: nodePulse 2s ease-in-out infinite;
+}
+
+.workflow-node.animation-delay-1 {
+  animation-delay: 0.3s;
+}
+
+.workflow-node.animation-delay-2 {
+  animation-delay: 0.6s;
+}
+
+@keyframes nodePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+.workflow-data-pulse {
+  animation: dataPulse 1.5s ease-in-out infinite;
+}
+
+.workflow-data-pulse.animation-delay-2 {
+  animation-delay: 0.5s;
+}
+
+@keyframes dataPulse {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 8px);
+    opacity: 0;
+  }
 }
 </style>

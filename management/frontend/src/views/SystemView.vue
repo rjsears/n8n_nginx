@@ -888,14 +888,15 @@ onMounted(async () => {
   // Check for query params to set initial tab and target
   if (route.query.tab) {
     activeTab.value = route.query.tab
+  }
 
-    // If going to health tab, load health data
-    if (route.query.tab === 'health') {
-      await loadHealthData()
-    }
+  // Always load health data if we're on the health tab (default or via query param)
+  if (activeTab.value === 'health') {
+    await loadHealthData()
+  }
 
-    // If going to terminal tab with a target, pre-select it and optionally auto-connect
-    if (route.query.tab === 'terminal' && route.query.target) {
+  // If going to terminal tab with a target, pre-select it and optionally auto-connect
+  if (activeTab.value === 'terminal' && route.query.target) {
       await loadTerminalTargets()
       // Find matching target by container ID (first 12 chars)
       const targetId = route.query.target.slice(0, 12)
