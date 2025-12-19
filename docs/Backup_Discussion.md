@@ -1565,6 +1565,96 @@ restartContainer: (containerName, reason) => api.post(`/containers/${containerNa
 
 ---
 
+### December 19, 2024 - Containers Tab Shows Wrong Stopped Count
+
+**Issue Reported:**
+Dashboard shows 13 total, 11 running, 2 stopped (correct), but Containers tab shows 11 running, 0 stopped (incorrect).
+
+**Root Cause:**
+The containers store was calling `/containers/` API without explicitly passing `all=true` parameter. While the backend default is True, the parameter wasn't being sent reliably.
+
+**Fix Applied:**
+Updated `containers.js` store to explicitly pass `all: true`:
+
+```javascript
+// Before:
+const response = await api.get('/containers/')
+
+// After:
+const response = await api.get('/containers/', { params: { all: true } })
+```
+
+**Status:** ✅ Fixed
+
+---
+
+### December 19, 2024 - Add Stopped Containers Popup with Remove Option
+
+**Feature Request:**
+When clicking on "Stopped" stat box, show a popup with stopped containers and option to remove them with skull/crossbones warning.
+
+**Implementation:**
+1. Made "Stopped" stat card clickable (shows "Click to manage" when count > 0)
+2. Added popup dialog showing list of stopped containers
+3. Each container has Start and Remove buttons
+4. Remove shows "Danger Zone" confirmation with skull icon and "cannot be undone" warning
+5. Added `/containers/{name}` DELETE endpoint to backend
+6. Added `removeContainer` method to container service and store
+
+**Files Modified:**
+- `management/frontend/src/views/ContainersView.vue`
+- `management/frontend/src/stores/containers.js`
+- `management/api/routers/containers.py`
+- `management/api/services/container_service.py`
+
+**Status:** ✅ Fixed
+
+---
+
+### December 19, 2024 - Remove Settings => Backup Tab
+
+**Issue Reported:**
+Settings => Backup tab is redundant since all backup configuration is now in the main Backups menu.
+
+**Fix Applied:**
+Removed the Backup tab from SettingsView:
+- Removed `backup` tab from tabs array
+- Removed backup settings section from template
+- Removed backup property from settings ref
+
+**Files Modified:**
+- `management/frontend/src/views/SettingsView.vue`
+
+**Status:** ✅ Fixed
+
+---
+
+### December 19, 2024 - Better Dashboard Loading Animation
+
+**Feature Request:**
+Replace boring spinning circle with a cooler animated loading graphic for Dashboard's "Loading System Metrics".
+
+**Implementation:**
+Created new `SystemMetricsLoader.vue` component with:
+- Animated server/rack visualization with pulsing status lights
+- Rotating outer ring with dashed border
+- Pulsing middle ring
+- Orbiting data particles in different colors
+- Animated data flow lines
+- Animated bar chart showing "metrics processing"
+- Cycling loading messages (CPU, memory, disk, containers, network)
+- Bouncing progress dots
+
+**Files Created:**
+- `management/frontend/src/components/common/SystemMetricsLoader.vue`
+
+**Files Modified:**
+- `management/frontend/src/views/DashboardView.vue`
+
+**Status:** ✅ Fixed
+
+---
+
 *Document updated on December 17, 2024*
 *Added Phase 7: Pruning & Retention System*
 *Added Backup Configuration Page documentation*
@@ -1576,3 +1666,6 @@ restartContainer: (containerName, reason) => api.post(`/containers/${containerNa
 *Added global Unmount button to Backups page header*
 *Fixed Health Dashboard showing incorrect backup count*
 *Fixed container restart 404 error (Cloudflare/Tailscale restart buttons)*
+*Fixed Containers tab stopped count and added remove container popup*
+*Removed redundant Settings => Backup tab*
+*Added cool animated loading graphic for Dashboard metrics*
