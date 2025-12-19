@@ -678,6 +678,23 @@ async function loadData() {
     } catch (err) {
       console.error('Failed to fetch backup configuration:', err)
     }
+    // Check if a backup is already mounted (e.g., from previous session)
+    try {
+      const mountStatus = await api.get('/backups/mount/status')
+      if (mountStatus.data.mounted && mountStatus.data.backup_id) {
+        mountedBackup.value = {
+          backup_id: mountStatus.data.backup_id,
+          backup_info: mountStatus.data.backup_info,
+          workflows: mountStatus.data.workflows || []
+        }
+        // Store workflows for the mounted backup
+        if (mountStatus.data.workflows) {
+          backupWorkflows.value[mountStatus.data.backup_id] = mountStatus.data.workflows
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check mount status:', err)
+    }
   } catch (error) {
     notificationStore.error('Failed to load backups')
   } finally {
@@ -705,6 +722,17 @@ onUnmounted(stopPolling)
         <p class="text-secondary mt-1">Manage database and workflow backups</p>
       </div>
       <div class="flex items-center gap-3">
+        <!-- Unmount Button - Shows when a backup is mounted -->
+        <button
+          v-if="mountedBackup"
+          @click="unmountBackup()"
+          :disabled="unmountingBackup"
+          class="flex items-center gap-2 px-4 py-2 bg-amber-100 dark:bg-amber-500/20 border border-amber-400 dark:border-amber-500 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-500/30 transition-colors font-medium"
+        >
+          <LoadingSpinner v-if="unmountingBackup" size="sm" />
+          <XCircleIcon v-else class="h-4 w-4" />
+          {{ unmountingBackup ? 'Unmounting...' : 'Unmount Backup' }}
+        </button>
         <button
           @click="router.push('/backup-settings')"
           class="btn-secondary flex items-center gap-2"
