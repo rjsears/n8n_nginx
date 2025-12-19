@@ -110,18 +110,46 @@ const severityOptions = [
   { value: 'critical', label: 'Critical', color: 'red', description: 'Immediate action required' },
 ]
 
+// Rate limit presets
+const rateLimitPresets = [
+  { value: 25, label: 'Low (25)' },
+  { value: 50, label: 'Medium (50)' },
+  { value: 100, label: 'Standard (100)' },
+  { value: 200, label: 'High (200)' },
+  { value: 500, label: 'Maximum (500)' },
+]
+
+// Get rate limit severity class based on value
+const getRateLimitSeverityClass = (value) => {
+  if (value <= 50) {
+    return 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+  } else if (value <= 150) {
+    return 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+  } else {
+    return 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+  }
+}
+
 // Category grouping
 const categoryInfo = {
   backup: { label: 'Backup Events', icon: CircleStackIcon, color: 'emerald', description: 'Notifications for backup operations' },
   container: { label: 'Container Events', icon: CubeIcon, color: 'blue', description: 'Docker container health and status alerts' },
   system: { label: 'System Events', icon: CpuChipIcon, color: 'purple', description: 'Host system resource monitoring' },
-  security: { label: 'Security Events', icon: ShieldCheckIcon, color: 'red', description: 'Security and access notifications' },
+  ssl: { label: 'SSL Certificate Events', icon: ShieldCheckIcon, color: 'amber', description: 'SSL/TLS certificate expiration monitoring' },
+  security: { label: 'Security Events', icon: ShieldExclamationIcon, color: 'red', description: 'Security and access notifications' },
 }
+
+// SSL configuration status
+const sslConfigured = ref(false)
 
 // Computed
 const eventsByCategory = computed(() => {
   const grouped = {}
   for (const event of events.value) {
+    // Hide ssl category if SSL is not configured
+    if (event.category === 'ssl' && !sslConfigured.value) {
+      continue
+    }
     if (!grouped[event.category]) {
       grouped[event.category] = []
     }
@@ -261,12 +289,24 @@ async function loadData() {
       loadGlobalSettings(),
       loadContainerConfigs(),
       loadChannelsAndGroups(),
+      loadSslStatus(),
     ])
   } catch (error) {
     console.error('Failed to load system notifications data:', error)
     notificationStore.error('Failed to load notification settings')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadSslStatus() {
+  try {
+    // Check if SSL is configured via the health endpoint
+    const response = await api.get('/system/health/full?quick=true')
+    sslConfigured.value = response.data.ssl_configured || false
+  } catch (error) {
+    console.error('Failed to load SSL status:', error)
+    sslConfigured.value = false
   }
 }
 
@@ -804,6 +844,7 @@ onMounted(() => {
                     ? (category === 'backup' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-b border-emerald-200 dark:border-emerald-500/20'
                         : category === 'container' ? 'bg-blue-50 dark:bg-blue-500/10 border-b border-blue-200 dark:border-blue-500/20'
                         : category === 'security' ? 'bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/20'
+                        : category === 'ssl' ? 'bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/20'
                         : 'bg-purple-50 dark:bg-purple-500/10 border-b border-purple-200 dark:border-purple-500/20')
                     : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
             ]"
@@ -815,6 +856,7 @@ onMounted(() => {
                   ? category === 'backup' ? 'bg-emerald-100 dark:bg-emerald-500/20'
                     : category === 'container' ? 'bg-blue-100 dark:bg-blue-500/20'
                     : category === 'security' ? 'bg-red-100 dark:bg-red-500/20'
+                    : category === 'ssl' ? 'bg-amber-100 dark:bg-amber-500/20'
                     : 'bg-purple-100 dark:bg-purple-500/20'
                   : 'bg-gray-100 dark:bg-gray-700'
               ]">
@@ -825,6 +867,7 @@ onMounted(() => {
                     category === 'backup' ? 'text-emerald-500'
                       : category === 'container' ? 'text-blue-500'
                       : category === 'security' ? 'text-red-500'
+                      : category === 'ssl' ? 'text-amber-500'
                       : 'text-purple-500'
                   ]"
                 />
@@ -836,6 +879,7 @@ onMounted(() => {
                     ? category === 'backup' ? 'text-emerald-700 dark:text-emerald-400'
                       : category === 'container' ? 'text-blue-700 dark:text-blue-400'
                       : category === 'security' ? 'text-red-700 dark:text-red-400'
+                      : category === 'ssl' ? 'text-amber-700 dark:text-amber-400'
                       : 'text-purple-700 dark:text-purple-400'
                     : 'text-primary'
                 ]">
@@ -852,6 +896,7 @@ onMounted(() => {
                 category === 'backup' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
                   : category === 'container' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
                   : category === 'security' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                  : category === 'ssl' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
                   : 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400'
               ]">
                 {{ getCategoryEventCounts(category).enabled }}/{{ getCategoryEventCounts(category).total }} enabled
@@ -966,6 +1011,7 @@ onMounted(() => {
                               event.category === 'backup' ? 'border-t-4 border-t-emerald-400'
                                 : event.category === 'container' ? 'border-t-4 border-t-blue-400'
                                 : event.category === 'security' ? 'border-t-4 border-t-red-400'
+                                : event.category === 'ssl' ? 'border-t-4 border-t-amber-400'
                                 : 'border-t-4 border-t-purple-400'
                             ]">
                               <h4 class="font-semibold flex items-center gap-2 text-primary">
@@ -976,6 +1022,7 @@ onMounted(() => {
                                     event.category === 'backup' ? 'text-emerald-500'
                                       : event.category === 'container' ? 'text-blue-500'
                                       : event.category === 'security' ? 'text-red-500'
+                                      : event.category === 'ssl' ? 'text-amber-500'
                                       : 'text-purple-500'
                                   ]"
                                 />
@@ -1032,6 +1079,7 @@ onMounted(() => {
                                       event.category === 'backup' ? 'border-gray-400 dark:border-gray-600 focus:border-emerald-400 focus:ring-emerald-400'
                                         : event.category === 'container' ? 'border-gray-400 dark:border-gray-600 focus:border-blue-400 focus:ring-blue-400'
                                         : event.category === 'security' ? 'border-gray-400 dark:border-gray-600 focus:border-red-400 focus:ring-red-400'
+                                        : event.category === 'ssl' ? 'border-gray-400 dark:border-gray-600 focus:border-amber-400 focus:ring-amber-400'
                                         : 'border-gray-400 dark:border-gray-600 focus:border-purple-400 focus:ring-purple-400'
                                     ]"
                                   >
@@ -1056,6 +1104,7 @@ onMounted(() => {
                                         event.category === 'backup' ? 'accent-emerald-500'
                                           : event.category === 'container' ? 'accent-blue-500'
                                           : event.category === 'security' ? 'accent-red-500'
+                                          : event.category === 'ssl' ? 'accent-amber-500'
                                           : 'accent-purple-500'
                                       ]"
                                     />
@@ -1066,6 +1115,7 @@ onMounted(() => {
                                         event.category === 'backup' ? 'text-emerald-600 dark:text-emerald-400'
                                           : event.category === 'container' ? 'text-blue-600 dark:text-blue-400'
                                           : event.category === 'security' ? 'text-red-600 dark:text-red-400'
+                                          : event.category === 'ssl' ? 'text-amber-600 dark:text-amber-400'
                                           : 'text-purple-600 dark:text-purple-400'
                                       ]">{{ event.cooldown_minutes }} min</span>
                                       <span class="text-xs text-secondary">120 min</span>
@@ -1089,6 +1139,7 @@ onMounted(() => {
                                       event.category === 'backup' ? 'bg-emerald-500 hover:bg-emerald-600'
                                         : event.category === 'container' ? 'bg-blue-500 hover:bg-blue-600'
                                         : event.category === 'security' ? 'bg-red-500 hover:bg-red-600'
+                                        : event.category === 'ssl' ? 'bg-amber-500 hover:bg-amber-600'
                                         : 'bg-purple-500 hover:bg-purple-600'
                                     ]"
                                   >
@@ -1122,6 +1173,7 @@ onMounted(() => {
                                           ? event.category === 'backup' ? 'bg-emerald-500'
                                             : event.category === 'container' ? 'bg-blue-500'
                                             : event.category === 'security' ? 'bg-red-500'
+                                            : event.category === 'ssl' ? 'bg-amber-500'
                                             : 'bg-purple-500'
                                           : 'bg-orange-500'
                                       ]">
@@ -1170,8 +1222,11 @@ onMounted(() => {
               </div>
             </div>
             <div class="flex items-center gap-3">
-              <span class="text-sm text-secondary">
-                {{ globalSettings?.max_notifications_per_hour || 100 }}/hour max
+              <span :class="[
+                'px-2.5 py-1 rounded-full text-xs font-semibold',
+                getRateLimitSeverityClass(globalSettings?.max_notifications_per_hour || 100)
+              ]">
+                {{ globalSettings?.max_notifications_per_hour || 100 }}/hour
               </span>
               <ChevronDownIcon
                 :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedRateLimiting ? 'rotate-180' : '']"
@@ -1181,44 +1236,97 @@ onMounted(() => {
 
           <Transition name="collapse">
             <div v-if="expandedRateLimiting" class="border-t border-[var(--color-border)]">
-              <div class="p-4 space-y-4 bg-gray-50/50 dark:bg-gray-800/30">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium text-primary">Max Notifications Per Hour</p>
-                    <p class="text-sm text-secondary">Limit total notifications sent per hour</p>
+              <div class="p-5 space-y-6 bg-gray-50/50 dark:bg-gray-800/30">
+                <!-- Visual Rate Limit Gauge -->
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between">
+                    <p class="font-medium text-primary">Maximum Notifications Per Hour</p>
+                    <div class="flex items-center gap-2">
+                      <input
+                        type="number"
+                        :value="globalSettings?.max_notifications_per_hour"
+                        @change="updateGlobalSettings({ max_notifications_per_hour: Math.max(1, Math.min(1000, parseInt($event.target.value) || 100)) })"
+                        min="1"
+                        max="1000"
+                        class="input-field w-20 text-center font-semibold"
+                      />
+                      <span class="text-sm text-secondary">/hour</span>
+                    </div>
                   </div>
-                  <input
-                    type="number"
-                    :value="globalSettings?.max_notifications_per_hour"
-                    @change="updateGlobalSettings({ max_notifications_per_hour: parseInt($event.target.value) })"
-                    min="1"
-                    max="1000"
-                    class="input-field w-24"
-                  />
+
+                  <!-- Slider with gradient background -->
+                  <div class="relative pt-1">
+                    <input
+                      type="range"
+                      :value="globalSettings?.max_notifications_per_hour || 100"
+                      @input="updateGlobalSettings({ max_notifications_per_hour: parseInt($event.target.value) })"
+                      min="10"
+                      max="500"
+                      step="10"
+                      class="w-full h-2 rounded-full appearance-none cursor-pointer bg-gradient-to-r from-green-400 via-yellow-400 to-rose-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-300 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-300 [&::-moz-range-thumb]:cursor-pointer"
+                    />
+                    <div class="flex justify-between text-xs text-secondary mt-1">
+                      <span>10</span>
+                      <span>100</span>
+                      <span>250</span>
+                      <span>500</span>
+                    </div>
+                  </div>
+
+                  <!-- Preset Buttons -->
+                  <div class="flex flex-wrap gap-2 pt-2">
+                    <span class="text-xs text-secondary mr-1 self-center">Presets:</span>
+                    <button
+                      v-for="preset in rateLimitPresets"
+                      :key="preset.value"
+                      @click="updateGlobalSettings({ max_notifications_per_hour: preset.value })"
+                      :class="[
+                        'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                        globalSettings?.max_notifications_per_hour === preset.value
+                          ? 'bg-rose-500 text-white shadow-sm'
+                          : 'bg-white dark:bg-gray-700 text-secondary hover:bg-gray-100 dark:hover:bg-gray-600 border border-[var(--color-border)]'
+                      ]"
+                    >
+                      {{ preset.label }}
+                    </button>
+                  </div>
                 </div>
 
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium text-primary">Emergency Contact</p>
-                    <p class="text-sm text-secondary">Channel to notify if rate limit is exceeded</p>
+                <!-- Divider -->
+                <div class="border-t border-[var(--color-border)]"></div>
+
+                <!-- Emergency Contact -->
+                <div class="space-y-3">
+                  <div class="flex items-start gap-3">
+                    <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20 mt-0.5">
+                      <ExclamationTriangleIcon class="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div class="flex-1">
+                      <p class="font-medium text-primary">Emergency Contact</p>
+                      <p class="text-sm text-secondary mt-0.5">When the rate limit is exceeded, this channel will receive an alert</p>
+                    </div>
                   </div>
                   <select
                     :value="globalSettings?.emergency_contact_id || ''"
                     @change="updateGlobalSettings({ emergency_contact_id: $event.target.value ? parseInt($event.target.value) : null })"
-                    class="select-field w-48"
+                    class="select-field w-full"
                   >
-                    <option value="">None</option>
+                    <option value="">No emergency contact configured</option>
                     <option v-for="channel in channels" :key="channel.id" :value="channel.id">
                       {{ channel.name }}
                     </option>
                   </select>
                 </div>
 
-                <div class="pt-2 border-t border-[var(--color-border)]">
-                  <p class="text-xs text-secondary">
-                    <InformationCircleIcon class="inline h-4 w-4 mr-1" />
-                    When the rate limit is exceeded, remaining notifications will be queued and sent when the limit resets.
-                  </p>
+                <!-- Info Box -->
+                <div class="rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 p-3">
+                  <div class="flex gap-2">
+                    <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0" />
+                    <div class="text-sm text-blue-700 dark:text-blue-400">
+                      <p class="font-medium">How rate limiting works</p>
+                      <p class="mt-1 text-blue-600 dark:text-blue-300">When the hourly limit is reached, additional notifications are queued and delivered when the limit resets. Lower limits help prevent notification fatigue during high-activity periods.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

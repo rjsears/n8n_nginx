@@ -307,7 +307,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "disk_space_low",
         "display_name": "Disk Space Low",
-        "description": "Notification when disk space falls below threshold",
+        "description": "Notification when disk usage exceeds threshold. Configure the percentage threshold (default: 90% used).",
         "icon": "CircleStackIcon",
         "category": "system",
         "severity": "warning",
@@ -357,7 +357,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "high_memory",
         "display_name": "High Memory Usage",
-        "description": "Notification when system memory usage is high",
+        "description": "Notification when system memory usage exceeds threshold. Configure the percentage threshold (default: 90%).",
         "icon": "CpuChipIcon",
         "category": "system",
         "severity": "warning",
@@ -367,7 +367,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "high_cpu",
         "display_name": "High CPU Usage",
-        "description": "Notification when CPU usage is sustained high",
+        "description": "Notification when CPU usage is sustained above threshold. Configure percentage and duration (default: 90% for 5 minutes).",
         "icon": "FireIcon",
         "category": "system",
         "severity": "warning",
@@ -377,9 +377,9 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "certificate_expiring",
         "display_name": "Certificate Expiring",
-        "description": "Notification when SSL certificates are about to expire",
+        "description": "Notification when SSL certificates are about to expire. Only applies if using Let's Encrypt/certbot. Configure days before expiration (default: 14 days).",
         "icon": "ShieldCheckIcon",
-        "category": "security",
+        "category": "ssl",
         "severity": "warning",
         "frequency": "once_per_day",
         "thresholds": {"days": 14},
@@ -422,7 +422,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "backup_pending_deletion",
         "display_name": "Backup Pending Deletion",
-        "description": "Notification when backups are scheduled for deletion due to retention policy",
+        "description": "Notification when backups are scheduled for deletion due to retention policy. Retention rules are configured in Backup Settings → Pruning.",
         "icon": "TrashIcon",
         "category": "backup",
         "severity": "warning",
@@ -433,7 +433,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "backup_critical_space",
         "display_name": "Backup Critical Space",
-        "description": "Emergency notification when disk space is critically low for backups",
+        "description": "Emergency notification when disk space is critically low for backups. Threshold is configured in Backup Settings → Pruning (default: 5% free space).",
         "icon": "ExclamationTriangleIcon",
         "category": "backup",
         "severity": "critical",
