@@ -1045,7 +1045,11 @@ async def dispatch_notification(
     This looks up the event in SystemNotificationEvent and sends to all
     configured targets (channels/groups) in SystemNotificationTarget.
 
-    For container events, also checks per-container configuration.
+    Features:
+    - Per-container configuration checking
+    - Cooldown enforcement
+    - L1/L2 escalation support
+    - History logging
     """
     from api.database import async_session_maker
     from api.models.system_notifications import (
@@ -1053,6 +1057,8 @@ async def dispatch_notification(
         SystemNotificationTarget,
         SystemNotificationGlobalSettings,
         SystemNotificationContainerConfig,
+        SystemNotificationState,
+        SystemNotificationHistory,
     )
 
     async with async_session_maker() as db:
@@ -1112,15 +1118,58 @@ async def dispatch_notification(
             logger.debug(f"SystemNotificationEvent '{event_type}' is disabled")
             return
 
-        # Get targets for this event
-        targets_result = await db.execute(
-            select(SystemNotificationTarget).where(
-                SystemNotificationTarget.event_id == event.id
+        # Check cooldown
+        target_id = container_name or event_data.get("target_id") or "global"
+        state_result = await db.execute(
+            select(SystemNotificationState).where(
+                SystemNotificationState.event_type == event_type,
+                SystemNotificationState.target_id == target_id
             )
         )
-        targets = targets_result.scalars().all()
+        state = state_result.scalar_one_or_none()
 
-        if not targets:
+        now = datetime.now(UTC)
+
+        if event.cooldown_minutes and event.cooldown_minutes > 0 and state and state.last_sent_at:
+            cooldown_until = state.last_sent_at + timedelta(minutes=event.cooldown_minutes)
+            if now < cooldown_until:
+                remaining = (cooldown_until - now).total_seconds() / 60
+                logger.debug(f"Event '{event_type}' in cooldown for {remaining:.1f} more minutes")
+                # Log suppressed notification
+                history = SystemNotificationHistory(
+                    event_type=event_type,
+                    event_id=event.id,
+                    target_id=target_id,
+                    target_label=event_data.get("container") or event_type,
+                    severity=event.severity,
+                    event_data=event_data,
+                    status="suppressed",
+                    suppression_reason=f"cooldown ({event.cooldown_minutes}min)",
+                    triggered_at=now,
+                )
+                db.add(history)
+                await db.commit()
+                return
+
+        # Get L1 targets for this event (immediate delivery)
+        targets_result = await db.execute(
+            select(SystemNotificationTarget).where(
+                SystemNotificationTarget.event_id == event.id,
+                SystemNotificationTarget.escalation_level == 1
+            )
+        )
+        l1_targets = targets_result.scalars().all()
+
+        # Get L2 targets (escalation)
+        l2_targets_result = await db.execute(
+            select(SystemNotificationTarget).where(
+                SystemNotificationTarget.event_id == event.id,
+                SystemNotificationTarget.escalation_level == 2
+            )
+        )
+        l2_targets = l2_targets_result.scalars().all()
+
+        if not l1_targets and not l2_targets:
             logger.debug(f"No targets configured for event '{event_type}'")
             return
 
@@ -1141,7 +1190,10 @@ async def dispatch_notification(
         notification_service = NotificationService(db)
 
         sent_count = 0
-        for target in targets:
+        channels_sent = []
+
+        # Send to L1 targets immediately
+        for target in l1_targets:
             try:
                 if target.target_type == "channel" and target.channel_id:
                     result = await notification_service.send_to_service(
@@ -1149,7 +1201,8 @@ async def dispatch_notification(
                     )
                     if result.get("success"):
                         sent_count += 1
-                        logger.info(f"Sent '{event_type}' notification to channel {target.channel_id}")
+                        channels_sent.append({"type": "channel", "id": target.channel_id, "level": 1})
+                        logger.info(f"Sent '{event_type}' notification to L1 channel {target.channel_id}")
                     else:
                         logger.error(f"Failed to send to channel {target.channel_id}: {result.get('error')}")
 
@@ -1159,13 +1212,71 @@ async def dispatch_notification(
                     )
                     if result.get("success"):
                         sent_count += result.get("sent_count", 1)
-                        logger.info(f"Sent '{event_type}' notification to group {target.group_id}")
+                        channels_sent.append({"type": "group", "id": target.group_id, "level": 1})
+                        logger.info(f"Sent '{event_type}' notification to L1 group {target.group_id}")
                     else:
                         logger.error(f"Failed to send to group {target.group_id}: {result.get('error')}")
 
             except Exception as e:
-                logger.error(f"Error sending notification to target {target.id}: {e}")
+                logger.error(f"Error sending notification to L1 target {target.id}: {e}")
 
+        # If L2 targets exist and escalation timeout is set, schedule L2 escalation
+        # For now, we'll also send to L2 for critical events or if no L1 targets succeeded
+        if l2_targets and (event.severity == "critical" or sent_count == 0):
+            for target in l2_targets:
+                try:
+                    if target.target_type == "channel" and target.channel_id:
+                        escalation_title = f"[ESCALATED] {title}"
+                        result = await notification_service.send_to_service(
+                            target.channel_id, escalation_title, message, "critical"
+                        )
+                        if result.get("success"):
+                            sent_count += 1
+                            channels_sent.append({"type": "channel", "id": target.channel_id, "level": 2})
+                            logger.info(f"Sent '{event_type}' escalation to L2 channel {target.channel_id}")
+
+                    elif target.target_type == "group" and target.group_id:
+                        escalation_title = f"[ESCALATED] {title}"
+                        result = await notification_service.send_to_group(
+                            target.group_id, escalation_title, message, "critical"
+                        )
+                        if result.get("success"):
+                            sent_count += result.get("sent_count", 1)
+                            channels_sent.append({"type": "group", "id": target.group_id, "level": 2})
+                            logger.info(f"Sent '{event_type}' escalation to L2 group {target.group_id}")
+
+                except Exception as e:
+                    logger.error(f"Error sending notification to L2 target {target.id}: {e}")
+
+        # Update state for cooldown tracking
+        if state:
+            state.last_sent_at = now
+            state.updated_at = now
+        else:
+            state = SystemNotificationState(
+                event_type=event_type,
+                target_id=target_id,
+                last_sent_at=now,
+            )
+            db.add(state)
+
+        # Log to history
+        history = SystemNotificationHistory(
+            event_type=event_type,
+            event_id=event.id,
+            target_id=target_id,
+            target_label=event_data.get("container") or event_type,
+            severity=event.severity,
+            event_data=event_data,
+            channels_sent=channels_sent,
+            escalation_level=2 if l2_targets and sent_count > len(l1_targets) else 1,
+            status="sent" if sent_count > 0 else "failed",
+            triggered_at=now,
+            sent_at=now if sent_count > 0 else None,
+        )
+        db.add(history)
+
+        await db.commit()
         logger.info(f"Dispatched '{event_type}' notification to {sent_count} channel(s)")
 
 
