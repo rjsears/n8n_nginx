@@ -359,18 +359,23 @@ class RestoreService:
         Unmount the currently mounted backup.
 
         Tears down the restore container and cleans up.
+        Always attempts to stop the container regardless of memory state.
         """
         global _mounted_backup_id, _mounted_backup_info
 
-        if _mounted_backup_id is None:
+        backup_id = _mounted_backup_id
+        container_was_running = await self.is_container_running()
+
+        # If no memory state AND no container running, nothing to do
+        if _mounted_backup_id is None and not container_was_running:
             return {"status": "success", "message": "No backup was mounted"}
 
-        backup_id = _mounted_backup_id
-        logger.info(f"Unmounting backup {backup_id}...")
+        logger.info(f"Unmounting backup {backup_id or 'unknown'}...")
 
         try:
-            # Tear down the container
-            await self.teardown_restore_container()
+            # Always try to tear down the container if it exists
+            if container_was_running:
+                await self.teardown_restore_container()
 
             # Clear mounted state
             _mounted_backup_id = None
@@ -379,8 +384,8 @@ class RestoreService:
             # Clear workflow cache
             _clear_workflow_cache()
 
-            logger.info(f"Backup {backup_id} unmounted successfully")
-            return {"status": "success", "message": f"Backup {backup_id} unmounted"}
+            logger.info(f"Backup {backup_id or 'unknown'} unmounted successfully")
+            return {"status": "success", "message": f"Backup unmounted and container stopped"}
 
         except Exception as e:
             logger.error(f"Failed to unmount backup: {e}")
