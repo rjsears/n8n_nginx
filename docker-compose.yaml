@@ -185,11 +185,11 @@ services:
       - ./.env:/app/host_env/.env:rw
       # Nginx config for access control management (read-write)
       - ./nginx.conf:/app/host_config/nginx.conf:rw
-      # Docker-compose file for backup/restore (read-only)
-      - ./docker-compose.yaml:/app/host_config/docker-compose.yaml:ro
-      # Cloudflare credentials for SSL/DNS management (read-only)
-      - ./cloudflare.ini:/app/host_config/cloudflare.ini:ro
-      # SSL certificates for backup/restore (read-only)
+      # Docker-compose file for backup/restore (read-write for restore)
+      - ./docker-compose.yaml:/app/host_config/docker-compose.yaml:rw
+      # Cloudflare credentials for SSL/DNS management (read-write for restore)
+      - ./cloudflare.ini:/app/host_config/cloudflare.ini:rw
+      # SSL certificates for backup/restore (read-only - restore requires host access)
       - letsencrypt:/etc/letsencrypt:ro
       # NFS backup mount (set NFS_LOCAL_MOUNT in .env)
       - ${NFS_LOCAL_MOUNT}:/mnt/backups
