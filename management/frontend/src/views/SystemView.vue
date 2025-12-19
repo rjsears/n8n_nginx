@@ -897,22 +897,21 @@ onMounted(async () => {
 
   // If going to terminal tab with a target, pre-select it and optionally auto-connect
   if (activeTab.value === 'terminal' && route.query.target) {
-      await loadTerminalTargets()
-      // Find matching target by container ID (first 12 chars)
-      const targetId = route.query.target.slice(0, 12)
-      const matchingTarget = terminalTargets.value.find(t => t.id === targetId || t.id.startsWith(targetId))
-      if (matchingTarget) {
-        selectedTarget.value = matchingTarget.id
-        // Auto-connect if requested
-        if (route.query.autoconnect === 'true') {
-          // Wait for DOM to render, then initialize terminal properly before connecting
-          await nextTick()
-          await initTerminal()
-          // Give terminal time to fully initialize and render
-          await new Promise(resolve => setTimeout(resolve, 200))
-          if (!terminalConnected.value && selectedTarget.value && terminal) {
-            connectTerminal()
-          }
+    await loadTerminalTargets()
+    // Find matching target by container ID (first 12 chars)
+    const targetId = route.query.target.slice(0, 12)
+    const matchingTarget = terminalTargets.value.find(t => t.id === targetId || t.id.startsWith(targetId))
+    if (matchingTarget) {
+      selectedTarget.value = matchingTarget.id
+      // Auto-connect if requested
+      if (route.query.autoconnect === 'true') {
+        // Wait for DOM to render, then initialize terminal properly before connecting
+        await nextTick()
+        await initTerminal()
+        // Give terminal time to fully initialize and render
+        await new Promise(resolve => setTimeout(resolve, 200))
+        if (!terminalConnected.value && selectedTarget.value && terminal) {
+          connectTerminal()
         }
       }
     }
