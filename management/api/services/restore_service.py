@@ -36,6 +36,9 @@ RESTORE_DB_NAME = "n8n_restore"
 _mounted_backup_id: Optional[int] = None
 _mounted_backup_info: Optional[Dict[str, Any]] = None
 
+# File path for caching mounted workflow data
+MOUNTED_WORKFLOWS_CACHE = "/tmp/n8n_mounted_workflows.json"
+
 
 def get_mounted_backup_status() -> Dict[str, Any]:
     """Get the current mounted backup status (module-level function for easy access)."""
@@ -47,6 +50,61 @@ def get_mounted_backup_status() -> Dict[str, Any]:
             "backup_info": _mounted_backup_info,
         }
     return {"mounted": False, "backup_id": None, "backup_info": None}
+
+
+def _save_workflows_to_cache(workflows: List[Dict[str, Any]], backup_id: int) -> bool:
+    """Save workflow data to cache file for later extraction."""
+    try:
+        cache_data = {
+            "backup_id": backup_id,
+            "workflows": {w["id"]: w for w in workflows},  # Index by ID for fast lookup
+            "cached_at": datetime.now(UTC).isoformat(),
+        }
+        with open(MOUNTED_WORKFLOWS_CACHE, 'w') as f:
+            json.dump(cache_data, f)
+        logger.info(f"Cached {len(workflows)} workflows for backup {backup_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save workflow cache: {e}")
+        return False
+
+
+def _load_workflow_from_cache(workflow_id: str, backup_id: int) -> Optional[Dict[str, Any]]:
+    """Load a specific workflow from the cache file."""
+    try:
+        if not os.path.exists(MOUNTED_WORKFLOWS_CACHE):
+            logger.error("Workflow cache file not found")
+            return None
+
+        with open(MOUNTED_WORKFLOWS_CACHE, 'r') as f:
+            cache_data = json.load(f)
+
+        # Verify it's for the right backup
+        if cache_data.get("backup_id") != backup_id:
+            logger.warning(f"Cache is for backup {cache_data.get('backup_id')}, not {backup_id}")
+            # Still try to load - the container might have the right data
+
+        workflow = cache_data.get("workflows", {}).get(workflow_id)
+        if workflow:
+            logger.info(f"Found workflow {workflow_id} in cache")
+            return workflow
+        else:
+            available = list(cache_data.get("workflows", {}).keys())
+            logger.error(f"Workflow {workflow_id} not in cache. Available: {available}")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to load workflow from cache: {e}")
+        return None
+
+
+def _clear_workflow_cache() -> None:
+    """Clear the workflow cache file."""
+    try:
+        if os.path.exists(MOUNTED_WORKFLOWS_CACHE):
+            os.remove(MOUNTED_WORKFLOWS_CACHE)
+            logger.info("Cleared workflow cache")
+    except Exception as e:
+        logger.warning(f"Failed to clear workflow cache: {e}")
 
 
 class RestoreService:
@@ -248,8 +306,25 @@ class RestoreService:
                 await self.teardown_restore_container()
                 return {"status": "failed", "error": "Failed to load backup into container"}
 
-            # Get workflow count for info
-            workflows = await self.list_workflows_in_restore_db()
+            # Load FULL workflow data and save to cache
+            full_workflows = await self.load_all_workflows_full_data()
+            if full_workflows:
+                _save_workflows_to_cache(full_workflows, backup_id)
+                logger.info(f"Cached {len(full_workflows)} workflows for backup {backup_id}")
+            else:
+                logger.warning("No workflows found or failed to load workflow data")
+
+            # Prepare workflow metadata for UI (don't include nodes/connections)
+            workflows_for_ui = [
+                {
+                    "id": w["id"],
+                    "name": w["name"],
+                    "active": w.get("active", False),
+                    "created_at": w.get("created_at"),
+                    "updated_at": w.get("updated_at"),
+                }
+                for w in full_workflows
+            ]
 
             # Store mounted state
             _mounted_backup_id = backup_id
@@ -258,18 +333,18 @@ class RestoreService:
                 "filename": backup.filename,
                 "created_at": backup.created_at.isoformat() if backup.created_at else None,
                 "backup_type": backup.backup_type,
-                "workflow_count": len(workflows),
+                "workflow_count": len(full_workflows),
                 "mounted_at": datetime.now(UTC).isoformat(),
             }
 
-            logger.info(f"Backup {backup_id} mounted successfully with {len(workflows)} workflows")
+            logger.info(f"Backup {backup_id} mounted successfully with {len(full_workflows)} workflows")
 
             return {
                 "status": "success",
-                "message": f"Backup mounted with {len(workflows)} workflows",
+                "message": f"Backup mounted with {len(full_workflows)} workflows",
                 "backup_id": backup_id,
                 "backup_info": _mounted_backup_info,
-                "workflows": workflows,
+                "workflows": workflows_for_ui,
             }
 
         except Exception as e:
@@ -301,12 +376,16 @@ class RestoreService:
             _mounted_backup_id = None
             _mounted_backup_info = None
 
+            # Clear workflow cache
+            _clear_workflow_cache()
+
             logger.info(f"Backup {backup_id} unmounted successfully")
             return {"status": "success", "message": f"Backup {backup_id} unmounted"}
 
         except Exception as e:
             logger.error(f"Failed to unmount backup: {e}")
-            # Clear state anyway
+            # Clear state and cache anyway
+            _clear_workflow_cache()
             _mounted_backup_id = None
             _mounted_backup_info = None
             return {"status": "failed", "error": str(e)}
@@ -558,35 +637,91 @@ class RestoreService:
             logger.error(f"Failed to list workflows: {e}")
             return []
 
-    async def extract_workflow_from_restore_db(self, workflow_id: str) -> Optional[Dict[str, Any]]:
+    async def load_all_workflows_full_data(self) -> List[Dict[str, Any]]:
         """
-        Extract a specific workflow from the restore database.
-        Returns the complete workflow data as JSON.
+        Load ALL workflows with FULL data (nodes, connections, settings) from restore database.
+        Used during mount to cache all workflow data.
         """
         if not await self.is_container_running():
             logger.error("Restore container not running")
-            return None
+            return []
 
         try:
-            # First, list all workflow IDs to help debug
-            list_cmd = [
+            # Query ALL workflow data at once
+            query_cmd = [
                 "docker", "exec", RESTORE_CONTAINER_NAME,
                 "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
                 "-t", "-A", "-c",
-                "SELECT id FROM workflow_entity"
+                'SELECT id, name, active, nodes, connections, settings, "staticData", "createdAt", "updatedAt" FROM workflow_entity ORDER BY name'
             ]
-            list_result = subprocess.run(list_cmd, capture_output=True, text=True)
-            available_ids = [id.strip() for id in list_result.stdout.strip().split('\n') if id.strip()]
-            logger.warning(f"EXTRACT DEBUG: Requested ID: '{workflow_id}', Available IDs: {available_ids}")
+            result = subprocess.run(query_cmd, capture_output=True, text=True)
 
-            # Check if the requested ID is in the list
-            if workflow_id not in available_ids:
-                logger.warning(f"EXTRACT DEBUG: ID '{workflow_id}' NOT in available list. Checking for similar...")
-                for aid in available_ids:
-                    if workflow_id in aid or aid in workflow_id:
-                        logger.warning(f"EXTRACT DEBUG: Found similar ID: '{aid}'")
+            if result.returncode != 0:
+                logger.error(f"Failed to query workflows: {result.stderr}")
+                return []
 
-            # Query workflow data
+            workflows = []
+            for line in result.stdout.strip().split('\n'):
+                if '|' in line:
+                    try:
+                        parts = line.split('|')
+                        if len(parts) < 6:
+                            continue
+
+                        # Parse JSON fields
+                        nodes = json.loads(parts[3]) if parts[3] else []
+                        connections = json.loads(parts[4]) if parts[4] else {}
+                        settings = json.loads(parts[5]) if parts[5] else {}
+                        static_data = None
+                        if len(parts) > 6 and parts[6] and parts[6] != '\\N':
+                            try:
+                                static_data = json.loads(parts[6])
+                            except:
+                                pass
+
+                        workflows.append({
+                            "id": parts[0],
+                            "name": parts[1],
+                            "active": parts[2] == 't',
+                            "nodes": nodes,
+                            "connections": connections,
+                            "settings": settings,
+                            "staticData": static_data,
+                            "created_at": parts[7] if len(parts) > 7 else None,
+                            "updated_at": parts[8] if len(parts) > 8 else None,
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to parse workflow line: {e}")
+                        continue
+
+            logger.info(f"Loaded full data for {len(workflows)} workflows")
+            return workflows
+
+        except Exception as e:
+            logger.error(f"Failed to load workflows: {e}")
+            return []
+
+    async def extract_workflow_from_restore_db(self, workflow_id: str, backup_id: int = None) -> Optional[Dict[str, Any]]:
+        """
+        Extract a specific workflow from the mounted backup.
+        First tries cache (populated during mount), falls back to database query.
+        """
+        # Try to load from cache first (most reliable)
+        if backup_id:
+            cached = _load_workflow_from_cache(workflow_id, backup_id)
+            if cached:
+                logger.info(f"Loaded workflow {workflow_id} from cache")
+                return cached
+
+        # Fallback: try to load from database if container is running
+        if not await self.is_container_running():
+            logger.error("Restore container not running and no cache available")
+            return None
+
+        logger.info(f"Cache miss for workflow {workflow_id}, querying database...")
+
+        try:
+            # Query workflow data from restore container
             query_cmd = [
                 "docker", "exec", RESTORE_CONTAINER_NAME,
                 "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
@@ -594,12 +729,19 @@ class RestoreService:
                 f"SELECT id, name, active, nodes, connections, settings, \"staticData\", \"createdAt\", \"updatedAt\" "
                 f"FROM workflow_entity WHERE id = '{workflow_id}'"
             ]
-            logger.warning(f"EXTRACT DEBUG: Extracting workflow with ID: '{workflow_id}'")
             result = subprocess.run(query_cmd, capture_output=True, text=True)
-            logger.warning(f"EXTRACT DEBUG: Query stdout_len={len(result.stdout)}, stderr={result.stderr[:200] if result.stderr else 'none'}")
 
             if not result.stdout.strip():
-                logger.error(f"Workflow {workflow_id} not found in restore database. Available IDs: {available_ids}")
+                # Log available IDs for debugging
+                list_cmd = [
+                    "docker", "exec", RESTORE_CONTAINER_NAME,
+                    "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                    "-t", "-A", "-c",
+                    "SELECT id FROM workflow_entity"
+                ]
+                list_result = subprocess.run(list_cmd, capture_output=True, text=True)
+                available_ids = [id.strip() for id in list_result.stdout.strip().split('\n') if id.strip()]
+                logger.error(f"Workflow {workflow_id} not found in database. Available IDs: {available_ids}")
                 return None
 
             # Parse the result - columns are pipe-separated
@@ -672,8 +814,8 @@ class RestoreService:
                     "error": "Restore container is not running. Please remount the backup.",
                 }
 
-            # Step 3: Extract the workflow
-            workflow = await self.extract_workflow_from_restore_db(workflow_id)
+            # Step 3: Extract the workflow (uses cache from mount)
+            workflow = await self.extract_workflow_from_restore_db(workflow_id, backup_id)
             if not workflow:
                 return {"status": "failed", "error": f"Workflow {workflow_id} not found in backup"}
 
@@ -746,8 +888,8 @@ class RestoreService:
                 logger.error("Restore container is not running")
                 return None
 
-            # Extract workflow
-            workflow = await self.extract_workflow_from_restore_db(workflow_id)
+            # Extract workflow (uses cache from mount)
+            workflow = await self.extract_workflow_from_restore_db(workflow_id, backup_id)
             if not workflow:
                 return None
 
