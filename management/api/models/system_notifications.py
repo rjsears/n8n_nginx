@@ -307,7 +307,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "disk_space_low",
         "display_name": "Disk Space Low",
-        "description": "Notification when disk space falls below threshold",
+        "description": "Notification when disk usage exceeds threshold. Configure the percentage threshold (default: 90% used).",
         "icon": "CircleStackIcon",
         "category": "system",
         "severity": "warning",
@@ -357,7 +357,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "high_memory",
         "display_name": "High Memory Usage",
-        "description": "Notification when system memory usage is high",
+        "description": "Notification when system memory usage exceeds threshold. Configure the percentage threshold (default: 90%).",
         "icon": "CpuChipIcon",
         "category": "system",
         "severity": "warning",
@@ -367,7 +367,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "high_cpu",
         "display_name": "High CPU Usage",
-        "description": "Notification when CPU usage is sustained high",
+        "description": "Notification when CPU usage is sustained above threshold. Configure percentage and duration (default: 90% for 5 minutes).",
         "icon": "FireIcon",
         "category": "system",
         "severity": "warning",
@@ -377,7 +377,7 @@ DEFAULT_SYSTEM_EVENTS = [
     {
         "event_type": "certificate_expiring",
         "display_name": "Certificate Expiring",
-        "description": "Notification when SSL certificates are about to expire",
+        "description": "Notification when SSL certificates are about to expire. Configure how many days in advance you want to be notified (default: 14 days).",
         "icon": "ShieldCheckIcon",
         "category": "security",
         "severity": "warning",
