@@ -568,7 +568,8 @@ async function restoreWorkflowToN8n(backup, workflow) {
       notificationStore.error(response.data.error || 'Failed to restore workflow')
     }
   } catch (error) {
-    notificationStore.error('Failed to restore workflow to n8n')
+    const errorMsg = error.response?.data?.detail || error.response?.data?.error || 'Failed to restore workflow to n8n'
+    notificationStore.error(errorMsg)
   } finally {
     restoringWorkflow.value = null
   }
@@ -588,7 +589,8 @@ async function restoreConfigFile(backup, configFile) {
       notificationStore.error(response.data.error || 'Failed to restore config file')
     }
   } catch (error) {
-    notificationStore.error('Failed to restore config file')
+    const errorMsg = error.response?.data?.detail || error.response?.data?.error || 'Failed to restore config file'
+    notificationStore.error(errorMsg)
   } finally {
     restoringConfig.value = null
   }
