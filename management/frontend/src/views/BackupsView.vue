@@ -914,6 +914,9 @@ onUnmounted(stopPolling)
               <p class="text-sm font-medium text-primary">
                 {{ backupConfig.storage_preference === 'nfs' && backupConfig.backup_workflow === 'stage_then_copy' ? 'Enabled' : 'Disabled' }}
               </p>
+              <p v-if="backupConfig.storage_preference === 'nfs' && backupConfig.backup_workflow === 'stage_then_copy' && backupConfig.primary_storage_path" class="text-xs text-secondary mt-0.5 font-mono truncate">
+                {{ backupConfig.primary_storage_path }}
+              </p>
             </div>
           </div>
         </button>
