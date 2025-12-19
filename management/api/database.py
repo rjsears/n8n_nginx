@@ -214,6 +214,10 @@ async def run_schema_migrations() -> None:
         ("backup_history", "deletion_status", "VARCHAR(20)"),
         ("backup_history", "scheduled_deletion_at", "TIMESTAMP WITH TIME ZONE"),
         ("backup_history", "deletion_reason", "VARCHAR(100)"),
+        # backup_configuration tiered retention columns (GFS strategy)
+        ("backup_configuration", "retention_daily_count", "INTEGER DEFAULT 7"),
+        ("backup_configuration", "retention_weekly_count", "INTEGER DEFAULT 4"),
+        ("backup_configuration", "retention_monthly_count", "INTEGER DEFAULT 6"),
     ]
 
     async with engine.begin() as conn:

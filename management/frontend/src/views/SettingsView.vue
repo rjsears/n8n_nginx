@@ -799,72 +799,219 @@ watch(activeTab, (newTab) => {
 
       <!-- Security Tab -->
       <div v-if="activeTab === 'security'" class="space-y-6">
-        <Card title="Session Settings" :neon="true">
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <div class="flex-1">
-                <p class="font-medium text-primary">Session Timeout</p>
-                <p class="text-sm text-secondary">Minutes of inactivity before logout</p>
-              </div>
-              <div class="flex items-center gap-2 w-40 justify-end">
-                <input
-                  type="number"
-                  v-model="settings.security.session_timeout"
-                  min="5"
-                  max="480"
-                  class="input-field w-20 text-right"
-                />
-                <span class="text-secondary w-16">min</span>
-              </div>
+        <!-- Header Banner -->
+        <div class="relative overflow-hidden rounded-xl bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 p-6 text-white shadow-lg">
+          <div class="absolute inset-0 bg-black/10"></div>
+          <div class="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10 blur-2xl"></div>
+          <div class="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/10 blur-2xl"></div>
+          <div class="relative flex items-center gap-4">
+            <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+              <ShieldCheckIcon class="h-8 w-8" />
             </div>
-
-            <div class="flex items-center justify-between">
-              <div class="flex-1">
-                <p class="font-medium text-primary">Max Login Attempts</p>
-                <p class="text-sm text-secondary">Failed attempts before lockout</p>
-              </div>
-              <div class="flex items-center gap-2 w-40 justify-end">
-                <input
-                  type="number"
-                  v-model="settings.security.max_login_attempts"
-                  min="3"
-                  max="10"
-                  class="input-field w-20 text-right"
-                />
-                <span class="text-secondary w-16">attempts</span>
-              </div>
+            <div>
+              <h2 class="text-2xl font-bold">Security Settings</h2>
+              <p class="text-white/80">Configure session and authentication security</p>
             </div>
+          </div>
+        </div>
 
-            <div class="flex items-center justify-between">
-              <div class="flex-1">
-                <p class="font-medium text-primary">Lockout Duration</p>
-                <p class="text-sm text-secondary">Minutes to wait after lockout</p>
+        <!-- Session Settings Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <!-- Card Header -->
+          <div class="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-800 dark:to-gray-800 border-b border-gray-100 dark:border-gray-700 px-6 py-4">
+            <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-500/20">
+                <Cog6ToothIcon class="h-5 w-5 text-violet-600 dark:text-violet-400" />
               </div>
-              <div class="flex items-center gap-2 w-40 justify-end">
-                <input
-                  type="number"
-                  v-model="settings.security.lockout_duration"
-                  min="5"
-                  max="60"
-                  class="input-field w-20 text-right"
-                />
-                <span class="text-secondary w-16">min</span>
+              <div>
+                <h3 class="font-semibold text-gray-900 dark:text-white">Session Configuration</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Control session behavior and security policies</p>
               </div>
             </div>
           </div>
 
-          <template #footer>
-            <div class="flex justify-end">
+          <!-- Settings Grid -->
+          <div class="p-6 space-y-6">
+            <!-- Session Timeout -->
+            <div class="group relative rounded-xl border border-gray-200 dark:border-gray-700 p-5 transition-all hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-md">
+              <div class="flex items-start gap-4">
+                <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 text-white shadow-lg shadow-blue-500/25">
+                  <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <h4 class="font-semibold text-gray-900 dark:text-white">Session Timeout</h4>
+                    <span class="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400">
+                      {{ settings.security.session_timeout }} min
+                    </span>
+                  </div>
+                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Automatically log out users after this period of inactivity. Recommended: 30-60 minutes for security.
+                  </p>
+                  <div class="mt-4 flex items-center gap-4">
+                    <input
+                      type="range"
+                      v-model.number="settings.security.session_timeout"
+                      min="5"
+                      max="480"
+                      step="5"
+                      class="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                    <div class="flex items-center gap-2">
+                      <input
+                        type="number"
+                        v-model.number="settings.security.session_timeout"
+                        min="5"
+                        max="480"
+                        class="w-20 px-3 py-2 text-center font-mono text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <span class="text-sm text-gray-500 dark:text-gray-400 w-10">min</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Max Login Attempts -->
+            <div class="group relative rounded-xl border border-gray-200 dark:border-gray-700 p-5 transition-all hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-md">
+              <div class="flex items-start gap-4">
+                <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-lg shadow-orange-500/25">
+                  <LockClosedIcon class="h-6 w-6" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <h4 class="font-semibold text-gray-900 dark:text-white">Max Login Attempts</h4>
+                    <span class="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                      {{ settings.security.max_login_attempts }} attempts
+                    </span>
+                  </div>
+                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Number of failed login attempts before the account is temporarily locked. Protects against brute force attacks.
+                  </p>
+                  <div class="mt-4 flex items-center gap-4">
+                    <div class="flex-1 flex items-center gap-2">
+                      <button
+                        v-for="n in [3, 5, 7, 10]"
+                        :key="n"
+                        @click="settings.security.max_login_attempts = n"
+                        :class="[
+                          'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                          settings.security.max_login_attempts === n
+                            ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/25'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        ]"
+                      >
+                        {{ n }}
+                      </button>
+                    </div>
+                    <div class="flex items-center gap-2 border-l border-gray-200 dark:border-gray-700 pl-4">
+                      <input
+                        type="number"
+                        v-model.number="settings.security.max_login_attempts"
+                        min="3"
+                        max="10"
+                        class="w-16 px-3 py-2 text-center font-mono text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Lockout Duration -->
+            <div class="group relative rounded-xl border border-gray-200 dark:border-gray-700 p-5 transition-all hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-md">
+              <div class="flex items-start gap-4">
+                <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-400 to-rose-600 text-white shadow-lg shadow-red-500/25">
+                  <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <h4 class="font-semibold text-gray-900 dark:text-white">Lockout Duration</h4>
+                    <span class="px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400">
+                      {{ settings.security.lockout_duration }} min
+                    </span>
+                  </div>
+                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    How long to lock an account after exceeding the maximum login attempts. Longer durations provide better security.
+                  </p>
+                  <div class="mt-4 flex items-center gap-4">
+                    <input
+                      type="range"
+                      v-model.number="settings.security.lockout_duration"
+                      min="5"
+                      max="60"
+                      step="5"
+                      class="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-500"
+                    />
+                    <div class="flex items-center gap-2">
+                      <input
+                        type="number"
+                        v-model.number="settings.security.lockout_duration"
+                        min="5"
+                        max="60"
+                        class="w-20 px-3 py-2 text-center font-mono text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      />
+                      <span class="text-sm text-gray-500 dark:text-gray-400 w-10">min</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card Footer -->
+          <div class="bg-gray-50 dark:bg-gray-900/50 border-t border-gray-100 dark:border-gray-700 px-6 py-4">
+            <div class="flex items-center justify-between">
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                <span class="inline-flex items-center gap-1.5">
+                  <ShieldCheckIcon class="h-4 w-4 text-green-500" />
+                  All sessions are encrypted and secure
+                </span>
+              </p>
               <button
                 @click="saveSettings('security')"
                 :disabled="saving"
-                class="btn-primary"
+                class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-violet-500 to-purple-600 text-white font-medium shadow-lg shadow-violet-500/25 hover:shadow-xl hover:shadow-violet-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
+                <CheckIcon v-if="!saving" class="h-4 w-4" />
+                <ArrowPathIcon v-else class="h-4 w-4 animate-spin" />
                 {{ saving ? 'Saving...' : 'Save Changes' }}
               </button>
             </div>
-          </template>
-        </Card>
+          </div>
+        </div>
+
+        <!-- Security Tips Card -->
+        <div class="bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20 rounded-xl border border-violet-200 dark:border-violet-800 p-5">
+          <div class="flex gap-4">
+            <div class="flex-shrink-0">
+              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-500/20">
+                <BoltIcon class="h-5 w-5 text-violet-600 dark:text-violet-400" />
+              </div>
+            </div>
+            <div>
+              <h4 class="font-semibold text-violet-900 dark:text-violet-100">Security Best Practices</h4>
+              <ul class="mt-2 space-y-1.5 text-sm text-violet-700 dark:text-violet-300">
+                <li class="flex items-center gap-2">
+                  <CheckIcon class="h-4 w-4 text-violet-500" />
+                  Set session timeout to 30-60 minutes for optimal security
+                </li>
+                <li class="flex items-center gap-2">
+                  <CheckIcon class="h-4 w-4 text-violet-500" />
+                  Use 5 or fewer login attempts to prevent brute force attacks
+                </li>
+                <li class="flex items-center gap-2">
+                  <CheckIcon class="h-4 w-4 text-violet-500" />
+                  Set lockout duration to at least 15 minutes
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Access Control Tab -->

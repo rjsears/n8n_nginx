@@ -113,11 +113,12 @@ const form = ref({
   compression_enabled: true,
   compression_algorithm: 'gzip',
   compression_level: 6,
-  // Retention
+  // Retention - Tiered GFS (Grandfather-Father-Son) strategy
   retention_enabled: true,
-  retention_days: 30,
-  retention_count: 10,
-  retention_min_count: 3,
+  retention_daily_count: 7,    // Keep daily backups for X days
+  retention_weekly_count: 4,   // Keep weekly backups for X weeks
+  retention_monthly_count: 6,  // Keep monthly backups for X months
+  retention_min_count: 3,      // Minimum backups to always keep
   // Schedule
   schedule_enabled: true,
   schedule_frequency: 'daily',
@@ -1151,65 +1152,244 @@ onMounted(() => {
       </div>
 
       <!-- Retention Tab -->
-      <div v-if="activeTab === 'retention'" class="space-y-4">
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('retentionPolicy')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30">
-                <TrashIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Retention Policy</h3>
-                <p class="text-sm text-secondary">Automatic backup cleanup rules</p>
-              </div>
+      <div v-if="activeTab === 'retention'" class="space-y-6">
+        <!-- Header Banner -->
+        <div class="relative overflow-hidden rounded-xl bg-gradient-to-br from-amber-500 via-orange-500 to-red-500 p-6 text-white shadow-lg">
+          <div class="absolute inset-0 bg-black/10"></div>
+          <div class="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10 blur-2xl"></div>
+          <div class="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/10 blur-2xl"></div>
+          <div class="relative flex items-center gap-4">
+            <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+              <svg class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
             </div>
-            <div class="flex items-center gap-2">
-              <span v-if="form.retention_enabled" class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                Active
-              </span>
-              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.retentionPolicy ? 'rotate-180' : '']" />
+            <div>
+              <h2 class="text-2xl font-bold">Tiered Retention Policy</h2>
+              <p class="text-white/80">Grandfather-Father-Son backup retention strategy</p>
             </div>
-          </button>
+          </div>
+        </div>
 
-          <div v-if="sections.retentionPolicy" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div class="mt-4 flex items-center justify-between p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+        <!-- Enable Toggle Card -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div class="flex items-center justify-between p-5">
+            <div class="flex items-center gap-4">
+              <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-lg shadow-orange-500/25">
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+              </div>
               <div>
-                <p class="font-medium text-amber-800 dark:text-amber-300">Enable Automatic Cleanup</p>
-                <p class="text-sm text-amber-700 dark:text-amber-400">Delete old backups based on retention rules</p>
-              </div>
-              <button
-                @click="form.retention_enabled = !form.retention_enabled"
-                :class="[
-                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                  form.retention_enabled ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'
-                ]"
-              >
-                <span :class="['inline-block h-4 w-4 transform rounded-full bg-white transition-transform', form.retention_enabled ? 'translate-x-6' : 'translate-x-1']" />
-              </button>
-            </div>
-
-            <div v-if="form.retention_enabled" class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-                <label class="block text-sm font-medium text-primary mb-2">Keep For (days)</label>
-                <input v-model.number="form.retention_days" type="number" min="1" max="365" class="input-field w-full" />
-                <p class="mt-1 text-xs text-secondary">Delete backups older than this</p>
-              </div>
-
-              <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-                <label class="block text-sm font-medium text-primary mb-2">Max Backups</label>
-                <input v-model.number="form.retention_count" type="number" min="1" max="100" class="input-field w-full" />
-                <p class="mt-1 text-xs text-secondary">Maximum number to keep</p>
-              </div>
-
-              <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-                <label class="block text-sm font-medium text-primary mb-2">Min Backups</label>
-                <input v-model.number="form.retention_min_count" type="number" min="1" max="50" class="input-field w-full" />
-                <p class="mt-1 text-xs text-secondary">Never delete below this</p>
+                <h3 class="font-semibold text-gray-900 dark:text-white text-lg">Automatic Retention</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Intelligently rotate backups using the GFS retention strategy</p>
               </div>
             </div>
+            <button
+              @click="form.retention_enabled = !form.retention_enabled"
+              :class="[
+                'relative inline-flex h-7 w-14 items-center rounded-full transition-all duration-300',
+                form.retention_enabled
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 shadow-lg shadow-orange-500/25'
+                  : 'bg-gray-300 dark:bg-gray-600'
+              ]"
+            >
+              <span :class="['inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-300', form.retention_enabled ? 'translate-x-8' : 'translate-x-1']" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Tiered Retention Cards -->
+        <div v-if="form.retention_enabled" class="space-y-4">
+          <!-- GFS Explanation -->
+          <div class="bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 rounded-xl border border-blue-200 dark:border-blue-800 p-5">
+            <div class="flex gap-4">
+              <div class="flex-shrink-0">
+                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20">
+                  <svg class="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+              <div>
+                <h4 class="font-semibold text-blue-900 dark:text-blue-100">How Tiered Retention Works</h4>
+                <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                  The GFS (Grandfather-Father-Son) strategy keeps recent backups at higher frequency while retaining older backups at lower frequency.
+                  This gives you quick recovery options for recent data while maintaining long-term archives efficiently.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Retention Tiers Grid -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- Daily Tier (Son) -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden transition-all hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-600">
+              <div class="bg-gradient-to-r from-emerald-500 to-teal-500 p-4">
+                <div class="flex items-center gap-3">
+                  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+                    <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-white text-lg">Daily</h3>
+                    <p class="text-white/80 text-xs">Son backups</p>
+                  </div>
+                </div>
+              </div>
+              <div class="p-5">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Keep one backup per day for the most recent period. Ideal for quick recovery from recent changes.
+                </p>
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Keep for</label>
+                  <div class="flex items-center gap-3">
+                    <input
+                      v-model.number="form.retention_daily_count"
+                      type="number"
+                      min="1"
+                      max="30"
+                      class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                    <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-12">days</span>
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-gray-500">
+                    Keeps {{ form.retention_daily_count }} daily backup{{ form.retention_daily_count !== 1 ? 's' : '' }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Weekly Tier (Father) -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden transition-all hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600">
+              <div class="bg-gradient-to-r from-blue-500 to-indigo-500 p-4">
+                <div class="flex items-center gap-3">
+                  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+                    <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-white text-lg">Weekly</h3>
+                    <p class="text-white/80 text-xs">Father backups</p>
+                  </div>
+                </div>
+              </div>
+              <div class="p-5">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Keep one backup per week for medium-term retention. Great for recovering from issues discovered later.
+                </p>
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Keep for</label>
+                  <div class="flex items-center gap-3">
+                    <input
+                      v-model.number="form.retention_weekly_count"
+                      type="number"
+                      min="1"
+                      max="52"
+                      class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-12">weeks</span>
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-gray-500">
+                    Keeps {{ form.retention_weekly_count }} weekly backup{{ form.retention_weekly_count !== 1 ? 's' : '' }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Monthly Tier (Grandfather) -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden transition-all hover:shadow-md hover:border-purple-300 dark:hover:border-purple-600">
+              <div class="bg-gradient-to-r from-purple-500 to-pink-500 p-4">
+                <div class="flex items-center gap-3">
+                  <div class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+                    <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-white text-lg">Monthly</h3>
+                    <p class="text-white/80 text-xs">Grandfather backups</p>
+                  </div>
+                </div>
+              </div>
+              <div class="p-5">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Keep one backup per month for long-term archives. Essential for compliance and historical recovery.
+                </p>
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Keep for</label>
+                  <div class="flex items-center gap-3">
+                    <input
+                      v-model.number="form.retention_monthly_count"
+                      type="number"
+                      min="1"
+                      max="24"
+                      class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                    <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-12">months</span>
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-gray-500">
+                    Keeps {{ form.retention_monthly_count }} monthly backup{{ form.retention_monthly_count !== 1 ? 's' : '' }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Safety Net Card -->
+          <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+            <div class="flex items-start gap-4 p-5">
+              <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-400 to-rose-600 text-white shadow-lg shadow-red-500/25">
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div class="flex-1">
+                <h3 class="font-semibold text-gray-900 dark:text-white">Safety Net</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  Always keep at least this many backups, regardless of age. This prevents accidental deletion of all backups.
+                </p>
+                <div class="mt-4 flex items-center gap-4">
+                  <input
+                    v-model.number="form.retention_min_count"
+                    type="number"
+                    min="1"
+                    max="50"
+                    class="w-24 px-4 py-2 text-center font-mono border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  />
+                  <span class="text-sm text-gray-500 dark:text-gray-400">minimum backups always kept</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Retention Summary -->
+          <div class="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-800 dark:to-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h4 class="font-semibold text-gray-900 dark:text-white mb-3">Retention Summary</h4>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div class="text-center p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{ form.retention_daily_count }}</p>
+                <p class="text-xs text-emerald-700 dark:text-emerald-300">Daily</p>
+              </div>
+              <div class="text-center p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                <p class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{ form.retention_weekly_count }}</p>
+                <p class="text-xs text-blue-700 dark:text-blue-300">Weekly</p>
+              </div>
+              <div class="text-center p-3 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+                <p class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{ form.retention_monthly_count }}</p>
+                <p class="text-xs text-purple-700 dark:text-purple-300">Monthly</p>
+              </div>
+              <div class="text-center p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <p class="text-2xl font-bold text-amber-600 dark:text-amber-400">{{ form.retention_daily_count + form.retention_weekly_count + form.retention_monthly_count }}</p>
+                <p class="text-xs text-amber-700 dark:text-amber-300">Max Total</p>
+              </div>
+            </div>
+            <p class="mt-3 text-sm text-gray-500 dark:text-gray-400">
+              With daily backups, you'll have up to <strong>{{ form.retention_daily_count + form.retention_weekly_count + form.retention_monthly_count }}</strong> backups,
+              spanning approximately <strong>{{ Math.max(form.retention_daily_count, form.retention_weekly_count * 7, form.retention_monthly_count * 30) }}</strong> days of history.
+            </p>
           </div>
         </div>
       </div>
