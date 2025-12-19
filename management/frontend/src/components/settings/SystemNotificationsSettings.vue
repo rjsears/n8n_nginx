@@ -110,6 +110,26 @@ const severityOptions = [
   { value: 'critical', label: 'Critical', color: 'red', description: 'Immediate action required' },
 ]
 
+// Rate limit presets
+const rateLimitPresets = [
+  { value: 25, label: 'Low (25)' },
+  { value: 50, label: 'Medium (50)' },
+  { value: 100, label: 'Standard (100)' },
+  { value: 200, label: 'High (200)' },
+  { value: 500, label: 'Maximum (500)' },
+]
+
+// Get rate limit severity class based on value
+const getRateLimitSeverityClass = (value) => {
+  if (value <= 50) {
+    return 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
+  } else if (value <= 150) {
+    return 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+  } else {
+    return 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+  }
+}
+
 // Category grouping
 const categoryInfo = {
   backup: { label: 'Backup Events', icon: CircleStackIcon, color: 'emerald', description: 'Notifications for backup operations' },
@@ -1202,8 +1222,11 @@ onMounted(() => {
               </div>
             </div>
             <div class="flex items-center gap-3">
-              <span class="text-sm text-secondary">
-                {{ globalSettings?.max_notifications_per_hour || 100 }}/hour max
+              <span :class="[
+                'px-2.5 py-1 rounded-full text-xs font-semibold',
+                getRateLimitSeverityClass(globalSettings?.max_notifications_per_hour || 100)
+              ]">
+                {{ globalSettings?.max_notifications_per_hour || 100 }}/hour
               </span>
               <ChevronDownIcon
                 :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedRateLimiting ? 'rotate-180' : '']"
@@ -1213,44 +1236,97 @@ onMounted(() => {
 
           <Transition name="collapse">
             <div v-if="expandedRateLimiting" class="border-t border-[var(--color-border)]">
-              <div class="p-4 space-y-4 bg-gray-50/50 dark:bg-gray-800/30">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium text-primary">Max Notifications Per Hour</p>
-                    <p class="text-sm text-secondary">Limit total notifications sent per hour</p>
+              <div class="p-5 space-y-6 bg-gray-50/50 dark:bg-gray-800/30">
+                <!-- Visual Rate Limit Gauge -->
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between">
+                    <p class="font-medium text-primary">Maximum Notifications Per Hour</p>
+                    <div class="flex items-center gap-2">
+                      <input
+                        type="number"
+                        :value="globalSettings?.max_notifications_per_hour"
+                        @change="updateGlobalSettings({ max_notifications_per_hour: Math.max(1, Math.min(1000, parseInt($event.target.value) || 100)) })"
+                        min="1"
+                        max="1000"
+                        class="input-field w-20 text-center font-semibold"
+                      />
+                      <span class="text-sm text-secondary">/hour</span>
+                    </div>
                   </div>
-                  <input
-                    type="number"
-                    :value="globalSettings?.max_notifications_per_hour"
-                    @change="updateGlobalSettings({ max_notifications_per_hour: parseInt($event.target.value) })"
-                    min="1"
-                    max="1000"
-                    class="input-field w-24"
-                  />
+
+                  <!-- Slider with gradient background -->
+                  <div class="relative pt-1">
+                    <input
+                      type="range"
+                      :value="globalSettings?.max_notifications_per_hour || 100"
+                      @input="updateGlobalSettings({ max_notifications_per_hour: parseInt($event.target.value) })"
+                      min="10"
+                      max="500"
+                      step="10"
+                      class="w-full h-2 rounded-full appearance-none cursor-pointer bg-gradient-to-r from-green-400 via-yellow-400 to-rose-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-300 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-300 [&::-moz-range-thumb]:cursor-pointer"
+                    />
+                    <div class="flex justify-between text-xs text-secondary mt-1">
+                      <span>10</span>
+                      <span>100</span>
+                      <span>250</span>
+                      <span>500</span>
+                    </div>
+                  </div>
+
+                  <!-- Preset Buttons -->
+                  <div class="flex flex-wrap gap-2 pt-2">
+                    <span class="text-xs text-secondary mr-1 self-center">Presets:</span>
+                    <button
+                      v-for="preset in rateLimitPresets"
+                      :key="preset.value"
+                      @click="updateGlobalSettings({ max_notifications_per_hour: preset.value })"
+                      :class="[
+                        'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                        globalSettings?.max_notifications_per_hour === preset.value
+                          ? 'bg-rose-500 text-white shadow-sm'
+                          : 'bg-white dark:bg-gray-700 text-secondary hover:bg-gray-100 dark:hover:bg-gray-600 border border-[var(--color-border)]'
+                      ]"
+                    >
+                      {{ preset.label }}
+                    </button>
+                  </div>
                 </div>
 
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium text-primary">Emergency Contact</p>
-                    <p class="text-sm text-secondary">Channel to notify if rate limit is exceeded</p>
+                <!-- Divider -->
+                <div class="border-t border-[var(--color-border)]"></div>
+
+                <!-- Emergency Contact -->
+                <div class="space-y-3">
+                  <div class="flex items-start gap-3">
+                    <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20 mt-0.5">
+                      <ExclamationTriangleIcon class="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div class="flex-1">
+                      <p class="font-medium text-primary">Emergency Contact</p>
+                      <p class="text-sm text-secondary mt-0.5">When the rate limit is exceeded, this channel will receive an alert</p>
+                    </div>
                   </div>
                   <select
                     :value="globalSettings?.emergency_contact_id || ''"
                     @change="updateGlobalSettings({ emergency_contact_id: $event.target.value ? parseInt($event.target.value) : null })"
-                    class="select-field w-48"
+                    class="select-field w-full"
                   >
-                    <option value="">None</option>
+                    <option value="">No emergency contact configured</option>
                     <option v-for="channel in channels" :key="channel.id" :value="channel.id">
                       {{ channel.name }}
                     </option>
                   </select>
                 </div>
 
-                <div class="pt-2 border-t border-[var(--color-border)]">
-                  <p class="text-xs text-secondary">
-                    <InformationCircleIcon class="inline h-4 w-4 mr-1" />
-                    When the rate limit is exceeded, remaining notifications will be queued and sent when the limit resets.
-                  </p>
+                <!-- Info Box -->
+                <div class="rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 p-3">
+                  <div class="flex gap-2">
+                    <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0" />
+                    <div class="text-sm text-blue-700 dark:text-blue-400">
+                      <p class="font-medium">How rate limiting works</p>
+                      <p class="mt-1 text-blue-600 dark:text-blue-300">When the hourly limit is reached, additional notifications are queued and delivered when the limit resets. Lower limits help prevent notification fatigue during high-activity periods.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
