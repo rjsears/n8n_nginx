@@ -1039,9 +1039,170 @@ async def dispatch_notification(
     event_data: Dict[str, Any],
     severity: str = "info",
 ) -> None:
-    """Dispatch notification (convenience function)."""
+    """
+    Dispatch notification using System Notifications configuration.
+
+    This looks up the event in SystemNotificationEvent and sends to all
+    configured targets (channels/groups) in SystemNotificationTarget.
+    """
     from api.database import async_session_maker
+    from api.models.system_notifications import (
+        SystemNotificationEvent,
+        SystemNotificationTarget,
+        SystemNotificationGlobalSettings,
+    )
 
     async with async_session_maker() as db:
-        service = NotificationService(db)
-        await service.dispatch(event_type, event_data, severity)
+        # Check global settings for maintenance mode
+        settings_result = await db.execute(
+            select(SystemNotificationGlobalSettings).limit(1)
+        )
+        global_settings = settings_result.scalar_one_or_none()
+
+        if global_settings and global_settings.maintenance_mode:
+            logger.debug(f"Notifications suppressed - maintenance mode active")
+            return
+
+        # Look up the system notification event
+        result = await db.execute(
+            select(SystemNotificationEvent).where(
+                SystemNotificationEvent.event_type == event_type
+            )
+        )
+        event = result.scalar_one_or_none()
+
+        if not event:
+            logger.debug(f"No SystemNotificationEvent found for event_type: {event_type}")
+            return
+
+        if not event.enabled:
+            logger.debug(f"SystemNotificationEvent '{event_type}' is disabled")
+            return
+
+        # Get targets for this event
+        targets_result = await db.execute(
+            select(SystemNotificationTarget).where(
+                SystemNotificationTarget.event_id == event.id
+            )
+        )
+        targets = targets_result.scalars().all()
+
+        if not targets:
+            logger.debug(f"No targets configured for event '{event_type}'")
+            return
+
+        # Build notification title and message
+        title = f"{event.display_name}"
+        message = _build_notification_message(event_type, event_data)
+
+        # Map severity to priority
+        priority_map = {
+            "info": "normal",
+            "warning": "high",
+            "critical": "critical",
+            "error": "critical",
+        }
+        priority = priority_map.get(event.severity, "normal")
+
+        # Create notification service instance
+        notification_service = NotificationService(db)
+
+        sent_count = 0
+        for target in targets:
+            try:
+                if target.target_type == "channel" and target.channel_id:
+                    result = await notification_service.send_to_service(
+                        target.channel_id, title, message, priority
+                    )
+                    if result.get("success"):
+                        sent_count += 1
+                        logger.info(f"Sent '{event_type}' notification to channel {target.channel_id}")
+                    else:
+                        logger.error(f"Failed to send to channel {target.channel_id}: {result.get('error')}")
+
+                elif target.target_type == "group" and target.group_id:
+                    result = await notification_service.send_to_group(
+                        target.group_id, title, message, priority
+                    )
+                    if result.get("success"):
+                        sent_count += result.get("sent_count", 1)
+                        logger.info(f"Sent '{event_type}' notification to group {target.group_id}")
+                    else:
+                        logger.error(f"Failed to send to group {target.group_id}: {result.get('error')}")
+
+            except Exception as e:
+                logger.error(f"Error sending notification to target {target.id}: {e}")
+
+        logger.info(f"Dispatched '{event_type}' notification to {sent_count} channel(s)")
+
+
+def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> str:
+    """Build a human-readable notification message from event data."""
+    # Backup events
+    if event_type == "backup_success":
+        backup_type = event_data.get("backup_type", "unknown")
+        size_mb = event_data.get("size_mb", 0)
+        duration = event_data.get("duration_seconds", 0)
+        workflow_count = event_data.get("workflow_count", 0)
+        return (
+            f"Backup completed successfully.\n\n"
+            f"Type: {backup_type}\n"
+            f"Size: {size_mb} MB\n"
+            f"Duration: {duration}s\n"
+            f"Workflows: {workflow_count}"
+        )
+    elif event_type == "backup_failure":
+        backup_type = event_data.get("backup_type", "unknown")
+        error = event_data.get("error", "Unknown error")
+        return (
+            f"Backup failed!\n\n"
+            f"Type: {backup_type}\n"
+            f"Error: {error}"
+        )
+    elif event_type == "backup_started":
+        backup_type = event_data.get("backup_type", "unknown")
+        return f"Backup started: {backup_type}"
+
+    # Container events
+    elif event_type == "container_unhealthy":
+        container = event_data.get("container", "unknown")
+        return f"Container '{container}' is unhealthy!\n\nPlease check the container health."
+    elif event_type == "container_stopped":
+        container = event_data.get("container", "unknown")
+        return f"Container '{container}' has stopped.\n\nThis may indicate an issue."
+    elif event_type == "container_restart":
+        container = event_data.get("container", "unknown")
+        return f"Container '{container}' was restarted."
+    elif event_type == "container_started":
+        container = event_data.get("container", "unknown")
+        return f"Container '{container}' started."
+
+    # System events
+    elif event_type == "disk_space_low":
+        percent = event_data.get("percent", 0)
+        path = event_data.get("path", "/")
+        return f"Disk space is low!\n\nPath: {path}\nUsage: {percent}%"
+    elif event_type == "high_memory":
+        percent = event_data.get("percent", 0)
+        return f"High memory usage detected: {percent}%"
+    elif event_type == "high_cpu":
+        percent = event_data.get("percent", 0)
+        return f"High CPU usage detected: {percent}%"
+
+    # Pruning events
+    elif event_type == "backup_pending_deletion":
+        count = event_data.get("count", 0)
+        reason = event_data.get("reason", "unknown")
+        hours = event_data.get("hours_until_deletion", 0)
+        return f"{count} backup(s) scheduled for deletion.\n\nReason: {reason}\nDeletion in: {hours} hours"
+    elif event_type == "backup_critical_space":
+        free_percent = event_data.get("free_percent", 0)
+        action = event_data.get("action", "unknown")
+        return f"Critical disk space alert!\n\nFree space: {free_percent}%\nAction: {action}"
+
+    else:
+        # Generic message with event data
+        lines = [f"Event: {event_type}"]
+        for key, value in event_data.items():
+            lines.append(f"{key}: {value}")
+        return "\n".join(lines)
