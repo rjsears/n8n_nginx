@@ -1233,6 +1233,7 @@ async def get_tailscale_status(
 async def get_full_health_check(
     quick: bool = False,
     _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Comprehensive system health check - checks all components.
@@ -1702,7 +1703,7 @@ async def get_full_health_check(
         set_check("network", network_status, network_details)
 
         # ========================================
-        # Backup Status
+        # Backup Status (from database)
         # ========================================
         backups_details = {
             "recent_count": 0,
@@ -1711,42 +1712,57 @@ async def get_full_health_check(
         backups_status = "healthy"
 
         try:
-            # Check common backup paths
-            backup_paths = ["/backups", "/var/backups", "./backups", "/app/backups"]
-            backup_found = False
+            from api.models.backups import BackupHistory
 
-            for path in backup_paths:
-                if os.path.exists(path) and os.path.isdir(path):
-                    backup_found = True
-                    files = os.listdir(path)
-                    # Count backup files (look for common backup patterns)
-                    backup_files = [f for f in files if any(x in f.lower() for x in ['backup', '.sql', '.tar', '.gz'])]
-                    backups_details["recent_count"] = len(backup_files)
-                    backups_details["directory"] = path
+            # Get backups from the last 24 hours
+            cutoff_24h = datetime.now(UTC) - timedelta(hours=24)
 
-                    if len(backup_files) == 0:
-                        backups_status = "warning"
-                        backups_details["message"] = "No backup files found"
+            # Count recent successful backups (status = 'success')
+            recent_success_result = await db.execute(
+                select(func.count(BackupHistory.id)).where(
+                    BackupHistory.created_at >= cutoff_24h,
+                    BackupHistory.status == "success"
+                )
+            )
+            recent_success_count = recent_success_result.scalar() or 0
 
-                    # Try to find last backup time
-                    if backup_files:
-                        try:
-                            latest_file = max([os.path.join(path, f) for f in backup_files], key=os.path.getmtime)
-                            last_modified = datetime.fromtimestamp(os.path.getmtime(latest_file))
-                            backups_details["last_backup"] = last_modified.isoformat()
+            # Count recent failed backups (status = 'failed')
+            recent_failed_result = await db.execute(
+                select(func.count(BackupHistory.id)).where(
+                    BackupHistory.created_at >= cutoff_24h,
+                    BackupHistory.status == "failed"
+                )
+            )
+            recent_failed_count = recent_failed_result.scalar() or 0
 
-                            # Warn if backup is older than 7 days
-                            days_old = (datetime.now() - last_modified).days
-                            if days_old > 7:
-                                backups_status = "warning"
-                                backups_details["message"] = f"Last backup is {days_old} days old"
-                        except Exception:
-                            pass
-                    break
+            # Get the most recent backup (any status)
+            last_backup_result = await db.execute(
+                select(BackupHistory)
+                .where(BackupHistory.status == "success")
+                .order_by(BackupHistory.created_at.desc())
+                .limit(1)
+            )
+            last_backup = last_backup_result.scalar_one_or_none()
 
-            if not backup_found:
+            backups_details["recent_count"] = recent_success_count
+            backups_details["failed_count"] = recent_failed_count
+
+            if last_backup:
+                backups_details["last_backup"] = last_backup.created_at.isoformat()
+
+                # Warn if last successful backup is older than 7 days
+                days_old = (datetime.now(UTC) - last_backup.created_at.replace(tzinfo=UTC)).days
+                if days_old > 7:
+                    backups_status = "warning"
+                    backups_details["message"] = f"Last successful backup is {days_old} days old"
+
+            # Set status based on recent failures and backup existence
+            if recent_failed_count > 0:
                 backups_status = "warning"
-                backups_details["message"] = "No backup directory found"
+                backups_details["message"] = f"{recent_failed_count} backup(s) failed in the last 24h"
+            elif recent_success_count == 0 and not last_backup:
+                backups_status = "warning"
+                backups_details["message"] = "No backups found in database"
 
         except Exception as e:
             backups_details["error"] = str(e)
