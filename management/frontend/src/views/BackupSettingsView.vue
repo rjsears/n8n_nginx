@@ -132,7 +132,7 @@ const form = ref({
   // Notifications
   notify_on_success: false,
   notify_on_failure: true,
-  notification_channel_ids: [], // Array of {id, type} for multi-select
+  notification_channel_id: null, // Single channel ID
 })
 
 const tabs = [
@@ -170,42 +170,15 @@ const availableLocalPaths = computed(() => {
   return storageDetection.value?.local_paths?.filter(p => p.exists && p.is_writable) || []
 })
 
-// Check if notifications can be enabled (requires at least one channel selected)
+// Check if notifications can be enabled (requires a channel to be selected)
 const canEnableNotifications = computed(() => {
-  return form.value.notification_channel_ids.length > 0
+  return form.value.notification_channel_id !== null
 })
 
-// Selected channel count for display
-const selectedChannelCount = computed(() => {
-  return form.value.notification_channel_ids.length
-})
-
-// All available notification channels (services + groups)
-const allNotificationChannels = computed(() => {
-  const channels = []
-  // Add services
-  notificationServices.value.forEach(s => {
-    channels.push({
-      id: s.id,
-      type: 'service',
-      name: s.name,
-      description: s.service_type ? `${s.service_type.toUpperCase()} Channel` : 'Channel',
-      enabled: s.enabled,
-      icon: 'service'
-    })
-  })
-  // Add groups
-  notificationGroups.value.forEach(g => {
-    channels.push({
-      id: g.id,
-      type: 'group',
-      name: g.name,
-      description: g.description || `${g.services?.length || 0} services`,
-      enabled: g.enabled,
-      icon: 'group'
-    })
-  })
-  return channels
+// Get the selected channel info for display
+const selectedChannel = computed(() => {
+  if (!form.value.notification_channel_id) return null
+  return notificationServices.value.find(s => s.id === form.value.notification_channel_id)
 })
 
 async function loadConfiguration() {
@@ -325,33 +298,19 @@ function toggleSection(section) {
   sections.value[section] = !sections.value[section]
 }
 
-function isChannelSelected(channel) {
-  return form.value.notification_channel_ids.some(
-    c => c.id === channel.id && c.type === channel.type
-  )
-}
-
-function toggleNotificationChannel(channel) {
-  const index = form.value.notification_channel_ids.findIndex(
-    c => c.id === channel.id && c.type === channel.type
-  )
-  if (index > -1) {
-    // Remove if already selected
-    form.value.notification_channel_ids.splice(index, 1)
-  } else {
-    // Add if not selected
-    form.value.notification_channel_ids.push({ id: channel.id, type: channel.type })
-  }
-
-  // Disable notifications if no channels selected
-  if (form.value.notification_channel_ids.length === 0) {
+function selectNotificationChannel(channelId) {
+  // Toggle: if same channel, deselect; otherwise select the new one
+  if (form.value.notification_channel_id === channelId) {
+    form.value.notification_channel_id = null
     form.value.notify_on_success = false
     form.value.notify_on_failure = false
+  } else {
+    form.value.notification_channel_id = channelId
   }
 }
 
-function clearAllNotificationChannels() {
-  form.value.notification_channel_ids = []
+function clearNotificationChannel() {
+  form.value.notification_channel_id = null
   form.value.notify_on_success = false
   form.value.notify_on_failure = false
 }
