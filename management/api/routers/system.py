@@ -1561,7 +1561,7 @@ async def get_full_health_check(
             ssl_status = "skipped"
             try:
                 if nginx_container:
-                    # Quick check for Let's Encrypt certificates
+                    # Quick check 1: Look for Let's Encrypt certificates
                     exit_code, output = nginx_container.exec_run(
                         "test -d /etc/letsencrypt/live && ls /etc/letsencrypt/live 2>/dev/null | head -1",
                         demux=True
@@ -1571,6 +1571,21 @@ async def get_full_health_check(
                         if domain and domain != "README":
                             health_data["ssl_configured"] = True
                             ssl_details["domain"] = domain
+
+                    # Quick check 2: If not found via Let's Encrypt, check nginx.conf for ssl_certificate
+                    if not health_data["ssl_configured"]:
+                        exit_code, output = nginx_container.exec_run(
+                            "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
+                            demux=True
+                        )
+                        if exit_code == 0 and output[0]:
+                            config_line = output[0].decode("utf-8").strip()
+                            if config_line and "ssl_certificate" in config_line:
+                                health_data["ssl_configured"] = True
+                                # Try to extract domain from path
+                                match = re.search(r'/live/([^/]+)/', config_line)
+                                if match:
+                                    ssl_details["domain"] = match.group(1)
             except Exception:
                 pass  # ssl_configured stays False
         else:
