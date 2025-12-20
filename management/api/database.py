@@ -245,6 +245,9 @@ async def run_schema_migrations() -> None:
         # Fix certificate_expiring event category (move from security to ssl)
         await _migrate_certificate_event_category(conn)
 
+        # Disable legacy backup schedule_enabled if BackupSchedule records exist
+        await _migrate_backup_schedule_config(conn)
+
 
 async def _migrate_certificate_event_category(conn) -> None:
     """Move certificate_expiring event from security category to ssl category."""
@@ -258,6 +261,38 @@ async def _migrate_certificate_event_category(conn) -> None:
             logger.info(f"Migrated certificate_expiring event to ssl category")
     except Exception as e:
         logger.warning(f"Failed to migrate certificate event category: {e}")
+
+
+async def _migrate_backup_schedule_config(conn) -> None:
+    """
+    Ensure legacy BackupConfiguration.schedule_enabled is disabled if
+    BackupSchedule records exist (to prevent duplicate backups).
+
+    This handles the case where an installation was upgraded but still has
+    schedule_enabled=true in the old configuration.
+    """
+    try:
+        # Check if there are any BackupSchedule records
+        result = await conn.execute(text(
+            "SELECT COUNT(*) FROM backup_schedules"
+        ))
+        schedule_count = result.scalar() or 0
+
+        if schedule_count > 0:
+            # Disable legacy schedule_enabled if it's still enabled
+            result = await conn.execute(text("""
+                UPDATE backup_configuration
+                SET schedule_enabled = false
+                WHERE schedule_enabled = true
+            """))
+            if result.rowcount > 0:
+                logger.info(
+                    f"Disabled legacy schedule_enabled in BackupConfiguration "
+                    f"(BackupSchedule records exist)"
+                )
+    except Exception as e:
+        # Table might not exist on fresh installs, that's OK
+        logger.debug(f"Backup schedule config migration check: {e}")
 
 
 async def seed_system_notification_events() -> None:
