@@ -2333,3 +2333,996 @@ View version information:
 - System information
 
 ---
+
+# Part V: Operations and Maintenance
+
+## 14. Daily Operations
+
+### Recommended Daily Checks
+
+1. **Dashboard Review**: Check the management console dashboard for any alerts
+2. **Backup Status**: Verify the most recent backup completed successfully
+3. **Container Health**: Ensure all containers show healthy status
+4. **Disk Space**: Monitor disk usage, especially on backup storage
+
+### Monitoring Best Practices
+
+| Check | Frequency | Action if Failed |
+|-------|-----------|------------------|
+| Container health | Continuous (automated) | Investigate logs, restart if needed |
+| Backup completion | Daily | Check backup logs, run manual backup |
+| Disk space | Daily | Clean old backups, expand storage |
+| Certificate expiration | Weekly | Verify certbot is running |
+
+### Log Review
+
+Review logs regularly for issues:
+
+```bash
+# View all container logs
+docker compose logs --tail=100
+
+# View specific container logs
+docker logs n8n --tail=100
+docker logs n8n_management --tail=100
+
+# Follow logs in real-time
+docker compose logs -f
+```
+
+### Health Checks
+
+The system performs automatic health checks:
+- **PostgreSQL**: Connection test every 5 seconds
+- **n8n**: HTTP health endpoint check
+- **Nginx**: Configuration validation on restart
+- **Management**: API health endpoint
+
+---
+
+## 15. SSL Certificate Management
+
+### Automatic Renewal
+
+Certificates are automatically renewed by Certbot:
+- Renewal check runs every 12 hours
+- Certificates renew when less than 30 days remain
+- Nginx is automatically reloaded after renewal
+
+### Manual Renewal
+
+Force certificate renewal:
+
+```bash
+# Dry run (test renewal)
+docker exec n8n_certbot certbot renew --dry-run
+
+# Force renewal
+docker exec n8n_certbot certbot renew --force-renewal
+
+# Reload nginx after renewal
+docker exec n8n_nginx nginx -s reload
+```
+
+### Certificate Troubleshooting
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Renewal fails | DNS API credentials expired | Update credentials in DNS provider file |
+| Certificate not loading | Nginx not reloaded | Restart nginx container |
+| Certificate expired | Certbot not running | Check certbot container logs |
+
+### Viewing Certificate Status
+
+```bash
+# View certificate details
+docker exec n8n_certbot certbot certificates
+
+# Check certificate expiration
+openssl s_client -connect your-domain.com:443 -servername your-domain.com 2>/dev/null | openssl x509 -noout -dates
+```
+
+---
+
+## 16. Database Management
+
+### PostgreSQL Overview
+
+The system uses PostgreSQL 16 with pgvector extension for:
+- n8n workflow data
+- Execution history
+- Credential storage
+- Management console data
+- Vector embeddings for AI workflows
+
+### Database Commands
+
+```bash
+# Connect to database
+docker exec -it n8n_postgres psql -U n8n -d n8n
+
+# List databases
+docker exec n8n_postgres psql -U n8n -c "\l"
+
+# List tables in n8n database
+docker exec n8n_postgres psql -U n8n -d n8n -c "\dt"
+
+# Check database size
+docker exec n8n_postgres psql -U n8n -c "SELECT pg_database.datname, pg_size_pretty(pg_database_size(pg_database.datname)) FROM pg_database;"
+```
+
+### Using Adminer
+
+If Adminer is enabled, access it at `https://your-domain.com:3333/adminer/`
+
+1. Select **PostgreSQL** as system
+2. Server: `postgres`
+3. Username: `n8n` (or your configured user)
+4. Password: (from .env file)
+5. Database: `n8n` or `n8n_management`
+
+### pgvector for AI/RAG Workflows
+
+The pgvector extension enables:
+- Vector similarity search
+- Embedding storage
+- AI/ML integration with n8n
+
+Example usage in n8n SQL queries:
+```sql
+-- Create embeddings table
+CREATE TABLE embeddings (
+  id SERIAL PRIMARY KEY,
+  content TEXT,
+  embedding vector(1536)
+);
+
+-- Similarity search
+SELECT content FROM embeddings
+ORDER BY embedding <-> '[0.1, 0.2, ...]'
+LIMIT 5;
+```
+
+---
+
+## 17. Container Maintenance
+
+### Updating Containers
+
+Update to latest images:
+
+```bash
+# Pull latest images
+docker compose pull
+
+# Restart with new images
+docker compose up -d
+
+# Remove old images
+docker image prune -f
+```
+
+### Viewing Logs with Dozzle
+
+If Dozzle is enabled, access it at `https://your-domain.com:3333/logs/`
+
+Features:
+- Real-time log streaming
+- Multi-container view
+- Log search and filtering
+- Download logs
+
+### Managing with Portainer
+
+If Portainer is enabled, access it at `https://your-domain.com:9000`
+
+Features:
+- Visual container management
+- Resource monitoring
+- Container terminal access
+- Image management
+- Volume management
+
+### Container Resource Limits
+
+Default resource limits can be adjusted in `docker-compose.yaml`:
+
+```yaml
+services:
+  n8n:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+```
+
+---
+
+## 18. Backup Best Practices
+
+### Recommended Backup Strategy
+
+| Backup Type | Frequency | Retention | Purpose |
+|-------------|-----------|-----------|---------|
+| Full database | Daily | 7 days | Point-in-time recovery |
+| Weekly archive | Weekly | 4 weeks | Weekly snapshots |
+| Monthly archive | Monthly | 12 months | Long-term retention |
+
+### Off-Site Backup with NFS
+
+For disaster recovery, store backups on a separate NFS server:
+
+1. Configure NFS server address in settings
+2. Set NFS export path
+3. Enable NFS backup storage
+4. Backups are written to both local and NFS
+
+### Backup Verification Schedule
+
+| Verification | Frequency | Purpose |
+|--------------|-----------|---------|
+| Archive integrity | Each backup | Ensure backup is not corrupted |
+| Database validation | Weekly | Verify database dump is valid |
+| Full restore test | Monthly | Confirm complete recovery works |
+
+### Disaster Recovery Planning
+
+1. **Document recovery procedures**
+2. **Test restores regularly**
+3. **Store encryption keys securely** (separate from backups)
+4. **Maintain off-site backup copies**
+5. **Keep configuration files backed up**
+
+### Recovery Time Objectives
+
+| Scenario | Recovery Method | Estimated Time |
+|----------|-----------------|----------------|
+| Single workflow loss | Workflow restore | 5 minutes |
+| Database corruption | Database restore | 15-30 minutes |
+| Full system loss | Bare-metal recovery | 1-2 hours |
+
+---
+
+# Part VI: Advanced Configuration
+
+## 19. Tailscale Integration
+
+### Setting Up Tailscale
+
+If you enabled Tailscale during setup, the container is already configured.
+
+For manual setup:
+
+1. Generate an auth key at [Tailscale Admin Console](https://login.tailscale.com/admin/settings/keys)
+2. Add to `.env`:
+   ```
+   TAILSCALE_AUTH_KEY=tskey-auth-xxx
+   ```
+3. Restart the stack:
+   ```bash
+   docker compose up -d
+   ```
+
+### Restricting Access to Tailscale IPs
+
+To restrict management console access to Tailscale only:
+
+1. Go to **Settings** > **Security**
+2. Remove public IP ranges
+3. Keep only `100.64.0.0/10` (Tailscale range)
+4. Access via Tailscale IP only
+
+### Accessing n8n via Tailscale
+
+After Tailscale is running:
+
+1. Find the container's Tailscale IP:
+   ```bash
+   docker exec tailscale tailscale ip
+   ```
+2. Access n8n:
+   ```
+   https://[tailscale-ip]:443
+   ```
+3. Or use MagicDNS:
+   ```
+   https://n8n-server.tailnet-name.ts.net
+   ```
+
+---
+
+## 20. Cloudflare Tunnel
+
+### Tunnel Configuration
+
+Cloudflare Tunnel provides secure access without exposing ports.
+
+1. Create a tunnel in [Cloudflare Zero Trust](https://one.dash.cloudflare.com/)
+2. Copy the tunnel token
+3. Add to `.env`:
+   ```
+   CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoixxxx
+   ```
+4. Restart the stack
+
+### DNS Setup
+
+Configure your Cloudflare DNS:
+
+1. In Cloudflare dashboard, go to DNS
+2. The tunnel automatically creates CNAME records
+3. Verify records point to your tunnel
+
+### Zero Trust Access
+
+Add access policies:
+
+1. Go to **Access** > **Applications**
+2. Create an application for n8n
+3. Add access policies (email, IP, etc.)
+4. Users must authenticate before accessing
+
+---
+
+## 21. NFS Backup Storage
+
+### NFS Server Requirements
+
+The NFS server must:
+- Export a directory with read/write access
+- Allow connections from your n8n server
+- Have sufficient storage space
+
+### Example NFS Server Configuration
+
+On the NFS server (`/etc/exports`):
+```
+/export/n8n_backups  192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash)
+```
+
+Apply changes:
+```bash
+exportfs -ra
+```
+
+### Configuration
+
+In the management console:
+
+1. Go to **Backups** > **Settings** > **Storage**
+2. Enable NFS storage
+3. Enter:
+   - **Server**: `nfs.example.com`
+   - **Path**: `/export/n8n_backups`
+4. Test the connection
+5. Save
+
+### Troubleshooting NFS
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Mount fails | Firewall blocking | Open NFS ports (2049, 111) |
+| Permission denied | Export permissions | Check `/etc/exports` configuration |
+| Slow performance | Network issues | Check network connectivity |
+
+Check NFS status:
+```bash
+docker exec n8n_management cat /app/config/nfs_status.json
+```
+
+---
+
+## 22. Custom Nginx Configuration
+
+### Configuration File Location
+
+The nginx configuration is at `./nginx.conf` in your project directory.
+
+### Adding Custom Headers
+
+Add security headers in the `server` block:
+
+```nginx
+add_header X-Content-Type-Options nosniff;
+add_header X-Frame-Options SAMEORIGIN;
+add_header X-XSS-Protection "1; mode=block";
+add_header Referrer-Policy strict-origin-when-cross-origin;
+add_header Content-Security-Policy "default-src 'self'";
+```
+
+### Rate Limiting
+
+Add rate limiting to prevent abuse:
+
+```nginx
+# In http block
+limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+
+# In location block
+location /webhook/ {
+    limit_req zone=api burst=20 nodelay;
+    # ... rest of config
+}
+```
+
+### Applying Changes
+
+After modifying nginx.conf:
+
+```bash
+# Test configuration
+docker exec n8n_nginx nginx -t
+
+# Reload nginx
+docker exec n8n_nginx nginx -s reload
+```
+
+---
+
+## 23. Environment Variables Reference
+
+### Core Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DOMAIN` | Your domain name | Required |
+| `MGMT_PORT` | Management console port | `3333` |
+| `TIMEZONE` | System timezone | Auto-detected |
+
+### Database Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `POSTGRES_USER` | PostgreSQL username | `n8n` |
+| `POSTGRES_PASSWORD` | PostgreSQL password | Auto-generated |
+| `POSTGRES_DB` | Database name | `n8n` |
+
+### Security Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `N8N_ENCRYPTION_KEY` | n8n credential encryption | Auto-generated |
+| `MGMT_SECRET_KEY` | Session signing key | Auto-generated |
+| `MGMT_ENCRYPTION_KEY` | Settings encryption key | Auto-generated |
+
+### Admin Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ADMIN_USER` | Admin username | `admin` |
+| `ADMIN_PASS` | Admin password | Set during setup |
+| `ADMIN_EMAIL` | Admin email | Set during setup |
+
+### Optional Service Variables
+
+| Variable | Description |
+|----------|-------------|
+| `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare tunnel authentication |
+| `TAILSCALE_AUTH_KEY` | Tailscale pre-auth key |
+| `NFS_SERVER` | NFS server address |
+| `NFS_PATH` | NFS export path |
+
+### n8n Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `N8N_HOST` | n8n hostname | Your domain |
+| `N8N_PROTOCOL` | Protocol | `https` |
+| `N8N_PORT` | Internal port | `5678` |
+| `WEBHOOK_URL` | Webhook base URL | `https://domain/webhook/` |
+
+---
+
+# Part VII: Troubleshooting
+
+## 24. Common Issues and Solutions
+
+### Installation Issues
+
+#### Docker Not Starting
+
+**Symptoms**: Docker commands fail, daemon not running
+
+**Solutions**:
+```bash
+# Check Docker status
+sudo systemctl status docker
+
+# Start Docker
+sudo systemctl start docker
+
+# Enable Docker on boot
+sudo systemctl enable docker
+```
+
+#### AppArmor Blocking Docker (Proxmox LXC)
+
+**Symptoms**: Container creation fails, permission denied errors
+
+**Solution**:
+1. On Proxmox host, edit container config
+2. Add:
+   ```
+   lxc.apparmor.profile: unconfined
+   features: nesting=1
+   ```
+3. Restart the container
+
+#### DNS Validation Failures
+
+**Symptoms**: Certificate acquisition fails, DNS challenge fails
+
+**Solutions**:
+1. Verify domain resolves correctly: `dig +short your-domain.com`
+2. Check DNS provider credentials
+3. Wait for DNS propagation (up to 5 minutes)
+4. Verify API token permissions
+
+#### Certificate Acquisition Failures
+
+**Symptoms**: Certbot fails, SSL errors
+
+**Solutions**:
+1. Check certbot logs: `docker logs n8n_certbot`
+2. Verify DNS credentials file permissions: `chmod 600 cloudflare.ini`
+3. Test DNS challenge manually
+4. Check rate limits (Let's Encrypt has limits)
+
+### Runtime Issues
+
+#### Container Will Not Start
+
+**Diagnosis**:
+```bash
+# Check container status
+docker compose ps
+
+# View container logs
+docker logs [container_name]
+
+# Check for port conflicts
+sudo netstat -tlnp | grep 443
+```
+
+**Common causes**:
+- Port already in use
+- Missing environment variables
+- Volume permission issues
+
+#### Database Connection Errors
+
+**Symptoms**: n8n cannot connect, management console errors
+
+**Solutions**:
+```bash
+# Check PostgreSQL status
+docker exec n8n_postgres pg_isready
+
+# View PostgreSQL logs
+docker logs n8n_postgres
+
+# Test connection
+docker exec n8n_postgres psql -U n8n -c "SELECT 1"
+```
+
+#### SSL Certificate Errors
+
+**Symptoms**: Browser shows certificate warning, HTTPS fails
+
+**Solutions**:
+1. Check certificate exists:
+   ```bash
+   docker exec n8n_nginx ls -la /etc/letsencrypt/live/
+   ```
+2. Verify nginx configuration:
+   ```bash
+   docker exec n8n_nginx nginx -t
+   ```
+3. Reload nginx:
+   ```bash
+   docker exec n8n_nginx nginx -s reload
+   ```
+
+#### Webhook Not Accessible
+
+**Symptoms**: External webhooks fail, timeout errors
+
+**Checklist**:
+1. Port 443 open in firewall
+2. Domain DNS correct
+3. n8n container running
+4. Webhook URL format correct: `https://domain/webhook/[path]`
+
+### Management Console Issues
+
+#### Cannot Login
+
+**Symptoms**: Login fails, credentials rejected
+
+**Solutions**:
+1. Verify credentials (case-sensitive)
+2. Check IP is in allowed subnets
+3. View management logs: `docker logs n8n_management`
+4. Reset admin password (requires database access)
+
+#### API Key Not Working
+
+**Symptoms**: n8n connection fails, workflows not loading
+
+**Solutions**:
+1. Regenerate API key in n8n
+2. Update key in management console
+3. Test connection in settings
+
+#### Backups Failing
+
+**Symptoms**: Backup shows failed status
+
+**Diagnosis**:
+```bash
+# Check backup logs
+docker logs n8n_management | grep -i backup
+
+# Check disk space
+df -h
+
+# Check NFS connection (if used)
+docker exec n8n_management cat /app/config/nfs_status.json
+```
+
+### Performance Issues
+
+**Symptoms**: Slow response, high resource usage
+
+**Solutions**:
+1. Check resource usage: `docker stats`
+2. Increase container limits in docker-compose.yaml
+3. Review n8n execution history settings
+4. Optimize PostgreSQL (increase shared_buffers)
+
+---
+
+## 25. Logs and Diagnostics
+
+### Log Locations
+
+| Component | Command |
+|-----------|---------|
+| All containers | `docker compose logs` |
+| n8n | `docker logs n8n` |
+| PostgreSQL | `docker logs n8n_postgres` |
+| Nginx | `docker logs n8n_nginx` |
+| Certbot | `docker logs n8n_certbot` |
+| Management | `docker logs n8n_management` |
+
+### Reading Docker Logs
+
+```bash
+# Last 100 lines
+docker logs n8n --tail 100
+
+# Follow logs in real-time
+docker logs n8n -f
+
+# Logs since specific time
+docker logs n8n --since 2024-01-01T00:00:00
+
+# Logs with timestamps
+docker logs n8n -t
+```
+
+### Debug Mode
+
+Enable debug logging in management console:
+
+1. Go to **Settings**
+2. Enable **Debug Mode**
+3. Log level increases to DEBUG
+4. View detailed logs: `docker logs n8n_management`
+
+Remember to disable debug mode in production.
+
+### Health Check Commands
+
+```bash
+# Overall system health
+docker compose ps
+
+# PostgreSQL health
+docker exec n8n_postgres pg_isready
+
+# n8n health
+curl -k https://localhost/healthz
+
+# Nginx configuration
+docker exec n8n_nginx nginx -t
+
+# Certificate status
+docker exec n8n_certbot certbot certificates
+```
+
+---
+
+# Part VIII: Reference
+
+## 26. Command Reference
+
+### Docker Compose Commands
+
+```bash
+# Start all services
+docker compose up -d
+
+# Stop all services
+docker compose down
+
+# Restart all services
+docker compose restart
+
+# Restart specific service
+docker compose restart n8n
+
+# View status
+docker compose ps
+
+# View logs
+docker compose logs -f
+
+# Pull latest images
+docker compose pull
+
+# Rebuild containers
+docker compose up -d --build
+```
+
+### Database Commands
+
+```bash
+# Connect to PostgreSQL
+docker exec -it n8n_postgres psql -U n8n -d n8n
+
+# Backup database
+docker exec n8n_postgres pg_dump -U n8n -d n8n -Fc > backup.dump
+
+# Restore database
+docker exec -i n8n_postgres pg_restore -U n8n -d n8n < backup.dump
+
+# List tables
+docker exec n8n_postgres psql -U n8n -d n8n -c "\dt"
+```
+
+### Certificate Commands
+
+```bash
+# View certificates
+docker exec n8n_certbot certbot certificates
+
+# Test renewal
+docker exec n8n_certbot certbot renew --dry-run
+
+# Force renewal
+docker exec n8n_certbot certbot renew --force-renewal
+
+# Reload nginx
+docker exec n8n_nginx nginx -s reload
+```
+
+### Backup Commands
+
+```bash
+# View backup status
+docker exec n8n_management ls -la /app/backups
+
+# Check NFS mount
+docker exec n8n_management df -h | grep nfs
+```
+
+---
+
+## 27. File Locations
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yaml` | Container definitions |
+| `.env` | Environment variables |
+| `nginx.conf` | Nginx configuration |
+| `cloudflare.ini` | Cloudflare credentials |
+| `.n8n_setup_config` | Setup configuration backup |
+
+### Docker Volumes
+
+| Volume | Contents |
+|--------|----------|
+| `n8n_data` | n8n workflow data |
+| `postgres_data` | PostgreSQL database |
+| `letsencrypt` | SSL certificates |
+| `mgmt_backup_staging` | Backup staging area |
+| `mgmt_logs` | Management console logs |
+| `mgmt_config` | Management configuration |
+
+---
+
+## 28. Glossary
+
+| Term | Definition |
+|------|------------|
+| **Apprise** | Multi-service notification library |
+| **Certbot** | Let's Encrypt certificate automation tool |
+| **DNS-01 Challenge** | Domain validation via DNS TXT record |
+| **GFS** | Grandfather-Father-Son backup rotation strategy |
+| **Let's Encrypt** | Free SSL/TLS certificate authority |
+| **n8n** | Workflow automation platform |
+| **NFS** | Network File System for remote storage |
+| **NTFY** | Push notification service |
+| **pgvector** | PostgreSQL extension for vector operations |
+| **Tailscale** | VPN service using WireGuard |
+| **Webhook** | HTTP callback for event notifications |
+
+---
+
+# Appendices
+
+## Appendix A: DNS Provider Credential Setup
+
+### Cloudflare API Token
+
+1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. Click your profile icon (top right)
+3. Select **My Profile**
+4. Go to **API Tokens** tab
+5. Click **Create Token**
+6. Use the **Edit zone DNS** template
+7. Under **Permissions**, ensure:
+   - Zone - DNS - Edit
+8. Under **Zone Resources**:
+   - Include - Specific zone - (select your zone)
+9. Click **Continue to summary**
+10. Click **Create Token**
+11. Copy the token immediately (shown only once)
+
+<!-- SCREENSHOT: Cloudflare token creation -->
+*[Screenshot placeholder: Cloudflare API token creation steps]*
+
+### AWS Route 53
+
+1. Log in to [AWS Console](https://console.aws.amazon.com)
+2. Go to **IAM** > **Users**
+3. Create a new user or select existing
+4. Attach the following policy:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "route53:ListHostedZones",
+                "route53:GetChange"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "route53:ChangeResourceRecordSets",
+            "Resource": "arn:aws:route53:::hostedzone/YOUR_ZONE_ID"
+        }
+    ]
+}
+```
+
+5. Create access keys for the user
+6. Save the Access Key ID and Secret Access Key
+
+### Google Cloud DNS
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Navigate to **IAM & Admin** > **Service Accounts**
+3. Click **Create Service Account**
+4. Enter a name and description
+5. Grant the **DNS Administrator** role
+6. Click **Create Key** > **JSON**
+7. Save the JSON file securely
+
+### DigitalOcean
+
+1. Log in to [DigitalOcean](https://cloud.digitalocean.com)
+2. Go to **API** > **Tokens/Keys**
+3. Click **Generate New Token**
+4. Enter a name
+5. Select **Read** and **Write** scopes
+6. Click **Generate Token**
+7. Copy the token immediately (shown only once)
+
+---
+
+## Appendix B: Tailscale Auth Key Generation
+
+1. Log in to [Tailscale Admin Console](https://login.tailscale.com/admin)
+2. Go to **Settings** > **Keys**
+3. Click **Generate auth key**
+4. Configure:
+   - **Reusable**: Yes (recommended for containers)
+   - **Ephemeral**: No
+   - **Expiration**: Set appropriate expiration
+   - **Tags**: Optional, for access control
+5. Click **Generate key**
+6. Copy the key (starts with `tskey-auth-`)
+
+<!-- SCREENSHOT: Tailscale key generation -->
+*[Screenshot placeholder: Tailscale auth key creation]*
+
+---
+
+## Appendix C: Cloudflare Tunnel Token Generation
+
+1. Log in to [Cloudflare Zero Trust](https://one.dash.cloudflare.com)
+2. Go to **Networks** > **Tunnels**
+3. Click **Create a tunnel**
+4. Select **Cloudflared** connector
+5. Enter a tunnel name
+6. Click **Save tunnel**
+7. Copy the tunnel token (long string starting with `eyJ`)
+
+Configure the tunnel:
+1. Add public hostnames for n8n and management console
+2. Point to `http://nginx:443` (internal Docker network)
+3. Enable **No TLS Verify** for internal routing
+
+<!-- SCREENSHOT: Cloudflare tunnel setup -->
+*[Screenshot placeholder: Cloudflare tunnel configuration]*
+
+---
+
+## Appendix D: n8n API Key Generation
+
+1. Log in to your n8n instance
+2. Click your profile icon (bottom left)
+3. Select **Settings**
+4. Navigate to **API** in the left sidebar
+5. Click **+ Create an API key**
+6. Enter a label (e.g., "Management Console")
+7. Click **Create**
+8. Copy the API key immediately (shown only once)
+
+<!-- SCREENSHOT: n8n API key -->
+*[Screenshot placeholder: n8n API key generation]*
+
+---
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+---
+
+## Acknowledgments
+
+- [n8n.io](https://n8n.io) - Workflow automation platform
+- [Let's Encrypt](https://letsencrypt.org) - Free SSL/TLS certificates
+- [PostgreSQL](https://www.postgresql.org) - Database
+- [pgvector](https://github.com/pgvector/pgvector) - Vector similarity search
+- [FastAPI](https://fastapi.tiangolo.com) - Python web framework
+- [Vue.js](https://vuejs.org) - JavaScript framework
+- [Tailwind CSS](https://tailwindcss.com) - CSS framework
+- [Docker](https://docker.com) - Containerization
+- [Nginx](https://nginx.org) - Web server
+- [Apprise](https://github.com/caronc/apprise) - Notification library
+- [ntfy](https://ntfy.sh) - Push notifications
+
+---
+
+## Support
+
+- **Documentation**: This README and [docs/](docs/) folder
+- **Issues**: [GitHub Issues](https://github.com/rjsears/n8n_nginx/issues)
+- **API Reference**: See [API.md](docs/API.md)
+- **n8n Community**: [community.n8n.io](https://community.n8n.io)
+
+---
+
+**Created by Richard J. Sears** - richardjsears@gmail.com
