@@ -422,92 +422,10 @@ async function loadHistory() {
       params: { limit: 100 }
     })
     history.value = response.data.items || []
-
-    // Add sample data for layout testing if no history exists
-    if (history.value.length === 0) {
-      history.value = getSampleHistoryData()
-    }
   } catch (error) {
     console.error('Failed to load history:', error)
-    // Use sample data for layout testing
-    history.value = getSampleHistoryData()
+    history.value = []
   }
-}
-
-// Sample notification history data for layout testing
-function getSampleHistoryData() {
-  const now = new Date()
-  return [
-    {
-      id: 1,
-      event_type: 'container_unhealthy',
-      target_label: 'Discord: Alerts Channel',
-      status: 'sent',
-      triggered_at: new Date(now - 1000 * 60 * 5).toISOString(), // 5 minutes ago
-      container_name: 'n8n',
-      details: 'Container health check failed 3 consecutive times'
-    },
-    {
-      id: 2,
-      event_type: 'backup_completed',
-      target_label: 'Email: Admin',
-      status: 'sent',
-      triggered_at: new Date(now - 1000 * 60 * 30).toISOString(), // 30 minutes ago
-      details: 'Daily backup completed successfully (2.4 GB)'
-    },
-    {
-      id: 3,
-      event_type: 'container_restart',
-      target_label: 'Pushover: Mobile',
-      status: 'suppressed',
-      triggered_at: new Date(now - 1000 * 60 * 45).toISOString(), // 45 minutes ago
-      suppression_reason: 'Quiet hours active (22:00 - 07:00)',
-      container_name: 'redis'
-    },
-    {
-      id: 4,
-      event_type: 'cpu_threshold',
-      target_label: 'Slack: #ops-alerts',
-      status: 'sent',
-      triggered_at: new Date(now - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
-      details: 'CPU usage exceeded 90% threshold for 5 minutes'
-    },
-    {
-      id: 5,
-      event_type: 'disk_threshold',
-      target_label: 'Email: Admin',
-      status: 'failed',
-      triggered_at: new Date(now - 1000 * 60 * 60 * 3).toISOString(), // 3 hours ago
-      error_message: 'SMTP connection timeout after 30 seconds',
-      details: 'Disk usage at 85% on /var/lib/docker'
-    },
-    {
-      id: 6,
-      event_type: 'container_healthy',
-      target_label: 'Discord: Alerts Channel',
-      status: 'sent',
-      triggered_at: new Date(now - 1000 * 60 * 60 * 4).toISOString(), // 4 hours ago
-      container_name: 'n8n',
-      details: 'Container recovered and is now healthy'
-    },
-    {
-      id: 7,
-      event_type: 'backup_failed',
-      target_label: 'Pushover: Mobile',
-      status: 'sent',
-      triggered_at: new Date(now - 1000 * 60 * 60 * 12).toISOString(), // 12 hours ago
-      details: 'Backup failed: Insufficient disk space'
-    },
-    {
-      id: 8,
-      event_type: 'memory_threshold',
-      target_label: 'Slack: #ops-alerts',
-      status: 'suppressed',
-      triggered_at: new Date(now - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
-      suppression_reason: 'Rate limit exceeded (100/hour)',
-      details: 'Memory usage exceeded 80% threshold'
-    }
-  ]
 }
 
 function toggleCategory(category) {
@@ -1783,16 +1701,6 @@ onMounted(() => {
 
       <!-- History Section -->
       <div v-if="activeSection === 'history'" class="space-y-4">
-        <!-- Info banner -->
-        <div class="p-3 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-          <div class="flex gap-2 items-center">
-            <InformationCircleIcon class="h-4 w-4 text-blue-500 flex-shrink-0" />
-            <p class="text-sm text-blue-700 dark:text-blue-400">
-              Showing sample notification history for layout testing. Real notifications will appear here once the system is active.
-            </p>
-          </div>
-        </div>
-
         <div v-if="history.length === 0" class="text-center py-8 text-secondary">
           <DocumentTextIcon class="h-12 w-12 mx-auto mb-3 text-gray-300" />
           <p>No notification history yet.</p>
