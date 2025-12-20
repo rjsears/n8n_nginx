@@ -242,6 +242,23 @@ async def run_schema_migrations() -> None:
         # Generate slugs for existing notification services that don't have one
         await _migrate_notification_service_slugs(conn)
 
+        # Fix certificate_expiring event category (move from security to ssl)
+        await _migrate_certificate_event_category(conn)
+
+
+async def _migrate_certificate_event_category(conn) -> None:
+    """Move certificate_expiring event from security category to ssl category."""
+    try:
+        result = await conn.execute(text("""
+            UPDATE system_notification_events
+            SET category = 'ssl'
+            WHERE event_type = 'certificate_expiring' AND category = 'security'
+        """))
+        if result.rowcount > 0:
+            logger.info(f"Migrated certificate_expiring event to ssl category")
+    except Exception as e:
+        logger.warning(f"Failed to migrate certificate event category: {e}")
+
 
 async def seed_system_notification_events() -> None:
     """
