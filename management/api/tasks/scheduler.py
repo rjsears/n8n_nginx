@@ -330,7 +330,29 @@ async def _sync_backup_schedules() -> None:
 
     try:
         async with async_session_maker() as db:
-            # First check if we have any schedules
+            # First check if we have any schedules (including disabled ones to detect duplicates)
+            all_result = await db.execute(select(BackupSchedule))
+            all_schedules = all_result.scalars().all()
+
+            # Warn if there are duplicate schedules with same frequency/time
+            if len(all_schedules) > 1:
+                # Group by frequency+hour+minute to find true duplicates
+                schedule_keys = {}
+                for s in all_schedules:
+                    key = f"{s.frequency}_{s.hour}_{s.minute}"
+                    if key not in schedule_keys:
+                        schedule_keys[key] = []
+                    schedule_keys[key].append(s)
+
+                for key, dups in schedule_keys.items():
+                    if len(dups) > 1 and all(d.enabled for d in dups):
+                        logger.warning(
+                            f"WARNING: Found {len(dups)} duplicate backup schedules with same timing ({key}). "
+                            f"Schedule IDs: {[d.id for d in dups]}. This will cause multiple backups at the same time. "
+                            f"Please disable or delete duplicate schedules via the UI or API."
+                        )
+
+            # Get only enabled schedules
             result = await db.execute(
                 select(BackupSchedule).where(BackupSchedule.enabled == True)
             )
@@ -370,6 +392,11 @@ async def _sync_backup_schedules() -> None:
                     await db.refresh(schedule)
                     schedules = [schedule]
                     logger.info(f"Created default schedule from configuration: {config.schedule_frequency} at {hour}:{minute:02d}")
+
+                    # Disable the old schedule_enabled flag to prevent duplicate backups
+                    config.schedule_enabled = False
+                    await db.commit()
+                    logger.info("Disabled legacy schedule_enabled in BackupConfiguration to prevent duplicates")
 
             for schedule in schedules:
                 await add_backup_job(schedule)

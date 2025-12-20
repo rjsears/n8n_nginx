@@ -237,6 +237,16 @@ export const ntfyApi = {
   getWebhookUrl: (topic) => api.get('/ntfy/integrations/webhook-url', { params: { topic } }),
 }
 
+// System Notifications API (for backup, container, and system events)
+export const systemNotificationsApi = {
+  getEvents: (params) => api.get('/system-notifications/events', { params }),
+  getEvent: (id) => api.get(`/system-notifications/events/${id}`),
+  updateEvent: (id, data) => api.put(`/system-notifications/events/${id}`, data),
+  getHistory: (params) => api.get('/system-notifications/history', { params }),
+  getGlobalSettings: () => api.get('/system-notifications/global-settings'),
+  updateGlobalSettings: (data) => api.put('/system-notifications/global-settings', data),
+}
+
 // Attach APIs to the main instance for api.xxx.method() pattern compatibility
 api.auth = authApi
 api.system = {
@@ -279,3 +289,4 @@ api.settings = {
   getAll: () => api.get('/settings/'),
 }
 api.ntfy = ntfyApi
+api.systemNotifications = systemNotificationsApi

@@ -3,7 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useNotificationStore } from '@/stores/notifications'
-import { notificationsApi, ntfyApi } from '@/services/api'
+import { notificationsApi, ntfyApi, systemNotificationsApi } from '@/services/api'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -199,16 +199,41 @@ const stats = computed(() => {
 async function loadData() {
   loading.value = true
   try {
-    const [servicesRes, groupsRes, historyRes, webhookRes] = await Promise.all([
+    const [servicesRes, groupsRes, historyRes, webhookRes, systemHistoryRes] = await Promise.all([
       notificationsApi.getServices(),
       notificationsApi.getGroups(),
       notificationsApi.getHistory(),
       notificationsApi.getWebhookInfo(),
+      systemNotificationsApi.getHistory({ limit: 50 }).catch(() => ({ data: { items: [] } })),
     ])
     // Ensure we always have arrays
     channels.value = Array.isArray(servicesRes.data) ? servicesRes.data : []
     groups.value = Array.isArray(groupsRes.data) ? groupsRes.data : []
-    history.value = Array.isArray(historyRes.data) ? historyRes.data : []
+
+    // Merge notification history from both sources
+    const regularHistory = Array.isArray(historyRes.data) ? historyRes.data : []
+    const systemHistory = systemHistoryRes.data?.items || []
+
+    // Transform system notification history to match regular history format
+    const transformedSystemHistory = systemHistory.map(item => ({
+      ...item,
+      // Mark as system notification for display purposes
+      is_system_notification: true,
+      // Use triggered_at as the timestamp for sorting
+      created_at: item.triggered_at || item.sent_at,
+      // Map event_type to message if not present
+      message: item.event_data?.message || `${item.event_type}: ${item.target_label || ''}`,
+    }))
+
+    // Merge and sort by date (newest first)
+    const allHistory = [...regularHistory, ...transformedSystemHistory]
+    allHistory.sort((a, b) => {
+      const dateA = new Date(a.created_at || a.triggered_at || 0)
+      const dateB = new Date(b.created_at || b.triggered_at || 0)
+      return dateB - dateA
+    })
+
+    history.value = allHistory
     webhookInfo.value = webhookRes.data
   } catch (error) {
     console.error('Failed to load notification data:', error)

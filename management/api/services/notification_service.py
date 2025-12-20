@@ -1302,12 +1302,67 @@ async def dispatch_notification(
         logger.info(f"Dispatched '{event_type}' notification to {sent_count} channel(s)")
 
 
+def _get_container_name() -> str:
+    """
+    Get the container name from Docker API instead of hostname (which returns container ID).
+    Falls back to 'n8n_management' if Docker API is unavailable.
+    """
+    import os
+    try:
+        import docker
+        client = docker.from_env()
+        # Get current container's ID from hostname or cgroup
+        container_id = os.environ.get("HOSTNAME", "")
+        if container_id:
+            # Try to get full container info
+            container = client.containers.get(container_id)
+            # Container name has a leading slash, remove it
+            return container.name.lstrip('/')
+    except Exception:
+        pass
+    # Fallback to expected container name
+    return "n8n_management"
+
+
+def _format_local_time(utc_time_str: str, timezone_str: str = None) -> str:
+    """
+    Convert a UTC timestamp string to local timezone.
+
+    Args:
+        utc_time_str: Timestamp string in format "YYYY-MM-DD HH:MM:SS" (assumed UTC)
+        timezone_str: Target timezone (defaults to settings.timezone)
+
+    Returns:
+        Formatted timestamp in local timezone
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from api.config import settings
+
+    if not timezone_str:
+        timezone_str = settings.timezone
+
+    try:
+        # Parse the UTC time string
+        utc_dt = datetime.strptime(utc_time_str, "%Y-%m-%d %H:%M:%S")
+        # Make it timezone-aware (UTC)
+        utc_dt = utc_dt.replace(tzinfo=ZoneInfo("UTC"))
+        # Convert to local timezone
+        local_tz = ZoneInfo(timezone_str)
+        local_dt = utc_dt.astimezone(local_tz)
+        # Return formatted string
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        # If conversion fails, return original
+        return utc_time_str
+
+
 def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> str:
     """Build a human-readable notification message from event data."""
-    import socket
     from datetime import datetime
 
-    hostname = event_data.get("hostname") or socket.gethostname()
+    # Use container name instead of hostname (container ID)
+    hostname = event_data.get("hostname") or _get_container_name()
 
     # Backup events
     if event_type == "backup_success":
@@ -1316,7 +1371,9 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         duration = event_data.get("duration_seconds", 0)
         workflow_count = event_data.get("workflow_count", 0)
         config_count = event_data.get("config_file_count", 0)
-        completed_at = event_data.get("completed_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Convert UTC timestamp to local timezone
+        completed_at_utc = event_data.get("completed_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        completed_at = _format_local_time(completed_at_utc)
 
         return (
             f"Host: {hostname}\n"
@@ -1330,7 +1387,9 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
     elif event_type == "backup_failure":
         backup_type = event_data.get("backup_type", "unknown")
         error = event_data.get("error", "Unknown error")
-        failed_at = event_data.get("failed_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Convert UTC timestamp to local timezone
+        failed_at_utc = event_data.get("failed_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        failed_at = _format_local_time(failed_at_utc)
 
         return (
             f"Host: {hostname}\n"
@@ -1340,7 +1399,9 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         )
     elif event_type == "backup_started":
         backup_type = event_data.get("backup_type", "unknown")
-        started_at = event_data.get("started_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Convert UTC timestamp to local timezone
+        started_at_utc = event_data.get("started_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        started_at = _format_local_time(started_at_utc)
 
         return (
             f"Host: {hostname}\n"
