@@ -940,20 +940,20 @@ async function handleNtfyUpdateConfig(config) {
             />
 
             <div v-else class="space-y-2 pt-2">
-              <!-- Header row - STATUS/WEBHOOK/TYPE aligned under Webhook Enabled stat box -->
-              <div class="grid grid-cols-[44px_minmax(120px,1.3fr)_minmax(150px,1fr)_70px_90px_65px_auto] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
+              <!-- Header row - Channel Slug under Active, STATUS/WEBHOOK/TYPE under Webhook Enabled -->
+              <div class="grid grid-cols-[44px_0.7fr_1.3fr_70px_90px_60px_minmax(130px,auto)] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
-                <div>Channel Slug</div>
-                <div>Status</div>
-                <div>Webhook</div>
-                <div>Type</div>
-                <div class="text-right pr-2">Actions</div>
+                <div class="text-center">Channel Slug</div>
+                <div class="text-center">Status</div>
+                <div class="text-center">Webhook</div>
+                <div class="text-center">Type</div>
+                <div class="text-center">Actions</div>
               </div>
               <div
                 v-for="channel in channels"
                 :key="channel.id"
-                class="grid grid-cols-[44px_minmax(120px,1.3fr)_minmax(150px,1fr)_70px_90px_65px_auto] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
+                class="grid grid-cols-[44px_0.7fr_1.3fr_70px_90px_60px_minmax(130px,auto)] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
               >
                 <!-- Icon -->
                 <div
@@ -975,27 +975,33 @@ async function handleNtfyUpdateConfig(config) {
                 <!-- Name -->
                 <p class="font-medium text-primary truncate">{{ channel.name }}</p>
                 <!-- Slug -->
-                <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate">channel:{{ channel.slug }}</code>
+                <div class="text-center">
+                  <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate inline-block max-w-full">channel:{{ channel.slug }}</code>
+                </div>
                 <!-- Status -->
-                <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" />
+                <div class="flex justify-center">
+                  <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" />
+                </div>
                 <!-- Webhook -->
-                <span
-                  v-if="channel.webhook_enabled"
-                  :class="[
-                    'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
-                    channel.enabled
-                      ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300'
-                      : 'bg-gray-100 dark:bg-gray-500/20 text-gray-500 dark:text-gray-400'
-                  ]"
-                >
-                  <LinkIcon class="h-3 w-3" />
-                  Webhook
-                </span>
-                <span v-else class="text-xs text-gray-400">-</span>
+                <div class="flex justify-center">
+                  <span
+                    v-if="channel.webhook_enabled"
+                    :class="[
+                      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                      channel.enabled
+                        ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300'
+                        : 'bg-gray-100 dark:bg-gray-500/20 text-gray-500 dark:text-gray-400'
+                    ]"
+                  >
+                    <LinkIcon class="h-3 w-3" />
+                    Webhook
+                  </span>
+                  <span v-else class="text-xs text-gray-400">-</span>
+                </div>
                 <!-- Type -->
-                <span class="text-xs text-secondary capitalize">{{ channel.service_type }}</span>
+                <span class="text-xs text-secondary capitalize text-center">{{ channel.service_type }}</span>
                 <!-- Actions -->
-                <div class="flex items-center gap-1 justify-end">
+                <div class="flex items-center gap-1 justify-center">
                   <button
                     @click.stop="testChannel(channel)"
                     :disabled="testingChannel === channel.id"
