@@ -326,15 +326,8 @@ class BackupConfiguration(Base):
     # Minimum backups to always keep regardless of age (safety net)
     retention_min_count = Column(Integer, default=3)
 
-    # DEPRECATED: Schedule settings have been moved to the BackupSchedule table.
+    # NOTE: Schedule settings are managed via the BackupSchedule table.
     # Use the /api/backups/schedules endpoints for schedule management.
-    # These columns are kept for database compatibility but are no longer used.
-    # They will be removed in a future database migration.
-    schedule_enabled = Column(Boolean, default=False)  # DEPRECATED - use BackupSchedule
-    schedule_frequency = Column(String(20), default="daily")  # DEPRECATED
-    schedule_time = Column(String(10), default="02:00")  # DEPRECATED
-    schedule_day_of_week = Column(Integer, nullable=True)  # DEPRECATED
-    schedule_day_of_month = Column(Integer, nullable=True)  # DEPRECATED
 
     # Backup Type Settings
     default_backup_type = Column(String(50), default="postgres_full")

@@ -326,12 +326,10 @@ async def _sync_backup_schedules() -> None:
     """
     Sync backup schedules from database to APScheduler.
 
-    This function loads all enabled BackupSchedule records and creates
-    APScheduler jobs for each one. It also handles one-time migration
-    from the legacy BackupConfiguration.schedule_enabled system.
+    Loads all enabled BackupSchedule records and creates APScheduler jobs for each.
     """
     from api.database import async_session_maker
-    from api.models.backups import BackupSchedule, BackupConfiguration
+    from api.models.backups import BackupSchedule
     from sqlalchemy import select
 
     try:
@@ -342,11 +340,6 @@ async def _sync_backup_schedules() -> None:
             )
             schedules = result.scalars().all()
 
-            # ONE-TIME MIGRATION: If no schedules exist, check for legacy config
-            # This handles migration from the old BackupConfiguration.schedule_enabled system
-            if not schedules:
-                schedules = await _migrate_legacy_schedule(db)
-
             # Create APScheduler jobs for each enabled schedule
             for schedule in schedules:
                 await add_backup_job(schedule)
@@ -354,66 +347,6 @@ async def _sync_backup_schedules() -> None:
             logger.info(f"Synced {len(schedules)} backup schedule(s) to APScheduler")
     except Exception as e:
         logger.error(f"Failed to sync backup schedules: {e}")
-
-
-async def _migrate_legacy_schedule(db) -> list:
-    """
-    One-time migration from legacy BackupConfiguration.schedule_enabled to BackupSchedule.
-
-    This is only called when no BackupSchedule records exist, to handle
-    migration from older installations that used BackupConfiguration for scheduling.
-    After migration, the legacy schedule_enabled flag is disabled.
-
-    Returns:
-        List of created BackupSchedule records (empty list if no migration needed)
-    """
-    from api.models.backups import BackupSchedule, BackupConfiguration
-    from sqlalchemy import select
-
-    config_result = await db.execute(select(BackupConfiguration).limit(1))
-    config = config_result.scalar_one_or_none()
-
-    if not config or not config.schedule_enabled:
-        return []
-
-    # Parse time from "HH:MM" format
-    hour, minute = 2, 0  # defaults
-    if config.schedule_time:
-        try:
-            parts = config.schedule_time.split(':')
-            hour = int(parts[0])
-            minute = int(parts[1]) if len(parts) > 1 else 0
-        except (ValueError, IndexError):
-            pass
-
-    # Create new BackupSchedule from legacy config
-    schedule = BackupSchedule(
-        name="Default Schedule",
-        backup_type=config.default_backup_type or "postgres_full",
-        enabled=True,
-        frequency=config.schedule_frequency or "daily",
-        hour=hour,
-        minute=minute,
-        day_of_week=config.schedule_day_of_week,
-        day_of_month=config.schedule_day_of_month,
-        compression=config.compression_algorithm or "gzip",
-        timezone=settings.timezone,
-    )
-    db.add(schedule)
-    await db.commit()
-    await db.refresh(schedule)
-
-    logger.info(
-        f"MIGRATION: Created BackupSchedule from legacy config: "
-        f"{config.schedule_frequency} at {hour}:{minute:02d}"
-    )
-
-    # Disable the legacy schedule_enabled flag to prevent future conflicts
-    config.schedule_enabled = False
-    await db.commit()
-    logger.info("MIGRATION: Disabled legacy BackupConfiguration.schedule_enabled")
-
-    return [schedule]
 
 
 async def add_backup_job(schedule) -> None:
