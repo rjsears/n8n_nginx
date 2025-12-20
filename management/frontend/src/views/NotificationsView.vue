@@ -940,15 +940,15 @@ async function handleNtfyUpdateConfig(config) {
             />
 
             <div v-else class="space-y-2 pt-2">
-              <!-- Header row - Channel Slug under Active, STATUS/WEBHOOK/TYPE under Webhook Enabled -->
+              <!-- Header row - headers centered over their data columns -->
               <div class="grid grid-cols-[44px_0.7fr_1.3fr_70px_90px_60px_minmax(130px,auto)] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
-                <div class="text-center">Channel Slug</div>
-                <div class="text-center">Status</div>
-                <div class="text-center">Webhook</div>
-                <div class="text-center">Type</div>
-                <div class="text-center">Actions</div>
+                <div class="flex justify-center">Channel Slug</div>
+                <div class="flex justify-center">Status</div>
+                <div class="flex justify-center">Webhook</div>
+                <div class="flex justify-center">Type</div>
+                <div class="flex justify-center">Actions</div>
               </div>
               <div
                 v-for="channel in channels"
@@ -975,9 +975,7 @@ async function handleNtfyUpdateConfig(config) {
                 <!-- Name -->
                 <p class="font-medium text-primary truncate">{{ channel.name }}</p>
                 <!-- Slug -->
-                <div class="text-center">
-                  <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate inline-block max-w-full">channel:{{ channel.slug }}</code>
-                </div>
+                <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate">channel:{{ channel.slug }}</code>
                 <!-- Status -->
                 <div class="flex justify-center">
                   <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" />
