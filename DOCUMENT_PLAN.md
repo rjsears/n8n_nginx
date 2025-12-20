@@ -245,13 +245,13 @@
 
 #### 9. System Notifications
 - 9.1 Event Types & Configuration
-  - Backup Events
+  - Backup Events (category: backup)
     - backup_success
     - backup_failure
     - backup_started
     - backup_pending_deletion
     - backup_critical_space
-  - Container Events
+  - Container Events (category: container)
     - container_unhealthy
     - container_restart
     - container_stopped
@@ -260,12 +260,14 @@
     - container_healthy
     - container_high_cpu
     - container_high_memory
-  - System Events
+  - Security Events (category: security)
+    - security_event
+  - SSL Certificate Events (category: ssl)
+    - certificate_expiring
+  - System Events (category: system)
     - disk_space_low
     - high_memory
     - high_cpu
-    - certificate_expiring
-    - security_event
     - update_available
 - 9.2 Event Configuration Options
   - Enabling/Disabling Events
