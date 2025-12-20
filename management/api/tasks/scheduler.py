@@ -393,6 +393,11 @@ async def _sync_backup_schedules() -> None:
                     schedules = [schedule]
                     logger.info(f"Created default schedule from configuration: {config.schedule_frequency} at {hour}:{minute:02d}")
 
+                    # Disable the old schedule_enabled flag to prevent duplicate backups
+                    config.schedule_enabled = False
+                    await db.commit()
+                    logger.info("Disabled legacy schedule_enabled in BackupConfiguration to prevent duplicates")
+
             for schedule in schedules:
                 await add_backup_job(schedule)
 
