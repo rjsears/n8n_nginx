@@ -941,19 +941,19 @@ async function handleNtfyUpdateConfig(config) {
 
             <div v-else class="space-y-2 pt-2">
               <!-- Header row - fixed widths, STATUS aligns under Webhook Enabled stat box -->
-              <div class="grid grid-cols-[44px_140px_280px_70px_90px_55px_160px] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
+              <div class="grid grid-cols-[44px_140px_280px_70px_90px_55px_1fr] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
                 <div class="pl-1.5">Channel Slug</div>
                 <div class="w-full text-center">Status</div>
                 <div class="w-full text-center">Webhook</div>
                 <div class="w-full text-center">Type</div>
-                <div class="w-full text-center">Actions</div>
+                <div class="w-full text-right pr-2">Actions</div>
               </div>
               <div
                 v-for="channel in channels"
                 :key="channel.id"
-                class="grid grid-cols-[44px_140px_280px_70px_90px_55px_160px] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
+                class="grid grid-cols-[44px_140px_280px_70px_90px_55px_1fr] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
               >
                 <!-- Icon -->
                 <div
@@ -999,7 +999,7 @@ async function handleNtfyUpdateConfig(config) {
                 <!-- Type -->
                 <div class="w-full text-center text-xs text-secondary capitalize">{{ channel.service_type }}</div>
                 <!-- Actions -->
-                <div class="w-full flex items-center gap-1 justify-center">
+                <div class="w-full flex items-center gap-1 justify-end">
                   <button
                     @click.stop="testChannel(channel)"
                     :disabled="testingChannel === channel.id"
