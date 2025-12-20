@@ -570,6 +570,25 @@ async function updateEvent(event, field, value) {
   }
 }
 
+async function updateEventThreshold(event, key, value) {
+  try {
+    // Merge with existing thresholds
+    const updatedThresholds = { ...(event.thresholds || {}), [key]: value }
+    await api.put(`/system-notifications/events/${event.id}`, { thresholds: updatedThresholds })
+
+    // Update local state
+    const idx = events.value.findIndex(e => e.id === event.id)
+    if (idx !== -1) {
+      events.value[idx] = { ...events.value[idx], thresholds: updatedThresholds }
+    }
+
+    notificationStore.success(`Threshold updated for "${event.display_name}"`)
+  } catch (error) {
+    console.error('Failed to update threshold:', error)
+    notificationStore.error(`Failed to update threshold for "${event.display_name}"`)
+  }
+}
+
 async function updateGlobalSettings(updates) {
   saving.value = true
   try {
@@ -1199,6 +1218,31 @@ onMounted(() => {
                                     </div>
                                   </div>
                                   <p class="text-xs text-secondary mt-2">Minimum time between duplicate notifications. Prevents alert fatigue from repeated events.</p>
+                                </div>
+
+                                <!-- Certificate Expiration Threshold (SSL events only) -->
+                                <div v-if="event.event_type === 'certificate_expiring'">
+                                  <label class="block text-sm font-semibold text-primary mb-2">Days Before Expiration</label>
+                                  <div class="bg-amber-50 dark:bg-amber-500/10 rounded-xl p-4 border border-amber-200 dark:border-amber-500/20">
+                                    <div class="flex items-center justify-between mb-3">
+                                      <span class="text-sm text-amber-700 dark:text-amber-300">Alert when certificate expires in:</span>
+                                      <span class="text-2xl font-bold text-amber-600 dark:text-amber-400">{{ event.thresholds?.days || 14 }} days</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      :value="event.thresholds?.days || 14"
+                                      @input="updateEventThreshold(event, 'days', parseInt($event.target.value))"
+                                      min="3"
+                                      max="60"
+                                      step="1"
+                                      class="w-full h-2 bg-amber-200 dark:bg-amber-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                    />
+                                    <div class="flex justify-between mt-2 text-xs text-amber-600 dark:text-amber-400">
+                                      <span>3 days</span>
+                                      <span>60 days</span>
+                                    </div>
+                                  </div>
+                                  <p class="text-xs text-secondary mt-2">How many days before expiration to start sending notifications.</p>
                                 </div>
                               </div>
 
