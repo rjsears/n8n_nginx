@@ -1,0 +1,151 @@
+/* Neon Effects for Theme D (Dashboard Dark + Neon) */
+
+.neon-enabled {
+  /* Glow shadows */
+  --glow-cyan: 0 0 20px rgba(34, 211, 238, 0.5);
+  --glow-fuchsia: 0 0 20px rgba(217, 70, 239, 0.5);
+  --glow-success: 0 0 15px rgba(52, 211, 153, 0.5);
+  --glow-warning: 0 0 15px rgba(251, 191, 36, 0.5);
+  --glow-danger: 0 0 15px rgba(248, 113, 113, 0.5);
+}
+
+/* Neon card borders */
+.neon-enabled .neon-card {
+  @apply border-cyan-500/30;
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.1),
+    0 0 20px rgba(34, 211, 238, 0.1),
+    inset 0 0 20px rgba(34, 211, 238, 0.05);
+}
+
+.neon-enabled .neon-card:hover {
+  @apply border-cyan-400/50;
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.2),
+    0 0 30px rgba(34, 211, 238, 0.2),
+    inset 0 0 30px rgba(34, 211, 238, 0.1);
+}
+
+/* Neon text */
+.neon-enabled .neon-text {
+  text-shadow: 0 0 10px currentColor;
+}
+
+.neon-enabled .neon-text-cyan {
+  @apply text-cyan-400;
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+}
+
+.neon-enabled .neon-text-fuchsia {
+  @apply text-fuchsia-400;
+  text-shadow: 0 0 10px rgba(217, 70, 239, 0.8);
+}
+
+/* Neon status indicators */
+.neon-enabled .status-running {
+  @apply text-emerald-400;
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+}
+
+.neon-enabled .status-stopped {
+  @apply text-gray-400;
+}
+
+.neon-enabled .status-error {
+  @apply text-rose-400;
+  text-shadow: 0 0 8px rgba(248, 113, 113, 0.8);
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+.neon-enabled .status-warning {
+  @apply text-amber-400;
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.8);
+}
+
+/* Neon buttons */
+.neon-enabled .btn-neon {
+  @apply bg-cyan-500/20 text-cyan-400 border border-cyan-500/50;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.3);
+  transition: all 0.2s ease;
+}
+
+.neon-enabled .btn-neon:hover {
+  @apply bg-cyan-500/30 border-cyan-400;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.5);
+}
+
+.neon-enabled .btn-neon-fuchsia {
+  @apply bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/50;
+  box-shadow: 0 0 10px rgba(217, 70, 239, 0.3);
+}
+
+.neon-enabled .btn-neon-fuchsia:hover {
+  @apply bg-fuchsia-500/30 border-fuchsia-400;
+  box-shadow: 0 0 20px rgba(217, 70, 239, 0.5);
+}
+
+/* Neon progress bars */
+.neon-enabled .progress-neon {
+  @apply bg-cyan-500/20;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+}
+
+.neon-enabled .progress-neon .progress-bar {
+  @apply bg-gradient-to-r from-cyan-500 to-fuchsia-500;
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.7);
+}
+
+/* Neon sidebar */
+.neon-enabled .sidebar-neon {
+  border-right: 1px solid rgba(34, 211, 238, 0.2);
+  box-shadow: 2px 0 20px rgba(34, 211, 238, 0.1);
+}
+
+.neon-enabled .sidebar-item-active {
+  @apply bg-cyan-500/20 border-l-2 border-cyan-400;
+  box-shadow: inset 0 0 20px rgba(34, 211, 238, 0.1);
+}
+
+/* Neon charts */
+.neon-enabled .chart-glow {
+  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.5));
+}
+
+/* Animations */
+@keyframes neon-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes neon-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(34, 211, 238, 0.8);
+  }
+}
+
+.neon-enabled .animate-neon-glow {
+  animation: neon-glow 2s ease-in-out infinite;
+}
+
+/* Neon dividers */
+.neon-enabled .divider-neon {
+  @apply border-t border-cyan-500/30;
+  box-shadow: 0 0 5px rgba(34, 211, 238, 0.3);
+}
+
+/* Neon inputs */
+.neon-enabled .input-neon {
+  @apply border-slate-600 bg-slate-800/50;
+}
+
+.neon-enabled .input-neon:focus {
+  @apply border-cyan-500;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2), 0 0 10px rgba(34, 211, 238, 0.3);
+}

@@ -159,19 +159,11 @@ services:
       # NFS Configuration (optional)
       - NFS_SERVER=${NFS_SERVER:-}
       - NFS_PATH=${NFS_PATH:-}
-      - NFS_LOCAL_MOUNT=${NFS_LOCAL_MOUNT:-}
+      - NFS_MOUNT_POINT=/mnt/backups
       # Timezone
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # PostgreSQL version (for pg_dump compatibility)
       - POSTGRES_VERSION=16
-      # Domain for constructing URLs (used in integration examples)
-      - DOMAIN=${DOMAIN:-}
-      # NTFY public URL (if different from https://ntfy.${DOMAIN})
-      - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
-      # PostgreSQL connection for backups (pg_dump)
-      - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
-      - POSTGRES_USER=${POSTGRES_USER:-n8n}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -185,14 +177,6 @@ services:
       - ./.env:/app/host_env/.env:rw
       # Nginx config for access control management (read-write)
       - ./nginx.conf:/app/host_config/nginx.conf:rw
-      # Docker-compose file for backup/restore (read-write for restore)
-      - ./docker-compose.yaml:/app/host_config/docker-compose.yaml:rw
-      # Cloudflare credentials for SSL/DNS management (read-write for restore)
-      - ./cloudflare.ini:/app/host_config/cloudflare.ini:rw
-      # SSL certificates for backup/restore (read-only - restore requires host access)
-      - letsencrypt:/etc/letsencrypt:ro
-      # NFS backup mount (set NFS_LOCAL_MOUNT in .env)
-      - ${NFS_LOCAL_MOUNT}:/mnt/backups
     expose:
       - "80"
     depends_on:
@@ -298,9 +282,7 @@ services:
       - serve
     environment:
       - TZ=${TIMEZONE:-America/Los_Angeles}
-      # NTFY_BASE_URL: Set to your ntfy subdomain (e.g., https://ntfy.example.com)
-      # This should match the public hostname configured in Cloudflare Tunnel
-      - NTFY_BASE_URL=${NTFY_BASE_URL:-https://ntfy.${DOMAIN}}
+      - NTFY_BASE_URL=https://${DOMAIN}/ntfy
       - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
       - NTFY_BEHIND_PROXY=true
       - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
