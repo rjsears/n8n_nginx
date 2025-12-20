@@ -147,10 +147,6 @@ const sslConfigured = ref(false)
 const eventsByCategory = computed(() => {
   const grouped = {}
   for (const event of events.value) {
-    // Hide ssl category if SSL is not configured
-    if (event.category === 'ssl' && !sslConfigured.value) {
-      continue
-    }
     if (!grouped[event.category]) {
       grouped[event.category] = []
     }
