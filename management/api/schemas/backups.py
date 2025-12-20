@@ -354,12 +354,8 @@ class BackupConfigurationUpdate(BaseModel):
     retention_monthly_count: Optional[int] = Field(None, ge=1, le=24)  # Keep monthly backups for X months
     retention_min_count: Optional[int] = Field(None, ge=1, le=50)  # Safety net minimum
 
-    # Schedule Settings
-    schedule_enabled: Optional[bool] = None
-    schedule_frequency: Optional[str] = Field(None, pattern="^(hourly|daily|weekly|monthly)$")
-    schedule_time: Optional[str] = Field(None, pattern="^[0-2][0-9]:[0-5][0-9]$")
-    schedule_day_of_week: Optional[int] = Field(None, ge=0, le=6)
-    schedule_day_of_month: Optional[int] = Field(None, ge=1, le=31)
+    # NOTE: Schedule settings have been moved to BackupSchedule.
+    # Use /api/backups/schedules endpoints for schedule management.
 
     # Backup Type Settings
     default_backup_type: Optional[str] = None
@@ -400,12 +396,8 @@ class BackupConfigurationResponse(BaseModel):
     retention_monthly_count: int
     retention_min_count: int
 
-    # Schedule Settings
-    schedule_enabled: bool
-    schedule_frequency: str
-    schedule_time: str
-    schedule_day_of_week: Optional[int] = None
-    schedule_day_of_month: Optional[int] = None
+    # NOTE: Schedule settings have been moved to BackupSchedule.
+    # Use /api/backups/schedules endpoints for schedule management.
 
     # Backup Type Settings
     default_backup_type: str
