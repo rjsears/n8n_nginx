@@ -940,11 +940,11 @@ async function handleNtfyUpdateConfig(config) {
             />
 
             <div v-else class="space-y-2 pt-2">
-              <!-- Header row - headers centered over their data columns -->
+              <!-- Header row - each header aligned same as its data -->
               <div class="grid grid-cols-[44px_0.7fr_1.3fr_70px_90px_60px_minmax(130px,auto)] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
-                <div class="flex justify-center">Channel Slug</div>
+                <div>Channel Slug</div>
                 <div class="flex justify-center">Status</div>
                 <div class="flex justify-center">Webhook</div>
                 <div class="flex justify-center">Type</div>
