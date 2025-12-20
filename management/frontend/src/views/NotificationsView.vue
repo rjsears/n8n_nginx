@@ -940,20 +940,20 @@ async function handleNtfyUpdateConfig(config) {
             />
 
             <div v-else class="space-y-2 pt-2">
-              <!-- Header row -->
-              <div class="grid grid-cols-[44px_150px_200px_70px_90px_60px_1fr] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
+              <!-- Header row - STATUS/WEBHOOK/TYPE aligned under Webhook Enabled stat box (~50% mark) -->
+              <div class="grid grid-cols-[44px_1fr_1fr_70px_90px_65px_auto] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
                 <div>Channel Slug</div>
                 <div>Status</div>
                 <div>Webhook</div>
                 <div>Type</div>
-                <div class="text-right">Actions</div>
+                <div class="text-right pr-2">Actions</div>
               </div>
               <div
                 v-for="channel in channels"
                 :key="channel.id"
-                class="grid grid-cols-[44px_150px_200px_70px_90px_60px_1fr] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
+                class="grid grid-cols-[44px_1fr_1fr_70px_90px_65px_auto] gap-3 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
               >
                 <!-- Icon -->
                 <div
