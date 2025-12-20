@@ -1,463 +1,405 @@
-# n8n with Nginx, SSL, and Management Console
-
 <p align="center">
-  <img src="./images/n8n_repo_banner.jpg" alt="n8n HTTPS Setup Banner">
+  <img src="images/n8n_repo_banner.jpg" alt="n8n Enterprise Deployment Suite" width="800"/>
 </p>
 
-**Version:** 3.0.0
-**Release Date:** December 2025
+<p align="center">
+  <em>"Enterprise-grade automation infrastructure shouldn't require an enterprise budget."</em>
+</p>
 
-[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)]()
-[![License](https://img.shields.io/badge/license-MIT-green.svg)]()
-![Last Commit](https://img.shields.io/github/last-commit/rjsears/n8n_nginx)
-![Issues](https://img.shields.io/github/issues/rjsears/n8n_nginx)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/rjsears/n8n_nginx/commits"><img src="https://img.shields.io/github/last-commit/rjsears/n8n_nginx" alt="GitHub last commit"></a>
+  <a href="https://github.com/rjsears/n8n_nginx/issues"><img src="https://img.shields.io/github/issues/rjsears/n8n_nginx" alt="GitHub issues"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Version-3.0.0-orange" alt="Version"></a>
+</p>
 
-A production-ready Docker deployment of n8n workflow automation with:
-- 🔒 Automatic SSL certificates via Let's Encrypt
-- 🌐 Nginx reverse proxy with security hardening
-- 📦 PostgreSQL 16 with pgvector for AI workflows
-- 🛡️ **NEW in v3.0:** Management console for backups, monitoring, and administration
+<p align="center">
+  <a href="https://n8n.io"><img src="https://img.shields.io/badge/n8n-Workflow%20Automation-FF6D5A?logo=n8n&logoColor=white" alt="n8n"></a>
+  <a href="https://www.postgresql.org"><img src="https://img.shields.io/badge/PostgreSQL-16%20with%20pgvector-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL"></a>
+  <a href="https://docker.com"><img src="https://img.shields.io/badge/Docker-Containerized-2496ED?logo=docker&logoColor=white" alt="Docker"></a>
+  <a href="https://nginx.org"><img src="https://img.shields.io/badge/Nginx-Reverse%20Proxy-009639?logo=nginx&logoColor=white" alt="Nginx"></a>
+  <a href="https://letsencrypt.org"><img src="https://img.shields.io/badge/Let's%20Encrypt-SSL%2FTLS-003A70?logo=letsencrypt&logoColor=white" alt="Let's Encrypt"></a>
+</p>
+
+<p align="center">
+  <a href="https://vuejs.org"><img src="https://img.shields.io/badge/Vue.js-3-4FC08D?logo=vuedotjs&logoColor=white" alt="Vue.js"></a>
+  <a href="https://fastapi.tiangolo.com"><img src="https://img.shields.io/badge/FastAPI-Python-009688?logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="https://tailscale.com"><img src="https://img.shields.io/badge/Tailscale-VPN%20Ready-242424?logo=tailscale&logoColor=white" alt="Tailscale"></a>
+  <a href="https://ntfy.sh"><img src="https://img.shields.io/badge/ntfy-Push%20Notifications-57A143" alt="ntfy"></a>
+</p>
+
+---
+
+# n8n Enterprise Deployment Suite
+
+A production-ready, self-hosted deployment solution for [n8n](https://n8n.io) workflow automation with integrated HTTPS/SSL certificate management, PostgreSQL database with pgvector for AI/RAG workflows, comprehensive backup and disaster recovery, multi-channel notifications, and a full-featured web-based management console.
 
 ---
 
 ## Table of Contents
 
-- [What's New in v3.0](#whats-new-in-v30)
-- [Quick Start](#quick-start)
-- [Architecture](#architecture)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Management Console](#management-console)
-- [Command Line Tools](#command-line-tools)
-- [Troubleshooting](#troubleshooting)
-- [Security](#security)
-- [Contributing](#contributing)
-- [License](#license)
+### Part I: Introduction
+- [1. Overview](#1-overview)
+  - [1.1 What is n8n Enterprise Deployment Suite?](#11-what-is-n8n-enterprise-deployment-suite)
+  - [1.2 Key Features at a Glance](#12-key-features-at-a-glance)
+  - [1.3 Architecture Overview](#13-architecture-overview)
+  - [1.4 Technology Stack](#14-technology-stack)
+- [2. System Requirements](#2-system-requirements)
+  - [2.1 Hardware Requirements](#21-hardware-requirements)
+  - [2.2 Software Requirements](#22-software-requirements)
+  - [2.3 Supported Operating Systems](#23-supported-operating-systems)
+  - [2.4 Network Requirements](#24-network-requirements)
+  - [2.5 DNS Provider Requirements](#25-dns-provider-requirements)
+
+### Part II: Installation
+- [3. Pre-Installation Preparation](#3-pre-installation-preparation)
+  - [3.1 Gathering Required Information](#31-gathering-required-information)
+  - [3.2 Preparing Your Server](#32-preparing-your-server)
+  - [3.3 Downloading the Repository](#33-downloading-the-repository)
+- [4. Interactive Setup](#4-interactive-setup)
+  - [4.1 Starting the Setup](#41-starting-the-setup)
+  - [4.2 Docker Installation](#42-docker-installation)
+  - [4.3 Domain Configuration](#43-domain-configuration)
+  - [4.4 DNS Provider Selection](#44-dns-provider-selection)
+  - [4.5 Database Configuration](#45-database-configuration)
+  - [4.6 Administrator Account Setup](#46-administrator-account-setup)
+  - [4.7 Security Configuration](#47-security-configuration)
+  - [4.8 Container Naming](#48-container-naming)
+  - [4.9 Timezone Configuration](#49-timezone-configuration)
+  - [4.10 Optional Services](#410-optional-services)
+  - [4.11 Configuration Summary](#411-configuration-summary)
+  - [4.12 Deployment Process](#412-deployment-process)
+  - [4.13 Post-Installation Summary](#413-post-installation-summary)
+
+### Part III: Initial Configuration
+- [5. First-Time Setup](#5-first-time-setup)
+  - [5.1 Accessing the n8n Interface](#51-accessing-the-n8n-interface)
+  - [5.2 Accessing the Management Console](#52-accessing-the-management-console)
+  - [5.3 Configuring the n8n API Connection](#53-configuring-the-n8n-api-connection)
+  - [5.4 Deploying Test Workflows](#54-deploying-test-workflows)
+  - [5.5 IP Access Control Configuration](#55-ip-access-control-configuration)
+
+### Part IV: Management Console Reference
+- [6. Dashboard](#6-dashboard)
+- [7. Backup Management](#7-backup-management)
+  - [7.1 Understanding the Backup System](#71-understanding-the-backup-system)
+  - [7.2 Backup History](#72-backup-history)
+  - [7.3 Manual Backups](#73-manual-backups)
+  - [7.4 Scheduled Backups](#74-scheduled-backups)
+  - [7.5 Backup Verification](#75-backup-verification)
+  - [7.6 Restoration](#76-restoration)
+  - [7.7 Backup Settings](#77-backup-settings)
+  - [7.8 Backup Notifications](#78-backup-notifications)
+- [8. Notification System](#8-notification-system)
+  - [8.1 Notification Architecture](#81-notification-architecture)
+  - [8.2 Notification Channels](#82-notification-channels)
+  - [8.3 Creating Notification Channels](#83-creating-notification-channels)
+  - [8.4 Notification Groups](#84-notification-groups)
+  - [8.5 NTFY Configuration](#85-ntfy-configuration)
+  - [8.6 Standalone NTFY Server Setup](#86-standalone-ntfy-server-setup)
+  - [8.7 n8n Webhook Integration](#87-n8n-webhook-integration)
+- [9. System Notifications](#9-system-notifications)
+  - [9.1 Event Types](#91-event-types)
+  - [9.2 Event Configuration Options](#92-event-configuration-options)
+  - [9.3 Escalation](#93-escalation)
+  - [9.4 Global Settings](#94-global-settings)
+  - [9.5 Per-Container Configuration](#95-per-container-configuration)
+  - [9.6 Flapping Detection](#96-flapping-detection)
+- [10. Container Management](#10-container-management)
+- [11. Workflow Management](#11-workflow-management)
+- [12. System Monitoring](#12-system-monitoring)
+- [13. Settings](#13-settings)
+
+### Part V: Operations and Maintenance
+- [14. Daily Operations](#14-daily-operations)
+- [15. SSL Certificate Management](#15-ssl-certificate-management)
+- [16. Database Management](#16-database-management)
+- [17. Container Maintenance](#17-container-maintenance)
+- [18. Backup Best Practices](#18-backup-best-practices)
+
+### Part VI: Advanced Configuration
+- [19. Tailscale Integration](#19-tailscale-integration)
+- [20. Cloudflare Tunnel](#20-cloudflare-tunnel)
+- [21. NFS Backup Storage](#21-nfs-backup-storage)
+- [22. Custom Nginx Configuration](#22-custom-nginx-configuration)
+- [23. Environment Variables Reference](#23-environment-variables-reference)
+
+### Part VII: Troubleshooting
+- [24. Common Issues and Solutions](#24-common-issues-and-solutions)
+- [25. Logs and Diagnostics](#25-logs-and-diagnostics)
+
+### Part VIII: Reference
+- [26. Command Reference](#26-command-reference)
+- [27. File Locations](#27-file-locations)
+- [28. Glossary](#28-glossary)
+
+### Appendices
+- [Appendix A: DNS Provider Credential Setup](#appendix-a-dns-provider-credential-setup)
+- [Appendix B: Tailscale Auth Key Generation](#appendix-b-tailscale-auth-key-generation)
+- [Appendix C: Cloudflare Tunnel Token Generation](#appendix-c-cloudflare-tunnel-token-generation)
+- [Appendix D: n8n API Key Generation](#appendix-d-n8n-api-key-generation)
 
 ---
 
-## What's New in v3.0
+# Part I: Introduction
 
-### Management Console
+## 1. Overview
 
-Access your n8n infrastructure through a web-based management interface:
+### 1.1 What is n8n Enterprise Deployment Suite?
 
-| Feature | Description |
-|---------|-------------|
-| **Backups** | Automated PostgreSQL backups with scheduling and retention policies |
-| **Notifications** | Multi-channel alerts via Slack, Discord, Email, NTFY, and 80+ services |
-| **Container Management** | Monitor and control all Docker containers |
-| **Flow Extraction** | Recover individual workflows from database backups |
-| **System Monitoring** | CPU, memory, disk usage, and NFS status |
-| **Power Controls** | Restart containers or host system with confirmation safeguards |
+The n8n Enterprise Deployment Suite is a comprehensive, production-ready deployment and management solution for self-hosted n8n workflow automation. It combines:
 
-### Enhanced Setup Script
+- **Automated Deployment**: A single interactive script (`setup.sh`) that handles everything from Docker installation to SSL certificate acquisition
+- **Enterprise Infrastructure**: PostgreSQL 16 with pgvector for AI/RAG workflows, Nginx reverse proxy with automatic HTTPS, and Let's Encrypt certificate management
+- **Management Console**: A full-featured web application for monitoring, backup management, notifications, and system administration
+- **Disaster Recovery**: Comprehensive backup system with verification, selective restoration, and bare-metal recovery capabilities
+- **Multi-Channel Notifications**: Support for 30+ notification providers through Apprise, plus native NTFY push notifications
 
-The v3.0 setup script includes:
+Whether you are running n8n for personal automation or deploying it for an organization, this suite provides the infrastructure, monitoring, and management tools typically found only in expensive enterprise solutions.
 
-- **State Management**: Resume interrupted installations
-- **Version Detection**: Automatic detection of v2.0 installations with migration support
-- **NFS Configuration**: Built-in NFS setup wizard for remote backup storage
-- **Notification Setup**: Configure Email, Slack, Discord, or NTFY during installation
-- **Rollback Support**: 30-day rollback window for v2→v3 migrations
+### 1.2 Key Features at a Glance
 
-### Optional Integrations
+#### Deployment and Infrastructure
+- One-command interactive setup with automatic Docker installation
+- Automatic SSL/TLS certificate acquisition and renewal via Let's Encrypt
+- Support for multiple DNS providers (Cloudflare, AWS Route 53, Google Cloud DNS, DigitalOcean)
+- PostgreSQL 16 with pgvector extension for AI vector embeddings
+- Nginx reverse proxy with optimized configuration for n8n
+- Optional Tailscale VPN and Cloudflare Tunnel integration
 
-- **Adminer**: Database administration UI
-- **Dozzle**: Real-time container log viewer
-- **Cloudflare Tunnel**: Secure external access without opening ports
-- **Tailscale**: VPN-based private access
-- **Portainer**: Docker management UI
+#### Management Console
+- Real-time system metrics dashboard (CPU, memory, disk, network)
+- Docker container management (start, stop, restart, logs)
+- n8n workflow monitoring and control
+- Comprehensive settings management
+- Dark/light theme support
 
----
+#### Backup and Recovery
+- Scheduled and on-demand backups
+- Multiple storage backends (local, NFS)
+- Backup verification with integrity checking
+- Selective workflow restoration
+- Full system bare-metal recovery
+- Grandfather-Father-Son (GFS) retention policies
+- Automatic pruning with space management
 
-## Quick Start
+#### Notifications
+- 30+ notification providers via Apprise integration
+- Native NTFY push notification support
+- Email notifications with customizable templates
+- Webhook integration for n8n workflows
+- System event notifications with configurable triggers
+- L1/L2 escalation support
+- Maintenance mode and quiet hours
 
-```bash
-# Clone the repository
-git clone https://github.com/rjsears/n8n_nginx.git
-cd n8n_nginx
+### 1.3 Architecture Overview
 
-# Run the interactive setup
-chmod +x setup.sh
-./setup.sh
+```mermaid
+flowchart TB
+    subgraph Internet["Internet"]
+        User["User Browser"]
+        Webhook["External Webhooks"]
+    end
+
+    subgraph Docker["Docker Environment"]
+        subgraph Proxy["Reverse Proxy Layer"]
+            Nginx["Nginx<br/>:443 HTTPS"]
+        end
+
+        subgraph Core["Core Services"]
+            N8N["n8n<br/>:5678"]
+            PG[("PostgreSQL 16<br/>with pgvector")]
+        end
+
+        subgraph Management["Management Layer"]
+            MGMT["Management Console<br/>:3333"]
+            API["FastAPI Backend"]
+        end
+
+        subgraph Optional["Optional Services"]
+            NTFY["NTFY Server"]
+            Portainer["Portainer"]
+            Adminer["Adminer"]
+            Dozzle["Dozzle"]
+            Tailscale["Tailscale"]
+        end
+
+        subgraph SSL["Certificate Management"]
+            Certbot["Certbot"]
+        end
+    end
+
+    subgraph External["External Services"]
+        LE["Let's Encrypt"]
+        DNS["DNS Provider API"]
+    end
+
+    User --> Nginx
+    Webhook --> Nginx
+    Nginx --> N8N
+    Nginx --> MGMT
+    N8N --> PG
+    MGMT --> API
+    API --> PG
+    API --> N8N
+    Certbot --> LE
+    Certbot --> DNS
 ```
 
-The interactive setup will guide you through:
-1. Domain configuration and DNS provider setup
-2. SSL certificate generation
-3. n8n configuration
-4. **Management console setup** (new in v3.0)
-5. Optional services (Adminer, Dozzle, Portainer)
-6. Notification system configuration
+#### Component Overview
+
+| Component | Purpose |
+|-----------|---------|
+| **Nginx** | Reverse proxy handling HTTPS termination, routing, and security headers |
+| **n8n** | Workflow automation engine |
+| **PostgreSQL** | Primary database with pgvector for AI/ML vector operations |
+| **Management Console** | Web-based administration interface |
+| **FastAPI Backend** | REST API powering the management console |
+| **Certbot** | Automatic SSL certificate acquisition and renewal |
+| **NTFY** | Optional self-hosted push notification server |
+| **Portainer** | Optional container management UI |
+| **Adminer** | Optional database administration UI |
+| **Dozzle** | Optional real-time log viewer |
+| **Tailscale** | Optional VPN for secure remote access |
+
+### 1.4 Technology Stack
+
+#### Backend Technologies
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Python | 3.11+ | Management console backend |
+| FastAPI | Latest | Async web framework for REST API |
+| SQLAlchemy | 2.0 | Async ORM for database operations |
+| PostgreSQL | 16 | Primary database |
+| pgvector | Latest | Vector embeddings for AI/RAG |
+| APScheduler | Latest | Task scheduling for backups |
+| Bcrypt | Latest | Password hashing |
+| Cryptography | Latest | AES-256 encryption |
+
+#### Frontend Technologies
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Vue.js | 3 | Frontend framework |
+| Vite | Latest | Build tool |
+| Pinia | Latest | State management |
+| Vue Router | Latest | Client-side routing |
+| Tailwind CSS | Latest | Styling framework |
+| Chart.js | Latest | Metrics visualization |
+| Axios | Latest | HTTP client |
+
+#### Infrastructure Technologies
+
+| Technology | Purpose |
+|------------|---------|
+| Docker | Container runtime |
+| Docker Compose | Container orchestration |
+| Nginx | Reverse proxy and SSL termination |
+| Certbot | Let's Encrypt certificate automation |
+| Let's Encrypt | Free SSL/TLS certificates |
 
 ---
 
-## Architecture
+## 2. System Requirements
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     NGINX (Port 443 + Custom Port)              │
-│   ┌─────────────────────────────┐  ┌─────────────────────────┐  │
-│   │     n8n (Port 443)          │  │  Management (Port 3333) │  │
-│   └─────────────────────────────┘  └─────────────────────────┘  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────┐  ┌──────────────┐  ┌────────────┐  ┌───────────┐  │
-│  │   n8n   │  │  PostgreSQL  │  │ Management │  │  Certbot  │  │
-│  │  :5678  │  │    :5432     │  │   :8000    │  │           │  │
-│  └─────────┘  └──────────────┘  └────────────┘  └───────────┘  │
-│                      │                 │                        │
-│              ┌───────┴───────┐         │                        │
-│              │  n8n database │         │                        │
-│              │  mgmt database│◄────────┘                        │
-│              └───────────────┘                                  │
-│                                                                 │
-│  Optional:  ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌───────────┐ │
-│             │ Adminer │ │ Dozzle  │ │Cloudflare│ │ Tailscale │ │
-│             └─────────┘ └─────────┘ └──────────┘ └───────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-```
+### 2.1 Hardware Requirements
 
----
+#### Minimum Requirements
 
-## Requirements
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 2 cores | 4+ cores |
+| RAM | 4 GB | 8+ GB |
+| Storage | 20 GB | 50+ GB SSD |
+| Network | 10 Mbps | 100+ Mbps |
 
-### Minimum Requirements
+#### Storage Considerations
 
-- **Server/VPS/Desktop** with:
-  - 2 CPU cores (recommended)
-  - 2GB RAM minimum (4GB recommended for management console)
-  - 10GB disk space
-  - Internet access
-- **Domain name** with DNS managed by a supported provider
-- **DNS API access** (API token/credentials from your DNS provider)
+- **Operating System**: ~5 GB
+- **Docker Images**: ~3 GB
+- **PostgreSQL Data**: Varies with workflow complexity (plan 5-20 GB)
+- **Backups**: Plan for 2-3x your database size
+- **n8n Data**: Varies with execution history settings
 
-### Supported Operating Systems
+> **Note**: If using NFS for backup storage, local storage requirements for backups are reduced.
 
-| OS | Versions | Auto-Install Docker |
-|----|----------|---------------------|
-| **Ubuntu** | 20.04, 22.04, 24.04 | ✅ Yes |
-| **Debian** | 11, 12 | ✅ Yes |
-| **CentOS/RHEL** | 8, 9 | ✅ Yes |
-| **Rocky/AlmaLinux** | 8, 9 | ✅ Yes |
-| **Fedora** | 38+ | ✅ Yes |
-| **macOS** | 10.15+ | ✅ Via Homebrew |
+### 2.2 Software Requirements
 
-### Supported DNS Providers
+#### Required Software
 
-- Cloudflare (recommended)
-- AWS Route 53
-- Google Cloud DNS
-- DigitalOcean
-- And more via manual configuration
+| Software | Notes |
+|----------|-------|
+| Docker | Automatically installed by setup.sh if not present |
+| Docker Compose | V2 plugin preferred; automatically configured |
+| curl | Required for setup script |
+| OpenSSL | Required for key generation |
 
----
+#### Automatically Installed
 
-## Installation
+The setup script will automatically install these if not present:
+- Docker Engine
+- Docker Compose plugin
+- Required Docker images
 
-### Fresh Install
+### 2.3 Supported Operating Systems
 
-```bash
-./setup.sh
-```
+| Operating System | Versions | Notes |
+|------------------|----------|-------|
+| Ubuntu | 20.04, 22.04, 24.04 | Recommended |
+| Debian | 11, 12 | Fully supported |
+| CentOS | 8, 9 | Stream versions |
+| RHEL | 8, 9 | Enterprise Linux |
+| Fedora | 38+ | Latest releases |
+| Rocky Linux | 8, 9 | RHEL-compatible |
+| AlmaLinux | 8, 9 | RHEL-compatible |
+| macOS | 10.15+ | Requires Docker Desktop |
+| Windows | 10/11 | Via WSL2 with Docker Desktop |
 
-### Upgrade from v2.0
+#### Special Environments
 
-```bash
-./setup.sh
-```
+| Environment | Support Level | Notes |
+|-------------|---------------|-------|
+| Proxmox LXC | Supported | Requires `nesting=1` and `lxc.apparmor.profile: unconfined` |
+| WSL2 | Supported | Requires Docker Desktop for Windows |
+| Virtual Machines | Supported | Any hypervisor (VMware, VirtualBox, Hyper-V, KVM) |
 
-The setup script automatically detects v2.0 installations and offers migration:
+### 2.4 Network Requirements
 
-- Creates full backup before migration
-- Preserves all n8n workflows and credentials
-- Adds management console with minimal downtime
-- Rollback available for 30 days
+#### Required Ports
 
-See [docs/MIGRATION.md](docs/MIGRATION.md) for detailed upgrade instructions.
+| Port | Protocol | Direction | Purpose |
+|------|----------|-----------|---------|
+| 443 | TCP | Inbound | HTTPS (n8n and webhooks) |
+| 3333 | TCP | Inbound | Management Console (configurable) |
 
----
+#### Optional Ports
 
-## Configuration
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 9001 | TCP | Portainer Agent |
+| 8080 | TCP | Adminer (database UI) |
+| 9999 | TCP | Dozzle (log viewer) |
+| 80 | TCP | NTFY (if enabled) |
 
-### Environment Variables
+#### Firewall Considerations
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DOMAIN` | Your domain name | Required |
-| `N8N_ENCRYPTION_KEY` | n8n encryption key | Auto-generated |
-| `POSTGRES_PASSWORD` | PostgreSQL password | Auto-generated |
-| `MGMT_PORT` | Management interface port | `3333` |
-| `MGMT_SECRET_KEY` | Management session secret | Auto-generated |
-| `NFS_SERVER` | NFS server for backups | Optional |
-| `NFS_PATH` | NFS export path | Optional |
+- Port 443 must be accessible from the internet for webhook functionality
+- Management console port (3333) should be restricted to trusted networks
+- Consider using Tailscale or Cloudflare Tunnel for secure remote access
 
-### Backup Configuration
+### 2.5 DNS Provider Requirements
 
-Backups are configured through the management interface:
+SSL certificate acquisition requires API access to your DNS provider for DNS-01 challenge validation. The following providers are supported:
 
-| Setting | Options | Default |
-|---------|---------|---------|
-| Frequency | Hourly, Daily, Weekly, Monthly | Daily |
-| Retention | Configurable per frequency | 7 daily, 4 weekly, 12 monthly |
-| Compression | None, Gzip, Zstd | Gzip |
-| Storage | Local, NFS | Local |
-| Verification | Enabled/Disabled | Weekly |
+| Provider | Required Credentials | Recommended |
+|----------|---------------------|-------------|
+| Cloudflare | API Token with Zone:DNS:Edit permission | Yes |
+| AWS Route 53 | Access Key ID + Secret Access Key | Yes |
+| Google Cloud DNS | Service Account JSON key | Yes |
+| DigitalOcean | API Token with read/write access | Yes |
+| Manual | None (requires manual DNS record creation) | No |
 
-See [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md) for comprehensive backup documentation.
-
-### Notification Channels
-
-Configure via management interface or setup.sh:
-
-- **Apprise**: Slack, Discord, Telegram, Microsoft Teams, and 80+ more
-- **NTFY**: Push notifications to mobile devices
-- **Email**: Gmail, SMTP, SendGrid, Mailgun, AWS SES
-- **Webhooks**: Custom HTTP endpoints
-
-See [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) for notification setup.
+> **Recommendation**: Cloudflare is recommended due to fast DNS propagation (60 seconds) and straightforward API token creation.
 
 ---
-
-## Usage
-
-### Accessing Services
-
-| Service | URL | Notes |
-|---------|-----|-------|
-| n8n | `https://your-domain.com` | Main workflow editor |
-| Management | `https://your-domain.com:3333` | Admin console |
-| Adminer | `https://your-domain.com:3333/adminer/` | Database UI (if enabled) |
-| Dozzle | `https://your-domain.com:3333/logs/` | Container logs (if enabled) |
-
-### Initial Setup
-
-1. **Access n8n**: Open `https://your-domain.com`
-2. **Create owner account**: First user becomes admin
-3. **Access Management**: Open `https://your-domain.com:3333`
-4. **Log in**: Use credentials from setup
-
----
-
-## Management Console
-
-### Dashboard
-
-- Container status overview
-- System resource metrics (CPU, memory, disk)
-- Recent backup status
-- Quick action buttons
-
-### Backups
-
-- Schedule automated backups
-- Download backup files
-- Verify backup integrity
-- Configure retention policies
-- Restore from backups
-
-### Notifications
-
-- Add notification services
-- Create routing rules (event → service)
-- View notification history
-- Test service connectivity
-
-### Containers
-
-- View all container status
-- Start/stop/restart containers
-- View resource usage
-- Access container logs
-
-### Flows
-
-- List workflows from live database
-- Extract workflows from backups
-- Restore workflows with conflict handling
-
-### System
-
-- Host CPU, memory, disk metrics
-- NFS connection status
-- Power controls (with confirmation)
-
----
-
-## Command Line Tools
-
-### Health Check
-
-```bash
-./scripts/health_check.sh
-```
-
-Performs comprehensive system health checks including:
-- Docker container status
-- Service connectivity (n8n, PostgreSQL, nginx)
-- Resource usage (disk, memory, CPU)
-- SSL certificate expiration
-- Backup status
-
-### Manual Backup
-
-```bash
-docker exec n8n_management python -m api.tasks.backup_tasks run_backup postgres_n8n
-```
-
-### View Logs
-
-```bash
-# All services
-docker compose logs -f
-
-# Management console
-docker logs -f n8n_management
-
-# n8n
-docker logs -f n8n
-```
-
-### Rollback to v2.0
-
-```bash
-./setup.sh --rollback
-```
-
-Available for 30 days after migration.
-
----
-
-## Troubleshooting
-
-### Container Won't Start
-
-```bash
-# Check container logs
-docker logs n8n_management
-
-# Check all container status
-docker compose ps
-
-# Verify volumes
-docker volume ls | grep n8n
-```
-
-### Management Interface Not Accessible
-
-1. Check if the management port is open in your firewall
-2. Verify nginx configuration: `docker exec n8n_nginx nginx -t`
-3. Check SSL certificate: `docker exec n8n_nginx ls -la /etc/letsencrypt/live/`
-
-### Backup Failures
-
-1. Check NFS connection (if configured):
-   ```bash
-   docker exec n8n_management cat /app/config/nfs_status.json
-   ```
-2. Verify PostgreSQL connectivity:
-   ```bash
-   docker exec n8n_management pg_isready -h postgres -U n8n
-   ```
-3. Check disk space:
-   ```bash
-   df -h
-   ```
-
-### Database Connection Issues
-
-```bash
-# Test PostgreSQL
-docker exec n8n_postgres pg_isready -U n8n
-
-# Check management database exists
-docker exec n8n_postgres psql -U n8n -c "\l" | grep n8n_management
-```
-
-See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for more solutions.
-
----
-
-## Security
-
-### Authentication
-
-- Management interface uses session-based JWT authentication
-- Password requirements enforced (minimum 12 characters)
-- Optional subnet restriction for management access
-
-### Network Security
-
-- All internal communication within Docker network
-- Only ports 443 and management port exposed
-- No direct database exposure outside Docker network
-
-### Data Protection
-
-- All sensitive configuration stored encrypted in database
-- Docker socket mounted read-only
-- Automatic secret generation during setup
-
-### SSL/TLS
-
-- TLS 1.2 and 1.3 only
-- Strong cipher suites (ECDHE, AES-GCM)
-- Auto-renewal every 12 hours
-- Security headers configured
-
----
-
-## API Documentation
-
-The management console provides a REST API for automation and integration.
-
-See [docs/API.md](docs/API.md) for complete API documentation.
-
----
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Reporting Issues
-
-When reporting issues, please include:
-- Operating system and version
-- Docker and Docker Compose versions
-- Full error messages and logs
-- Steps to reproduce
-
----
-
-## License
-
-MIT License - See [LICENSE](LICENSE) file for details.
-
----
-
-## Acknowledgments
-
-- [n8n.io](https://n8n.io) - Workflow automation platform
-- [Let's Encrypt](https://letsencrypt.org) - Free SSL certificates
-- [PostgreSQL](https://www.postgresql.org) - Database
-- [pgvector](https://github.com/pgvector/pgvector) - Vector similarity search
-- [FastAPI](https://fastapi.tiangolo.com) - Management API framework
-- [Vue.js](https://vuejs.org) - Management UI framework
-
----
-
-## Support
-
-- **Documentation:** [docs/](docs/)
-- **Issues:** [GitHub Issues](https://github.com/rjsears/n8n_nginx/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/rjsears/n8n_nginx/discussions)
-- **n8n Community:** [n8n.io/community](https://n8n.io/community)
-
----
-
-**Created by Richard J. Sears** - richardjsears@gmail.com
