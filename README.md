@@ -1034,3 +1034,183 @@ Next Steps:
 *[Screenshot placeholder: Post-installation summary with all URLs]*
 
 ---
+
+# Part III: Initial Configuration
+
+## 5. First-Time Setup
+
+After installation is complete, you need to perform initial configuration of both n8n and the management console.
+
+### 5.1 Accessing the n8n Interface
+
+#### Creating Your Owner Account
+
+1. Open your browser and navigate to `https://your-domain.com`
+2. You will see the n8n setup page
+3. Create your owner account:
+   - Enter your email address
+   - Create a password
+   - Enter your first and last name
+4. Click **Next** to complete setup
+
+<!-- SCREENSHOT: n8n owner account creation -->
+*[Screenshot placeholder: n8n initial setup - owner account creation]*
+
+#### Initial n8n Configuration
+
+After creating your account, you will be taken to the n8n editor. Before proceeding, note the following:
+
+- Your n8n instance is now accessible at `https://your-domain.com`
+- Webhooks are accessible at `https://your-domain.com/webhook/`
+- The editor is fully functional and ready for workflow creation
+
+### 5.2 Accessing the Management Console
+
+#### Login Process
+
+1. Navigate to `https://your-domain.com:3333`
+2. Enter the admin credentials you created during setup
+3. Click **Login**
+
+<!-- SCREENSHOT: Management console login page -->
+*[Screenshot placeholder: Management console login screen]*
+
+#### Dashboard Overview
+
+After logging in, you will see the dashboard with:
+
+- **System Metrics**: CPU, memory, disk usage
+- **Container Status**: Health status of all containers
+- **Backup Status**: Recent backup information
+- **Quick Actions**: Common administrative tasks
+
+<!-- SCREENSHOT: Management console dashboard -->
+*[Screenshot placeholder: Dashboard overview with all widgets]*
+
+### 5.3 Configuring the n8n API Connection
+
+The management console communicates with n8n through its REST API. You need to configure this connection for full functionality.
+
+#### Step 1: Generate an n8n API Key
+
+1. In n8n, click your profile icon (bottom left)
+2. Select **Settings**
+3. Navigate to **API** in the left sidebar
+4. Click **Create an API key**
+5. Give it a name (e.g., "Management Console")
+6. Copy the generated API key
+
+<!-- SCREENSHOT: n8n API key generation -->
+*[Screenshot placeholder: n8n Settings > API > Create API key]*
+
+> **Important**: The API key is shown only once. Copy it immediately.
+
+#### Step 2: Enter the API Key in Management Console
+
+1. In the management console, go to **Settings**
+2. Click the **API** tab
+3. Paste your n8n API key
+4. Click **Save**
+
+<!-- SCREENSHOT: Management console API configuration -->
+*[Screenshot placeholder: Settings > API tab with API key field]*
+
+#### Step 3: Test the Connection
+
+1. Click **Test Connection**
+2. You should see a success message
+3. If the test fails, verify:
+   - The API key is correct
+   - n8n is running (`docker compose ps`)
+   - Network connectivity between containers
+
+```
+API Connection Test
+-------------------
+Status: Connected
+n8n Version: 1.xx.x
+Workflows: 0
+Active Workflows: 0
+```
+
+### 5.4 Deploying Test Workflows
+
+To verify everything is working correctly, you can deploy test workflows.
+
+#### Available Test Workflows
+
+The management console can deploy sample workflows to verify:
+- Webhook functionality
+- n8n execution
+- API connectivity
+
+#### Verification Process
+
+1. Go to **Flows** in the management console
+2. Click **Deploy Test Workflow**
+3. The system will:
+   - Create a simple webhook workflow
+   - Activate the workflow
+   - Test the webhook endpoint
+   - Verify the response
+4. Check the results
+
+```
+Test Workflow Deployment
+------------------------
+Workflow Created: Yes
+Workflow Activated: Yes
+Webhook Test: Passed
+Response Time: 45ms
+Status: All tests passed
+```
+
+<!-- SCREENSHOT: Test workflow deployment results -->
+*[Screenshot placeholder: Test workflow verification results]*
+
+### 5.5 IP Access Control Configuration
+
+The management console supports IP-based access control to restrict who can access the administrative interface.
+
+#### Understanding Subnet Restrictions
+
+By default, the management console is accessible from common internal IP ranges:
+- `10.0.0.0/8` (Private Class A)
+- `172.16.0.0/12` (Private Class B)
+- `192.168.0.0/16` (Private Class C)
+- `100.64.0.0/10` (Carrier-grade NAT / Tailscale)
+
+#### Adding Allowed IP Ranges
+
+1. Go to **Settings** > **Security**
+2. In the **Allowed Subnets** section, click **Add**
+3. Enter the CIDR notation for the allowed range
+4. Add a description
+5. Click **Save**
+
+| Example | CIDR | Description |
+|---------|------|-------------|
+| Single IP | `203.0.113.50/32` | Your office IP |
+| Small network | `203.0.113.0/24` | Office network |
+| Tailscale | `100.64.0.0/10` | Tailscale network |
+
+<!-- SCREENSHOT: IP access control settings -->
+*[Screenshot placeholder: Settings > Security > Allowed Subnets]*
+
+#### Tailscale Network Integration
+
+If you enabled Tailscale during setup, your management console is automatically accessible via your Tailscale network:
+
+1. Tailscale assigns IPs in the `100.64.0.0/10` range
+2. This range is allowed by default
+3. Access the console using the Tailscale IP or MagicDNS name
+
+```bash
+# Find your Tailscale IP
+tailscale ip
+
+# Access via Tailscale
+https://your-machine.tailnet-name.ts.net:3333
+```
+
+---
