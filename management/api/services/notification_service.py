@@ -1282,8 +1282,8 @@ async def dispatch_notification(
             )
             db.add(state)
 
-        # Log to history
-        history = SystemNotificationHistory(
+        # Log to SystemNotificationHistory (for system notifications settings page)
+        system_history = SystemNotificationHistory(
             event_type=event_type,
             event_id=event.id,
             target_id=target_id,
@@ -1296,7 +1296,46 @@ async def dispatch_notification(
             triggered_at=now,
             sent_at=now if sent_count > 0 else None,
         )
-        db.add(history)
+        db.add(system_history)
+
+        # ALSO log to NotificationHistory (for main Notifications page)
+        # This ensures all notifications appear in the unified Recent Notifications view
+        from api.models.notifications import NotificationHistory
+
+        # Get service info from the first channel that was sent to (if any)
+        service_id = None
+        service_name = None
+        if channels_sent:
+            first_channel = channels_sent[0]
+            if first_channel.get("type") == "channel":
+                service_id = first_channel.get("id")
+                # Try to get the service name
+                try:
+                    from api.models.notifications import NotificationService as NotificationServiceModel
+                    service_result = await db.execute(
+                        select(NotificationServiceModel).where(NotificationServiceModel.id == service_id)
+                    )
+                    service = service_result.scalar_one_or_none()
+                    if service:
+                        service_name = service.name
+                except Exception:
+                    pass
+
+        notification_history = NotificationHistory(
+            event_type=event_type,
+            event_data={
+                **event_data,
+                "title": title,
+                "message": message,
+                "priority": priority,
+            },
+            severity=event.severity,
+            service_id=service_id,
+            service_name=service_name,
+            status="sent" if sent_count > 0 else "failed",
+            sent_at=now if sent_count > 0 else None,
+        )
+        db.add(notification_history)
 
         await db.commit()
         logger.info(f"Dispatched '{event_type}' notification to {sent_count} channel(s)")
