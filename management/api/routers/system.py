@@ -1557,35 +1557,21 @@ async def get_full_health_check(
 
         if quick:
             # Quick mode: just check if SSL is configured without full cert details
+            # Uses same method as full check - grep nginx.conf for ssl_certificate
             ssl_details["message"] = "Skipped detailed check in quick mode"
             ssl_status = "skipped"
             try:
                 if nginx_container:
-                    # Quick check 1: Look for Let's Encrypt certificates
                     exit_code, output = nginx_container.exec_run(
-                        "test -d /etc/letsencrypt/live && ls /etc/letsencrypt/live 2>/dev/null | head -1",
+                        "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
                         demux=True
                     )
                     if exit_code == 0 and output[0]:
-                        domain = output[0].decode("utf-8").strip()
-                        if domain and domain != "README":
+                        config_line = output[0].decode("utf-8").strip()
+                        match = re.search(r'/live/([^/]+)/', config_line)
+                        if match:
                             health_data["ssl_configured"] = True
-                            ssl_details["domain"] = domain
-
-                    # Quick check 2: If not found via Let's Encrypt, check nginx.conf for ssl_certificate
-                    if not health_data["ssl_configured"]:
-                        exit_code, output = nginx_container.exec_run(
-                            "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
-                            demux=True
-                        )
-                        if exit_code == 0 and output[0]:
-                            config_line = output[0].decode("utf-8").strip()
-                            if config_line and "ssl_certificate" in config_line:
-                                health_data["ssl_configured"] = True
-                                # Try to extract domain from path
-                                match = re.search(r'/live/([^/]+)/', config_line)
-                                if match:
-                                    ssl_details["domain"] = match.group(1)
+                            ssl_details["domain"] = match.group(1)
             except Exception:
                 pass  # ssl_configured stays False
         else:

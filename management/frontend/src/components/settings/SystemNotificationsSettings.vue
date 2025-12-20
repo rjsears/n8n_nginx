@@ -302,8 +302,8 @@ async function loadData() {
 
 async function loadSslStatus() {
   try {
-    // Check if SSL is configured via the health endpoint (full check, not quick)
-    const response = await api.get('/system/health/full')
+    // Check if SSL is configured via the health endpoint (quick mode)
+    const response = await api.get('/system/health/full?quick=true')
     sslConfigured.value = response.data.ssl_configured || false
   } catch (error) {
     console.error('Failed to load SSL status:', error)
