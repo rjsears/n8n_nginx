@@ -403,3 +403,634 @@ SSL certificate acquisition requires API access to your DNS provider for DNS-01 
 > **Recommendation**: Cloudflare is recommended due to fast DNS propagation (60 seconds) and straightforward API token creation.
 
 ---
+
+# Part II: Installation
+
+## 3. Pre-Installation Preparation
+
+### 3.1 Gathering Required Information
+
+Before running the setup script, gather the following information:
+
+#### Required Information
+
+| Item | Description | Where to Get It |
+|------|-------------|-----------------|
+| Domain Name | The domain for your n8n instance (e.g., `n8n.example.com`) | Your domain registrar |
+| DNS Provider Credentials | API credentials for your DNS provider | See [Appendix A](#appendix-a-dns-provider-credential-setup) |
+| Email Address | For Let's Encrypt certificate notifications | Your email |
+| Admin Password | Password for the management console (min 8 characters) | Create a strong password |
+
+#### Optional Information
+
+| Item | Description | When Needed |
+|------|-------------|-------------|
+| Tailscale Auth Key | Pre-authenticated key for Tailscale VPN | If using Tailscale for secure access |
+| Cloudflare Tunnel Token | Token for Cloudflare Zero Trust tunnel | If using Cloudflare Tunnel |
+| NFS Server Details | Server address and export path | If using NFS for backup storage |
+
+### 3.2 Preparing Your Server
+
+#### Step 1: Update Your System
+
+```bash
+# Ubuntu/Debian
+sudo apt update && sudo apt upgrade -y
+
+# CentOS/RHEL/Rocky/AlmaLinux
+sudo dnf update -y
+
+# Fedora
+sudo dnf upgrade -y
+```
+
+#### Step 2: Ensure Required Utilities Are Installed
+
+```bash
+# Ubuntu/Debian
+sudo apt install -y curl git openssl
+
+# CentOS/RHEL/Rocky/AlmaLinux/Fedora
+sudo dnf install -y curl git openssl
+```
+
+#### Step 3: Configure DNS
+
+Ensure your domain points to your server's IP address:
+
+1. Log in to your DNS provider's control panel
+2. Create an A record pointing your domain to your server's public IP
+3. Wait for DNS propagation (typically 5-30 minutes)
+
+Verify DNS resolution:
+
+```bash
+# Check if domain resolves to your server
+dig +short n8n.yourdomain.com
+
+# Or using nslookup
+nslookup n8n.yourdomain.com
+```
+
+### 3.3 Downloading the Repository
+
+```bash
+# Clone the repository
+git clone https://github.com/rjsears/n8n_nginx.git
+
+# Navigate to the directory
+cd n8n_nginx
+
+# Make setup script executable
+chmod +x setup.sh
+```
+
+---
+
+## 4. Interactive Setup
+
+The setup script (`setup.sh`) provides a fully interactive installation experience. It guides you through each configuration step with clear prompts and validation.
+
+### 4.1 Starting the Setup
+
+```bash
+./setup.sh
+```
+
+The setup script will display a welcome banner and begin the configuration process.
+
+<!-- SCREENSHOT: Setup welcome screen -->
+*[Screenshot placeholder: Setup script welcome banner]*
+
+### 4.2 Docker Installation
+
+The script automatically checks for Docker and Docker Compose. If not installed, it will offer to install them.
+
+#### Automatic Detection
+
+The script detects:
+- Operating system type and version
+- Existing Docker installation
+- Docker Compose version (v1 vs v2)
+- Proxmox LXC environment
+- WSL2 environment
+
+#### Docker Installation Process
+
+If Docker is not found:
+
+1. The script asks if you want to install Docker
+2. For supported operating systems, installation is automatic
+3. The script adds your user to the docker group
+4. You may need to log out and back in for group changes to take effect
+
+```
+Docker is not installed. Would you like to install it now? [Y/n]
+```
+
+<!-- SCREENSHOT: Docker installation prompt -->
+*[Screenshot placeholder: Docker installation prompt]*
+
+#### AppArmor Handling (Proxmox LXC)
+
+If running in a Proxmox LXC container, the script detects AppArmor restrictions:
+
+```
+AppArmor detected. This may prevent Docker from running properly.
+Would you like to disable AppArmor for this container? [Y/n]
+```
+
+For Proxmox LXC, you need to add these settings to the container configuration:
+
+```
+lxc.apparmor.profile: unconfined
+features: nesting=1
+```
+
+### 4.3 Domain Configuration
+
+#### Entering Your Domain
+
+```
+Enter your domain name (e.g., n8n.example.com):
+```
+
+Enter the fully qualified domain name (FQDN) for your n8n instance.
+
+#### DNS Validation
+
+The script validates your domain configuration:
+
+1. **Format Validation**: Checks that the domain is properly formatted
+2. **DNS Resolution**: Verifies the domain resolves to an IP address
+3. **IP Matching**: Confirms the domain points to your server's IP
+
+```
+Validating domain configuration...
+  Domain format: Valid
+  DNS resolution: 203.0.113.50
+  Server IP match: Yes
+```
+
+#### Troubleshooting DNS Issues
+
+If validation fails:
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Domain does not resolve | DNS record not created | Add A record in DNS provider |
+| IP mismatch | Domain points to wrong server | Update A record with correct IP |
+| DNS propagation | Changes haven't propagated | Wait 5-30 minutes and retry |
+
+### 4.4 DNS Provider Selection
+
+The script supports multiple DNS providers for Let's Encrypt certificate acquisition:
+
+```
+Select your DNS provider:
+  1) Cloudflare (Recommended)
+  2) AWS Route 53
+  3) Google Cloud DNS
+  4) DigitalOcean
+  5) Manual/Other
+```
+
+<!-- SCREENSHOT: DNS provider selection menu -->
+*[Screenshot placeholder: DNS provider selection]*
+
+#### Cloudflare Setup (Recommended)
+
+If you select Cloudflare:
+
+```
+Enter your Cloudflare API Token:
+```
+
+**How to get a Cloudflare API Token:**
+
+1. Log in to the [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. Go to **My Profile** (top right) > **API Tokens**
+3. Click **Create Token**
+4. Use the **Edit zone DNS** template
+5. Under **Zone Resources**, select your zone
+6. Click **Continue to summary** > **Create Token**
+7. Copy the token (it will only be shown once)
+
+<!-- SCREENSHOT: Cloudflare API token creation -->
+*[Screenshot placeholder: Cloudflare API token creation page]*
+
+The script creates `cloudflare.ini` with your credentials:
+
+```ini
+dns_cloudflare_api_token = your-api-token-here
+```
+
+#### AWS Route 53 Setup
+
+If you select AWS Route 53:
+
+```
+Enter your AWS Access Key ID:
+Enter your AWS Secret Access Key:
+```
+
+**Required IAM Policy:**
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "route53:ListHostedZones",
+                "route53:GetChange",
+                "route53:ChangeResourceRecordSets"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+
+See [Appendix A](#appendix-a-dns-provider-credential-setup) for detailed IAM setup instructions.
+
+#### Google Cloud DNS Setup
+
+If you select Google Cloud DNS:
+
+```
+Enter the path to your Google Cloud service account JSON file:
+```
+
+The service account requires the **DNS Administrator** role.
+
+See [Appendix A](#appendix-a-dns-provider-credential-setup) for service account creation instructions.
+
+#### DigitalOcean Setup
+
+If you select DigitalOcean:
+
+```
+Enter your DigitalOcean API Token:
+```
+
+Generate a token at [DigitalOcean API Tokens](https://cloud.digitalocean.com/account/api/tokens) with read and write access.
+
+#### Manual DNS Setup
+
+If you select Manual/Other, you will need to manually create DNS TXT records during certificate acquisition. This requires you to be present during the initial setup and each certificate renewal.
+
+> **Warning**: Manual DNS setup is not recommended for production environments as it requires manual intervention for certificate renewals.
+
+### 4.5 Database Configuration
+
+The script configures PostgreSQL for both n8n and the management console.
+
+#### Database Settings
+
+```
+Database Configuration
+----------------------
+Database name [n8n]:
+Database username [n8n]:
+Generate random password? [Y/n]
+```
+
+Default values are provided in brackets. Press Enter to accept defaults.
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| Database Name | `n8n` | Name of the n8n database |
+| Database Username | `n8n` | PostgreSQL user |
+| Database Password | Auto-generated | 32-character random password |
+
+The script automatically creates a second database (`n8n_management`) for the management console.
+
+### 4.6 Administrator Account Setup
+
+Configure the management console administrator account:
+
+```
+Administrator Account Setup
+---------------------------
+Admin username [admin]:
+Admin password (min 8 characters):
+Confirm password:
+Admin email address:
+```
+
+<!-- SCREENSHOT: Admin account setup -->
+*[Screenshot placeholder: Admin account configuration]*
+
+| Field | Requirements |
+|-------|--------------|
+| Username | Alphanumeric, 3-50 characters |
+| Password | Minimum 8 characters |
+| Email | Valid email format |
+
+### 4.7 Security Configuration
+
+#### Encryption Key Generation
+
+The script generates encryption keys for securing sensitive data:
+
+```
+Generating encryption keys...
+  n8n Encryption Key: Generated (32 characters)
+  Management Secret Key: Generated (64 characters)
+  Management Encryption Key: Generated (32 characters)
+```
+
+> **Critical**: These keys are displayed only once during setup. Save them in a secure location such as a password manager. If lost, encrypted data cannot be recovered.
+
+<!-- SCREENSHOT: Encryption key display -->
+*[Screenshot placeholder: Encryption key generation with save warning]*
+
+#### What the Keys Are Used For
+
+| Key | Purpose |
+|-----|---------|
+| n8n Encryption Key | Encrypts credentials stored in n8n workflows |
+| Management Secret Key | Signs session tokens for the management console |
+| Management Encryption Key | Encrypts sensitive settings in the management database |
+
+### 4.8 Container Naming
+
+Customize Docker container names (optional):
+
+```
+Container Naming
+----------------
+PostgreSQL container name [n8n_postgres]:
+n8n container name [n8n]:
+Nginx container name [n8n_nginx]:
+Certbot container name [n8n_certbot]:
+Management container name [n8n_management]:
+```
+
+Default names are recommended unless you have specific requirements (e.g., running multiple instances).
+
+### 4.9 Timezone Configuration
+
+```
+Timezone Configuration
+----------------------
+Detected timezone: America/Los_Angeles
+Use detected timezone? [Y/n]
+```
+
+The script auto-detects your system timezone. You can accept it or enter a different timezone in IANA format (e.g., `Europe/London`, `Asia/Tokyo`).
+
+### 4.10 Optional Services
+
+The script offers several optional services:
+
+```
+Optional Services
+-----------------
+Enable Portainer (container management UI)? [y/N]
+Enable Cloudflare Tunnel? [y/N]
+Enable Tailscale VPN? [y/N]
+Enable Adminer (database UI)? [y/N]
+Enable Dozzle (log viewer)? [y/N]
+Enable NTFY (push notifications)? [y/N]
+```
+
+<!-- SCREENSHOT: Optional services selection -->
+*[Screenshot placeholder: Optional services menu]*
+
+#### Portainer
+
+A web-based container management UI that provides:
+- Visual container management
+- Resource monitoring
+- Log viewing
+- Container terminal access
+
+Access: `https://your-domain:9000`
+
+#### Cloudflare Tunnel
+
+Secure access without opening ports:
+- No public IP required
+- Built-in DDoS protection
+- Zero Trust access policies
+
+```
+Enter your Cloudflare Tunnel token:
+```
+
+See [Appendix C](#appendix-c-cloudflare-tunnel-token-generation) for token generation instructions.
+
+#### Tailscale VPN
+
+Private network access via Tailscale:
+- Secure remote access
+- No public port exposure for management
+- MagicDNS for easy access
+
+```
+Enter your Tailscale auth key:
+```
+
+See [Appendix B](#appendix-b-tailscale-auth-key-generation) for auth key generation.
+
+#### Adminer
+
+Lightweight database administration tool:
+- Browse database tables
+- Run SQL queries
+- Export data
+
+Access: `https://your-domain:3333/adminer/`
+
+#### Dozzle
+
+Real-time Docker log viewer:
+- Live log streaming
+- Multi-container view
+- Log search and filtering
+
+Access: `https://your-domain:3333/logs/`
+
+#### NTFY
+
+Self-hosted push notification server:
+- Mobile push notifications
+- Desktop notifications
+- Email forwarding
+
+Access: `https://your-domain/ntfy/` or dedicated port
+
+### 4.11 Configuration Summary
+
+Before deployment, the script displays a complete summary:
+
+```
+Configuration Summary
+=====================
+
+Domain: n8n.example.com
+DNS Provider: Cloudflare
+Let's Encrypt Email: admin@example.com
+
+Database:
+  Name: n8n
+  User: n8n
+  Password: ********
+
+Admin Account:
+  Username: admin
+  Email: admin@example.com
+
+Containers:
+  PostgreSQL: n8n_postgres
+  n8n: n8n
+  Nginx: n8n_nginx
+  Certbot: n8n_certbot
+  Management: n8n_management
+
+Optional Services:
+  Portainer: Disabled
+  Cloudflare Tunnel: Disabled
+  Tailscale: Enabled
+  Adminer: Enabled
+  Dozzle: Enabled
+  NTFY: Disabled
+
+Timezone: America/Los_Angeles
+
+Proceed with installation? [Y/n]
+```
+
+<!-- SCREENSHOT: Configuration summary -->
+*[Screenshot placeholder: Full configuration summary]*
+
+Review all settings carefully before proceeding.
+
+### 4.12 Deployment Process
+
+The deployment process runs automatically after confirmation:
+
+```mermaid
+flowchart TD
+    Start[Start Deployment] --> Network[Create Docker Network]
+    Network --> Volumes[Create Docker Volumes]
+    Volumes --> PG[Start PostgreSQL]
+    PG --> WaitPG{PostgreSQL Ready?}
+    WaitPG -->|No| WaitPG
+    WaitPG -->|Yes| InitDB[Initialize Databases]
+    InitDB --> Cert[Obtain SSL Certificate]
+    Cert --> CertOK{Certificate OK?}
+    CertOK -->|No| CertFail[Display Error & Exit]
+    CertOK -->|Yes| CopyCert[Copy Certificates]
+    CopyCert --> StartAll[Start All Services]
+    StartAll --> Health[Health Check]
+    Health --> Complete[Deployment Complete]
+```
+
+#### Step 1: Create Docker Network and Volumes
+
+```
+Creating Docker network: n8n_network
+Creating Docker volumes...
+  - n8n_data
+  - postgres_data
+  - letsencrypt (external)
+```
+
+#### Step 2: Start PostgreSQL
+
+```
+Starting PostgreSQL...
+Waiting for PostgreSQL to be ready... [OK]
+Creating databases...
+  - n8n: Created
+  - n8n_management: Created
+```
+
+#### Step 3: Obtain SSL Certificate
+
+```
+Obtaining SSL certificate from Let's Encrypt...
+  DNS Provider: Cloudflare
+  Domain: n8n.example.com
+  Challenge: DNS-01
+  Propagation wait: 60 seconds
+  Certificate: Obtained successfully
+```
+
+<!-- SCREENSHOT: SSL certificate acquisition -->
+*[Screenshot placeholder: Certificate acquisition progress]*
+
+#### Step 4: Start All Services
+
+```
+Starting all services...
+  PostgreSQL: Running
+  n8n: Running
+  Nginx: Running
+  Certbot: Running
+  Management: Running
+  Tailscale: Running
+  Adminer: Running
+  Dozzle: Running
+```
+
+#### Step 5: Health Verification
+
+```
+Verifying services...
+  PostgreSQL connectivity: OK
+  n8n health endpoint: OK
+  Nginx configuration: OK
+  SSL certificate: Valid (expires in 90 days)
+  Management console: OK
+```
+
+### 4.13 Post-Installation Summary
+
+After successful deployment:
+
+```
+============================================
+    Installation Complete
+============================================
+
+Access your services:
+  n8n:        https://n8n.example.com
+  Management: https://n8n.example.com:3333
+  Adminer:    https://n8n.example.com:3333/adminer/
+  Dozzle:     https://n8n.example.com:3333/logs/
+
+Management Console Credentials:
+  Username: admin
+  Password: (the password you entered)
+
+IMPORTANT - Save these encryption keys:
+  n8n Encryption Key: abc123...
+  Management Keys: (saved in .env file)
+
+Configuration saved to: .n8n_setup_config
+
+Useful Commands:
+  View all logs:     docker compose logs -f
+  Restart services:  docker compose restart
+  Stop services:     docker compose down
+  Start services:    docker compose up -d
+
+Next Steps:
+  1. Access n8n and create your owner account
+  2. Log in to the management console
+  3. Configure the n8n API connection
+  4. Set up backup schedules
+  5. Configure notification channels
+
+============================================
+```
+
+<!-- SCREENSHOT: Installation complete summary -->
+*[Screenshot placeholder: Post-installation summary with all URLs]*
+
+---
