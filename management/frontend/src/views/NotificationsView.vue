@@ -948,7 +948,7 @@ async function handleNtfyUpdateConfig(config) {
                 <div class="w-full text-center">Status</div>
                 <div class="w-full text-center">Webhook</div>
                 <div class="w-full text-center">Type</div>
-                <div class="w-full text-right pr-9">Actions</div>
+                <div class="w-full text-center">Actions</div>
               </div>
               <div
                 v-for="channel in channels"
