@@ -941,19 +941,19 @@ async function handleNtfyUpdateConfig(config) {
 
             <div v-else class="space-y-2 pt-2">
               <!-- Header row -->
-              <div class="grid grid-cols-[44px_180px_minmax(180px,1fr)_70px_80px_50px_120px] gap-2 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
+              <div class="grid grid-cols-[44px_180px_70px_80px_50px_minmax(180px,1fr)_120px] gap-2 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
-                <div>Channel Slug</div>
                 <div>Status</div>
                 <div>Webhook</div>
                 <div>Type</div>
+                <div>Channel Slug</div>
                 <div class="text-right">Actions</div>
               </div>
               <div
                 v-for="channel in channels"
                 :key="channel.id"
-                class="grid grid-cols-[44px_180px_minmax(180px,1fr)_70px_80px_50px_120px] gap-2 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
+                class="grid grid-cols-[44px_180px_70px_80px_50px_minmax(180px,1fr)_120px] gap-2 items-center p-3 rounded-lg bg-surface-hover border border-gray-400 dark:border-black"
               >
                 <!-- Icon -->
                 <div
@@ -974,8 +974,6 @@ async function handleNtfyUpdateConfig(config) {
                 </div>
                 <!-- Name -->
                 <p class="font-medium text-primary truncate">{{ channel.name }}</p>
-                <!-- Slug -->
-                <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate">channel:{{ channel.slug }}</code>
                 <!-- Status -->
                 <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" />
                 <!-- Webhook -->
@@ -994,6 +992,8 @@ async function handleNtfyUpdateConfig(config) {
                 <span v-else class="text-xs text-gray-400">-</span>
                 <!-- Type -->
                 <span class="text-xs text-secondary capitalize">{{ channel.service_type }}</span>
+                <!-- Slug -->
+                <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate">channel:{{ channel.slug }}</code>
                 <!-- Actions -->
                 <div class="flex items-center gap-1 justify-end">
                   <button
