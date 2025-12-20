@@ -944,7 +944,7 @@ async function handleNtfyUpdateConfig(config) {
               <div class="grid grid-cols-[44px_140px_280px_70px_90px_55px_1fr] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
-                <div class="pl-1.5">Channel Slug</div>
+                <div class="pl-[9.5rem]">Channel Slug</div>
                 <div class="w-full text-center pl-[9.5rem]">Status</div>
                 <div class="w-full text-center pl-[9.5rem]">Webhook</div>
                 <div class="w-full text-center pl-[9.5rem]">Type</div>
@@ -975,7 +975,7 @@ async function handleNtfyUpdateConfig(config) {
                 <!-- Name -->
                 <p class="font-medium text-primary truncate">{{ channel.name }}</p>
                 <!-- Slug -->
-                <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate">channel:{{ channel.slug }}</code>
+                <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate ml-[9.5rem]">channel:{{ channel.slug }}</code>
                 <!-- Status -->
                 <div class="w-full text-center pl-[9.5rem]">
                   <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" class="inline-flex" />
