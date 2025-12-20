@@ -940,15 +940,15 @@ async function handleNtfyUpdateConfig(config) {
             />
 
             <div v-else class="space-y-2 pt-2">
-              <!-- Header row - each header aligned same as its data -->
+              <!-- Header row -->
               <div class="grid grid-cols-[44px_0.7fr_1.3fr_70px_90px_60px_minmax(130px,auto)] gap-3 p-3 border border-transparent text-xs font-medium text-secondary uppercase tracking-wide">
                 <div></div>
                 <div>Name</div>
                 <div>Channel Slug</div>
-                <div class="flex justify-center">Status</div>
-                <div class="flex justify-center">Webhook</div>
-                <div class="flex justify-center">Type</div>
-                <div class="flex justify-center">Actions</div>
+                <div class="w-full text-center">Status</div>
+                <div class="w-full text-center">Webhook</div>
+                <div class="w-full text-center">Type</div>
+                <div class="w-full text-center">Actions</div>
               </div>
               <div
                 v-for="channel in channels"
@@ -977,11 +977,11 @@ async function handleNtfyUpdateConfig(config) {
                 <!-- Slug -->
                 <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded truncate">channel:{{ channel.slug }}</code>
                 <!-- Status -->
-                <div class="flex justify-center">
-                  <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" />
+                <div class="w-full text-center">
+                  <StatusBadge :status="channel.enabled ? 'active' : 'inactive'" size="sm" class="inline-flex" />
                 </div>
                 <!-- Webhook -->
-                <div class="flex justify-center">
+                <div class="w-full text-center">
                   <span
                     v-if="channel.webhook_enabled"
                     :class="[
@@ -997,9 +997,9 @@ async function handleNtfyUpdateConfig(config) {
                   <span v-else class="text-xs text-gray-400">-</span>
                 </div>
                 <!-- Type -->
-                <span class="text-xs text-secondary capitalize text-center">{{ channel.service_type }}</span>
+                <div class="w-full text-center text-xs text-secondary capitalize">{{ channel.service_type }}</div>
                 <!-- Actions -->
-                <div class="flex items-center gap-1 justify-center">
+                <div class="w-full flex items-center gap-1 justify-center">
                   <button
                     @click.stop="testChannel(channel)"
                     :disabled="testingChannel === channel.id"
