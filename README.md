@@ -1214,3 +1214,1122 @@ https://your-machine.tailnet-name.ts.net:3333
 ```
 
 ---
+
+# Part IV: Management Console Reference
+
+## 6. Dashboard
+
+The dashboard provides an at-a-glance overview of your system's health and status.
+
+<!-- SCREENSHOT: Full dashboard view -->
+*[Screenshot placeholder: Complete dashboard with all widgets]*
+
+### Dashboard Components
+
+| Component | Description |
+|-----------|-------------|
+| **System Metrics** | Real-time CPU, memory, and disk usage with graphs |
+| **Container Status** | Health status of all Docker containers |
+| **Backup Summary** | Last backup status and next scheduled backup |
+| **Quick Actions** | Common administrative shortcuts |
+| **Network Status** | Network interface information |
+
+### System Metrics
+
+The metrics panel displays:
+- **CPU Usage**: Current and historical CPU utilization
+- **Memory Usage**: RAM usage with available/total
+- **Disk Usage**: Storage utilization for each mount point
+- **Load Average**: 1, 5, and 15-minute load averages
+
+### Container Status
+
+Quick view of all containers:
+- Green indicator: Running and healthy
+- Yellow indicator: Running but unhealthy
+- Red indicator: Stopped or exited
+- Gray indicator: Unknown status
+
+Click any container to navigate to the Containers page for details.
+
+---
+
+## 7. Backup Management
+
+The backup system provides comprehensive data protection for your n8n instance.
+
+### 7.1 Understanding the Backup System
+
+#### Backup Architecture
+
+```mermaid
+flowchart LR
+    subgraph Trigger["Backup Triggers"]
+        Manual["Manual Trigger"]
+        Schedule["Scheduled Job"]
+    end
+
+    subgraph Process["Backup Process"]
+        PGDump["PostgreSQL Dump<br/>(pg_dump)"]
+        Config["Configuration Files"]
+        Certs["SSL Certificates"]
+        Meta["Workflow Metadata<br/>Extraction"]
+    end
+
+    subgraph Storage["Storage"]
+        Local["Local Storage<br/>/app/backups"]
+        NFS["NFS Mount<br/>(optional)"]
+    end
+
+    subgraph Verify["Verification"]
+        Archive["Archive Integrity"]
+        DBValid["Database Validation"]
+        Checksum["SHA-256 Checksums"]
+    end
+
+    Manual --> Process
+    Schedule --> Process
+    PGDump --> Storage
+    Config --> Storage
+    Certs --> Storage
+    Meta --> Storage
+    Storage --> Verify
+```
+
+#### What Gets Backed Up
+
+| Component | Contents | Format |
+|-----------|----------|--------|
+| **PostgreSQL Database** | All n8n data (workflows, credentials, executions) | pg_dump custom format |
+| **Configuration Files** | .env, docker-compose.yaml, nginx.conf | Original files |
+| **SSL Certificates** | Let's Encrypt certificates | Certificate files |
+| **Workflow Metadata** | Extracted workflow details for browsing | JSON manifest |
+
+#### Storage Options
+
+| Option | Location | Use Case |
+|--------|----------|----------|
+| **Local** | `/app/backups` (Docker volume) | Single-server deployments |
+| **NFS** | Network mount point | Off-site backup storage |
+| **Both** | Local with NFS replication | Redundant storage |
+
+### 7.2 Backup History
+
+The Backup History page displays all backups with their status and details.
+
+<!-- SCREENSHOT: Backup history list -->
+*[Screenshot placeholder: Backup history table with multiple entries]*
+
+#### Backup Status Indicators
+
+| Status | Meaning |
+|--------|---------|
+| **Completed** | Backup finished successfully |
+| **In Progress** | Backup currently running |
+| **Failed** | Backup encountered an error |
+| **Verified** | Backup passed verification |
+| **Protected** | Backup protected from automatic deletion |
+
+#### Viewing Backup Contents
+
+Click any backup to view its contents without restoring:
+
+1. **Workflows Tab**: List of all workflows in the backup
+   - Workflow name and ID
+   - Active/inactive status
+   - Node count
+   - Created/updated dates
+
+2. **Credentials Tab**: Credential types (no sensitive data shown)
+   - Credential name
+   - Type (e.g., OAuth2, API Key)
+   - Associated workflows
+
+3. **Configuration Tab**: Configuration files included
+   - File name and path
+   - File size
+   - Checksum
+
+<!-- SCREENSHOT: Backup contents viewer -->
+*[Screenshot placeholder: Backup contents dialog showing workflows]*
+
+#### Protecting Backups
+
+To prevent automatic deletion of important backups:
+
+1. Click the backup row
+2. Click **Protect**
+3. The backup will be excluded from retention policies
+
+Protected backups show a shield icon in the list.
+
+### 7.3 Manual Backups
+
+#### Triggering a Manual Backup
+
+1. Navigate to **Backups**
+2. Click **Create Backup**
+3. Select backup options:
+   - **Backup Type**: Full or n8n database only
+   - **Compression**: gzip, zstd, or none
+   - **Description**: Optional note
+4. Click **Start Backup**
+
+<!-- SCREENSHOT: Manual backup dialog -->
+*[Screenshot placeholder: Create backup dialog with options]*
+
+#### Monitoring Backup Progress
+
+A progress modal shows:
+- Current step (e.g., "Dumping database")
+- Progress percentage
+- Elapsed time
+- Log output
+
+<!-- SCREENSHOT: Backup progress modal -->
+*[Screenshot placeholder: Backup progress with percentage and logs]*
+
+### 7.4 Scheduled Backups
+
+#### Creating a Backup Schedule
+
+1. Go to **Backups** > **Settings** > **Schedules**
+2. Click **Add Schedule**
+3. Configure:
+   - **Name**: Schedule identifier
+   - **Frequency**: Hourly, Daily, Weekly, or Monthly
+   - **Time**: When to run (for daily/weekly/monthly)
+   - **Day**: Which day (for weekly/monthly)
+   - **Compression**: Compression type
+   - **Enabled**: Toggle on/off
+
+<!-- SCREENSHOT: Schedule configuration -->
+*[Screenshot placeholder: Backup schedule creation form]*
+
+#### Schedule Frequency Options
+
+| Frequency | Description | Typical Use |
+|-----------|-------------|-------------|
+| **Hourly** | Every hour | High-change environments |
+| **Daily** | Once per day at specified time | Standard production |
+| **Weekly** | Once per week on specified day | Long-term archives |
+| **Monthly** | Once per month on specified day | Compliance archives |
+
+### 7.5 Backup Verification
+
+Verification ensures backups are valid and can be restored.
+
+#### How Verification Works
+
+The verification process:
+
+1. **Archive Integrity**: Tests that the backup archive is not corrupted
+2. **Database Validation**: Runs `pg_restore --list` to validate the dump
+3. **Checksum Verification**: Compares SHA-256 checksums
+4. **Manifest Validation**: Verifies all expected files are present
+
+#### Manual Verification
+
+1. In Backup History, click a backup
+2. Click **Verify**
+3. Wait for verification to complete
+4. Review the verification report
+
+```
+Verification Report
+-------------------
+Archive Integrity: Passed
+Database Validation: Passed
+Checksum Match: Passed
+Files Verified: 15/15
+Status: Backup is valid and restorable
+```
+
+<!-- SCREENSHOT: Verification results -->
+*[Screenshot placeholder: Verification report dialog]*
+
+#### Scheduled Verification
+
+Configure automatic verification:
+
+1. Go to **Backups** > **Settings** > **Verification**
+2. Enable scheduled verification
+3. Set frequency (e.g., verify each backup, weekly verification)
+4. Save settings
+
+### 7.6 Restoration
+
+#### Workflow Restoration
+
+Restore individual workflows from a backup:
+
+1. In Backup History, click a backup
+2. Click **View Contents**
+3. Go to the **Workflows** tab
+4. Select the workflows to restore
+5. Click **Restore Selected**
+
+<!-- SCREENSHOT: Workflow restore selection -->
+*[Screenshot placeholder: Workflow selection for restore]*
+
+#### Conflict Resolution
+
+If a workflow already exists:
+
+| Option | Behavior |
+|--------|----------|
+| **Rename** | Restore with "(restored)" suffix |
+| **Skip** | Do not restore this workflow |
+| **Overwrite** | Replace the existing workflow |
+
+<!-- SCREENSHOT: Conflict resolution dialog -->
+*[Screenshot placeholder: Restore conflict resolution options]*
+
+#### Credential Handling
+
+When restoring workflows:
+- Credentials are restored if they do not exist
+- Existing credentials are not overwritten
+- Workflows are linked to matching credentials by name
+
+#### Full System Restoration
+
+For bare-metal recovery or disaster recovery:
+
+1. Click **System Restore** on a backup
+2. Review the warnings:
+   - All current data will be replaced
+   - n8n will be restarted
+   - Users will be logged out
+3. Confirm the restoration
+4. Wait for the process to complete
+
+```mermaid
+flowchart TD
+    Start[Start System Restore] --> Stop[Stop n8n Service]
+    Stop --> Backup[Backup Current State]
+    Backup --> Extract[Extract Backup Archive]
+    Extract --> RestoreDB[Restore PostgreSQL]
+    RestoreDB --> RestoreConfig[Restore Config Files]
+    RestoreConfig --> RestoreCerts[Restore SSL Certs]
+    RestoreCerts --> Restart[Restart All Services]
+    Restart --> Verify[Verify Services]
+    Verify --> Complete[Restoration Complete]
+```
+
+<!-- SCREENSHOT: System restore confirmation -->
+*[Screenshot placeholder: System restore warning dialog]*
+
+### 7.7 Backup Settings
+
+#### Storage Configuration
+
+Configure where backups are stored:
+
+**Local Storage:**
+- Default path: `/app/backups`
+- Automatically created during setup
+- Persists in Docker volume
+
+**NFS Storage:**
+- Server address (e.g., `nfs.example.com`)
+- Export path (e.g., `/export/n8n_backups`)
+- Mount options
+
+<!-- SCREENSHOT: Storage settings -->
+*[Screenshot placeholder: Backup storage configuration]*
+
+#### Compression Options
+
+| Option | Extension | Speed | Size |
+|--------|-----------|-------|------|
+| **gzip** | `.gz` | Medium | Medium |
+| **zstd** | `.zst` | Fast | Small |
+| **none** | (none) | Fastest | Largest |
+
+#### Retention Policies (GFS Strategy)
+
+The Grandfather-Father-Son retention strategy:
+
+| Level | Retention | Purpose |
+|-------|-----------|---------|
+| **Daily** | Keep 7 days | Recent point-in-time recovery |
+| **Weekly** | Keep 4 weeks | Weekly snapshots |
+| **Monthly** | Keep 6 months | Long-term archives |
+| **Minimum** | Keep 3 oldest | Disaster recovery baseline |
+
+<!-- SCREENSHOT: Retention policy settings -->
+*[Screenshot placeholder: GFS retention configuration]*
+
+#### Pruning Settings
+
+Automatic deletion of old backups:
+
+**Time-Based Pruning:**
+- Delete backups older than X days
+- Respects retention policy
+
+**Space-Based Pruning:**
+- Trigger when free space below X%
+- Delete oldest unprotected backups
+
+**Size-Based Pruning:**
+- Keep total backup size under X GB
+- Delete oldest when exceeded
+
+**Critical Space Handling:**
+- Emergency threshold (default: 5% free)
+- Options: Delete oldest immediately or stop backups and alert
+
+<!-- SCREENSHOT: Pruning settings -->
+*[Screenshot placeholder: Pruning configuration page]*
+
+### 7.8 Backup Notifications
+
+Configure notifications for backup events:
+
+1. Go to **System Notifications**
+2. Find backup-related events:
+   - `backup_success` - Backup completed
+   - `backup_failure` - Backup failed
+   - `backup_started` - Backup began
+   - `backup_pending_deletion` - Backup scheduled for deletion
+   - `backup_critical_space` - Low disk space for backups
+3. Configure targets (channels/groups)
+4. Set escalation if needed
+
+---
+
+## 8. Notification System
+
+The notification system provides multi-channel alerting for system events.
+
+### 8.1 Notification Architecture
+
+```mermaid
+flowchart TB
+    Event[System Event] --> Evaluate[Rule Evaluation]
+    Evaluate --> Check{Channel<br/>Enabled?}
+    Check -->|No| Skip[Skip]
+    Check -->|Yes| Cooldown{Cooldown<br/>Active?}
+    Cooldown -->|Yes| Skip
+    Cooldown -->|No| Route[Route to Channel]
+
+    Route --> Apprise[Apprise<br/>30+ Services]
+    Route --> NTFY[NTFY<br/>Push Notifications]
+    Route --> Email[Email<br/>SMTP]
+    Route --> Webhook[Webhook<br/>HTTP POST]
+
+    Apprise --> Discord[Discord]
+    Apprise --> Slack[Slack]
+    Apprise --> Telegram[Telegram]
+    Apprise --> More[... 27+ more]
+```
+
+### 8.2 Notification Channels
+
+#### Apprise Integration
+
+Apprise supports 30+ notification services:
+
+| Category | Services |
+|----------|----------|
+| **Chat** | Discord, Slack, Telegram, Microsoft Teams, Mattermost, Rocket.Chat |
+| **Email** | SMTP, Gmail, SendGrid, Mailgun, AWS SES |
+| **Push** | Pushover, Pushbullet, Join, Simplepush |
+| **SMS** | Twilio, Nexmo, MessageBird |
+| **Webhooks** | Custom HTTP endpoints, IFTTT, Zapier |
+| **Other** | Home Assistant, Gotify, Matrix, XMPP |
+
+#### NTFY Push Notifications
+
+Native NTFY integration provides:
+- Mobile push notifications (iOS/Android)
+- Desktop notifications
+- Email forwarding
+- Action buttons
+- Priority levels
+- Scheduled delivery
+
+#### Email Notifications
+
+Direct SMTP integration:
+- Configurable SMTP server
+- TLS/SSL support
+- Custom templates
+- HTML and plain text
+
+#### Webhook Integration
+
+Send HTTP POST requests to any endpoint:
+- Custom payload format
+- Header configuration
+- Authentication support
+
+### 8.3 Creating Notification Channels
+
+#### Adding an Apprise Channel
+
+1. Go to **Notifications** > **Channels**
+2. Click **Add Channel**
+3. Select **Apprise**
+4. Enter the Apprise URL:
+   ```
+   discord://webhook_id/webhook_token
+   slack://token_a/token_b/token_c
+   tgram://bot_token/chat_id
+   ```
+5. Set priority and description
+6. Click **Save**
+
+<!-- SCREENSHOT: Add channel dialog -->
+*[Screenshot placeholder: Apprise channel configuration]*
+
+#### Apprise URL Examples
+
+| Service | URL Format |
+|---------|------------|
+| Discord | `discord://webhook_id/webhook_token` |
+| Slack | `slack://token_a/token_b/token_c/#channel` |
+| Telegram | `tgram://bot_token/chat_id` |
+| Email | `mailto://user:pass@smtp.example.com` |
+| Pushover | `pover://user_key@api_token` |
+
+#### Adding an NTFY Channel
+
+1. Select **NTFY** as the type
+2. Configure:
+   - **Server URL**: NTFY server address
+   - **Topic**: Topic name
+   - **Priority**: Default priority (1-5)
+   - **Authentication**: Username/password if required
+3. Click **Save**
+
+#### Testing Channels
+
+After creating a channel:
+1. Click the channel row
+2. Click **Test**
+3. A test notification is sent
+4. Verify you received it
+
+### 8.4 Notification Groups
+
+Groups allow routing notifications to multiple channels at once.
+
+#### Creating Groups
+
+1. Go to **Notifications** > **Groups**
+2. Click **Add Group**
+3. Enter a name (e.g., "On-Call Team")
+4. Select channels to include
+5. Click **Save**
+
+<!-- SCREENSHOT: Group creation -->
+*[Screenshot placeholder: Notification group configuration]*
+
+#### Use Cases for Groups
+
+| Group | Channels | Purpose |
+|-------|----------|---------|
+| **Critical Alerts** | SMS + Pushover + Discord | Immediate attention required |
+| **Daily Summary** | Email + Slack | Non-urgent notifications |
+| **DevOps Team** | Discord + PagerDuty | Technical team alerts |
+
+### 8.5 NTFY Configuration
+
+#### NTFY Server Settings
+
+Configure the NTFY integration:
+
+1. Go to **Notifications** > **NTFY**
+2. Click **Server Settings**
+3. Configure:
+   - **Server URL**: Your NTFY server (e.g., `https://ntfy.sh` or self-hosted)
+   - **Default Topic**: Default topic for notifications
+   - **Authentication**: Enable if server requires auth
+   - **Username/Password**: If authentication enabled
+
+<!-- SCREENSHOT: NTFY server settings -->
+*[Screenshot placeholder: NTFY server configuration]*
+
+#### Topic Management
+
+Organize notifications with topics:
+
+1. Go to **NTFY** > **Topics**
+2. Click **Add Topic**
+3. Configure:
+   - **Name**: Topic identifier (e.g., `n8n-alerts`)
+   - **Display Name**: Friendly name
+   - **Default Priority**: 1 (min) to 5 (max)
+   - **Default Tags**: Emoji tags (e.g., `warning`, `backup`)
+
+<!-- SCREENSHOT: Topic management -->
+*[Screenshot placeholder: NTFY topics list]*
+
+#### Message Composer
+
+Send ad-hoc notifications:
+
+1. Go to **NTFY** > **Compose**
+2. Select a topic
+3. Enter message details:
+   - **Title**: Message title
+   - **Message**: Body text (supports Markdown)
+   - **Priority**: Urgency level
+   - **Tags**: Emoji indicators
+   - **Actions**: Clickable buttons (optional)
+4. Click **Send**
+
+<!-- SCREENSHOT: Message composer -->
+*[Screenshot placeholder: NTFY message composition form]*
+
+#### Template Builder
+
+Create reusable message templates:
+
+1. Go to **NTFY** > **Templates**
+2. Click **Add Template**
+3. Configure:
+   - **Name**: Template identifier
+   - **Title Template**: With Go template variables
+   - **Body Template**: Message body with variables
+   - **Default Priority**: Priority level
+   - **Tags**: Default tags
+
+**Available Template Variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `{{ .EventType }}` | Type of event (e.g., `backup_success`) |
+| `{{ .Timestamp }}` | Event timestamp |
+| `{{ .Severity }}` | Event severity level |
+| `{{ .Message }}` | Event message |
+| `{{ .Details }}` | Additional event details (JSON) |
+
+**Example Template:**
+```
+Title: {{ .Severity | upper }}: {{ .EventType }}
+Body: {{ .Message }}
+
+Occurred at: {{ .Timestamp | formatTime }}
+Details: {{ .Details | toJSON }}
+```
+
+<!-- SCREENSHOT: Template builder -->
+*[Screenshot placeholder: NTFY template creation form]*
+
+#### Saved Messages
+
+Save frequently used messages:
+
+1. Compose a message
+2. Click **Save as Template**
+3. Give it a name
+4. Access later from **Saved Messages**
+
+#### Message History
+
+View sent NTFY messages:
+
+1. Go to **NTFY** > **History**
+2. View all sent messages with:
+   - Timestamp
+   - Topic
+   - Title/message
+   - Delivery status
+
+### 8.6 Standalone NTFY Server Setup
+
+If you enabled NTFY during setup, you have a self-hosted push notification server.
+
+#### Accessing the NTFY Server
+
+- **Web UI**: `https://your-domain.com/ntfy/`
+- **API**: `https://your-domain.com/ntfy/`
+
+#### Client Setup
+
+**Mobile Apps:**
+- iOS: Download "ntfy" from App Store
+- Android: Download "ntfy" from Google Play or F-Droid
+
+**Configuration:**
+1. Open the ntfy app
+2. Add your server: `https://your-domain.com/ntfy/`
+3. Subscribe to your topics
+4. Enable notifications
+
+**Desktop:**
+- Use the web UI at `https://your-domain.com/ntfy/`
+- Or install the ntfy CLI tool
+
+#### NTFY Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NTFY_BASE_URL` | (your domain) | Public URL for NTFY |
+| `NTFY_ENABLE_LOGIN` | `true` | Require authentication |
+| `NTFY_ENABLE_SIGNUP` | `false` | Allow user registration |
+| `NTFY_AUTH_DEFAULT_ACCESS` | `read-write` | Default permission level |
+
+### 8.7 n8n Webhook Integration
+
+Send notifications from n8n workflows to the management console.
+
+#### Webhook URL Format
+
+```
+POST https://your-domain.com:3333/api/notifications/webhook
+```
+
+#### API Key Generation
+
+1. Go to **Notifications** > **Channels**
+2. Add a **Webhook** type channel
+3. An API key is generated automatically
+4. Copy the API key for use in n8n
+
+#### n8n Workflow Example
+
+Create an HTTP Request node in n8n:
+
+```json
+{
+  "method": "POST",
+  "url": "https://your-domain.com:3333/api/notifications/webhook",
+  "headers": {
+    "X-API-Key": "your-api-key",
+    "Content-Type": "application/json"
+  },
+  "body": {
+    "title": "Workflow Completed",
+    "message": "The data sync workflow finished successfully.",
+    "priority": "normal",
+    "channel": "default"
+  }
+}
+```
+
+---
+
+## 9. System Notifications
+
+System notifications automatically alert you to important events.
+
+### 9.1 Event Types
+
+Events are organized into five categories:
+
+#### Backup Events (Category: backup)
+
+| Event | Description | Default Severity |
+|-------|-------------|------------------|
+| `backup_success` | Backup completed successfully | Info |
+| `backup_failure` | Backup failed | Critical |
+| `backup_started` | Backup began | Info |
+| `backup_pending_deletion` | Backup scheduled for retention deletion | Warning |
+| `backup_critical_space` | Disk space critically low | Critical |
+
+#### Container Events (Category: container)
+
+| Event | Description | Default Severity |
+|-------|-------------|------------------|
+| `container_unhealthy` | Container health check failed | Critical |
+| `container_restart` | Container restarted | Warning |
+| `container_stopped` | Container stopped unexpectedly | Critical |
+| `container_started` | Container started | Info |
+| `container_removed` | Container was removed | Warning |
+| `container_healthy` | Container recovered to healthy | Info |
+| `container_high_cpu` | Container CPU above threshold | Warning |
+| `container_high_memory` | Container memory above threshold | Warning |
+
+#### Security Events (Category: security)
+
+| Event | Description | Default Severity |
+|-------|-------------|------------------|
+| `security_event` | Security-related event (e.g., failed logins) | Critical |
+
+#### SSL Certificate Events (Category: ssl)
+
+| Event | Description | Default Severity |
+|-------|-------------|------------------|
+| `certificate_expiring` | SSL certificate expiring soon | Warning |
+
+#### System Events (Category: system)
+
+| Event | Description | Default Severity |
+|-------|-------------|------------------|
+| `disk_space_low` | Disk usage above threshold | Warning |
+| `high_memory` | System memory above threshold | Warning |
+| `high_cpu` | Sustained high CPU usage | Warning |
+| `update_available` | Software update available | Info |
+
+### 9.2 Event Configuration Options
+
+Configure each event type individually:
+
+<!-- SCREENSHOT: Event configuration -->
+*[Screenshot placeholder: System notification event settings]*
+
+| Setting | Description | Options |
+|---------|-------------|---------|
+| **Enabled** | Whether notifications are sent | On/Off |
+| **Severity** | Priority level | Info, Warning, Critical |
+| **Frequency** | How often to notify | Every time, Once per 15m/30m/1h/4h/12h/day/week |
+| **Cooldown** | Minimum time between notifications | Minutes |
+| **Thresholds** | Trigger conditions | Varies by event type |
+
+#### Threshold Configuration
+
+Some events have configurable thresholds:
+
+| Event | Threshold | Default |
+|-------|-----------|---------|
+| `disk_space_low` | Percent used | 90% |
+| `high_memory` | Percent used | 90% |
+| `high_cpu` | Percent + duration | 90% for 5 minutes |
+| `certificate_expiring` | Days before expiration | 14 days |
+
+### 9.3 Escalation
+
+L1/L2 escalation ensures critical events are not missed.
+
+#### How Escalation Works
+
+1. **L1 (Primary)**: First notification sent immediately
+2. **Wait Period**: Configurable timeout (default: 30 minutes)
+3. **L2 (Escalation)**: If not acknowledged, escalate to L2 targets
+
+#### Configuring Escalation
+
+1. Go to **System Notifications**
+2. Select an event
+3. Enable **Escalation**
+4. Set **Escalation Timeout** (minutes)
+5. Add **L2 Targets** (different channels/groups than L1)
+
+<!-- SCREENSHOT: Escalation configuration -->
+*[Screenshot placeholder: L1/L2 escalation settings]*
+
+### 9.4 Global Settings
+
+System-wide notification controls:
+
+<!-- SCREENSHOT: Global notification settings -->
+*[Screenshot placeholder: Global settings panel]*
+
+#### Maintenance Mode
+
+Temporarily silence all notifications:
+
+1. Go to **Settings** > **System Notifications**
+2. Enable **Maintenance Mode**
+3. Optionally set an end time
+4. Add a reason note
+
+While in maintenance mode:
+- No notifications are sent
+- Events are still logged
+- Manual notifications still work
+
+#### Quiet Hours
+
+Reduce notification priority during specified hours:
+
+| Setting | Description |
+|---------|-------------|
+| **Enabled** | Turn quiet hours on/off |
+| **Start Time** | When quiet hours begin (e.g., 22:00) |
+| **End Time** | When quiet hours end (e.g., 07:00) |
+| **Action** | Reduce priority or mute completely |
+
+#### Daily Digest
+
+Aggregate low-priority notifications:
+
+1. Enable **Daily Digest**
+2. Set digest time (e.g., 08:00)
+3. Select which severity levels to include
+4. Receive a summary email daily
+
+#### Rate Limiting
+
+Prevent notification storms:
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| **Max per Hour** | Maximum notifications per hour | 50 |
+| **Emergency Contact** | Override channel for rate limit warnings | None |
+
+### 9.5 Per-Container Configuration
+
+Configure monitoring for individual containers:
+
+1. Go to **System Notifications** > **Container Config**
+2. Click **Add Container**
+3. Select the container
+4. Configure:
+   - **Enable Monitoring**: Master on/off
+   - **Monitor Unhealthy**: Health check failures
+   - **Monitor Restart**: Restart events
+   - **Monitor Stopped**: Stop events
+   - **CPU Threshold**: Custom CPU limit (%)
+   - **Memory Threshold**: Custom memory limit (%)
+   - **Custom Targets**: Override default notification targets
+
+<!-- SCREENSHOT: Per-container configuration -->
+*[Screenshot placeholder: Container-specific notification settings]*
+
+### 9.6 Flapping Detection
+
+Prevents notification spam when services rapidly toggle states.
+
+#### How Flapping Detection Works
+
+1. System tracks event frequency per target
+2. If events exceed threshold within time window, "flapping" is detected
+3. During flapping:
+   - Individual notifications are suppressed
+   - Summary notifications are sent at intervals
+4. When stable, a recovery notification is sent
+
+#### Flapping Settings
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| **Enabled** | Turn flapping detection on/off | Yes |
+| **Threshold Count** | Events to trigger flapping | 3 |
+| **Threshold Minutes** | Time window for counting | 10 |
+| **Summary Interval** | Minutes between summaries | 15 |
+| **Notify on Recovery** | Send notification when stable | Yes |
+
+---
+
+## 10. Container Management
+
+Monitor and control Docker containers.
+
+<!-- SCREENSHOT: Container list -->
+*[Screenshot placeholder: Container management overview]*
+
+### Container List
+
+View all containers with:
+- **Name**: Container name
+- **Status**: Running, Stopped, Exited
+- **Health**: Healthy, Unhealthy, None
+- **CPU**: Current CPU usage
+- **Memory**: Current memory usage
+- **Network**: I/O statistics
+- **Uptime**: Time since container started
+
+### Container Operations
+
+| Action | Description |
+|--------|-------------|
+| **Start** | Start a stopped container |
+| **Stop** | Gracefully stop a running container |
+| **Restart** | Stop and start a container |
+| **View Logs** | Display container log output |
+
+### Viewing Container Logs
+
+1. Click a container
+2. Click **View Logs**
+3. Options:
+   - **Lines**: Number of lines to show
+   - **Follow**: Stream new logs in real-time
+   - **Since**: Show logs since timestamp
+4. Use search to filter logs
+
+<!-- SCREENSHOT: Container logs viewer -->
+*[Screenshot placeholder: Container log output]*
+
+### Resource Monitoring
+
+Click a container to view detailed metrics:
+- CPU usage over time
+- Memory usage over time
+- Network I/O over time
+- Block I/O statistics
+
+---
+
+## 11. Workflow Management
+
+Monitor and manage n8n workflows.
+
+<!-- SCREENSHOT: Workflow list -->
+*[Screenshot placeholder: Workflow management page]*
+
+### Workflow List
+
+View all workflows with:
+- **Name**: Workflow name
+- **ID**: Unique identifier
+- **Active**: Enabled/disabled status
+- **Nodes**: Number of nodes
+- **Created**: Creation date
+- **Updated**: Last modification date
+
+### Filtering and Searching
+
+- **Search**: Filter by workflow name
+- **Status Filter**: Show all, active only, or inactive only
+- **Sort**: By name, date, or status
+
+### Workflow Operations
+
+| Action | Description |
+|--------|-------------|
+| **Activate** | Enable workflow execution |
+| **Deactivate** | Disable workflow execution |
+| **View Executions** | See recent execution history |
+| **Open in n8n** | Open workflow in n8n editor |
+
+### Execution History
+
+View recent executions for each workflow:
+- Execution ID
+- Status (success, error, waiting)
+- Start time
+- Duration
+- Error message (if failed)
+
+<!-- SCREENSHOT: Execution history -->
+*[Screenshot placeholder: Workflow execution history]*
+
+---
+
+## 12. System Monitoring
+
+Monitor system health and resources.
+
+<!-- SCREENSHOT: System monitoring dashboard -->
+*[Screenshot placeholder: System health overview]*
+
+### Health Dashboard
+
+Quick status of all services:
+- n8n: API health check
+- PostgreSQL: Database connectivity
+- Nginx: Configuration validation
+- Certbot: Certificate status
+- Management: Console health
+
+### Resource Graphs
+
+Real-time visualization of:
+- **CPU Usage**: Usage percentage over time
+- **Memory Usage**: Used/available over time
+- **Load Average**: 1/5/15 minute averages
+- **Disk I/O**: Read/write operations
+
+### Disk Usage
+
+Storage information for all mount points:
+- Mount point
+- Total size
+- Used space
+- Free space
+- Usage percentage
+- Warning indicators for low space
+
+### SSL Certificate Status
+
+View certificate information:
+- Domain name
+- Expiration date
+- Days until expiration
+- Issuer (Let's Encrypt)
+- Last renewal date
+
+<!-- SCREENSHOT: Certificate status -->
+*[Screenshot placeholder: SSL certificate information]*
+
+### Docker Information
+
+System Docker details:
+- Docker version
+- Number of containers (running/total)
+- Number of images
+- Total volume size
+- Network information
+
+---
+
+## 13. Settings
+
+Configure the management console.
+
+### Appearance Settings
+
+| Setting | Options |
+|---------|---------|
+| **Theme** | Light, Dark, System |
+| **Layout** | Sidebar, Horizontal |
+
+### Security Settings
+
+#### Password Management
+
+Change your admin password:
+1. Enter current password
+2. Enter new password (minimum 8 characters)
+3. Confirm new password
+4. Click **Change Password**
+
+#### IP Access Control
+
+See [Section 5.5](#55-ip-access-control-configuration) for details.
+
+### n8n API Configuration
+
+Configure the connection to n8n:
+- **API Key**: Your n8n API key
+- **Base URL**: n8n editor URL (auto-detected)
+- **Test Connection**: Verify connectivity
+
+### Email Configuration
+
+Configure SMTP for email notifications:
+
+| Setting | Description |
+|---------|-------------|
+| **SMTP Server** | Mail server hostname |
+| **Port** | SMTP port (25, 465, 587) |
+| **Security** | None, TLS, STARTTLS |
+| **Username** | SMTP authentication username |
+| **Password** | SMTP authentication password |
+| **From Address** | Sender email address |
+| **From Name** | Sender display name |
+
+#### Email Templates
+
+Customize notification emails:
+1. Go to **Settings** > **Email** > **Templates**
+2. Select a template
+3. Edit the HTML/text content
+4. Use variables for dynamic content
+5. Preview and save
+
+### Debug Mode
+
+Enable verbose logging:
+1. Toggle **Debug Mode** on
+2. Log level increases to DEBUG
+3. More detailed information in logs
+4. Disable for production use
+
+### About
+
+View version information:
+- Management Console version
+- API version
+- Frontend version
+- Build date
+- System information
+
+---
