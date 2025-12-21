@@ -1,9 +1,5 @@
 <p align="center">
-  <img src="images/n8n_repo_banner.jpg" alt="n8n Enterprise Deployment Suite" width="800"/>
-</p>
-
-<p align="center">
-  <em>"Enterprise-grade automation infrastructure shouldn't require an enterprise budget."</em>
+  <img src="images/n8n_repo_banner.jpg" alt="n8n Management Suite" width="800"/>
 </p>
 
 <p align="center">
@@ -28,9 +24,11 @@
   <a href="https://ntfy.sh"><img src="https://img.shields.io/badge/ntfy-Push%20Notifications-57A143" alt="ntfy"></a>
 </p>
 
+> ### *"Automation means solving a problem once, then putting the solution on autopilot."* — Michael Hyatt
+
 ---
 
-# n8n Enterprise Deployment Suite
+# n8n Management Suite
 
 A production-ready, self-hosted deployment solution for [n8n](https://n8n.io) workflow automation with integrated HTTPS/SSL certificate management, PostgreSQL database with pgvector for AI/RAG workflows, comprehensive backup and disaster recovery, multi-channel notifications, and a full-featured web-based management console.
 
@@ -40,7 +38,7 @@ A production-ready, self-hosted deployment solution for [n8n](https://n8n.io) wo
 
 ### Part I: Introduction
 - [1. Overview](#1-overview)
-  - [1.1 What is n8n Enterprise Deployment Suite?](#11-what-is-n8n-enterprise-deployment-suite)
+  - [1.1 What is the "n8n Management Suite"?](#11-what-is-n8n-enterprise-deployment-suite)
   - [1.2 Key Features at a Glance](#12-key-features-at-a-glance)
   - [1.3 Architecture Overview](#13-architecture-overview)
   - [1.4 Technology Stack](#14-technology-stack)
@@ -145,12 +143,12 @@ A production-ready, self-hosted deployment solution for [n8n](https://n8n.io) wo
 
 ## 1. Overview
 
-### 1.1 What is n8n Enterprise Deployment Suite?
+### 1.1 What is n8n Management Suite?
 
-The n8n Enterprise Deployment Suite is a comprehensive, production-ready deployment and management solution for self-hosted n8n workflow automation. It combines:
+The n8n Management Suite is a comprehensive, production-ready deployment and management solution for self-hosted n8n workflow automation. It combines:
 
-- **Automated Deployment**: A single interactive script (`setup.sh`) that handles everything from Docker installation to SSL certificate acquisition
-- **Enterprise Infrastructure**: PostgreSQL 16 with pgvector for AI/RAG workflows, Nginx reverse proxy with automatic HTTPS, and Let's Encrypt certificate management
+- **Automated Deployment**: A single interactive script that handles everything from Docker installation to SSL certificate acquisition
+- **Enterprise Software**: PostgreSQL 16 with pgvector for AI/RAG workflows, Nginx reverse proxy with automatic HTTPS, and Let's Encrypt certificate management
 - **Management Console**: A full-featured web application for monitoring, backup management, notifications, and system administration
 - **Disaster Recovery**: Comprehensive backup system with verification, selective restoration, and bare-metal recovery capabilities
 - **Multi-Channel Notifications**: Support for 30+ notification providers through Apprise, plus native NTFY push notifications
@@ -162,35 +160,39 @@ Whether you are running n8n for personal automation or deploying it for an organ
 #### Deployment and Infrastructure
 - One-command interactive setup with automatic Docker installation
 - Automatic SSL/TLS certificate acquisition and renewal via Let's Encrypt
-- Support for multiple DNS providers (Cloudflare, AWS Route 53, Google Cloud DNS, DigitalOcean)
+- Certbot / Let's Encrypt support for multiple DNS providers (Cloudflare, AWS Route 53, Google Cloud DNS, DigitalOcean)
 - PostgreSQL 16 with pgvector extension for AI vector embeddings
 - Nginx reverse proxy with optimized configuration for n8n
 - Optional Tailscale VPN and Cloudflare Tunnel integration
 
 #### Management Console
 - Real-time system metrics dashboard (CPU, memory, disk, network)
-- Docker container management (start, stop, restart, logs)
+- Docker container management (start, stop, restart, recreate, alerts, logs)
+- Realtime web-based terminal access to any running container
 - n8n workflow monitoring and control
-- Comprehensive settings management
+- Comprehensive backup, alert and notifications settings management
 - Dark/light theme support
 
 #### Backup and Recovery
 - Scheduled and on-demand backups
 - Multiple storage backends (local, NFS)
 - Backup verification with integrity checking
-- Selective workflow restoration
+- Selective workflow restoration - recover any workflow from any backup
 - Full system bare-metal recovery
 - Grandfather-Father-Son (GFS) retention policies
 - Automatic pruning with space management
 
 #### Notifications
 - 30+ notification providers via Apprise integration
-- Native NTFY push notification support
+- Native NTFY push notification support via ntfy.sh
+- Optional locally hosted and integrated NFTY container
 - Email notifications with customizable templates
 - Webhook integration for n8n workflows
 - System event notifications with configurable triggers
 - L1/L2 escalation support
 - Maintenance mode and quiet hours
+- API for full notification support from n8n workflows
+- Create notification 'groups' from any configured notification channel
 
 ### 1.3 Architecture Overview
 
@@ -248,19 +250,20 @@ flowchart TB
 
 #### Component Overview
 
-| Component | Purpose |
-|-----------|---------|
-| **Nginx** | Reverse proxy handling HTTPS termination, routing, and security headers |
-| **n8n** | Workflow automation engine |
-| **PostgreSQL** | Primary database with pgvector for AI/ML vector operations |
-| **Management Console** | Web-based administration interface |
-| **FastAPI Backend** | REST API powering the management console |
-| **Certbot** | Automatic SSL certificate acquisition and renewal |
-| **NTFY** | Optional self-hosted push notification server |
-| **Portainer** | Optional container management UI |
-| **Adminer** | Optional database administration UI |
-| **Dozzle** | Optional real-time log viewer |
-| **Tailscale** | Optional VPN for secure remote access |
+| Component              | Purpose                                                                 |
+|------------------------|-------------------------------------------------------------------------|
+| **Nginx**              | Reverse proxy handling HTTPS termination, routing, and security headers |
+| **n8n**                | Workflow automation engine                                              |
+| **PostgreSQL**         | Primary database with pgvector for AI/ML vector operations              |
+| **Management Console** | Web-based administration interface                                      |
+| **FastAPI Backend**    | REST API powering the management console                                |
+| **Certbot**            | Optional Automatic SSL certificate acquisition and renewal              |
+| **NTFY**               | Optional self-hosted push notification server                           |
+| **Portainer**          | Optional container management UI                                        |
+| **Adminer**            | Optional database administration UI                                     |
+| **Dozzle**             | Optional real-time log viewer                                           |
+| **Tailscale**          | Optional VPN for secure remote access                                   |
+| **Cloudflared**        | Optional Cloudflare Tunnel for external access without port forwarding  |
 
 ### 1.4 Technology Stack
 
@@ -341,6 +344,8 @@ The setup script will automatically install these if not present:
 - Docker Engine
 - Docker Compose plugin
 - Required Docker images
+- curl
+- OpenSSL
 
 ### 2.3 Supported Operating Systems
 
@@ -358,34 +363,17 @@ The setup script will automatically install these if not present:
 
 #### Special Environments
 
-| Environment | Support Level | Notes |
-|-------------|---------------|-------|
+| Environment | Support Level | Notes                                                       |
+|-------------|---------------|-------------------------------------------------------------|
 | Proxmox LXC | Supported | Requires `nesting=1` and `lxc.apparmor.profile: unconfined` |
-| WSL2 | Supported | Requires Docker Desktop for Windows |
-| Virtual Machines | Supported | Any hypervisor (VMware, VirtualBox, Hyper-V, KVM) |
+| WSL2 | Supported | Requires Docker Desktop for Windows                         |
+| Virtual Machines | Supported | Any hypervisor (Proxmox, VMware, VirtualBox, Hyper-V, KVM)  |
 
 ### 2.4 Network Requirements
-
-#### Required Ports
-
-| Port | Protocol | Direction | Purpose |
-|------|----------|-----------|---------|
-| 443 | TCP | Inbound | HTTPS (n8n and webhooks) |
-| 3333 | TCP | Inbound | Management Console (configurable) |
-
-#### Optional Ports
-
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 9001 | TCP | Portainer Agent |
-| 8080 | TCP | Adminer (database UI) |
-| 9999 | TCP | Dozzle (log viewer) |
-| 80 | TCP | NTFY (if enabled) |
 
 #### Firewall Considerations
 
 - Port 443 must be accessible from the internet for webhook functionality
-- Management console port (3333) should be restricted to trusted networks
 - Consider using Tailscale or Cloudflare Tunnel for secure remote access
 
 ### 2.5 DNS Provider Requirements
@@ -464,7 +452,7 @@ When you run `./setup.sh`, you'll see:
   ✓ System preparation complete
 ```
 
-> **Note:** You no longer need to manually update your system or install utilities. The setup script handles this automatically!
+> **Note:** The script will automatically check for system updates and apply them as part of the setup!
 
 #### Configure DNS
 
@@ -498,20 +486,20 @@ Before configuring DNS, it's important to understand the two main approaches for
 │   Internet Users                                                            │
 │         │                                                                   │
 │         ▼                                                                   │
-│   n8n.yourdomain.com ──────► A Record: 203.0.113.50                        │
+│   n8n.yourdomain.com ──────► A Record: 203.0.113.50                         │
 │         │                    (Your public IP)                               │
 │         ▼                                                                   │
-│   Your Router (Port 443) ──► Port Forward to Server                        │
+│   Your Router (Port 443) ──► Port Forward to Server                         │
 │         │                                                                   │
 │         ▼                                                                   │
-│   Your Server (Nginx:443) ──► n8n Container                                │
+│   Your Server (Nginx:443) ──► n8n Container                                 │
 │                                                                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│   ✓ Direct connection - lowest latency                                     │
-│   ✓ Full control over your infrastructure                                  │
-│   ✗ Requires static IP or DDNS                                             │
-│   ✗ Port 443 must be open in firewall/router                               │
-│   ✗ Your server's IP is exposed to the internet                            │
+│   ✓ Direct connection - lowest latency                                      │
+│   ✓ Full control over your infrastructure                                   │
+│   ✗ Requires static IP or DDNS                                              │
+│   ✗ Port 443 must be open in firewall/router                                │
+│   ✗ Your server's IP is exposed to the internet                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -530,25 +518,25 @@ Before configuring DNS, it's important to understand the two main approaches for
 │   Internet Users                                                            │
 │         │                                                                   │
 │         ▼                                                                   │
-│   n8n.yourdomain.com ──────► CNAME: xxxxx.cfargotunnel.com                 │
+│   n8n.yourdomain.com ──────► CNAME: xxxxx.cfargotunnel.com                  │
 │         │                    (Cloudflare Tunnel endpoint)                   │
 │         ▼                                                                   │
 │   Cloudflare Edge Network                                                   │
 │         │                    DDoS Protection, WAF, Caching                  │
 │         ▼                                                                   │
-│   ═══════ Encrypted Tunnel ═══════                                         │
+│   ═══════ Encrypted Tunnel ═══════                                          │
 │         │                    (Outbound connection from your server)         │
 │         ▼                                                                   │
-│   cloudflared Container ──► Nginx ──► n8n Container                        │
+│   cloudflared Container ──► Nginx ──► n8n Container                         │
 │                                                                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│   ✓ NO open ports required - server initiates outbound connection          │
-│   ✓ Your server IP is HIDDEN from the internet                             │
-│   ✓ Built-in DDoS protection and WAF                                       │
-│   ✓ Works behind CGNAT or dynamic IPs                                      │
-│   ✓ Zero Trust access policies available                                   │
-│   ✗ Slightly higher latency (traffic routes through Cloudflare)            │
-│   ✗ Requires Cloudflare account and domain on Cloudflare                   │
+│   ✓ NO open ports required - server initiates outbound connection           │
+│   ✓ Your server IP is HIDDEN from the internet                              │
+│   ✓ Built-in DDoS protection and WAF                                        │
+│   ✓ Works behind CGNAT or dynamic IPs                                       │
+│   ✓ Zero Trust access policies available                                    │
+│   ✗ Slightly higher latency (traffic routes through Cloudflare)             │
+│   ✗ Requires Cloudflare account and domain on Cloudflare                    │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -624,7 +612,7 @@ chmod +x setup.sh
 
 ## 4. Interactive Setup
 
-The setup script provides a polished, step-by-step experience. Here's what to expect:
+
 
 ### 4.1 Welcome Screen
 
@@ -634,7 +622,8 @@ The setup script provides a polished, step-by-step experience. Here's what to ex
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
   This script will guide you through setting up a production-ready
-  n8n instance with HTTPS, PostgreSQL, and automatic SSL renewal.
+  n8n instance with HTTPS, PostgreSQL, and optional automatic SSL
+  configuration and renewal.
 
   Features:
     - Automated SSL certificates via Let's Encrypt
@@ -657,11 +646,11 @@ If you run the script as root (common for server administrators), you'll see a n
 ║                n8n HTTPS Interactive Setup v3.0.0                         ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
-  ╔═══════════════════════════════════════════════════════════════════════════╗
-  ║                              NOTE                                         ║
-  ║  You are running this script as root. While this will work, it's          ║
-  ║  recommended to run as a regular user (the script uses sudo internally).  ║
-  ╚═══════════════════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                              NOTE                                         ║
+║  You are running this script as root. While this will work, it's          ║
+║  recommended to run as a regular user (the script uses sudo internally).  ║
+╚═══════════════════════════════════════════════════════════════════════════╝
 
   Continue as root? [Y/n]: y
 ```
@@ -878,7 +867,7 @@ The script validates your domain and checks if it resolves to your server:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ Domain Configuration                                                        │
 └─────────────────────────────────────────────────────────────────────────────┘
-  Enter the domain name where n8n will be accessible.
+  Enter the fully qualified domain name where n8n will be accessible.
   Example: n8n.yourdomain.com
 
   Enter your n8n domain [n8n.example.com]: n8n.mycompany.com
@@ -888,10 +877,10 @@ The script validates your domain and checks if it resolves to your server:
   Validating domain configuration...
 
   ℹ Resolving n8n.mycompany.com...
-  ✓ Domain resolves to: 203.0.113.50
+  ✓ Domain resolves to: 192.168.113.50
   ✓ Domain IP matches this server
-  ℹ Testing connectivity to 203.0.113.50...
-  ✓ Host 203.0.113.50 is reachable
+  ℹ Testing connectivity to 192.168.113.50...
+  ✓ Host 192.168.113.50 is reachable
 ```
 
 **If domain doesn't match server IP:**
@@ -900,7 +889,7 @@ The script validates your domain and checks if it resolves to your server:
   ⚠ Domain IP (198.51.100.25) does not match any local IP
 
   Local IP addresses on this machine:
-    - 203.0.113.50
+    - 192.168.113.50
     - 10.0.0.5
 
   IMPORTANT:
@@ -933,17 +922,17 @@ If you're using Cloudflare Tunnel, your domain MUST resolve to the **INTERNAL IP
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  CLOUDFLARE TUNNEL - DNS Configuration                                     │
+│  CLOUDFLARE TUNNEL - DNS Configuration                                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│   n8n.yourdomain.com ──────► A Record: 192.168.50.50                       │
-│                              (Your server's INTERNAL IP)                    │
+│ n8n.yourdomain.com ──► Local host Record/Internal DNS Sever: 192.168.113.50 │
+│                        (Your server's INTERNAL IP)                          │
 │                                                                             │
 │   Why Internal IP?                                                          │
 │   The cloudflared daemon performs a LOCAL host lookup for your domain       │
-│   and uses that IP (192.168.50.50) as the routing endpoint.                │
+│   and uses that IP (192.168.113.50) as the routing endpoint.                │
 │                                                                             │
-│   Example: n8n.mycompany.com → A → 192.168.50.50                           │
+│   Example: host n8n.mycompany.com → 192.168.113.50                          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -964,13 +953,13 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 │  PORT FORWARDING - DNS Configuration                                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│   n8n.yourdomain.com ──────► A Record: 203.0.113.1                         │
+│   n8n.yourdomain.com ──────► A Record: 203.0.113.1                          │
 │                              (Your firewall's EXTERNAL/PUBLIC IP)           │
 │                                                                             │
-│   Your firewall/router must forward port 443 to your server:               │
-│   External:443 ──────► Internal Server: 192.168.50.50:443                  │
+│   Your firewall/router must forward port 443 to your server:                │
+│   External:443 ──────► Internal Server: 192.168.113.50:443                  │
 │                                                                             │
-│   Example: n8n.mycompany.com → A → 203.0.113.1 (public IP)                 │
+│   Example: n8n.mycompany.com → A → 203.0.113.1 (public IP)                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1005,6 +994,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
   Database password [hidden]:
   ✓ Generated secure database password
+  ✓ pgvector extension automatically created
 ```
 
 ---
@@ -1244,7 +1234,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
 ───────────────────────────────────────────────────────────────────────────────
 
-  Thank you for using n8n HTTPS Setup Script v3.0.0
+  Thank you for using n8n Management Setup Script v3.0.0
   Created by Richard J. Sears - richardjsears@gmail.com
 ```
 
@@ -1259,7 +1249,7 @@ After installation is complete, you need to perform initial configuration of bot
 
 #### Creating Your Owner Account
 
-1. Open your browser and navigate to `https://your-domain.com`
+1. Open your browser and navigate to `https://n8n.your-domain.com`
 2. You will see the n8n setup page
 3. Create your owner account:
    - Enter your email address
@@ -1274,15 +1264,15 @@ After installation is complete, you need to perform initial configuration of bot
 
 After creating your account, you will be taken to the n8n editor. Before proceeding, note the following:
 
-- Your n8n instance is now accessible at `https://your-domain.com`
-- Webhooks are accessible at `https://your-domain.com/webhook/`
+- Your n8n instance is now accessible at `https://n8n.your-domain.com`
+- Webhooks are accessible at `https://n8n.your-domain.com/webhook/`
 - The editor is fully functional and ready for workflow creation
 
 ### 5.2 Accessing the Management Console
 
 #### Login Process
 
-1. Navigate to `https://your-domain.com:3333`
+1. Navigate to `https://n8n.your-domain.com/management`
 2. Enter the admin credentials you created during setup
 3. Click **Login**
 
@@ -1291,12 +1281,15 @@ After creating your account, you will be taken to the n8n editor. Before proceed
 
 #### Dashboard Overview
 
-After logging in, you will see the dashboard with:
+After logging in, you will see the following options:
 
-- **System Metrics**: CPU, memory, disk usage
-- **Container Status**: Health status of all containers
-- **Backup Status**: Recent backup information
-- **Quick Actions**: Common administrative tasks
+- **Dashboard**: View CPU, memory, disk usage, basic system overview
+- **Backups**: Configure and manage system and n8n backups
+- **Notifications**: Configure, create and manage notification channels and optionally expose them to n8n
+- **Containers**: View and manage all system containers
+- **Flows**: Backup, activate, deactivate and download flows from n8n
+- **System**: View system health, network information and gain container terminal access
+- **Settings**: Configure various system, security, access control, appearance, n8n API and debug settings 
 
 <!-- SCREENSHOT: Management console dashboard -->
 *[Screenshot placeholder: Dashboard overview with all widgets]*
@@ -1349,7 +1342,8 @@ Active Workflows: 0
 
 ### 5.4 Deploying Test Workflows
 
-To verify everything is working correctly, you can deploy test workflows.
+To verify everything is working correctly, you can deploy the test workflows.  
+You can use these later to test your webhook enabled notifications.    
 
 #### Available Test Workflows
 
@@ -1424,7 +1418,7 @@ If you enabled Tailscale during setup, your management console is automatically 
 tailscale ip
 
 # Access via Tailscale
-https://your-machine.tailnet-name.ts.net:3333
+https://your-machine.tailnet-name.ts.net/management
 ```
 
 ---
@@ -1440,13 +1434,13 @@ The dashboard provides an at-a-glance overview of your system's health and statu
 
 ### Dashboard Components
 
-| Component | Description |
-|-----------|-------------|
-| **System Metrics** | Real-time CPU, memory, and disk usage with graphs |
-| **Container Status** | Health status of all Docker containers |
-| **Backup Summary** | Last backup status and next scheduled backup |
-| **Quick Actions** | Common administrative shortcuts |
-| **Network Status** | Network interface information |
+| Component            | Description                                                    |
+|----------------------|----------------------------------------------------------------|
+| **System Overview**  | Real-time CPU, memory, and disk usage with graphs, host uptime |
+| **Container Status** | Health status of all Docker containers                         |
+| **Network I/O**      | Current I/O of the n8n_management container nic                |
+| **Download History** | One hour download network history                              |
+| **Upload History**   | One hour upload network history                                |
 
 ### System Metrics
 
@@ -1454,7 +1448,7 @@ The metrics panel displays:
 - **CPU Usage**: Current and historical CPU utilization
 - **Memory Usage**: RAM usage with available/total
 - **Disk Usage**: Storage utilization for each mount point
-- **Load Average**: 1, 5, and 15-minute load averages
+- **Uptime**: This is the uptime of the container host
 
 ### Container Status
 
@@ -1464,7 +1458,7 @@ Quick view of all containers:
 - Red indicator: Stopped or exited
 - Gray indicator: Unknown status
 
-Click any container to navigate to the Containers page for details.
+Click any container metric to navigate to the Containers page for details.
 
 ---
 
@@ -1525,7 +1519,6 @@ flowchart LR
 |--------|----------|----------|
 | **Local** | `/app/backups` (Docker volume) | Single-server deployments |
 | **NFS** | Network mount point | Off-site backup storage |
-| **Both** | Local with NFS replication | Redundant storage |
 
 ### 7.2 Backup History
 
