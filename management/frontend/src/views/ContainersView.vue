@@ -61,6 +61,26 @@ const notifyDialog = ref({
 const containerConfigs = ref({})  // Cache of container notification configs
 const hasContainerEventTargets = ref(false)  // Track if any container events have targets configured
 
+// Critical containers that require danger zone warning when stopping
+const criticalContainers = {
+  'n8n_management': 'This action will cause the loss of all management!',
+  'n8n_cloudflared': 'This action may cause the loss of connectivity to your N8N instance from outside your network!',
+  'n8n_nginx': 'This action may cause the loss of connectivity to your N8N instance!',
+  'n8n_postgres': 'This action may cause workflows that require database access to fail!',
+  'n8n_tailscale': 'This action may cause the loss of connectivity to your N8N host server!',
+}
+
+// Danger zone stop dialog for critical containers
+const dangerStopDialog = ref({ open: false, container: null, loading: false })
+
+function isCriticalContainer(containerName) {
+  return containerName in criticalContainers
+}
+
+function getCriticalWarning(containerName) {
+  return criticalContainers[containerName] || ''
+}
+
 // Stopped containers popup
 const stoppedContainersDialog = ref({ open: false })
 const removeConfirmDialog = ref({ open: false, container: null, loading: false })
@@ -248,7 +268,30 @@ function getHealthBadgeClass(health) {
 }
 
 async function performAction(container, action) {
+  // For critical containers being stopped, show danger zone dialog
+  if (action === 'stop' && isCriticalContainer(container.name)) {
+    dangerStopDialog.value = { open: true, container, loading: false }
+    return
+  }
   actionDialog.value = { open: true, container, action, loading: false }
+}
+
+async function confirmDangerStop() {
+  const container = dangerStopDialog.value.container
+  if (!container) return
+
+  dangerStopDialog.value.loading = true
+  try {
+    await containerStore.stopContainer(container.name)
+    notificationStore.success(`Container ${container.name} stopped`)
+    dangerStopDialog.value.open = false
+    // Refresh data
+    await loadData()
+  } catch (error) {
+    notificationStore.error(`Failed to stop container: ${error.response?.data?.detail || error.message}`)
+  } finally {
+    dangerStopDialog.value.loading = false
+  }
 }
 
 async function confirmAction() {
@@ -1128,6 +1171,73 @@ onUnmounted(() => {
                 class="w-full btn-secondary"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Danger Zone Stop Dialog for Critical Containers -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="dangerStopDialog.open"
+          class="fixed inset-0 z-[110] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/60" @click="dangerStopDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border-2 border-red-500 dark:border-red-600">
+            <!-- Header with skull -->
+            <div class="px-6 py-5 bg-red-50 dark:bg-red-900/30 rounded-t-lg border-b border-red-200 dark:border-red-800">
+              <div class="flex items-center justify-center mb-3">
+                <div class="p-4 rounded-full bg-red-100 dark:bg-red-900/50">
+                  <!-- Skull and Crossbones SVG -->
+                  <svg class="h-12 w-12 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm-2 15v-1h4v1h-4zm5.55-5.46l-.55.39V14h-6v-2.07l-.55-.39C7.51 10.85 7 9.47 7 8c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.47-.51 2.85-1.45 3.54zM9 9c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm6 0c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm-7 9h8l-1 3h-6l-1-3z"/>
+                  </svg>
+                </div>
+              </div>
+              <h3 class="text-xl font-bold text-red-700 dark:text-red-400 text-center">
+                Danger Zone
+              </h3>
+              <p class="text-sm text-red-600 dark:text-red-500 text-center mt-1">
+                Critical Container Warning
+              </p>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 bg-white dark:bg-gray-800">
+              <p class="text-gray-700 dark:text-gray-300 text-center">
+                You are about to stop
+                <span class="font-bold text-gray-900 dark:text-white">{{ dangerStopDialog.container?.name }}</span>
+              </p>
+              <div class="mt-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                <p class="text-red-700 dark:text-red-400 text-center font-medium">
+                  {{ getCriticalWarning(dangerStopDialog.container?.name) }}
+                </p>
+              </div>
+              <p class="text-sm text-gray-500 dark:text-gray-400 text-center mt-4">
+                Are you sure you want to proceed?
+              </p>
+            </div>
+
+            <!-- Actions -->
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 rounded-b-lg flex gap-3">
+              <button
+                @click="dangerStopDialog.open = false"
+                :disabled="dangerStopDialog.loading"
+                class="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="confirmDangerStop"
+                :disabled="dangerStopDialog.loading"
+                class="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <LoadingSpinner v-if="dangerStopDialog.loading" size="sm" />
+                <StopIcon v-else class="h-4 w-4" />
+                {{ dangerStopDialog.loading ? 'Stopping...' : 'Stop Container' }}
               </button>
             </div>
           </div>
