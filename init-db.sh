@@ -1,8 +1,15 @@
 #!/bin/bash
 # PostgreSQL initialization script
-# Creates the management database and user
+# Creates the management database and user, enables pgvector extension
 
 set -e
+
+# Enable pgvector extension on main n8n database
+echo "Enabling pgvector extension on $POSTGRES_DB..."
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    CREATE EXTENSION IF NOT EXISTS vector;
+EOSQL
+echo "pgvector extension enabled!"
 
 # Function to create database if not exists
 create_database() {
