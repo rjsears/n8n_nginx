@@ -754,23 +754,35 @@ onUnmounted(() => {
               </div>
 
               <!-- Health Badge / Remove Button -->
-              <div class="flex items-center gap-2">
-                <span
-                  v-if="container.health && container.health !== 'none'"
-                  :class="['px-2 py-1 text-xs font-medium rounded-full flex items-center gap-1', getHealthBadgeClass(container.health)]"
-                >
-                  <HeartIcon class="h-3 w-3" />
-                  {{ container.health }}
-                </span>
-                <!-- Remove Button for stopped containers -->
+              <div class="flex flex-col items-end gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    v-if="container.health && container.health !== 'none'"
+                    :class="['px-2 py-1 text-xs font-medium rounded-full flex items-center gap-1', getHealthBadgeClass(container.health)]"
+                  >
+                    <HeartIcon class="h-3 w-3" />
+                    {{ container.health }}
+                  </span>
+                  <!-- Remove Button for stopped containers -->
+                  <button
+                    v-if="container.status !== 'running'"
+                    @click="promptRemoveContainer(container)"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30 transition-colors flex items-center gap-1.5"
+                    title="Remove this container"
+                  >
+                    <TrashIcon class="h-4 w-4" />
+                    Remove
+                  </button>
+                </div>
+                <!-- Recreate Button (only for project containers) - below health badge -->
                 <button
-                  v-if="container.status !== 'running'"
-                  @click="promptRemoveContainer(container)"
-                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30 transition-colors flex items-center gap-1.5"
-                  title="Remove this container"
+                  v-if="container.is_project"
+                  @click="promptRecreateContainer(container)"
+                  class="btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30"
+                  title="Recreate this container"
                 >
-                  <TrashIcon class="h-4 w-4" />
-                  Remove
+                  <ArrowPathRoundedSquareIcon class="h-4 w-4" />
+                  Recreate
                 </button>
               </div>
             </div>
@@ -905,17 +917,6 @@ onUnmounted(() => {
               >
                 <CommandLineIcon class="h-4 w-4" />
                 Terminal
-              </button>
-
-              <!-- Recreate Button (only for project containers) -->
-              <button
-                v-if="container.is_project"
-                @click="promptRecreateContainer(container)"
-                class="flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30"
-                title="Recreate this container"
-              >
-                <ArrowPathRoundedSquareIcon class="h-4 w-4" />
-                Recreate
               </button>
             </div>
           </div>
