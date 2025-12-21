@@ -591,13 +591,17 @@ During setup, the script will ask early on:
 ```
 
 **If you choose Cloudflare Tunnel**, the setup script will:
-- Skip the "domain points to your IP" validation (it won't!)
+- **Validate** that your domain resolves to your server's **INTERNAL IP** (e.g., 192.168.x.x)
+- Show a warning if the domain IP doesn't match any local IP on this server
+- The cloudflared daemon uses this internal IP as its routing endpoint
 - Prompt for your Cloudflare Tunnel token
 - Configure the cloudflared container automatically
 
 **If you choose Port Forwarding**, the setup script will:
-- Validate that your domain's A record points to your server's IP
-- Ensure port 443 is accessible
+- **Skip IP validation** (no automatic check)
+- Perform an nslookup on your domain and display the resolved IP
+- Inform you that this IP should be the **EXTERNAL IP** on your firewall
+- Tell you to forward port 443 to this server's internal IP (where n8n is installed)
 - Configure direct SSL termination via Nginx
 
 ### 3.3 Downloading the Repository
