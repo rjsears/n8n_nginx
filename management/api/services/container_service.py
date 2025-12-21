@@ -8,6 +8,8 @@ from typing import Optional, List, Dict, Any
 from dateutil import parser as dateutil_parser
 import logging
 import asyncio
+import subprocess
+import os
 
 from api.models.audit import ContainerStatusCache
 from api.config import settings
@@ -351,3 +353,100 @@ class ContainerService:
             "stopped": stopped,
             "all_healthy": len(unhealthy) == 0 and len(stopped) == 0,
         }
+
+    def _get_service_name_from_container(self, container_name: str) -> str:
+        """
+        Get the docker-compose service name from a container name.
+        Container names are typically: n8n_postgres, n8n_nginx, n8n, etc.
+        Service names are: postgres, nginx, n8n, etc.
+        """
+        try:
+            container = self.client.containers.get(container_name)
+            # Docker Compose sets labels on containers with the service name
+            labels = container.labels
+            service_name = labels.get("com.docker.compose.service")
+            if service_name:
+                return service_name
+        except Exception as e:
+            logger.warning(f"Could not get service name from labels for {container_name}: {e}")
+
+        # Fallback: strip the prefix
+        prefix = settings.container_prefix  # e.g., "n8n_"
+        if container_name.startswith(prefix):
+            return container_name[len(prefix):]
+        return container_name
+
+    async def recreate_container(self, name: str, pull: bool = False) -> Dict[str, Any]:
+        """
+        Recreate a container using docker compose.
+
+        Args:
+            name: Container name
+            pull: If True, pull the latest image before recreating
+
+        Returns:
+            Dict with success status and output
+        """
+        service_name = self._get_service_name_from_container(name)
+        compose_dir = "/app/host_config"  # Directory with docker-compose.yaml
+
+        # Build the docker compose command
+        if pull:
+            cmd = [
+                "docker", "compose",
+                "-f", f"{compose_dir}/docker-compose.yaml",
+                "up", "-d", "--no-deps", "--force-recreate", "--pull", "always",
+                service_name
+            ]
+        else:
+            cmd = [
+                "docker", "compose",
+                "-f", f"{compose_dir}/docker-compose.yaml",
+                "up", "-d", "--no-deps", "--force-recreate",
+                service_name
+            ]
+
+        logger.info(f"Recreating container {name} (service: {service_name}), pull={pull}")
+        logger.debug(f"Running command: {' '.join(cmd)}")
+
+        try:
+            # Run docker compose command
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=compose_dir,
+            )
+
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                logger.error(f"Failed to recreate {name}: {error_msg}")
+                raise Exception(f"docker compose failed: {error_msg}")
+
+            output = stdout.decode() if stdout else ""
+            if stderr:
+                output += "\n" + stderr.decode()
+
+            # Send notification for project containers
+            if self._is_project_container(name):
+                action = "pulled and recreated" if pull else "recreated"
+                await dispatch_notification("container_recreated", {
+                    "container": name,
+                    "action": action,
+                    "pulled": pull,
+                })
+
+            logger.info(f"Successfully recreated container {name}")
+            return {
+                "success": True,
+                "container": name,
+                "service": service_name,
+                "pulled": pull,
+                "output": output.strip(),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to recreate container {name}: {e}")
+            raise

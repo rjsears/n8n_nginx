@@ -31,6 +31,7 @@ import {
   BellIcon,
   BellSlashIcon,
   TrashIcon,
+  ArrowPathRoundedSquareIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -84,6 +85,9 @@ function getCriticalWarning(containerName) {
 // Stopped containers popup
 const stoppedContainersDialog = ref({ open: false })
 const removeConfirmDialog = ref({ open: false, container: null, loading: false })
+
+// Recreate container dialog
+const recreateDialog = ref({ open: false, container: null, loading: false })
 
 let statsInterval = null
 
@@ -197,6 +201,45 @@ function openStoppedContainersDialog() {
 // Prompt to remove a container
 function promptRemoveContainer(container) {
   removeConfirmDialog.value = { open: true, container, loading: false }
+}
+
+// Prompt to recreate a container
+function promptRecreateContainer(container) {
+  recreateDialog.value = { open: true, container, loading: false }
+}
+
+// Confirm recreate (without pull)
+async function confirmRecreate() {
+  const container = recreateDialog.value.container
+  if (!container) return
+
+  recreateDialog.value.loading = true
+  try {
+    await containerStore.recreateContainer(container.name, false)
+    notificationStore.success(`Container ${container.name} recreated successfully`)
+    recreateDialog.value.open = false
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || `Failed to recreate ${container.name}`)
+  } finally {
+    recreateDialog.value.loading = false
+  }
+}
+
+// Confirm recreate with pull
+async function confirmRecreateWithPull() {
+  const container = recreateDialog.value.container
+  if (!container) return
+
+  recreateDialog.value.loading = true
+  try {
+    await containerStore.recreateContainer(container.name, true)
+    notificationStore.success(`Container ${container.name} pulled and recreated successfully`)
+    recreateDialog.value.open = false
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || `Failed to recreate ${container.name}`)
+  } finally {
+    recreateDialog.value.loading = false
+  }
 }
 
 // Confirm and remove container
@@ -695,7 +738,7 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- Health Badge / Remove Button -->
+              <!-- Health Badge / Recreate / Remove Buttons -->
               <div class="flex items-center gap-2">
                 <span
                   v-if="container.health && container.health !== 'none'"
@@ -704,6 +747,16 @@ onUnmounted(() => {
                   <HeartIcon class="h-3 w-3" />
                   {{ container.health }}
                 </span>
+                <!-- Recreate Button (only for project containers) -->
+                <button
+                  v-if="container.is_project"
+                  @click="promptRecreateContainer(container)"
+                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/30 transition-colors flex items-center gap-1.5"
+                  title="Recreate this container"
+                >
+                  <ArrowPathRoundedSquareIcon class="h-4 w-4" />
+                  Recreate
+                </button>
                 <!-- Remove Button for stopped containers -->
                 <button
                   v-if="container.status !== 'running'"
@@ -1300,6 +1353,73 @@ onUnmounted(() => {
                 <LoadingSpinner v-if="removeConfirmDialog.loading" size="sm" />
                 <TrashIcon v-else class="h-4 w-4" />
                 {{ removeConfirmDialog.loading ? 'Removing...' : 'Remove Forever' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Recreate Container Warning Dialog (Yellow with Exclamation) -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="recreateDialog.open"
+          class="fixed inset-0 z-[110] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/60" @click="recreateDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border-2 border-amber-500 dark:border-amber-600">
+            <!-- Header with warning triangle -->
+            <div class="px-6 py-5 bg-amber-50 dark:bg-amber-900/30 rounded-t-lg border-b border-amber-200 dark:border-amber-800">
+              <div class="flex items-center justify-center mb-3">
+                <div class="p-4 rounded-full bg-amber-100 dark:bg-amber-900/50">
+                  <!-- Warning Triangle SVG with exclamation mark -->
+                  <svg class="h-12 w-12 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+              </div>
+              <h3 class="text-xl font-bold text-amber-700 dark:text-amber-400 text-center">
+                Are You Sure?
+              </h3>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 bg-white dark:bg-gray-800">
+              <p class="text-gray-700 dark:text-gray-300 text-center">
+                You're about to recreate this container and any non-persisted data will be lost.
+              </p>
+              <p class="text-gray-700 dark:text-gray-300 text-center mt-3">
+                The <span class="font-bold text-gray-900 dark:text-white">{{ recreateDialog.container?.name }}</span> will be removed and another one created using the same configuration.
+              </p>
+            </div>
+
+            <!-- Actions - 3 buttons -->
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 rounded-b-lg flex flex-col sm:flex-row gap-3">
+              <button
+                @click="recreateDialog.open = false"
+                :disabled="recreateDialog.loading"
+                class="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="confirmRecreate"
+                :disabled="recreateDialog.loading"
+                class="flex-1 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <LoadingSpinner v-if="recreateDialog.loading" size="sm" />
+                <ArrowPathRoundedSquareIcon v-else class="h-4 w-4" />
+                {{ recreateDialog.loading ? 'Working...' : 'Recreate' }}
+              </button>
+              <button
+                @click="confirmRecreateWithPull"
+                :disabled="recreateDialog.loading"
+                class="flex-1 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <LoadingSpinner v-if="recreateDialog.loading" size="sm" />
+                <ArrowDownTrayIcon v-else class="h-4 w-4" />
+                {{ recreateDialog.loading ? 'Working...' : 'Pull & Recreate' }}
               </button>
             </div>
           </div>

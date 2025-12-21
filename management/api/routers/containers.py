@@ -188,3 +188,36 @@ async def remove_container(
         )
 
 
+@router.post("/{name}/recreate")
+async def recreate_container(
+    name: str,
+    pull: bool = False,
+    _=Depends(get_current_user),
+):
+    """
+    Recreate a container using docker compose.
+
+    This will remove the container and create a new one with the same configuration.
+    Any non-persisted data will be lost.
+
+    Args:
+        name: Container name
+        pull: If True, pull the latest image before recreating
+    """
+    service = ContainerService()
+
+    try:
+        result = await service.recreate_container(name, pull=pull)
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
