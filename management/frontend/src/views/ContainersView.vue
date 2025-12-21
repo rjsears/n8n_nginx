@@ -753,7 +753,7 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- Health Badge / Recreate / Remove Buttons -->
+              <!-- Health Badge / Remove Button -->
               <div class="flex items-center gap-2">
                 <span
                   v-if="container.health && container.health !== 'none'"
@@ -762,16 +762,6 @@ onUnmounted(() => {
                   <HeartIcon class="h-3 w-3" />
                   {{ container.health }}
                 </span>
-                <!-- Recreate Button (only for project containers) -->
-                <button
-                  v-if="container.is_project"
-                  @click="promptRecreateContainer(container)"
-                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/30 transition-colors flex items-center gap-1.5"
-                  title="Recreate this container"
-                >
-                  <ArrowPathRoundedSquareIcon class="h-4 w-4" />
-                  Recreate
-                </button>
                 <!-- Remove Button for stopped containers -->
                 <button
                   v-if="container.status !== 'running'"
@@ -915,6 +905,17 @@ onUnmounted(() => {
               >
                 <CommandLineIcon class="h-4 w-4" />
                 Terminal
+              </button>
+
+              <!-- Recreate Button (only for project containers) -->
+              <button
+                v-if="container.is_project"
+                @click="promptRecreateContainer(container)"
+                class="flex-1 min-w-[100px] max-w-[140px] btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30"
+                title="Recreate this container"
+              >
+                <ArrowPathRoundedSquareIcon class="h-4 w-4" />
+                Recreate
               </button>
             </div>
           </div>
