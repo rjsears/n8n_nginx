@@ -1820,6 +1820,7 @@ async def get_full_health_check(
             "error_count": 0,
             "warning_count": 0,
             "recent_errors": [],
+            "by_container": {},  # Per-container breakdown
         }
         logs_status = "healthy"
 
@@ -1831,27 +1832,98 @@ async def get_full_health_check(
                 total_errors = 0
                 total_warnings = 0
 
+                # Containers to analyze - expanded list
+                containers_to_check = ["n8n", "n8n_nginx", "n8n_postgres", "n8n_management", "n8n_cloudflared", "n8n_tailscale"]
+
+                # Common noise patterns to skip
+                skip_patterns = [
+                    "cert.pem",
+                    "buffer size",
+                    "Cannot determine default origin certificate",
+                    "failed to sufficiently increase receive buffer",
+                    "Update check",
+                ]
+
                 for container in client.containers.list():
-                    if container.name in ["n8n", "n8n_nginx"]:
+                    if container.name in containers_to_check:
+                        container_errors = 0
+                        container_warnings = 0
+                        container_recent = []
+
                         try:
-                            logs = container.logs(since=datetime.now(UTC) - timedelta(hours=1)).decode("utf-8", errors="ignore")
+                            logs = container.logs(
+                                since=datetime.now(UTC) - timedelta(hours=1),
+                                timestamps=True  # Include timestamps
+                            ).decode("utf-8", errors="ignore")
                             lines = logs.split("\n")
 
                             for line in lines:
+                                if not line.strip():
+                                    continue
+
                                 line_lower = line.lower()
-                                if "error" in line_lower or "ERR" in line:
+
+                                # Skip common noise
+                                if any(skip in line for skip in skip_patterns):
+                                    continue
+
+                                # Check for errors
+                                if "error" in line_lower or "ERR" in line or "FATAL" in line or "panic" in line_lower:
+                                    container_errors += 1
                                     total_errors += 1
-                                    # Capture some recent errors (skip common noise)
-                                    if len(logs_details["recent_errors"]) < 5:
-                                        if not any(skip in line for skip in ["cert.pem", "buffer size"]):
-                                            logs_details["recent_errors"].append(line[:150])
+
+                                    # Parse timestamp and message
+                                    # Docker timestamp format: 2024-01-15T10:30:45.123456789Z
+                                    timestamp = ""
+                                    message = line
+                                    if line and len(line) > 30 and line[4] == '-' and 'T' in line[:25]:
+                                        try:
+                                            timestamp_end = line.index(' ', 20) if ' ' in line[20:50] else 30
+                                            timestamp = line[:timestamp_end].strip()
+                                            message = line[timestamp_end:].strip()
+                                        except (ValueError, IndexError):
+                                            pass
+
+                                    # Capture recent errors (up to 10 per container, 20 total)
+                                    if len(container_recent) < 10 and len(logs_details["recent_errors"]) < 20:
+                                        error_entry = {
+                                            "container": container.name,
+                                            "timestamp": timestamp[:19] if timestamp else "",  # Trim to readable format
+                                            "message": message[:200],  # Limit message length
+                                            "level": "error",
+                                        }
+                                        container_recent.append(error_entry)
+                                        logs_details["recent_errors"].append(error_entry)
+
                                 elif "warn" in line_lower:
+                                    container_warnings += 1
                                     total_warnings += 1
-                        except Exception:
-                            pass
+
+                        except Exception as e:
+                            logs_details["by_container"][container.name] = {
+                                "error_count": 0,
+                                "warning_count": 0,
+                                "status": "error",
+                                "message": f"Failed to read logs: {str(e)[:50]}",
+                            }
+                            continue
+
+                        # Store per-container stats
+                        if container_errors > 0 or container_warnings > 0:
+                            logs_details["by_container"][container.name] = {
+                                "error_count": container_errors,
+                                "warning_count": container_warnings,
+                                "status": "error" if container_errors > 10 else "warning" if container_errors > 0 else "ok",
+                            }
 
                 logs_details["error_count"] = total_errors
                 logs_details["warning_count"] = total_warnings
+
+                # Sort recent errors by timestamp (newest first)
+                logs_details["recent_errors"].sort(
+                    key=lambda x: x.get("timestamp", ""),
+                    reverse=True
+                )
 
                 if total_errors > 50:
                     logs_status = "error"

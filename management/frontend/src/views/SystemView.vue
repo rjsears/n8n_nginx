@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notifications'
@@ -69,6 +69,7 @@ ChartJS.register(
 )
 
 const route = useRoute()
+const router = useRouter()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
@@ -235,6 +236,38 @@ const restartDialog = ref({
 const sslRenewModal = ref(false)
 const sslRenewing = ref(false)
 const sslRenewalResult = ref(null)
+
+// Logs detail modal state
+const logsDetailModal = ref(false)
+
+function openLogsDetailModal() {
+  // Only open if there are errors or warnings
+  const logs = healthData.value.checks?.logs?.details
+  if (logs && (logs.error_count > 0 || logs.warning_count > 0)) {
+    logsDetailModal.value = true
+  }
+}
+
+function hasLogsToShow() {
+  const logs = healthData.value.checks?.logs?.details
+  return logs && (logs.error_count > 0 || logs.warning_count > 0)
+}
+
+function navigateToContainer(containerName) {
+  logsDetailModal.value = false
+  router.push({ name: 'containers', query: { highlight: containerName } })
+}
+
+function formatLogTimestamp(timestamp) {
+  if (!timestamp) return ''
+  // Convert ISO timestamp to readable format
+  try {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return timestamp
+  }
+}
 
 // Terminal state
 const terminalTargets = ref([])
@@ -1492,8 +1525,13 @@ onUnmounted(() => {
             </div>
           </Card>
 
-          <!-- Recent Logs -->
-          <Card :neon="true" :padding="false">
+          <!-- Recent Logs (Clickable when has errors/warnings) -->
+          <Card
+            :neon="true"
+            :padding="false"
+            :class="{ 'cursor-pointer hover:ring-2 hover:ring-rose-500/50 transition-all': hasLogsToShow() }"
+            @click="openLogsDetailModal"
+          >
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-rose-100 dark:bg-rose-500/20">
@@ -1501,7 +1539,10 @@ onUnmounted(() => {
                 </div>
                 <div class="flex-1">
                   <h3 class="font-semibold text-primary">Recent Logs</h3>
-                  <p class="text-xs text-muted">Error analysis</p>
+                  <p class="text-xs text-muted">
+                    Error analysis
+                    <span v-if="hasLogsToShow()" class="text-rose-500 ml-1">(click for details)</span>
+                  </p>
                 </div>
                 <span
                   :class="[
@@ -1528,18 +1569,20 @@ onUnmounted(() => {
                   <span class="font-medium text-amber-500">{{ healthData.checks?.logs?.details?.warning_count || 0 }}</span>
                 </div>
               </div>
-              <!-- Recent errors -->
-              <div v-if="healthData.checks?.logs?.details?.recent_errors?.length" class="mt-3 pt-3 border-t border-gray-400 dark:border-black">
-                <p class="text-xs text-muted mb-2">Recent Errors:</p>
-                <div class="space-y-1 max-h-24 overflow-y-auto">
-                  <div
-                    v-for="(err, i) in healthData.checks?.logs?.details?.recent_errors?.slice(0, 3)"
-                    :key="i"
-                    class="text-xs text-red-500 dark:text-red-400 font-mono truncate"
-                    :title="err"
+              <!-- Per-container breakdown (summary) -->
+              <div v-if="Object.keys(healthData.checks?.logs?.details?.by_container || {}).length" class="mt-3 pt-3 border-t border-gray-400 dark:border-black">
+                <p class="text-xs text-muted mb-2">By Container:</p>
+                <div class="flex flex-wrap gap-1">
+                  <span
+                    v-for="(stats, name) in healthData.checks?.logs?.details?.by_container"
+                    :key="name"
+                    :class="[
+                      'px-2 py-0.5 text-xs rounded-full',
+                      stats.error_count > 0 ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                    ]"
                   >
-                    {{ err }}
-                  </div>
+                    {{ name.replace('n8n_', '') }}: {{ stats.error_count }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -2385,6 +2428,115 @@ onUnmounted(() => {
       @confirm="confirmRestart"
       @cancel="restartDialog.open = false"
     />
+
+    <!-- Logs Detail Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="logsDetailModal"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/60" @click="logsDetailModal = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-lg bg-rose-100 dark:bg-rose-500/20">
+                  <DocumentTextIcon class="h-5 w-5 text-rose-500" />
+                </div>
+                <div>
+                  <h3 class="text-lg font-semibold text-primary">Log Analysis Details</h3>
+                  <p class="text-sm text-muted">Errors and warnings from the last hour</p>
+                </div>
+              </div>
+              <button
+                @click="logsDetailModal = false"
+                class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <XMarkIcon class="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+
+            <!-- Content -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-6">
+              <!-- Per-Container Breakdown -->
+              <div v-if="Object.keys(healthData.checks?.logs?.details?.by_container || {}).length">
+                <h4 class="text-sm font-semibold text-primary mb-3">Errors by Container</h4>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <button
+                    v-for="(stats, containerName) in healthData.checks?.logs?.details?.by_container"
+                    :key="containerName"
+                    @click="navigateToContainer(containerName)"
+                    :class="[
+                      'p-3 rounded-lg text-left transition-all hover:scale-[1.02]',
+                      stats.error_count > 0
+                        ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30'
+                        : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30'
+                    ]"
+                  >
+                    <div class="flex items-center justify-between">
+                      <span class="font-medium text-primary text-sm">{{ containerName }}</span>
+                      <LinkIcon class="h-3 w-3 text-muted" />
+                    </div>
+                    <div class="mt-1 flex items-center gap-2 text-xs">
+                      <span :class="stats.error_count > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500'">
+                        {{ stats.error_count }} errors
+                      </span>
+                      <span class="text-amber-600 dark:text-amber-400">
+                        {{ stats.warning_count }} warnings
+                      </span>
+                    </div>
+                  </button>
+                </div>
+                <p class="text-xs text-muted mt-2">Click a container to view its logs</p>
+              </div>
+
+              <!-- Recent Errors List -->
+              <div v-if="healthData.checks?.logs?.details?.recent_errors?.length">
+                <h4 class="text-sm font-semibold text-primary mb-3">Recent Errors</h4>
+                <div class="space-y-2 max-h-80 overflow-y-auto">
+                  <div
+                    v-for="(err, i) in healthData.checks?.logs?.details?.recent_errors"
+                    :key="i"
+                    class="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700"
+                  >
+                    <div class="flex items-center gap-2 mb-1">
+                      <button
+                        @click="navigateToContainer(err.container)"
+                        class="px-2 py-0.5 text-xs font-medium rounded bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400 hover:bg-rose-200 dark:hover:bg-rose-500/30 transition-colors"
+                      >
+                        {{ err.container }}
+                      </button>
+                      <span class="text-xs text-muted">{{ formatLogTimestamp(err.timestamp) }}</span>
+                    </div>
+                    <p class="text-sm text-gray-700 dark:text-gray-300 font-mono break-all">
+                      {{ err.message }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- No errors state -->
+              <div v-if="!healthData.checks?.logs?.details?.recent_errors?.length && !Object.keys(healthData.checks?.logs?.details?.by_container || {}).length" class="text-center py-8">
+                <CheckCircleIcon class="h-12 w-12 text-emerald-500 mx-auto mb-3" />
+                <p class="text-primary font-medium">No errors or warnings in the last hour</p>
+                <p class="text-sm text-muted mt-1">All containers are running smoothly</p>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+              <button
+                @click="logsDetailModal = false"
+                class="btn-secondary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 

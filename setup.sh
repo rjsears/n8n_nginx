@@ -182,6 +182,222 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Run command with sudo only if not root
+run_privileged() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+# Detect OS distribution and set package manager variables
+# Sets: DISTRO, DISTRO_FAMILY, PKG_MANAGER, PKG_UPDATE, PKG_INSTALL
+detect_os() {
+    DISTRO=""
+    DISTRO_FAMILY=""
+    PKG_MANAGER=""
+    PKG_UPDATE=""
+    PKG_INSTALL=""
+
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+        DISTRO_VERSION=$VERSION_ID
+    elif [ -f /etc/debian_version ]; then
+        DISTRO="debian"
+    elif [ -f /etc/redhat-release ]; then
+        DISTRO="rhel"
+    fi
+
+    case $DISTRO in
+        ubuntu|debian|linuxmint|pop|raspbian)
+            DISTRO_FAMILY="debian"
+            PKG_MANAGER="apt-get"
+            PKG_UPDATE="apt-get update"
+            PKG_INSTALL="apt-get install -y"
+            ;;
+        centos|rhel|rocky|almalinux|ol)
+            DISTRO_FAMILY="rhel"
+            if command_exists dnf; then
+                PKG_MANAGER="dnf"
+                PKG_UPDATE="dnf check-update || true"
+                PKG_INSTALL="dnf install -y"
+            else
+                PKG_MANAGER="yum"
+                PKG_UPDATE="yum check-update || true"
+                PKG_INSTALL="yum install -y"
+            fi
+            ;;
+        fedora)
+            DISTRO_FAMILY="fedora"
+            PKG_MANAGER="dnf"
+            PKG_UPDATE="dnf check-update || true"
+            PKG_INSTALL="dnf install -y"
+            ;;
+        opensuse*|sles)
+            DISTRO_FAMILY="suse"
+            PKG_MANAGER="zypper"
+            PKG_UPDATE="zypper refresh"
+            PKG_INSTALL="zypper install -y"
+            ;;
+        arch|manjaro)
+            DISTRO_FAMILY="arch"
+            PKG_MANAGER="pacman"
+            PKG_UPDATE="pacman -Sy"
+            PKG_INSTALL="pacman -S --noconfirm"
+            ;;
+        alpine)
+            DISTRO_FAMILY="alpine"
+            PKG_MANAGER="apk"
+            PKG_UPDATE="apk update"
+            PKG_INSTALL="apk add"
+            ;;
+        *)
+            # Fallback: try to detect package manager
+            if command_exists apt-get; then
+                DISTRO_FAMILY="debian"
+                PKG_MANAGER="apt-get"
+                PKG_UPDATE="apt-get update"
+                PKG_INSTALL="apt-get install -y"
+            elif command_exists dnf; then
+                DISTRO_FAMILY="rhel"
+                PKG_MANAGER="dnf"
+                PKG_UPDATE="dnf check-update || true"
+                PKG_INSTALL="dnf install -y"
+            elif command_exists yum; then
+                DISTRO_FAMILY="rhel"
+                PKG_MANAGER="yum"
+                PKG_UPDATE="yum check-update || true"
+                PKG_INSTALL="yum install -y"
+            else
+                print_error "Could not detect package manager"
+                return 1
+            fi
+            ;;
+    esac
+
+    return 0
+}
+
+# Update system packages based on detected OS
+update_system() {
+    print_info "Updating system packages..."
+
+    if [ -z "$PKG_MANAGER" ]; then
+        detect_os || return 1
+    fi
+
+    case $DISTRO_FAMILY in
+        debian)
+            run_privileged apt-get update -qq
+            run_privileged apt-get upgrade -y -qq
+            ;;
+        rhel)
+            if [ "$PKG_MANAGER" = "dnf" ]; then
+                run_privileged dnf update -y -q
+            else
+                run_privileged yum update -y -q
+            fi
+            ;;
+        fedora)
+            run_privileged dnf upgrade -y -q
+            ;;
+        suse)
+            run_privileged zypper refresh -q
+            run_privileged zypper update -y -q
+            ;;
+        arch)
+            run_privileged pacman -Syu --noconfirm
+            ;;
+        alpine)
+            run_privileged apk update -q
+            run_privileged apk upgrade -q
+            ;;
+        *)
+            print_warning "System update not supported for this distribution"
+            return 1
+            ;;
+    esac
+
+    print_success "System packages updated"
+    return 0
+}
+
+# Install required utilities (curl, git, openssl, jq)
+install_required_utilities() {
+    print_info "Checking and installing required utilities..."
+
+    if [ -z "$PKG_MANAGER" ]; then
+        detect_os || return 1
+    fi
+
+    local missing_utils=""
+
+    # Check which utilities are missing
+    command_exists curl || missing_utils="$missing_utils curl"
+    command_exists git || missing_utils="$missing_utils git"
+    command_exists openssl || missing_utils="$missing_utils openssl"
+    command_exists jq || missing_utils="$missing_utils jq"
+
+    if [ -z "$missing_utils" ]; then
+        print_success "All required utilities are already installed"
+        return 0
+    fi
+
+    print_info "Installing missing utilities:$missing_utils"
+
+    # Update package cache first
+    run_privileged $PKG_UPDATE
+
+    case $DISTRO_FAMILY in
+        debian)
+            run_privileged apt-get install -y -qq $missing_utils
+            ;;
+        rhel|fedora)
+            run_privileged $PKG_INSTALL $missing_utils
+            ;;
+        suse)
+            run_privileged zypper install -y $missing_utils
+            ;;
+        arch)
+            run_privileged pacman -S --noconfirm $missing_utils
+            ;;
+        alpine)
+            # Alpine uses different package names for openssl
+            local alpine_utils=""
+            for util in $missing_utils; do
+                if [ "$util" = "openssl" ]; then
+                    alpine_utils="$alpine_utils openssl"
+                else
+                    alpine_utils="$alpine_utils $util"
+                fi
+            done
+            run_privileged apk add $alpine_utils
+            ;;
+        *)
+            print_warning "Could not install utilities automatically for this distribution"
+            print_info "Please install manually: curl git openssl jq"
+            return 1
+            ;;
+    esac
+
+    # Verify installation
+    local failed=""
+    command_exists curl || failed="$failed curl"
+    command_exists git || failed="$failed git"
+    command_exists openssl || failed="$failed openssl"
+    command_exists jq || failed="$failed jq"
+
+    if [ -n "$failed" ]; then
+        print_error "Failed to install:$failed"
+        return 1
+    fi
+
+    print_success "Required utilities installed successfully"
+    return 0
+}
+
 get_local_ips() {
     hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^$' || \
     ip addr show 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d'/' -f1 || \
@@ -1188,12 +1404,12 @@ configure_nfs() {
             if grep -q "${nfs_server}:${nfs_path}" /etc/fstab 2>/dev/null; then
                 print_warning "NFS entry already exists in /etc/fstab, updating..."
                 # Remove old entry
-                sudo sed -i "\|${nfs_server}:${nfs_path}|d" /etc/fstab
+                run_privileged sed -i "\|${nfs_server}:${nfs_path}|d" /etc/fstab
             fi
 
             # Add to fstab
             print_info "Adding NFS mount to /etc/fstab..."
-            echo "${nfs_server}:${nfs_path} ${nfs_local_mount} nfs defaults,_netdev 0 0" | sudo tee -a /etc/fstab > /dev/null
+            echo "${nfs_server}:${nfs_path} ${nfs_local_mount} nfs defaults,_netdev 0 0" | run_privileged tee -a /etc/fstab > /dev/null
 
             # Mount the NFS share
             print_info "Mounting NFS share..."
@@ -1605,15 +1821,17 @@ install_docker_linux() {
     print_info "Installing Docker..."
     echo ""
 
-    # Detect distribution
-    local distro=""
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        distro=$ID
-    elif [ -f /etc/debian_version ]; then
-        distro="debian"
-    elif [ -f /etc/redhat-release ]; then
-        distro="rhel"
+    # Detect distribution (use global DISTRO if already set)
+    local distro="${DISTRO:-}"
+    if [ -z "$distro" ]; then
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            distro=$ID
+        elif [ -f /etc/debian_version ]; then
+            distro="debian"
+        elif [ -f /etc/redhat-release ]; then
+            distro="rhel"
+        fi
     fi
 
     case $distro in
@@ -1622,30 +1840,30 @@ install_docker_linux() {
             echo ""
 
             # Remove old versions
-            sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+            run_privileged apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
 
             # Install prerequisites
-            sudo apt-get update
-            sudo apt-get install -y \
+            run_privileged apt-get update
+            run_privileged apt-get install -y \
                 ca-certificates \
                 curl \
                 gnupg \
                 lsb-release
 
             # Add Docker GPG key
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/$distro/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+            run_privileged install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/$distro/gpg | run_privileged gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            run_privileged chmod a+r /etc/apt/keyrings/docker.gpg
 
             # Add Docker repository
             echo \
                 "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$distro \
                 $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                run_privileged tee /etc/apt/sources.list.d/docker.list > /dev/null
 
             # Install Docker
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            run_privileged apt-get update
+            run_privileged apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
             ;;
         centos|rhel|fedora|rocky|almalinux)
@@ -1653,16 +1871,16 @@ install_docker_linux() {
             echo ""
 
             # Remove old versions
-            sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
+            run_privileged yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
 
             # Install prerequisites
-            sudo yum install -y yum-utils
+            run_privileged yum install -y yum-utils
 
             # Add Docker repository
-            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+            run_privileged yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 
             # Install Docker
-            sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            run_privileged yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
             ;;
         *)
@@ -1673,12 +1891,12 @@ install_docker_linux() {
     esac
 
     # Start and enable Docker
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    run_privileged systemctl start docker
+    run_privileged systemctl enable docker
 
     # Add current user to docker group
     if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
-        sudo usermod -aG docker "$REAL_USER"
+        run_privileged usermod -aG docker "$REAL_USER"
         print_warning "Added $REAL_USER to docker group. You may need to log out and back in for this to take effect."
     fi
 
@@ -1690,7 +1908,7 @@ install_docker_linux() {
 
     # Run hello-world test
     print_info "Running Docker hello-world test..."
-    if sudo docker run --rm hello-world >/dev/null 2>&1; then
+    if run_privileged docker run --rm hello-world >/dev/null 2>&1; then
         print_success "Docker hello-world test passed!"
     else
         print_error "Docker hello-world test failed!"
@@ -1702,16 +1920,33 @@ install_docker_linux() {
 install_nfs_client() {
     print_info "Installing NFS client..."
 
-    # Detect distribution
-    if command_exists apt-get; then
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq nfs-common
+    # Use detected distribution or detect package manager
+    if [ -n "$DISTRO_FAMILY" ]; then
+        case $DISTRO_FAMILY in
+            debian)
+                run_privileged apt-get update -qq
+                run_privileged apt-get install -y -qq nfs-common
+                ;;
+            rhel|fedora)
+                run_privileged $PKG_INSTALL nfs-utils
+                ;;
+            alpine)
+                run_privileged apk add nfs-utils
+                ;;
+            *)
+                print_error "Cannot install NFS client for this distribution. Please install manually."
+                return 1
+                ;;
+        esac
+    elif command_exists apt-get; then
+        run_privileged apt-get update -qq
+        run_privileged apt-get install -y -qq nfs-common
     elif command_exists yum; then
-        sudo yum install -y nfs-utils
+        run_privileged yum install -y nfs-utils
     elif command_exists dnf; then
-        sudo dnf install -y nfs-utils
+        run_privileged dnf install -y nfs-utils
     elif command_exists apk; then
-        sudo apk add nfs-utils
+        run_privileged apk add nfs-utils
     else
         print_error "Cannot determine package manager. Please install NFS client manually."
         return 1
@@ -1743,8 +1978,8 @@ check_and_install_docker() {
             print_warning "Docker is installed but daemon is not running"
             if [ "$CURRENT_PLATFORM" = "linux" ]; then
                 if confirm_prompt "Would you like to start the Docker daemon?"; then
-                    sudo systemctl start docker
-                    sudo systemctl enable docker
+                    run_privileged systemctl start docker
+                    run_privileged systemctl enable docker
                     print_success "Docker daemon started and enabled"
                 else
                     print_error "Docker daemon is required. Please start it manually."
@@ -4295,6 +4530,23 @@ main() {
         if check_resume; then
             print_info "Resuming from saved state..."
         fi
+
+        # Detect OS and prepare system
+        print_section "System Preparation"
+        detect_os
+        if [ -n "$DISTRO" ]; then
+            print_success "Detected OS: $DISTRO ($DISTRO_FAMILY)"
+        else
+            print_info "Detected package manager: $PKG_MANAGER"
+        fi
+
+        # Ask user if they want to update the system
+        if confirm_prompt "Update system packages before continuing?"; then
+            update_system
+        fi
+
+        # Install required utilities
+        install_required_utilities
 
         # Docker check
         check_and_install_docker
