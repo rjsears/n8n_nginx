@@ -1,29 +1,41 @@
-### 4.1 Welcome Screen
+# Interactive Setup Guide
+
+This document provides a detailed walkthrough of the `setup.sh` interactive setup script, showing every screen, prompt, and response option in the exact order they appear.
+
+---
+
+## 1. Welcome Screen
+
+When you run `./setup.sh`, you'll see:
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                n8n HTTPS Interactive Setup v3.0.0                         ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
-  This script will guide you through setting up a production-ready
-  n8n instance with HTTPS, PostgreSQL, and optional automatic SSL
-  configuration and renewal.
+  This script will set up a production-ready n8n instance with:
+    • Automated SSL certificates via Let's Encrypt (DNS-01)
+    • PostgreSQL 16 with pgvector for AI workflows
+    • Nginx reverse proxy with security headers
+    • NEW: Management console for backups and monitoring
 
-  Features:
-    - Automated SSL certificates via Let's Encrypt
-    - DNS-01 challenge (no port 80/443 exposure needed)
-    - PostgreSQL 16 with pgvector for AI/RAG workflows
-    - Nginx reverse proxy with security headers
-    - Automatic certificate renewal every 12 hours
+  Optional services available:
+    • Cloudflare Tunnel - Secure access without exposing ports
+    • Tailscale - Private mesh VPN network access
+    • NTFY - Self-hosted push notification server
+    • Adminer - Web-based database management
+    • Dozzle - Real-time container log viewer
+    • Portainer / Portainer Agent - Container management UI
+    • Metrics Agent - Host-level system monitoring
 
   Ready to begin? [Y/n]:
 ```
 
 ---
 
-### 4.2 Running as Root
+## 2. Existing Installation Detection
 
-If you run the script as root (common for server administrators), you'll see a note:
+If an existing v3.0 installation is detected in the directory, you'll see this **instead** of the welcome screen:
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -31,173 +43,151 @@ If you run the script as root (common for server administrators), you'll see a n
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║                              NOTE                                         ║
-║  You are running this script as root. While this will work, it's          ║
-║  recommended to run as a regular user (the script uses sudo internally).  ║
+║                                                                           ║
+║                     ⚡  EXISTING SETUP DETECTED  ⚡                        ║
+║                                                                           ║
+║             Version 3.0 installation found in this directory              ║
+║            Your existing configuration and data are preserved             ║
+║                                                                           ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
-  Continue as root? [Y/n]: y
+  What would you like to do?
+
+    1) Reconfigure existing installation
+    2) Start Fresh (will backup existing config)
+    3) Exit
+
+  Enter your choice [1-3]:
 ```
 
-The script intelligently handles different execution contexts:
+### Reconfigure Menu (Option 1)
 
-| Scenario | sudo for commands | Docker group prompt |
-|----------|------------------|---------------------|
-| Running as root | Not needed | Skipped |
-| Running via `sudo ./setup.sh` | Not needed | Offered (for real user) |
-| Running as regular user | Used when needed | Offered |
-
----
-
-### 4.3 Docker Installation
-
-The script checks if Docker and Docker Compose are installed. If not, it offers to install them automatically.
-
-**When running as a regular user:**
+If you choose to reconfigure:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Docker Environment Check                                                    │
+│ Reconfigure Options                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+  Select what you want to reconfigure:
+
+    1) Domain & SSL settings
+    2) Database credentials
+    3) Optional services (Cloudflare, Tailscale, NTFY, etc.)
+    4) Access control (IP ranges)
+    5) Admin credentials
+    6) NFS backup storage
+    7) Regenerate all config files (keeps settings)
+    8) Full reconfiguration (all settings)
+    9) Rollback to previous configuration
+    0) Exit
+
+  Enter your choice [0-9]:
+```
+
+---
+
+## 3. LXC Container Warning
+
+If running inside an LXC container (e.g., Proxmox), you'll see:
+
+```
+  ╔═══════════════════════════════════════════════════════════════════════════╗
+  ║                          LXC CONTAINER DETECTED                           ║
+  ╠═══════════════════════════════════════════════════════════════════════════╣
+  ║                                                                           ║
+  ║  IMPORTANT: Docker inside LXC requires special Proxmox configuration.     ║
+  ║                                                                           ║
+  ║  On your Proxmox host, add this line to the container config:             ║
+  ║                                                                           ║
+  ║      /etc/pve/lxc/<CTID>.conf                                             ║
+  ║                                                                           ║
+  ║      lxc.apparmor.profile: unconfined                                     ║
+  ║                                                                           ║
+  ║  Then restart this container from Proxmox before continuing.              ║
+  ║                                                                           ║
+  ╚═══════════════════════════════════════════════════════════════════════════╝
+
+  Have you added this configuration and restarted the container? [Y/n]:
+```
+
+---
+
+## 4. Resume Incomplete Installation
+
+If a previous incomplete installation is detected:
+
+```
+  ⚠ Previous incomplete installation detected.
+
+  Last completed step: DNS Provider
+  Domain: n8n.example.com
+
+  Options:
+    1) Resume from where you left off
+    2) Start fresh (clears saved progress)
+
+  Enter your choice [1-2]:
+```
+
+---
+
+## 5. System Preparation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ System Preparation                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+  ✓ Detected OS: ubuntu (debian)
+
+  Update system packages before continuing? [Y/n]:
+```
+
+If you choose yes, the script updates packages and installs required utilities:
+
+```
+  ℹ Updating system packages...
+  ✓ System packages updated
+  ℹ Checking and installing required utilities...
+  ✓ All required utilities are already installed
+```
+
+---
+
+## 6. Docker Environment Check
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Docker Environment Check                                                     │
 └─────────────────────────────────────────────────────────────────────────────┘
   ✓ Docker is installed (version: 24.0.7)
   ✓ Docker daemon is running
   ✓ Docker Compose is available (version: 2.21.0)
 ```
 
-**When running as root:**
+**If Docker is not installed:**
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Docker Environment Check                                                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-  ✓ Docker is installed (version: 24.0.7)
-  ✓ Docker daemon is running
-  ✓ Docker Compose is available (version: 2.21.0)
-  ✓ Running as root - no sudo required for Docker commands
-```
+  ⚠ Docker is not installed.
 
-**If Docker is not installed (regular user):**
+  Would you like to install Docker now? [Y/n]: y
 
-```
-  ⚠ Docker is not installed
-  Would you like to install Docker? [Y/n]: y
-
-───────────────────────────────────────────────────────────────────────────────
-
-  Installing Docker and Docker Compose...
-
-  ℹ Detected ubuntu 22.04
+  ℹ Installing Docker...
+  ℹ Detected ubuntu (debian)
   ℹ Updating package index...
   ℹ Installing prerequisites...
   ℹ Adding Docker GPG key...
   ℹ Adding Docker repository...
   ℹ Installing Docker Engine and Docker Compose...
   ✓ Docker and Docker Compose installed successfully!
-  ℹ Verifying installation...
-  ✓ Docker is working correctly
-  Would you like to add your user to the docker group? (recommended) [Y/n]: y
-  ✓ User added to docker group
-  ⚠ You will need to log out and back in for this to take effect
-```
-
-**If Docker is not installed (as root):**
-
-```
-  ⚠ Docker is not installed
-  Would you like to install Docker? [Y/n]: y
-
-───────────────────────────────────────────────────────────────────────────────
-
-  Installing Docker and Docker Compose...
-
-  ℹ Detected ubuntu 22.04
-  ℹ Updating package index...
-  ℹ Installing prerequisites...
-  ℹ Adding Docker GPG key...
-  ℹ Adding Docker repository...
-  ℹ Installing Docker Engine and Docker Compose...
-  ✓ Docker and Docker Compose installed successfully!
-  ℹ Verifying installation...
-  ✓ Docker is working correctly
-  ✓ Running as root - no docker group membership needed
-```
-
-**On macOS (with Homebrew):**
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Docker Environment Check                                                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-  ⚠ Docker is not installed
-  Would you like to install Docker? [Y/n]: y
-
-───────────────────────────────────────────────────────────────────────────────
-
-  Installing Docker and Docker Compose...
-
-  ℹ Detected macOS
-  ℹ Homebrew detected
-  Install Docker Desktop using Homebrew? [Y/n]: y
-  ℹ Installing Docker Desktop via Homebrew...
-  ✓ Docker Desktop installed!
-
-  IMPORTANT: You need to start Docker Desktop manually:
-    1. Open Docker from Applications folder
-    2. Complete the Docker Desktop setup wizard
-    3. Wait for Docker to start (whale icon in menu bar)
-    4. Run this script again
-
-  Have you started Docker Desktop and it's running? [y/N]: y
-  ✓ Docker is running!
-```
-
-**On WSL2:**
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Docker Environment Check                                                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-  ⚠ Docker is not installed
-  Would you like to install Docker? [Y/n]: y
-
-───────────────────────────────────────────────────────────────────────────────
-
-  Installing Docker and Docker Compose...
-
-  ℹ Detected WSL (Windows Subsystem for Linux)
-
-  You have two options for Docker in WSL:
-
-  Option 1: Docker Desktop for Windows (recommended):
-    1. Download Docker Desktop from: https://www.docker.com/products/docker-desktop/
-    2. Install and enable 'Use WSL 2 based engine' in settings
-    3. Enable integration with your WSL distro in Settings > Resources > WSL Integration
-    4. Run this script again
-
-  Option 2: Native Docker in WSL2:
-    Install Docker directly in your WSL distro (requires WSL2)
-
-  Would you like to install Docker natively in WSL2? [y/N]: y
-  ℹ Installing Docker natively in WSL...
-  ℹ Detected ubuntu 22.04 in WSL
-  ℹ Updating package index...
-  ℹ Installing prerequisites...
-  ℹ Adding Docker GPG key...
-  ℹ Adding Docker repository...
-  ℹ Installing Docker Engine and Docker Compose...
-  ℹ Starting Docker daemon...
-  ✓ Docker and Docker Compose installed successfully!
-  ⚠ Note: You may need to start Docker manually after WSL restarts:
-    sudo service docker start
 ```
 
 ---
 
-### 4.4 System Checks
+## 7. System Requirements Check
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ System Requirements Check                                                   │
+│ System Requirements Check                                                    │
 └─────────────────────────────────────────────────────────────────────────────┘
   ✓ Disk space: 45GB available (5GB required)
   ✓ Memory: 4GB total (2GB required)
@@ -207,77 +197,129 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
   ✓ Internet connectivity OK
 ```
 
+**If checks fail:**
+
+```
+  ⚠ Port 443 is currently in use
+
+  Some checks failed. Continue anyway? [Y/n]:
+```
+
 ---
 
-### 4.5 DNS Provider Selection
+## 8. DNS Provider Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ DNS Provider Configuration                                                  │
+│ DNS Provider Configuration                                                   │
 └─────────────────────────────────────────────────────────────────────────────┘
   Let's Encrypt uses DNS validation to issue SSL certificates.
   This requires API access to your DNS provider.
 
   Select your DNS provider:
-
     1) Cloudflare
     2) AWS Route 53
     3) Google Cloud DNS
     4) DigitalOcean
     5) Other (manual configuration)
 
-  Enter your choice [1-5]: 1
+  Enter your choice [1-5]:
+```
 
+### Cloudflare (Option 1)
+
+```
 ───────────────────────────────────────────────────────────────────────────────
 
   Cloudflare API Configuration
 
-  You need a Cloudflare API token with the following permissions:
-    - Zone:DNS:Edit (for your domain's zone)
-
+  You need a Cloudflare API token with Zone:DNS:Edit permission.
   Create one at: https://dash.cloudflare.com/profile/api-tokens
 
-  Enter your Cloudflare API token [hidden]:
-  ✓ Cloudflare credentials saved to cloudflare.ini
+  Enter your Cloudflare API token: [first 10 chars visible, rest masked]
+  ✓ Cloudflare credentials saved
+```
+
+### AWS Route 53 (Option 2)
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  AWS Route 53 Configuration
+
+  Enter your AWS Access Key ID: [masked]
+  Enter your AWS Secret Access Key: [masked]
+  ✓ AWS credentials saved
+```
+
+### Google Cloud DNS (Option 3)
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  Google Cloud DNS Configuration
+
+  Enter the path to your service account JSON file: /path/to/credentials.json
+  ✓ Google credentials saved
+```
+
+### DigitalOcean (Option 4)
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  DigitalOcean DNS Configuration
+
+  Enter your DigitalOcean API token: [masked]
+  ✓ DigitalOcean credentials saved
+```
+
+### Other/Manual (Option 5)
+
+```
+  ⚠ Manual DNS configuration selected
+  You will need to configure certbot manually.
 ```
 
 ---
 
-### 4.6 Domain Configuration
-
-The script validates your domain and checks if it resolves to your server:
+## 9. Domain Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Domain Configuration                                                        │
+│ Domain Configuration                                                         │
 └─────────────────────────────────────────────────────────────────────────────┘
-  Enter the fully qualified domain name where n8n will be accessible.
+  Enter the domain name where n8n will be accessible.
   Example: n8n.yourdomain.com
 
   Enter your n8n domain [n8n.example.com]: n8n.mycompany.com
+```
 
+### Domain Validation
+
+```
 ───────────────────────────────────────────────────────────────────────────────
 
   Validating domain configuration...
 
+  This server's IP addresses:
+    192.168.1.50
+    10.0.0.5
+
   ℹ Resolving n8n.mycompany.com...
-  ✓ Domain resolves to: 192.168.113.50
+  ✓ Domain resolves to: 192.168.1.50
   ✓ Domain IP matches this server
-  ℹ Testing connectivity to 192.168.113.50...
-  ✓ Host 192.168.113.50 is reachable
+  ℹ Testing connectivity to 192.168.1.50...
+  ✓ Host 192.168.1.50 is reachable
 ```
 
-**If domain doesn't match server IP:**
+**If domain doesn't match:**
 
 ```
-  ⚠ Domain IP (198.51.100.25) does not match any local IP
-
-  Local IP addresses on this machine:
-    - 192.168.113.50
-    - 10.0.0.5
+  ⚠ Domain IP (203.0.113.25) does not match any local IP
 
   IMPORTANT:
-  The domain n8n.mycompany.com points to 198.51.100.25
+  The domain n8n.mycompany.com points to 203.0.113.25
   but this server's IPs are different.
 
   This will cause the n8n stack to fail because:
@@ -291,333 +333,577 @@ The script validates your domain and checks if it resolves to your server:
   ║  Please ensure your DNS is properly configured before continuing.         ║
   ╚═══════════════════════════════════════════════════════════════════════════╝
 
-  Do you understand the risks and want to continue? [y/N]:
+  Options:
+    1) Re-enter domain name (if misspelled)
+    2) Continue anyway (I understand the risks)
+    3) Exit setup
+
+  Enter your choice [1-3]:
 ```
 
 ---
 
-#### Understanding DNS Configuration: Cloudflare Tunnel vs Port Forwarding
-
-How your domain should be configured depends on how external traffic reaches your n8n server:
-
-**Option 1: Cloudflare Tunnel**
-
-If you're using Cloudflare Tunnel, your domain MUST resolve to the **INTERNAL IP address** of your server (an RFC1918 private IP like `192.168.x.x`, `10.x.x.x`, or `172.16-31.x.x`).
+## 10. Database Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  CLOUDFLARE TUNNEL - DNS Configuration                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│ n8n.yourdomain.com ──► Local host Record/Internal DNS Sever: 192.168.113.50 │
-│                        (Your server's INTERNAL IP)                          │
-│                                                                             │
-│   Why Internal IP?                                                          │
-│   The cloudflared daemon performs a LOCAL host lookup for your domain       │
-│   and uses that IP (192.168.113.50) as the routing endpoint.                │
-│                                                                             │
-│   Example: host n8n.mycompany.com → 192.168.113.50                          │
-│                                                                             │
+│ PostgreSQL Database Configuration                                            │
 └─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Setup Script Behavior for Cloudflare Tunnel:**
-- Validates that your domain resolves to your server's **INTERNAL IP**
-- The cloudflared daemon performs a local host lookup for your domain
-- This internal IP is used as the tunnel's routing endpoint
-- Prompts for your Cloudflare Tunnel token
-- Configures the cloudflared container automatically
-
-**Option 2: Port Forwarding (No Cloudflare Tunnel)**
-
-If you're NOT using Cloudflare Tunnel and are instead using traditional port forwarding through your router/firewall, your domain should resolve to your **EXTERNAL (public) IP address**.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  PORT FORWARDING - DNS Configuration                                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   n8n.yourdomain.com ──────► A Record: 203.0.113.1                          │
-│                              (Your firewall's EXTERNAL/PUBLIC IP)           │
-│                                                                             │
-│   Your firewall/router must forward port 443 to your server:                │
-│   External:443 ──────► Internal Server: 192.168.113.50:443                  │
-│                                                                             │
-│   Example: n8n.mycompany.com → A → 203.0.113.1 (public IP)                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Setup Script Behavior for Port Forwarding:**
-- **Skips IP validation** (no automatic check)
-- Performs an nslookup on your domain and displays the resolved IP
-- Informs you that this IP should be the **EXTERNAL IP** on your firewall
-- Tells you to forward port 443 to your server's internal IP (where n8n is installed)
-- Example: If your server's internal IP is 192.168.50.50, port 443 on your firewall should forward to 192.168.50.50:443
-
-**Important Notes:**
-- **SSL certificates are required for both methods** - n8n requires HTTPS for webhooks and CORS compliance
-- Both methods use DNS-01 challenge for Let's Encrypt (no port 80 exposure needed)
-
----
-
-### 4.7 Database Configuration
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PostgreSQL Database Configuration                                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-  Configure your PostgreSQL database settings.
-  These credentials will be used by n8n to store data.
-
   Database name [n8n]:
   Database username [n8n]:
 
-  Enter a strong password for the database.
-  Leave blank to auto-generate a secure password.
-
-  Database password [hidden]:
+  Enter a password or leave blank to auto-generate.
+  Database password []:
   ✓ Generated secure database password
-  ✓ pgvector extension automatically created
 ```
 
 ---
 
-### 4.8 Container Names
+## 11. Container Names Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Container Names Configuration                                               │
+│ Container Names Configuration                                                │
 └─────────────────────────────────────────────────────────────────────────────┘
-  The following default container names will be used:
+  ✓ Using default container names
+```
 
-    PostgreSQL:  n8n_postgres
-    n8n:         n8n
-    Nginx:       n8n_nginx
-    Certbot:     n8n_certbot
+The default container names are:
+- PostgreSQL: `n8n_postgres`
+- n8n: `n8n`
+- Nginx: `n8n_nginx`
+- Certbot: `n8n_certbot`
 
-  Would you like to customize these names? [y/N]: n
-  ✓ Container names configured
+---
+
+## 12. Email Configuration
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Let's Encrypt Email Configuration                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Let's Encrypt requires a valid email for certificate expiration notices.
+
+  Email address for Let's Encrypt: admin@mycompany.com
+  Confirm email address: admin@mycompany.com
+  ✓ Email set to: admin@mycompany.com
+```
+
+**If email looks like a placeholder:**
+
+```
+  ⚠ This looks like a placeholder email address.
+  Are you sure you want to use 'test@example.com'? [y/N]:
 ```
 
 ---
 
-### 4.9 Email & Timezone
+## 13. Timezone Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Let's Encrypt Email Configuration                                           │
+│ Timezone Configuration                                                       │
 └─────────────────────────────────────────────────────────────────────────────┘
-  Let's Encrypt requires an email address for:
-    - Certificate expiration notifications
-    - Account recovery
+  System timezone detected: America/New_York
 
-  Email address for Let's Encrypt [admin@mycompany.com]:
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Timezone Configuration                                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-  Detected system timezone: America/New_York
-
-  Use America/New_York as the timezone for n8n? [Y/n]:
+  Use America/Los_Angeles as the timezone? [Y/n]: n
+  Timezone [America/New_York]: America/New_York
   ✓ Timezone set to: America/New_York
 ```
 
 ---
 
-### 4.10 Encryption Key
+## 14. Encryption Key Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Encryption Key Configuration                                                │
+│ Encryption Key Configuration                                                 │
 └─────────────────────────────────────────────────────────────────────────────┘
-  n8n uses an encryption key to secure credentials stored in the database.
-  This key should be kept secret and backed up securely.
-
-  ✓ Generated secure encryption key using OpenSSL
-
+  ✓ Generated secure encryption key
   ⚠ IMPORTANT: Save your encryption key in a secure location!
-  If you lose this key, you will not be able to decrypt stored credentials.
 ```
 
 ---
 
-### 4.11 Portainer Agent (Optional)
+## 15. Management Interface Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Portainer Agent Configuration                                               │
+│ Management Interface Configuration                                           │
 └─────────────────────────────────────────────────────────────────────────────┘
-  Portainer is a popular container management UI.
-  If you're running Portainer on another server, you can install
-  the Portainer Agent here to manage this n8n stack remotely.
+  The management console provides a web interface for:
+    • Backup scheduling and management
+    • Container monitoring and control
+    • Notification configuration
+    • System health monitoring
 
-  Are you using Portainer to manage your containers? [y/N]: y
-  ✓ Portainer Agent will be included in docker-compose.yaml
-
-  The agent will be accessible on port 9001.
-  Add this server to Portainer using: <this-server-ip>:9001
+  ✓ Management interface will be available at https://${DOMAIN}/management/
 ```
 
 ---
 
-### 4.12 Configuration Summary
+## 16. NFS Backup Storage Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Configuration Summary                                                       │
+│ NFS Backup Storage Configuration                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  NFS storage allows centralized backup storage on a remote server.
+  The NFS share will be mounted on this host and bind-mounted into Docker.
+  If you skip this, backups will be stored locally in the container.
+
+  Configure NFS for backup storage? [y/N]:
+```
+
+**If you choose to configure NFS:**
+
+```
+  NFS server address (e.g., 192.168.1.100 or nfs.example.com): 192.168.1.100
+  ℹ Testing connection to 192.168.1.100...
+  ✓ NFS server is reachable
+
+  ℹ Checking for accessible NFS exports...
+  This server's IP addresses:
+    192.168.1.50
+
+  ✓ Found 2 accessible exports
+
+  Select NFS export:
+
+    1) /exports/backups
+    2) /exports/data
+    3) [Enter path manually]
+
+  Enter your choice [1-3]:
+
+  Local mount point [/opt/n8n_backups]:
+  ℹ Testing NFS mount: 192.168.1.100:/exports/backups...
+  ✓ NFS mount test successful
+  ℹ Creating local mount point: /opt/n8n_backups
+  ℹ Adding NFS mount to /etc/fstab...
+  ℹ Mounting NFS share...
+  ✓ NFS share mounted at /opt/n8n_backups
+  ✓ NFS share is writable
+```
+
+---
+
+## 17. Notification System
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Notification System                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Notifications are configured via the Management Console after setup.
+
+  Supported notification services (via Apprise):
+    • Email (SMTP, Gmail, SES)
+    • Slack, Discord, Microsoft Teams
+    • Telegram, Pushover, Pushbullet
+    • Twilio SMS, NTFY
+    • And 80+ more services
+
+  Configure at: https://${DOMAIN}/management/ → Settings → Notifications
+
+  ✓ Notifications will be configured in the Management Console
+```
+
+---
+
+## 18. Management Admin User
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Management Admin User                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Create the admin user for the management interface.
+
+  Admin username [admin]:
+  Admin password: ********
+  Confirm password: ********
+  Admin email (optional, for notifications): admin@mycompany.com
+  ✓ Admin user configured
+```
+
+**Password requirements:**
+- Minimum 8 characters
+- Passwords must match
+
+---
+
+## 19. Optional Services Configuration
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Optional Services Configuration                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  The following optional services can be added to your installation:
+
+  Container Management:
+    • Portainer - Docker container management UI
+
+  External Access:
+    • Cloudflare Tunnel - Secure access without exposing ports
+    • Tailscale - Private mesh VPN network access
+
+  Development Tools:
+    • Adminer - Web-based database management
+    • Dozzle - Real-time container log viewer
+
+  Monitoring:
+    • Metrics Agent - Host-level system monitoring (CPU, memory, disk)
+
+  Notifications:
+    • NTFY - Self-hosted push notifications server
+
+  Would you like to configure optional services? [y/N]:
+```
+
+**If you choose to configure optional services:**
+
+```
+  Install Portainer for container management? [y/N]:
+  Configure Cloudflare Tunnel for secure external access? [y/N]:
+  Configure Tailscale for private VPN access? [y/N]:
+  Install Adminer for database management? [y/N]:
+  Install Dozzle for container log viewing? [y/N]:
+  Install NTFY for push notifications? [y/N]:
+```
+
+### Portainer Configuration
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  Portainer Configuration
+
+  Portainer provides a web UI for managing Docker containers.
+
+  Portainer Options:
+    1) Agent only - Connect to existing Portainer server (installs agent on port 9001)
+    2) Full Portainer - Install Portainer server
+
+  Enter your choice [1-2]:
+```
+
+### Cloudflare Tunnel Configuration
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  Cloudflare Tunnel Configuration
+
+  Cloudflare Tunnel provides secure access to your n8n instance
+  without exposing any ports to the public internet.
+
+  Requirements:
+    • Cloudflare account with your domain
+    • Cloudflare Tunnel token from Zero Trust dashboard
+
+  Create a tunnel at: https://one.dash.cloudflare.com
+  Navigate to: Networks → Tunnels → Create a tunnel
+
+  Enter your Cloudflare Tunnel token: [masked]
+  ✓ Cloudflare Tunnel configured
+```
+
+### Tailscale Configuration
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  Tailscale Configuration
+
+  Tailscale provides private access to your n8n instance
+  over a secure mesh VPN network.
+
+  Requirements:
+    • Tailscale account
+    • Auth key from: https://login.tailscale.com/admin/settings/keys
+
+  Enter your Tailscale auth key: [masked]
+  ✓ Auth key accepted
+
+  Tailscale hostname [n8n-server]:
+  ✓ Tailscale configured
+
+  ℹ Your n8n instance will be accessible at: n8n-server.your-tailnet.ts.net
+```
+
+### Adminer Configuration
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  Adminer Configuration
+
+  Adminer provides a web-based interface for database management.
+
+  ✓ Adminer will be available at https://${DOMAIN}/adminer/
+```
+
+### Dozzle Configuration
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  Dozzle Configuration
+
+  Dozzle provides real-time container log viewing in your browser.
+
+  ✓ Dozzle will be available at https://${DOMAIN}/dozzle/
+  ℹ  Login credentials will be the same as the Management Console
+```
+
+### NTFY Configuration
+
+```
+───────────────────────────────────────────────────────────────────────────────
+
+  NTFY Push Notifications Configuration
+
+  NTFY is a simple HTTP-based pub-sub notification service.
+  It allows you to send push notifications to your phone or desktop.
+
+  Important: NTFY requires its own subdomain (e.g., ntfy.example.com).
+  It cannot run on a subpath like /ntfy/ due to how NTFY handles requests.
+
+  You can choose to:
+    1. Install a self-hosted NTFY server (recommended)
+    2. Use the public ntfy.sh server
+    3. Connect to your own existing NTFY server
+
+  Choose option [1/2/3, default: 1]:
+```
+
+**For self-hosted NTFY (Option 1):**
+
+```
+  Enter the subdomain for your NTFY server.
+  This will be the public URL for accessing NTFY.
+  NTFY subdomain [default: ntfy.n8n.mycompany.com]:
+
+  ✓ Self-hosted NTFY server will be installed
+
+  ℹ  NTFY Configuration:
+      Public URL:   https://ntfy.n8n.mycompany.com
+      Internal URL: http://n8n_ntfy:80 (for management console)
+
+  ⚠  Required: Configure Cloudflare Tunnel
+      Add a public hostname in Cloudflare Zero Trust:
+        - Public hostname: ntfy.n8n.mycompany.com
+        - Service type:    HTTP
+        - Service URL:     n8n_ntfy:80
+```
+
+---
+
+## 20. Configuration Summary
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Configuration Summary                                                        │
 └─────────────────────────────────────────────────────────────────────────────┘
 
   Domain & URL:
     Domain:              n8n.mycompany.com
-    URL:                 https://n8n.mycompany.com
-
-  DNS Provider:
-    Provider:            cloudflare
-    Credentials file:    cloudflare.ini
+    n8n URL:             https://n8n.mycompany.com
+    Management URL:      https://n8n.mycompany.com/management/
 
   Database:
     Name:                n8n
     User:                n8n
-    Password:            [configured]
+    Password:            [generated password shown]
 
-  Container Names:
-    PostgreSQL:          n8n_postgres
-    n8n:                 n8n
-    Nginx:               n8n_nginx
-    Certbot:             n8n_certbot
+  Management Console:
+    URL:                 /management/
+    Admin User:          admin
+    NFS Storage:         true
+    Notifications:       false
 
   Other Settings:
-    Email:               admin@mycompany.com
     Timezone:            America/New_York
-    Encryption key:      [configured]
-    Portainer Agent:     enabled
+    DNS Provider:        cloudflare
 
-───────────────────────────────────────────────────────────────────────────────
+  Optional Services:
+    Portainer:           enabled (/portainer/)
+    Cloudflare Tunnel:   enabled
+    Tailscale:           enabled (n8n-server)
+    Adminer:             enabled (/adminer/)
+    Dozzle:              enabled (/dozzle/)
+    NTFY:                enabled (https://ntfy.n8n.mycompany.com)
 
   Is this configuration correct? [Y/n]:
 ```
 
 ---
 
-### 4.13 Deployment & Testing
+## 21. Deployment
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Generating Configuration Files                                              │
+│ Deploying n8n Stack v3.0                                                     │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-  [1/4] Generating docker-compose.yaml
+  [1/4] Starting PostgreSQL database
 
-  ✓ docker-compose.yaml generated
+  Waiting for PostgreSQL...
+  ✓ PostgreSQL is running
 
-  [2/4] Generating nginx.conf
+  [2/4] Obtaining SSL certificate
 
-  ✓ nginx.conf generated
+  ℹ Checking for existing SSL certificate...
+  ℹ Requesting certificate for n8n.mycompany.com...
+  ✓ SSL certificate obtained successfully
 
-  [3/4] Saving configuration backup
+  [3/4] Starting all services
 
-  ✓ Configuration saved to /home/user/n8n_nginx/.n8n_setup_config
-
-  [4/4] Creating Let's Encrypt Docker volume
-
-  ✓ Volume 'letsencrypt' created
-
-  ✓ All configuration files generated successfully!
-
-  Would you like to deploy the stack now? [Y/n]: y
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Deploying n8n Stack                                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-  [1/6] Starting PostgreSQL database
-
-  Waiting for PostgreSQL to be ready...
-  ✓ PostgreSQL is running and healthy
-
-  [2/6] Obtaining SSL certificate from Let's Encrypt
-
-  Domain: n8n.mycompany.com
-  This uses DNS-01 challenge (no ports 80/443 exposure required)
-
-  Saving debug log to /var/log/letsencrypt/letsencrypt.log
-  Requesting a certificate for n8n.mycompany.com
-  Waiting 60 seconds for DNS propagation
-
-  Successfully received certificate.
-  Certificate is saved at: /etc/letsencrypt/live/n8n.mycompany.com/fullchain.pem
-  Key is saved at:         /etc/letsencrypt/live/n8n.mycompany.com/privkey.pem
-
-  ✓ SSL certificate obtained successfully!
-
-  [3/6] Copying certificates to Docker volume
-
-  ✓ Certificates copied to Docker volume
-
-  [4/6] Starting all services
-
-  Waiting for services to start...
   ✓ All services started
 
-  [5/6] Verifying services
+  [4/4] Verifying services
 
-  Checking PostgreSQL...
   ✓ PostgreSQL is responding
-  ✓ PostgreSQL authentication successful
-  Checking n8n...
   ✓ n8n is responding
-  Checking Nginx...
-  ✓ Nginx configuration is valid
+  ✓ Management API is responding
 
-  Container Status:
-  NAMES          STATUS                   PORTS
-  n8n_postgres   Up 2 minutes (healthy)
-  n8n            Up About a minute
-  n8n_nginx      Up About a minute        0.0.0.0:443->443/tcp
-  n8n_certbot    Up About a minute
+  ℹ Creating backup of working configuration...
+  ✓ Backup complete!
+```
 
-  [6/6] Testing SSL certificate and connectivity
+---
 
-  Testing HTTPS connectivity to https://n8n.mycompany.com...
-  ✓ SSL certificate is valid
-  notBefore=Nov 29 00:00:00 2025 GMT
-  notAfter=Feb 27 23:59:59 2026 GMT
-  ✓ n8n is accessible via HTTPS
+## 22. Final Summary
 
-  ✓ All connectivity tests passed!
-
+```
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                           Setup Complete!                                 ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
-  Your n8n instance is now running!
+  Your n8n v3.0 instance is now running!
 
-  Access your n8n instance:
-    https://n8n.mycompany.com
+  Access URLs:
+    n8n:                 https://n8n.mycompany.com
+    Management Console:  https://n8n.mycompany.com/management/
+    Portainer:           https://n8n.mycompany.com/portainer/
+    Adminer (DB):        https://n8n.mycompany.com/adminer/
+    Dozzle (Logs):       https://n8n.mycompany.com/dozzle/
+    NTFY (Push):         https://ntfy.n8n.mycompany.com
+                         (Configure in Cloudflare Tunnel)
+
+  Management Login:
+    Username:            admin
+    Password:            [as configured]
+
+  Database Credentials (for Adminer):
+    Server:              postgres
+    Username:            n8n
+    Password:            [generated password]
+    Database:            n8n
+
+  Network Access:
+    Cloudflare Tunnel:   Active
+    Tailscale:           Active (n8n-server)
 
   Useful Commands:
     View logs:         docker compose logs -f
-    View n8n logs:     docker compose logs -f n8n
     Stop services:     docker compose down
     Start services:    docker compose up -d
-    Restart services:  docker compose restart
-    View status:       docker compose ps
+    Health check:      ./scripts/health_check.sh
 
-  Important Files:
-    Docker Compose:    /home/user/n8n_nginx/docker-compose.yaml
-    Nginx Config:      /home/user/n8n_nginx/nginx.conf
-    DNS Credentials:   /home/user/n8n_nginx/cloudflare.ini
-    Setup Config:      /home/user/n8n_nginx/.n8n_setup_config
+  New in v3.0:
+    • Backup scheduling and management
+    • Container monitoring and control
+    • Multi-channel notifications
+    • System health monitoring
 
-  Security Reminders:
-    - Create your n8n owner account immediately
-    - Back up your encryption key securely
-    - Keep your DNS credentials file secure (chmod 600)
-    - SSL certificates auto-renew every 12 hours
+  ───────────────────────────────────────────────────────────────────────────────
 
-───────────────────────────────────────────────────────────────────────────────
+  Thank you for using n8n Setup Script v3.0.0
+```
 
-  Thank you for using n8n Management Setup Script v3.0.0
-  Created by Richard J. Sears - richardjsears@gmail.com
+---
+
+## Upgrade Flow (v2.0 to v3.0)
+
+If a v2.0 installation is detected:
+
+```
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                     UPGRADE AVAILABLE: v2.0 → v3.0                        ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+  This upgrade will add:
+    • Management console for backups and monitoring
+    • Web-based administration interface
+    • Automated backup scheduling
+    • Multi-channel notifications
+
+  Your existing data will be preserved.
+
+  Upgrade from v2.0 to v3.0? [Y/n]:
+```
+
+The migration process then runs through several phases:
+1. Pre-Migration Backup
+2. Stopping Services
+3. Database Preparation
+4. Generating New Configuration
+5. Deploying Updated Stack
+6. Verification
+
+---
+
+## Access Control Configuration
+
+If Cloudflare Tunnel is enabled, access control is configured:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Access Control Configuration                                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Since you're using Cloudflare Tunnel, your n8n instance will be
+  accessible from the public internet. Access control helps protect
+  sensitive endpoints from unauthorized access.
+
+  How Access Control Works:
+    - Public Access (via Cloudflare Tunnel):
+      Only these endpoints are accessible:
+        - /webhook/ - n8n workflow webhooks
+        - /ntfy/ - Push notification service
+
+    - Internal Access (Tailscale, VPN, Local Network):
+      Full access to all endpoints including:
+        - / - n8n main interface
+        - /management/ - Management console
+        - /adminer/ - Database admin (if installed)
+        - /dozzle/ - Log viewer (if installed)
+
+  [OK] Tailscale detected - Tailscale IPs (100.64.0.0/10) will have full access
+
+  Default Internal IP Ranges:
+    100.64.0.0/10  - Tailscale CGNAT range
+    172.16.0.0/12  - Docker/Internal networks
+    10.0.0.0/8     - Private network (Class A)
+    192.168.0.0/16 - Private network (Class C)
+
+  Would you like to add additional IP ranges? [y/N]:
+```
+
+---
+
+## Command Line Options
+
+The setup script also accepts command line arguments:
+
+```bash
+./setup.sh --help           # Show help
+./setup.sh --version        # Show version
+./setup.sh --rollback       # Rollback to previous configuration
+./setup.sh --update-access  # Update access control settings only
 ```
