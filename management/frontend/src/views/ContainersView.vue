@@ -64,11 +64,26 @@ const hasContainerEventTargets = ref(false)  // Track if any container events ha
 
 // Critical containers that require danger zone warning when stopping
 const criticalContainers = {
-  'n8n_management': 'This action will cause the loss of all management!',
-  'n8n_cloudflared': 'This action may cause the loss of connectivity to your N8N instance from outside your network!',
-  'n8n_nginx': 'This action may cause the loss of connectivity to your N8N instance!',
-  'n8n_postgres': 'This action may cause workflows that require database access to fail!',
-  'n8n_tailscale': 'This action may cause the loss of connectivity to your N8N host server!',
+  'n8n_management': {
+    title: 'This action will cause the loss of all management!',
+    description: 'If you stop this container, you will lose access to this management interface. You can start it again from the command line by running: sudo docker start n8n_management from the docker host command line.'
+  },
+  'n8n_cloudflared': {
+    title: 'This action may cause the loss of connectivity to your N8N instance from outside your network!',
+    description: 'If you stop this container, you will lose access to N8N from outside your network. It will still be accessible from within your network at its local IP address.'
+  },
+  'n8n_nginx': {
+    title: 'This action may cause the loss of connectivity to your N8N instance!',
+    description: 'If you stop this container, you may lose access to your N8N instance.'
+  },
+  'n8n_postgres': {
+    title: 'This action may cause workflows that require database access to fail!',
+    description: 'If you stop this container, some workflows may fail if they require database access.'
+  },
+  'n8n_tailscale': {
+    title: 'This action may cause the loss of connectivity to your N8N host server!',
+    description: 'If you stop this container, you may lose access to your N8N docker host if you are using Tailscale exclusively for connectivity. N8N will still be accessible via CloudFlare or from within your network.'
+  },
 }
 
 // Danger zone stop dialog for critical containers
@@ -79,7 +94,7 @@ function isCriticalContainer(containerName) {
 }
 
 function getCriticalWarning(containerName) {
-  return criticalContainers[containerName] || ''
+  return criticalContainers[containerName] || { title: '', description: '' }
 }
 
 // Stopped containers popup
@@ -738,34 +753,36 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- Health Badge / Recreate / Remove Buttons -->
-              <div class="flex items-center gap-2">
-                <span
-                  v-if="container.health && container.health !== 'none'"
-                  :class="['px-2 py-1 text-xs font-medium rounded-full flex items-center gap-1', getHealthBadgeClass(container.health)]"
-                >
-                  <HeartIcon class="h-3 w-3" />
-                  {{ container.health }}
-                </span>
-                <!-- Recreate Button (only for project containers) -->
+              <!-- Health Badge / Remove Button -->
+              <div class="flex flex-col items-end gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    v-if="container.health && container.health !== 'none'"
+                    :class="['px-2 py-1 text-xs font-medium rounded-full flex items-center gap-1', getHealthBadgeClass(container.health)]"
+                  >
+                    <HeartIcon class="h-3 w-3" />
+                    {{ container.health }}
+                  </span>
+                  <!-- Remove Button for stopped containers -->
+                  <button
+                    v-if="container.status !== 'running'"
+                    @click="promptRemoveContainer(container)"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30 transition-colors flex items-center gap-1.5"
+                    title="Remove this container"
+                  >
+                    <TrashIcon class="h-4 w-4" />
+                    Remove
+                  </button>
+                </div>
+                <!-- Recreate Button (only for project containers) - below health badge -->
                 <button
                   v-if="container.is_project"
                   @click="promptRecreateContainer(container)"
-                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/30 transition-colors flex items-center gap-1.5"
+                  class="btn-secondary flex items-center justify-center gap-2 text-sm py-2 px-4 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30"
                   title="Recreate this container"
                 >
                   <ArrowPathRoundedSquareIcon class="h-4 w-4" />
                   Recreate
-                </button>
-                <!-- Remove Button for stopped containers -->
-                <button
-                  v-if="container.status !== 'running'"
-                  @click="promptRemoveContainer(container)"
-                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30 transition-colors flex items-center gap-1.5"
-                  title="Remove this container"
-                >
-                  <TrashIcon class="h-4 w-4" />
-                  Remove
                 </button>
               </div>
             </div>
@@ -1261,16 +1278,19 @@ onUnmounted(() => {
             <!-- Content -->
             <div class="px-6 py-5 bg-white dark:bg-gray-800">
               <p class="text-gray-700 dark:text-gray-300 text-center">
-                You are about to stop
+                You are about to shutdown
                 <span class="font-bold text-gray-900 dark:text-white">{{ dangerStopDialog.container?.name }}</span>
               </p>
               <div class="mt-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <p class="text-red-700 dark:text-red-400 text-center font-medium">
-                  {{ getCriticalWarning(dangerStopDialog.container?.name) }}
+                <p class="text-red-700 dark:text-red-400 text-center font-bold mb-2">
+                  {{ getCriticalWarning(dangerStopDialog.container?.name).title }}
+                </p>
+                <p class="text-red-600 dark:text-red-300 text-center text-sm">
+                  {{ getCriticalWarning(dangerStopDialog.container?.name).description }}
                 </p>
               </div>
-              <p class="text-sm text-gray-500 dark:text-gray-400 text-center mt-4">
-                Are you sure you want to proceed?
+              <p class="text-sm text-gray-500 dark:text-gray-400 text-center mt-4 font-medium">
+                Continue with Shutdown?
               </p>
             </div>
 
@@ -1290,7 +1310,7 @@ onUnmounted(() => {
               >
                 <LoadingSpinner v-if="dangerStopDialog.loading" size="sm" />
                 <StopIcon v-else class="h-4 w-4" />
-                {{ dangerStopDialog.loading ? 'Stopping...' : 'Stop Container' }}
+                {{ dangerStopDialog.loading ? 'Shutting down...' : 'SHUTDOWN' }}
               </button>
             </div>
           </div>

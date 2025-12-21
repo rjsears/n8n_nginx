@@ -39,6 +39,9 @@ import {
   CubeIcon,
   DocumentIcon,
   ExclamationTriangleIcon,
+  EyeIcon,
+  HashtagIcon,
+  ClipboardDocumentListIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -100,6 +103,11 @@ const protectingBackup = ref(null)
 const creatingBareMetal = ref(null)
 const restoringWorkflow = ref(null)
 const restoringConfig = ref(null)
+
+// Backup contents viewer
+const backupContents = ref({})  // backupId -> contents data
+const loadingContents = ref(new Set())
+const contentsActiveTab = ref({})  // backupId -> 'workflows' | 'credentials' | 'config'
 
 // Mount state
 const mountedBackup = ref(null)  // { backup_id, backup_info, workflows }
@@ -226,6 +234,10 @@ function toggleAction(backupId, action) {
     expandedAction.value[backupId] = action
     // Note: For 'restore' action, we no longer auto-load workflows/config
     // User must click "Mount Backup" first to load the data
+    // For 'contents' action, load the backup contents metadata
+    if (action === 'contents') {
+      loadBackupContents(backupId)
+    }
   }
 }
 
@@ -355,6 +367,38 @@ async function loadConfigFilesForBackup(backupId) {
   } finally {
     loadingConfigFiles.value.delete(backupId)
   }
+}
+
+// Load backup contents metadata (for viewing without mounting)
+async function loadBackupContents(backupId) {
+  if (backupContents.value[backupId]) return // Already loaded
+
+  loadingContents.value.add(backupId)
+  try {
+    const response = await api.get(`/backups/contents/${backupId}`)
+    backupContents.value[backupId] = response.data
+    // Set default tab
+    if (!contentsActiveTab.value[backupId]) {
+      contentsActiveTab.value[backupId] = 'workflows'
+    }
+  } catch (error) {
+    console.error('Failed to load backup contents:', error)
+    notificationStore.error('Failed to load backup contents. This backup may not have metadata stored.')
+    backupContents.value[backupId] = null
+  } finally {
+    loadingContents.value.delete(backupId)
+  }
+}
+
+// Set active tab for backup contents viewer
+function setContentsTab(backupId, tab) {
+  contentsActiveTab.value[backupId] = tab
+}
+
+// Format date for display
+function formatDate(dateStr) {
+  if (!dateStr) return 'N/A'
+  return new Date(dateStr).toLocaleString()
 }
 
 function promptBackupNow() {
@@ -1149,6 +1193,21 @@ onUnmounted(stopPolling)
                     <span class="font-medium">{{ backup.is_protected ? 'Unprotect' : 'Protect' }}</span>
                   </button>
 
+                  <!-- View Backup Contents Button -->
+                  <button
+                    v-if="backup.status === 'success'"
+                    @click="toggleAction(backup.id, 'contents')"
+                    :class="[
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all',
+                      expandedAction[backup.id] === 'contents'
+                        ? 'bg-cyan-100 dark:bg-cyan-500/20 border-cyan-400 dark:border-cyan-500 text-cyan-700 dark:text-cyan-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-cyan-300 dark:hover:border-cyan-500 hover:bg-cyan-50 dark:hover:bg-cyan-500/10'
+                    ]"
+                  >
+                    <EyeIcon class="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                    <span class="font-medium">View Backup Contents</span>
+                  </button>
+
                   <!-- Selective Restore Button -->
                   <button
                     v-if="backup.status === 'success'"
@@ -1270,6 +1329,218 @@ onUnmounted(stopPolling)
                         <ShieldCheckIcon v-else class="h-4 w-4" />
                         {{ protectingBackup === backup.id ? 'Processing...' : (backup.is_protected ? 'Remove Protection' : 'Protect This Backup') }}
                       </button>
+                    </div>
+                  </div>
+
+                  <!-- View Backup Contents Panel -->
+                  <div v-if="expandedAction[backup.id] === 'contents'" class="p-4">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-cyan-200 dark:border-cyan-700 overflow-hidden">
+                      <!-- Header with Summary -->
+                      <div class="p-4 bg-cyan-50 dark:bg-cyan-900/20 border-b border-cyan-200 dark:border-cyan-700">
+                        <h4 class="font-semibold text-primary flex items-center gap-2 mb-3">
+                          <EyeIcon class="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                          Backup Contents
+                        </h4>
+                        <!-- Loading State -->
+                        <div v-if="loadingContents.has(backup.id)" class="flex items-center justify-center py-4">
+                          <LoadingSpinner size="md" text="Loading backup contents..." />
+                        </div>
+                        <!-- No Data State -->
+                        <div v-else-if="backupContents[backup.id] === null" class="text-center py-4 text-secondary">
+                          <ExclamationTriangleIcon class="h-8 w-8 mx-auto mb-2 text-amber-500" />
+                          <p>No metadata available for this backup.</p>
+                          <p class="text-xs mt-1">Older backups may not have contents metadata stored.</p>
+                        </div>
+                        <!-- Summary Stats -->
+                        <div v-else-if="backupContents[backup.id]" class="grid grid-cols-3 gap-4">
+                          <div class="text-center p-3 rounded-lg bg-white dark:bg-gray-800 border border-cyan-100 dark:border-cyan-800">
+                            <DocumentTextIcon class="h-6 w-6 mx-auto mb-1 text-indigo-500" />
+                            <p class="text-2xl font-bold text-primary">{{ backupContents[backup.id].workflow_count || 0 }}</p>
+                            <p class="text-xs text-secondary">Workflows</p>
+                          </div>
+                          <div class="text-center p-3 rounded-lg bg-white dark:bg-gray-800 border border-cyan-100 dark:border-cyan-800">
+                            <KeyIcon class="h-6 w-6 mx-auto mb-1 text-amber-500" />
+                            <p class="text-2xl font-bold text-primary">{{ backupContents[backup.id].credential_count || 0 }}</p>
+                            <p class="text-xs text-secondary">Credentials</p>
+                          </div>
+                          <div class="text-center p-3 rounded-lg bg-white dark:bg-gray-800 border border-cyan-100 dark:border-cyan-800">
+                            <Cog6ToothIcon class="h-6 w-6 mx-auto mb-1 text-emerald-500" />
+                            <p class="text-2xl font-bold text-primary">{{ backupContents[backup.id].config_file_count || 0 }}</p>
+                            <p class="text-xs text-secondary">Config Files</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Tab Navigation -->
+                      <div v-if="backupContents[backup.id]" class="flex border-b border-gray-200 dark:border-gray-700">
+                        <button
+                          @click="setContentsTab(backup.id, 'workflows')"
+                          :class="[
+                            'flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors',
+                            contentsActiveTab[backup.id] === 'workflows'
+                              ? 'text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+                              : 'text-secondary hover:text-primary hover:bg-gray-50 dark:hover:bg-gray-800'
+                          ]"
+                        >
+                          <DocumentTextIcon class="h-4 w-4" />
+                          Workflows
+                        </button>
+                        <button
+                          @click="setContentsTab(backup.id, 'credentials')"
+                          :class="[
+                            'flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors',
+                            contentsActiveTab[backup.id] === 'credentials'
+                              ? 'text-amber-600 dark:text-amber-400 border-b-2 border-amber-500 bg-amber-50 dark:bg-amber-900/20'
+                              : 'text-secondary hover:text-primary hover:bg-gray-50 dark:hover:bg-gray-800'
+                          ]"
+                        >
+                          <KeyIcon class="h-4 w-4" />
+                          Credentials
+                        </button>
+                        <button
+                          @click="setContentsTab(backup.id, 'config')"
+                          :class="[
+                            'flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors',
+                            contentsActiveTab[backup.id] === 'config'
+                              ? 'text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                              : 'text-secondary hover:text-primary hover:bg-gray-50 dark:hover:bg-gray-800'
+                          ]"
+                        >
+                          <Cog6ToothIcon class="h-4 w-4" />
+                          Configuration
+                        </button>
+                      </div>
+
+                      <!-- Tab Content -->
+                      <div v-if="backupContents[backup.id]" class="max-h-96 overflow-y-auto">
+                        <!-- Workflows Tab -->
+                        <div v-if="contentsActiveTab[backup.id] === 'workflows'">
+                          <div v-if="!backupContents[backup.id].workflows_manifest || backupContents[backup.id].workflows_manifest.length === 0" class="p-6 text-center text-secondary">
+                            <DocumentTextIcon class="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                            <p>No workflows in this backup</p>
+                          </div>
+                          <table v-else class="w-full">
+                            <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                              <tr>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">Workflow Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">ID</th>
+                                <th class="px-4 py-3 text-center text-xs font-semibold text-secondary uppercase tracking-wide">Status</th>
+                                <th class="px-4 py-3 text-center text-xs font-semibold text-secondary uppercase tracking-wide">Nodes</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">Updated</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                              <tr v-for="workflow in backupContents[backup.id].workflows_manifest" :key="workflow.id" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                <td class="px-4 py-3">
+                                  <div class="flex items-center gap-2">
+                                    <DocumentTextIcon class="h-4 w-4 text-indigo-500 flex-shrink-0" />
+                                    <span class="font-medium text-primary truncate max-w-xs" :title="workflow.name">{{ workflow.name }}</span>
+                                  </div>
+                                </td>
+                                <td class="px-4 py-3">
+                                  <code class="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded font-mono text-secondary">{{ workflow.id }}</code>
+                                </td>
+                                <td class="px-4 py-3 text-center">
+                                  <span :class="[
+                                    'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                                    workflow.active
+                                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                                      : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                                  ]">
+                                    {{ workflow.active ? 'Active' : 'Inactive' }}
+                                  </span>
+                                </td>
+                                <td class="px-4 py-3 text-center">
+                                  <span class="inline-flex items-center gap-1 text-sm text-secondary">
+                                    <HashtagIcon class="h-3 w-3" />
+                                    {{ workflow.node_count || 0 }}
+                                  </span>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-secondary">
+                                  {{ workflow.updated_at ? new Date(workflow.updated_at).toLocaleDateString() : 'N/A' }}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <!-- Credentials Tab -->
+                        <div v-if="contentsActiveTab[backup.id] === 'credentials'">
+                          <div v-if="!backupContents[backup.id].credentials_manifest || backupContents[backup.id].credentials_manifest.length === 0" class="p-6 text-center text-secondary">
+                            <KeyIcon class="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                            <p>No credentials metadata available</p>
+                            <p class="text-xs mt-1">Credential details are stored securely and not included in metadata</p>
+                          </div>
+                          <table v-else class="w-full">
+                            <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                              <tr>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">Credential Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">Type</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">ID</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                              <tr v-for="cred in backupContents[backup.id].credentials_manifest" :key="cred.id" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                <td class="px-4 py-3">
+                                  <div class="flex items-center gap-2">
+                                    <KeyIcon class="h-4 w-4 text-amber-500 flex-shrink-0" />
+                                    <span class="font-medium text-primary">{{ cred.name }}</span>
+                                  </div>
+                                </td>
+                                <td class="px-4 py-3">
+                                  <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                                    {{ cred.type }}
+                                  </span>
+                                </td>
+                                <td class="px-4 py-3">
+                                  <code class="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded font-mono text-secondary">{{ cred.id }}</code>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <!-- Configuration Tab -->
+                        <div v-if="contentsActiveTab[backup.id] === 'config'">
+                          <div v-if="!backupContents[backup.id].config_files_manifest || backupContents[backup.id].config_files_manifest.length === 0" class="p-6 text-center text-secondary">
+                            <Cog6ToothIcon class="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                            <p>No configuration files metadata available</p>
+                          </div>
+                          <table v-else class="w-full">
+                            <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                              <tr>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">File Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">Path</th>
+                                <th class="px-4 py-3 text-right text-xs font-semibold text-secondary uppercase tracking-wide">Size</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase tracking-wide">Checksum</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                              <tr v-for="(file, index) in backupContents[backup.id].config_files_manifest" :key="index" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                <td class="px-4 py-3">
+                                  <div class="flex items-center gap-2">
+                                    <component
+                                      :is="file.name?.includes('.env') ? KeyIcon : (file.name?.includes('nginx') ? ServerIcon : (file.name?.includes('docker') ? CubeIcon : DocumentIcon))"
+                                      class="h-4 w-4 text-emerald-500 flex-shrink-0"
+                                    />
+                                    <span class="font-medium text-primary">{{ file.name || file.filename || 'Unknown' }}</span>
+                                  </div>
+                                </td>
+                                <td class="px-4 py-3">
+                                  <code class="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded font-mono text-secondary truncate max-w-xs block" :title="file.path">{{ file.path || 'N/A' }}</code>
+                                </td>
+                                <td class="px-4 py-3 text-right text-sm text-secondary">
+                                  {{ file.size ? formatFileSize(file.size) : 'N/A' }}
+                                </td>
+                                <td class="px-4 py-3">
+                                  <code v-if="file.checksum" class="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded font-mono text-secondary truncate max-w-[120px] block" :title="file.checksum">{{ file.checksum?.substring(0, 12) }}...</code>
+                                  <span v-else class="text-sm text-secondary">N/A</span>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
