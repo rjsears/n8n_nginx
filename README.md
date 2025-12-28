@@ -2833,9 +2833,25 @@ Without approving the routes, you won't be able to access your Docker host via t
 
 ### Tailscale Serve (Automatic)
 
-Tailscale Serve is automatically configured via `TS_SERVE_CONFIG` using the `tailscale-serve.json` file. This proxies HTTPS traffic from your Tailscale Magic DNS name to the nginx container.
+Tailscale Serve is configured via `TS_SERVE_CONFIG` using the `tailscale-serve.json` file. This proxies HTTPS traffic from your Tailscale Magic DNS name to your n8n domain.
 
-The configuration uses `${TS_CERT_DOMAIN}` which Tailscale automatically replaces with your node's FQDN (e.g., `n8n-tailscale.your-tailnet.ts.net`).
+**If using setup.sh**: The file is generated automatically with your domain.
+
+**If configuring manually**: Edit `tailscale-serve.json` and replace `your-domain.com` with your actual domain:
+```json
+{
+  "TCP": { "443": { "HTTPS": true } },
+  "Web": {
+    "${TS_CERT_DOMAIN}:443": {
+      "Handlers": {
+        "/": { "Proxy": "https://your-actual-domain.com:443" }
+      }
+    }
+  }
+}
+```
+
+The `${TS_CERT_DOMAIN}` placeholder is automatically replaced by Tailscale with your node's FQDN.
 
 To verify serve is enabled:
 ```bash

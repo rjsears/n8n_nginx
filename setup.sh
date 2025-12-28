@@ -3721,13 +3721,13 @@ configure_tailscale() {
 generate_tailscale_serve_config() {
     print_info "Generating tailscale-serve.json..."
 
-    cat > "${SCRIPT_DIR}/tailscale-serve.json" << 'EOF'
+    cat > "${SCRIPT_DIR}/tailscale-serve.json" << EOF
 {
   "TCP": { "443": { "HTTPS": true } },
   "Web": {
-    "${TS_CERT_DOMAIN}:443": {
+    "\${TS_CERT_DOMAIN}:443": {
       "Handlers": {
-        "/": { "Proxy": "https://n8n_nginx:443" }
+        "/": { "Proxy": "https://${DOMAIN}:443" }
       }
     }
   }
