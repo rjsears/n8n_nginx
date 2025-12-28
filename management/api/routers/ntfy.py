@@ -163,15 +163,29 @@ async def sync_ntfy_topic_to_notification_channel(
     """
     Sync an NTFY topic to a notification channel.
     This allows NTFY topics to be used as notification channels and added to groups.
+
+    IMPORTANT: Skips creating a channel if ANY existing channel already uses this topic.
     """
     # Generate a consistent slug for the notification service
     service_slug = f"ntfy_{generate_slug(topic.name)}"
 
-    # Check if a notification service already exists for this topic
+    # Check if a notification service already exists with this exact slug
     existing_result = await db.execute(
         select(NotificationService).where(NotificationService.slug == service_slug)
     )
     existing_service = existing_result.scalar_one_or_none()
+
+    # Also check if ANY ntfy channel already uses this topic name
+    # This prevents duplicates when a channel was created manually
+    all_ntfy_services = await db.execute(
+        select(NotificationService).where(NotificationService.service_type == "ntfy")
+    )
+    for svc in all_ntfy_services.scalars().all():
+        svc_config = svc.config or {}
+        if svc_config.get("topic") == topic.name:
+            # A channel already exists for this topic
+            logger.info(f"Channel '{svc.name}' already uses topic '{topic.name}', skipping sync")
+            return svc
 
     if action == "delete":
         # Delete the corresponding notification service
