@@ -67,6 +67,12 @@ NTFY_BASE_URL=""
 NTFY_PUBLIC_URL=""
 NTFY_INTERNAL_URL=""
 
+# Auto-generated credential tracking (for display at end of setup)
+AUTOGEN_DB_PASSWORD=false
+AUTOGEN_ENCRYPTION_KEY=false
+AUTOGEN_MGMT_SECRET=false
+AUTOGEN_ADMIN_PASS=false
+
 # Internal IP ranges that get full access (space-separated CIDR blocks)
 DEFAULT_INTERNAL_IP_RANGES="100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
 INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
@@ -915,6 +921,12 @@ load_preconfig() {
     ADMIN_PASS="${ADMIN_PASS:-}"
     ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
 
+    # Track auto-generated credentials for display at end
+    AUTOGEN_DB_PASSWORD=false
+    AUTOGEN_ENCRYPTION_KEY=false
+    AUTOGEN_MGMT_SECRET=false
+    AUTOGEN_ADMIN_PASS=false
+
     # Auto-generate security credentials if not provided
     if [ -z "$POSTGRES_PASSWORD" ] || [ "$POSTGRES_PASSWORD" = "" ]; then
         if command_exists openssl; then
@@ -922,6 +934,7 @@ load_preconfig() {
         else
             DB_PASSWORD=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
         fi
+        AUTOGEN_DB_PASSWORD=true
         print_info "Auto-generated PostgreSQL password"
     else
         DB_PASSWORD="$POSTGRES_PASSWORD"
@@ -933,6 +946,7 @@ load_preconfig() {
         else
             N8N_ENCRYPTION_KEY=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
         fi
+        AUTOGEN_ENCRYPTION_KEY=true
         print_info "Auto-generated n8n encryption key"
     fi
 
@@ -942,6 +956,7 @@ load_preconfig() {
         else
             MGMT_SECRET_KEY=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
         fi
+        AUTOGEN_MGMT_SECRET=true
         print_info "Auto-generated management secret key"
     fi
 
@@ -1293,6 +1308,7 @@ EOF
             else
                 ADMIN_PASS=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
             fi
+            AUTOGEN_ADMIN_PASS=true
             print_info "Auto-generated admin password (will be shown at end of setup)"
         else
             print_warning "Admin password not set in config file"
@@ -4711,8 +4727,30 @@ show_final_summary_v3() {
     echo ""
     echo -e "  ${WHITE}${BOLD}Management Login:${NC}"
     echo -e "    Username:            ${CYAN}${ADMIN_USER}${NC}"
-    echo -e "    Password:            ${GRAY}[as configured]${NC}"
+    if [ "$AUTOGEN_ADMIN_PASS" = "true" ]; then
+        echo -e "    Password:            ${CYAN}${ADMIN_PASS}${NC} ${YELLOW}(auto-generated)${NC}"
+    else
+        echo -e "    Password:            ${GRAY}[as configured]${NC}"
+    fi
     echo ""
+
+    # Show auto-generated credentials section if any were generated
+    if [ "$AUTOGEN_DB_PASSWORD" = "true" ] || [ "$AUTOGEN_ENCRYPTION_KEY" = "true" ] || [ "$AUTOGEN_MGMT_SECRET" = "true" ]; then
+        echo -e "  ${WHITE}${BOLD}Auto-Generated Credentials:${NC} ${YELLOW}(save these securely!)${NC}"
+        if [ "$AUTOGEN_DB_PASSWORD" = "true" ]; then
+            echo -e "    PostgreSQL Password: ${CYAN}${DB_PASSWORD}${NC}"
+        fi
+        if [ "$AUTOGEN_ENCRYPTION_KEY" = "true" ]; then
+            echo -e "    n8n Encryption Key:  ${CYAN}${N8N_ENCRYPTION_KEY}${NC}"
+        fi
+        if [ "$AUTOGEN_MGMT_SECRET" = "true" ]; then
+            echo -e "    Management Secret:   ${CYAN}${MGMT_SECRET_KEY}${NC}"
+        fi
+        echo ""
+        echo -e "  ${YELLOW}⚠ These credentials are stored in .env - keep this file secure!${NC}"
+        echo ""
+    fi
+
     if [ "$INSTALL_ADMINER" = true ]; then
         echo -e "  ${WHITE}${BOLD}Database Credentials (for Adminer):${NC}"
         echo -e "    Server:              ${CYAN}postgres${NC}"
