@@ -175,24 +175,36 @@ async def sync_ntfy_topic_to_notification_channel(
     )
     existing_service = existing_result.scalar_one_or_none()
 
-    # Also check if ANY ntfy channel already uses this topic name
-    # This prevents duplicates when a channel was created manually
+    # Find ALL ntfy channels that use this topic name
     all_ntfy_services = await db.execute(
         select(NotificationService).where(NotificationService.service_type == "ntfy")
     )
+    channels_using_topic = []
     for svc in all_ntfy_services.scalars().all():
         svc_config = svc.config or {}
         if svc_config.get("topic") == topic.name:
-            # A channel already exists for this topic
-            logger.info(f"Channel '{svc.name}' already uses topic '{topic.name}', skipping sync")
-            return svc
+            channels_using_topic.append(svc)
 
     if action == "delete":
-        # Delete the corresponding notification service
-        if existing_service:
+        # Delete ALL notification services that use this topic
+        deleted_count = 0
+        for svc in channels_using_topic:
+            await db.delete(svc)
+            logger.info(f"Deleted notification channel '{svc.name}' for NTFY topic: {topic.name}")
+            deleted_count += 1
+        # Also delete by slug if not already found
+        if existing_service and existing_service not in channels_using_topic:
             await db.delete(existing_service)
-            logger.info(f"Deleted notification channel for NTFY topic: {topic.name}")
+            logger.info(f"Deleted notification channel by slug for NTFY topic: {topic.name}")
+            deleted_count += 1
+        if deleted_count > 0:
+            await db.commit()
         return None
+
+    # For create/update: skip if any channel already exists for this topic
+    if channels_using_topic:
+        logger.info(f"Channel '{channels_using_topic[0].name}' already uses topic '{topic.name}', skipping sync")
+        return channels_using_topic[0]
 
     # Build the notification service config
     service_config = {
