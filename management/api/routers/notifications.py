@@ -47,6 +47,23 @@ async def _sync_ntfy_channel_to_topic(db: AsyncSession, service: NotificationSer
     except Exception as e:
         logger.warning(f"Failed to sync NTFY channel to topic: {e}")
 
+
+def _is_local_ntfy_channel(config: dict) -> bool:
+    """Check if an NTFY channel config points to the local NTFY server."""
+    try:
+        from api.routers.ntfy import is_local_ntfy_server
+        server_url = config.get("server", "") if config else ""
+        return is_local_ntfy_server(server_url)
+    except Exception:
+        return False
+
+
+def _ensure_ntfy_prefix(name: str) -> str:
+    """Ensure local NTFY channel name has 'NTFY: ' prefix."""
+    if not name.upper().startswith("NTFY:"):
+        return f"NTFY: {name}"
+    return name
+
 # Webhook API key constants
 WEBHOOK_API_KEY_SETTING = "webhook_api_key"
 WEBHOOK_API_KEY_CATEGORY = "notifications"
@@ -145,9 +162,14 @@ async def create_service(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a notification service (channel)."""
+    # Auto-prefix local NTFY channels with "NTFY:"
+    name = data.name
+    if data.service_type.value == "ntfy" and _is_local_ntfy_channel(data.config):
+        name = _ensure_ntfy_prefix(data.name)
+
     service = NotificationService(db)
     created = await service.create_service(
-        name=data.name,
+        name=name,
         slug=data.slug,
         service_type=data.service_type.value,
         config=data.config,
@@ -193,6 +215,20 @@ async def update_service(
     service = NotificationService(db)
 
     updates = data.model_dump(exclude_unset=True)
+
+    # Get the existing service to check if it's local NTFY
+    existing = await service.get_service(service_id)
+    if existing and existing.service_type == "ntfy":
+        # Use updated config if provided, otherwise use existing
+        config_to_check = updates.get("config", existing.config)
+        if _is_local_ntfy_channel(config_to_check):
+            # Ensure name has NTFY: prefix
+            if "name" in updates:
+                updates["name"] = _ensure_ntfy_prefix(updates["name"])
+            elif not existing.name.upper().startswith("NTFY:"):
+                # Also fix existing name if it doesn't have prefix
+                updates["name"] = _ensure_ntfy_prefix(existing.name)
+
     updated = await service.update_service(service_id, **updates)
 
     if not updated:
