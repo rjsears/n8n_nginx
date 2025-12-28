@@ -166,7 +166,7 @@ class VerificationService:
             logger.error(f"Error starting verification container: {e}\n{traceback.format_exc()}")
             return False
 
-    async def _wait_for_postgres_ready(self, timeout: int = 30) -> None:
+    async def _wait_for_postgres_ready(self, timeout: int = 90) -> None:
         """Wait for PostgreSQL to accept connections."""
         import time
         start_time = time.time()

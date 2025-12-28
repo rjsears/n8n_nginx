@@ -334,10 +334,11 @@ export const useBackupStore = defineStore('backups', () => {
 
   async function verifyBackup(backupId, options = {}) {
     try {
+      // Use 5 minute timeout for verification (can take 1-5 minutes)
       const response = await api.post(`/backups/${backupId}/verify`, {
         verify_all_workflows: options.verifyAllWorkflows ?? false,
         workflow_sample_size: options.workflowSampleSize ?? 10,
-      })
+      }, { timeout: 300000 })
       // Update local state
       const index = history.value.findIndex(b => b.id === backupId)
       if (index > -1) {
