@@ -877,6 +877,212 @@ restore_optional_services_from_config() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PRE-CONFIGURATION FILE LOADING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+load_preconfig() {
+    local config_file="$1"
+
+    if [ ! -f "$config_file" ]; then
+        print_error "Configuration file not found: $config_file"
+        exit 1
+    fi
+
+    print_info "Loading configuration from: $config_file"
+
+    # Source the config file
+    source "$config_file"
+
+    # Map variables to internal names
+    N8N_DOMAIN="${DOMAIN:-}"
+    DNS_PROVIDER_NAME="${DNS_PROVIDER:-cloudflare}"
+
+    # Database settings
+    DB_NAME="${DB_NAME:-n8n}"
+    DB_USER="${DB_USER:-n8n}"
+
+    # Container names
+    POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}"
+    N8N_CONTAINER="${N8N_CONTAINER:-$DEFAULT_N8N_CONTAINER}"
+    NGINX_CONTAINER="${NGINX_CONTAINER:-$DEFAULT_NGINX_CONTAINER}"
+    CERTBOT_CONTAINER="${CERTBOT_CONTAINER:-$DEFAULT_CERTBOT_CONTAINER}"
+
+    # Timezone
+    N8N_TIMEZONE="${N8N_TIMEZONE:-America/Los_Angeles}"
+
+    # Admin user
+    ADMIN_USER="${ADMIN_USER:-admin}"
+    ADMIN_PASS="${ADMIN_PASS:-}"
+    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
+
+    # Auto-generate security credentials if not provided
+    if [ -z "$POSTGRES_PASSWORD" ] || [ "$POSTGRES_PASSWORD" = "" ]; then
+        if command_exists openssl; then
+            DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
+        else
+            DB_PASSWORD=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
+        fi
+        print_info "Auto-generated PostgreSQL password"
+    else
+        DB_PASSWORD="$POSTGRES_PASSWORD"
+    fi
+
+    if [ -z "$N8N_ENCRYPTION_KEY" ] || [ "$N8N_ENCRYPTION_KEY" = "" ]; then
+        if command_exists openssl; then
+            N8N_ENCRYPTION_KEY=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
+        else
+            N8N_ENCRYPTION_KEY=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
+        fi
+        print_info "Auto-generated n8n encryption key"
+    fi
+
+    if [ -z "$MGMT_SECRET_KEY" ] || [ "$MGMT_SECRET_KEY" = "" ]; then
+        if command_exists openssl; then
+            MGMT_SECRET_KEY=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
+        else
+            MGMT_SECRET_KEY=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
+        fi
+        print_info "Auto-generated management secret key"
+    fi
+
+    # Infer service enablement from auth keys/tokens
+    # Tailscale: enabled if TAILSCALE_AUTH_KEY is provided
+    if [ -n "$TAILSCALE_AUTH_KEY" ] && [ "$TAILSCALE_AUTH_KEY" != "" ]; then
+        INSTALL_TAILSCALE=true
+        TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-n8n-tailscale}"
+        print_success "Tailscale enabled (auth key provided)"
+    else
+        INSTALL_TAILSCALE=false
+    fi
+
+    # Cloudflare Tunnel: enabled if CLOUDFLARE_TUNNEL_TOKEN is provided
+    if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ] && [ "$CLOUDFLARE_TUNNEL_TOKEN" != "" ]; then
+        INSTALL_CLOUDFLARE_TUNNEL=true
+        print_success "Cloudflare Tunnel enabled (token provided)"
+    else
+        INSTALL_CLOUDFLARE_TUNNEL=false
+    fi
+
+    # NTFY: enabled if NTFY_PUBLIC_URL is provided (or explicitly set)
+    if [ -n "$NTFY_PUBLIC_URL" ] && [ "$NTFY_PUBLIC_URL" != "" ]; then
+        INSTALL_NTFY=true
+        NTFY_BASE_URL="$NTFY_PUBLIC_URL"
+        print_success "NTFY enabled (public URL provided)"
+    elif [ "$NTFY_ENABLED" = "true" ]; then
+        INSTALL_NTFY=true
+        NTFY_BASE_URL="https://ntfy.${N8N_DOMAIN}"
+        NTFY_PUBLIC_URL="$NTFY_BASE_URL"
+        print_success "NTFY enabled"
+    else
+        INSTALL_NTFY=false
+    fi
+
+    # Other optional services (use explicit flags)
+    INSTALL_ADMINER="${ADMINER_ENABLED:-false}"
+    INSTALL_DOZZLE="${DOZZLE_ENABLED:-false}"
+    INSTALL_PORTAINER="${PORTAINER_ENABLED:-false}"
+    INSTALL_PORTAINER_AGENT="${PORTAINER_AGENT_ENABLED:-false}"
+
+    # NFS configuration
+    if [ -n "$NFS_SERVER" ] && [ "$NFS_SERVER" != "" ]; then
+        # Check if NFS client is installed, install if needed
+        if ! command_exists mount.nfs && ! command_exists mount.nfs4; then
+            print_info "Installing NFS client packages..."
+            detect_os
+            if ! install_nfs_client; then
+                print_error "Failed to install NFS client. Please install manually."
+                exit 1
+            fi
+        fi
+        NFS_CONFIGURED=true
+        NFS_LOCAL_MOUNT="${NFS_LOCAL_MOUNT:-/mnt/nfs_backups}"
+        print_success "NFS backup storage configured"
+    else
+        NFS_CONFIGURED=false
+    fi
+
+    # Access control
+    INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
+    CUSTOM_INTERNAL_IPS="${CUSTOM_INTERNAL_IPS:-}"
+
+    # SSL configuration
+    SSL_METHOD="${SSL_METHOD:-certbot}"
+
+    # Restore DNS settings based on provider
+    restore_dns_settings_from_provider
+
+    # Set up DNS credentials file content based on provider
+    case $DNS_PROVIDER_NAME in
+        cloudflare)
+            if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+                mkdir -p "${SCRIPT_DIR}"
+                echo "dns_cloudflare_api_token = $CLOUDFLARE_API_TOKEN" > "${SCRIPT_DIR}/cloudflare.ini"
+                chmod 600 "${SCRIPT_DIR}/cloudflare.ini"
+                print_success "Cloudflare credentials configured"
+            fi
+            ;;
+        route53)
+            if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+                mkdir -p "${SCRIPT_DIR}"
+                cat > "${SCRIPT_DIR}/route53.ini" << EOF
+[default]
+aws_access_key_id = $AWS_ACCESS_KEY_ID
+aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
+EOF
+                chmod 600 "${SCRIPT_DIR}/route53.ini"
+                print_success "Route53 credentials configured"
+            fi
+            ;;
+        digitalocean)
+            if [ -n "$DIGITALOCEAN_TOKEN" ]; then
+                mkdir -p "${SCRIPT_DIR}"
+                echo "dns_digitalocean_token = $DIGITALOCEAN_TOKEN" > "${SCRIPT_DIR}/digitalocean.ini"
+                chmod 600 "${SCRIPT_DIR}/digitalocean.ini"
+                print_success "DigitalOcean credentials configured"
+            fi
+            ;;
+        google)
+            if [ -n "$GOOGLE_CREDENTIALS_FILE" ] && [ -f "$GOOGLE_CREDENTIALS_FILE" ]; then
+                cp "$GOOGLE_CREDENTIALS_FILE" "${SCRIPT_DIR}/google.json"
+                chmod 600 "${SCRIPT_DIR}/google.json"
+                print_success "Google DNS credentials configured"
+            fi
+            ;;
+    esac
+
+    # Validate required fields
+    if [ -z "$N8N_DOMAIN" ]; then
+        print_error "DOMAIN is required in configuration file"
+        exit 1
+    fi
+
+    if [ "$SSL_METHOD" = "certbot" ] && [ -z "$LETSENCRYPT_EMAIL" ]; then
+        print_error "LETSENCRYPT_EMAIL is required when SSL_METHOD=certbot"
+        exit 1
+    fi
+
+    print_success "Configuration loaded successfully"
+    echo ""
+
+    # Set flag for preconfig mode
+    PRECONFIG_MODE=true
+
+    # Auto-confirm if specified
+    if [ "$AUTO_CONFIRM" = "true" ]; then
+        PRECONFIG_AUTO_CONFIRM=true
+    else
+        PRECONFIG_AUTO_CONFIRM=false
+    fi
+
+    # Skip deploy if specified
+    if [ "$SKIP_DEPLOY" = "true" ]; then
+        PRECONFIG_SKIP_DEPLOY=true
+    else
+        PRECONFIG_SKIP_DEPLOY=false
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # VERSION DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -4472,9 +4678,14 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --help              Show this help message"
+    echo "  --config <file>     Use pre-configuration file for unattended install"
     echo "  --rollback          Rollback to v2.0 (if migrated within 30 days)"
     echo "  --update-access     Update access control settings (IP whitelist)"
     echo "  --version           Show version information"
+    echo ""
+    echo "Pre-configuration:"
+    echo "  Copy setup-config.example to setup-config, edit values, then run:"
+    echo "    ./setup.sh --config setup-config"
     echo ""
 }
 
@@ -4495,6 +4706,11 @@ handle_rollback() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 main() {
+    # Initialize preconfig mode flag
+    PRECONFIG_MODE=false
+    PRECONFIG_AUTO_CONFIRM=false
+    PRECONFIG_SKIP_DEPLOY=false
+
     # Handle command line arguments
     case "${1:-}" in
         --help|-h)
@@ -4512,6 +4728,17 @@ main() {
         --version|-v)
             echo "n8n Setup Script v${SCRIPT_VERSION}"
             exit 0
+            ;;
+        --config)
+            if [ -z "${2:-}" ]; then
+                print_error "Usage: ./setup.sh --config <config-file>"
+                echo ""
+                echo "  Example: ./setup.sh --config setup-config"
+                echo ""
+                echo "  See setup-config.example for configuration options."
+                exit 1
+            fi
+            load_preconfig "$2"
             ;;
     esac
 
