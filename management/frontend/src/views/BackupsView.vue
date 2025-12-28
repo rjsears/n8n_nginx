@@ -550,14 +550,18 @@ async function verifyBackup(backup) {
     if (result.overall_status === 'passed') {
       progressModal.value.status = 'success'
       notificationStore.success('Backup verification passed')
-    } else if (result.overall_status === 'failed') {
+    } else if (result.overall_status === 'failed' || result.error || result.errors?.length > 0) {
       progressModal.value.status = 'failed'
-      const errorMsg = result.error || result.errors?.join(', ') || 'Unknown error'
+      const errorMsg = result.error || result.errors?.join(', ') || 'Verification failed'
       notificationStore.error(`Backup verification failed: ${errorMsg}`)
+    } else if (result.warnings?.length > 0) {
+      progressModal.value.status = 'success' // Treat warnings-only as success
+      const warnMsg = result.warnings.join(', ')
+      notificationStore.warning(`Backup verification completed with warnings: ${warnMsg}`)
     } else {
-      progressModal.value.status = 'success' // Treat warnings as success
-      const warnMsg = result.warnings?.join(', ') || ''
-      notificationStore.warning(`Backup verification completed with warnings${warnMsg ? ': ' + warnMsg : ''}`)
+      // Unknown status - treat as failure to be safe
+      progressModal.value.status = 'failed'
+      notificationStore.error('Backup verification failed: Unknown status')
     }
 
     // Final refresh to get latest data
