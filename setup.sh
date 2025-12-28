@@ -2600,6 +2600,9 @@ EOF
 
     # Add Tailscale if configured
     if [ "$INSTALL_TAILSCALE" = true ]; then
+        # Generate tailscale-serve.json with the domain
+        generate_tailscale_serve_config
+
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
   # ===========================================================================
   # Tailscale VPN
@@ -2613,11 +2616,12 @@ EOF
       - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
-      - TS_EXTRA_ARGS=--accept-routes
+      - TS_EXTRA_ARGS=--accept-routes --serve-config /config/tailscale-serve.json
       - TS_ROUTES=${TAILSCALE_HOST_IP}/32
       - TS_AUTH_ONCE=true
     volumes:
       - tailscale_data:/var/lib/tailscale
+      - ./tailscale-serve.json:/config/tailscale-serve.json:ro
     cap_add:
       - NET_ADMIN
     networks:
@@ -3700,6 +3704,33 @@ configure_tailscale() {
     print_success "Tailscale configured"
     echo ""
     print_info "Your n8n instance will be accessible at: ${TAILSCALE_HOSTNAME}.your-tailnet.ts.net"
+}
+
+# Generate tailscale-serve.json configuration file
+generate_tailscale_serve_config() {
+    print_info "Generating tailscale-serve.json..."
+
+    cat > "${SCRIPT_DIR}/tailscale-serve.json" << EOF
+{
+  "TCP": {
+    "443": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "https://${DOMAIN}:443": {
+      "Handlers": {
+        "/": {
+          "Proxy": "https://${DOMAIN}"
+        }
+      }
+    }
+  }
+}
+EOF
+
+    chmod 644 "${SCRIPT_DIR}/tailscale-serve.json"
+    print_success "tailscale-serve.json generated"
 }
 
 configure_adminer() {

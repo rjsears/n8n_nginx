@@ -1,0 +1,16 @@
+{
+  "TCP": {
+    "443": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "https://your-domain.com:443": {
+      "Handlers": {
+        "/": {
+          "Proxy": "https://your-domain.com"
+        }
+      }
+    }
+  }
+}
