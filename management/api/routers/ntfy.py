@@ -54,6 +54,100 @@ router = APIRouter()
 # Helper: Sync NTFY Topic to Notification Channel
 # =============================================================================
 
+def is_local_ntfy_server(server_url: str) -> bool:
+    """
+    Check if the given server URL points to the local NTFY server.
+    This determines if we should sync a notification channel's topic to NtfyTopic.
+    """
+    if not server_url:
+        return False
+
+    server_lower = server_url.lower().rstrip('/')
+    local_patterns = [
+        'n8n_ntfy',
+        'ntfy:',
+        'localhost',
+        '127.0.0.1',
+        'http://ntfy',
+        'https://ntfy',
+    ]
+
+    # Check if the server URL matches any local pattern
+    for pattern in local_patterns:
+        if pattern in server_lower:
+            return True
+
+    # Also check against the configured base_url
+    configured_url = ntfy_service.base_url.lower().rstrip('/')
+    if server_lower == configured_url or server_lower.replace('http://', '').replace('https://', '') == configured_url.replace('http://', '').replace('https://', ''):
+        return True
+
+    return False
+
+
+async def sync_notification_channel_to_ntfy_topic(
+    db: AsyncSession,
+    service: NotificationService,
+    action: str = "create"  # "create", "update", or "delete"
+) -> Optional[NtfyTopic]:
+    """
+    Sync an NTFY notification channel to an NtfyTopic.
+    This allows notification channels created in the Notifications section
+    to appear in the NTFY section when they point to the local server.
+
+    Only syncs if the channel's server points to the local NTFY server.
+    """
+    # Only process ntfy type services
+    if service.service_type != "ntfy":
+        return None
+
+    config = service.config or {}
+    server_url = config.get("server", "")
+    topic_name = config.get("topic", "")
+
+    # Skip if not pointing to local server or no topic
+    if not topic_name:
+        return None
+
+    if not is_local_ntfy_server(server_url):
+        logger.debug(f"Skipping sync for non-local NTFY server: {server_url}")
+        return None
+
+    # Check if topic already exists
+    existing_result = await db.execute(
+        select(NtfyTopic).where(NtfyTopic.name == topic_name)
+    )
+    existing_topic = existing_result.scalar_one_or_none()
+
+    if action == "delete":
+        # Don't delete topics when channels are deleted - topics may be used elsewhere
+        # Just log it
+        logger.info(f"Notification channel deleted, but keeping NTFY topic: {topic_name}")
+        return None
+
+    if action in ("create", "update"):
+        if not existing_topic:
+            # Create new topic
+            new_topic = NtfyTopic(
+                name=topic_name,
+                description=f"Auto-created from notification channel: {service.name}",
+                enabled=service.enabled,
+                default_priority=service.priority or 3,
+                default_tags=config.get("tags", []),
+            )
+            db.add(new_topic)
+            await db.flush()  # Get the ID without committing
+            logger.info(f"Created NTFY topic from notification channel: {topic_name}")
+            return new_topic
+        else:
+            # Topic exists, optionally update if channel is the source
+            # Don't overwrite existing topic settings
+            logger.debug(f"NTFY topic already exists: {topic_name}")
+            return existing_topic
+
+    return existing_topic
+
+
 async def sync_ntfy_topic_to_notification_channel(
     db: AsyncSession,
     topic: NtfyTopic,

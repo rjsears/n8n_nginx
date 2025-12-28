@@ -181,6 +181,36 @@ const channelIcons = {
   webhook: GlobeAltIcon,
 }
 
+// Check if an NTFY channel points to the local NTFY server
+function isLocalNtfyChannel(channel) {
+  if (channel.service_type !== 'ntfy') return false
+  const server = channel.config?.server?.toLowerCase() || ''
+  if (!server) return false
+
+  // Local server patterns
+  const localPatterns = [
+    'n8n_ntfy',
+    'ntfy:',
+    'localhost',
+    '127.0.0.1',
+  ]
+
+  // Check if URL starts with http://ntfy or https://ntfy (without .sh or other TLD)
+  if (/^https?:\/\/ntfy[:/]/.test(server) || /^https?:\/\/ntfy$/.test(server)) {
+    return true
+  }
+
+  return localPatterns.some(pattern => server.includes(pattern))
+}
+
+// Get the appropriate icon for a channel
+function getChannelIcon(channel) {
+  if (isLocalNtfyChannel(channel)) {
+    return MegaphoneIcon  // Same icon as NTFY Push tab for local channels
+  }
+  return channelIcons[channel.service_type] || BellIcon
+}
+
 // Stats - with defensive array checks
 const stats = computed(() => {
   const channelsList = Array.isArray(channels.value) ? channels.value : []
@@ -959,16 +989,18 @@ async function handleNtfyUpdateConfig(config) {
                 <div
                   :class="[
                     'p-2 rounded-lg flex-shrink-0',
-                    channel.enabled
-                      ? 'bg-blue-100 dark:bg-blue-500/20'
-                      : 'bg-gray-100 dark:bg-gray-500/20'
+                    isLocalNtfyChannel(channel)
+                      ? (channel.enabled ? 'bg-amber-100 dark:bg-amber-500/20' : 'bg-gray-100 dark:bg-gray-500/20')
+                      : (channel.enabled ? 'bg-blue-100 dark:bg-blue-500/20' : 'bg-gray-100 dark:bg-gray-500/20')
                   ]"
                 >
                   <component
-                    :is="channelIcons[channel.service_type] || BellIcon"
+                    :is="getChannelIcon(channel)"
                     :class="[
                       'h-5 w-5',
-                      channel.enabled ? 'text-blue-500' : 'text-gray-500'
+                      isLocalNtfyChannel(channel)
+                        ? (channel.enabled ? 'text-amber-500' : 'text-gray-500')
+                        : (channel.enabled ? 'text-blue-500' : 'text-gray-500')
                     ]"
                   />
                 </div>
@@ -997,7 +1029,13 @@ async function handleNtfyUpdateConfig(config) {
                   <span v-else class="text-xs text-gray-400">-</span>
                 </div>
                 <!-- Type -->
-                <div class="w-full text-center text-xs text-secondary capitalize">{{ channel.service_type }}</div>
+                <div class="w-full text-center">
+                  <span v-if="isLocalNtfyChannel(channel)" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                    <MegaphoneIcon class="h-3 w-3" />
+                    Local
+                  </span>
+                  <span v-else class="text-xs text-secondary capitalize">{{ channel.service_type }}</span>
+                </div>
                 <!-- Actions -->
                 <div class="w-full flex items-center gap-1 justify-end">
                   <button
@@ -1762,8 +1800,8 @@ async function handleNtfyUpdateConfig(config) {
                             class="grid grid-cols-[28px_minmax(140px,1.5fr)_minmax(180px,2fr)_70px_70px] gap-2 px-3 py-2 items-center bg-white dark:bg-gray-800/50 border-t border-gray-400 dark:border-gray-700"
                           >
                             <component
-                              :is="channelIcons[channel.service_type] || BellIcon"
-                              class="h-4 w-4 text-gray-500"
+                              :is="getChannelIcon(channel)"
+                              :class="['h-4 w-4', isLocalNtfyChannel(channel) ? 'text-amber-500' : 'text-gray-500']"
                             />
                             <span class="font-medium text-sm text-primary truncate">{{ channel.name }}</span>
                             <code class="text-xs text-secondary font-mono bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded truncate">channel:{{ channel.slug }}</code>
@@ -1776,7 +1814,11 @@ async function handleNtfyUpdateConfig(config) {
                               </span>
                               <span v-else class="text-xs text-gray-400">-</span>
                             </div>
-                            <span class="text-xs text-secondary capitalize text-center">{{ channel.service_type }}</span>
+                            <span v-if="isLocalNtfyChannel(channel)" class="inline-flex items-center justify-center gap-0.5 px-1 py-0.5 rounded text-xs font-medium bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                              <MegaphoneIcon class="h-2.5 w-2.5" />
+                              Local
+                            </span>
+                            <span v-else class="text-xs text-secondary capitalize text-center">{{ channel.service_type }}</span>
                           </div>
                         </div>
                       </div>
