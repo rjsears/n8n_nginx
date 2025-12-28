@@ -995,39 +995,115 @@ load_preconfig() {
             fi
         fi
 
-        # Validate NFS server is reachable
-        print_info "Validating NFS server connectivity..."
-        if ! ping -c 1 -W 3 "$NFS_SERVER" >/dev/null 2>&1; then
-            print_error "Cannot reach NFS server: $NFS_SERVER"
-            print_info "Please check the server name/IP and network connectivity."
-            exit 1
-        fi
-        print_success "NFS server is reachable"
-
-        # Validate NFS export path if provided
-        if [ -n "$NFS_PATH" ] && [ "$NFS_PATH" != "" ]; then
-            print_info "Validating NFS export..."
-            if ! showmount -e "$NFS_SERVER" 2>/dev/null | grep -q "$NFS_PATH"; then
-                print_warning "NFS export '$NFS_PATH' not found on $NFS_SERVER"
-                print_info "Available exports:"
-                showmount -e "$NFS_SERVER" 2>/dev/null | tail -n +2 || echo "  (unable to query exports)"
-                echo ""
-                if [ "$PRECONFIG_AUTO_CONFIRM" != "true" ]; then
-                    if ! confirm_prompt "Continue anyway?"; then
-                        exit 1
-                    fi
-                else
-                    print_error "Cannot continue in auto-confirm mode with invalid NFS export."
+        # Validate NFS server is reachable (with retry loop)
+        local nfs_validated=false
+        while [ "$nfs_validated" = "false" ]; do
+            print_info "Validating NFS server connectivity..."
+            if ping -c 1 -W 3 "$NFS_SERVER" >/dev/null 2>&1; then
+                print_success "NFS server is reachable: $NFS_SERVER"
+                nfs_validated=true
+            else
+                print_error "Cannot reach NFS server: $NFS_SERVER"
+                if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                    print_error "Cannot continue in auto-confirm mode with unreachable NFS server"
                     exit 1
                 fi
-            else
-                print_success "NFS export validated"
+                echo ""
+                echo -e "  ${WHITE}Options:${NC}"
+                echo -e "    ${CYAN}1)${NC} Enter a different NFS server"
+                echo -e "    ${CYAN}2)${NC} Retry connection"
+                echo -e "    ${CYAN}3)${NC} Skip NFS configuration (use local storage)"
+                echo ""
+                local nfs_choice=""
+                while [[ ! "$nfs_choice" =~ ^[123]$ ]]; do
+                    echo -ne "${WHITE}  Enter your choice [1-3]${NC}: "
+                    read nfs_choice
+                done
+                case $nfs_choice in
+                    1)
+                        echo -ne "${WHITE}  Enter NFS server hostname or IP${NC}: "
+                        read NFS_SERVER
+                        ;;
+                    2)
+                        # Retry - loop continues
+                        ;;
+                    3)
+                        NFS_SERVER=""
+                        NFS_CONFIGURED=false
+                        print_info "Skipping NFS - backups will be stored locally"
+                        nfs_validated=true
+                        ;;
+                esac
+            fi
+        done
+
+        # Validate NFS export path if server is configured
+        if [ -n "$NFS_SERVER" ] && [ "$NFS_SERVER" != "" ]; then
+            local export_validated=false
+            while [ "$export_validated" = "false" ]; do
+                if [ -n "$NFS_PATH" ] && [ "$NFS_PATH" != "" ]; then
+                    print_info "Validating NFS export..."
+                    if showmount -e "$NFS_SERVER" 2>/dev/null | grep -q "$NFS_PATH"; then
+                        print_success "NFS export validated: $NFS_PATH"
+                        export_validated=true
+                    else
+                        print_warning "NFS export '$NFS_PATH' not found on $NFS_SERVER"
+                        print_info "Available exports:"
+                        showmount -e "$NFS_SERVER" 2>/dev/null | tail -n +2 || echo "  (unable to query exports)"
+                        echo ""
+                        if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                            print_error "Cannot continue in auto-confirm mode with invalid NFS export"
+                            exit 1
+                        fi
+                        echo -e "  ${WHITE}Options:${NC}"
+                        echo -e "    ${CYAN}1)${NC} Enter a different export path"
+                        echo -e "    ${CYAN}2)${NC} Continue anyway (mount may fail later)"
+                        echo -e "    ${CYAN}3)${NC} Skip NFS configuration"
+                        echo ""
+                        local export_choice=""
+                        while [[ ! "$export_choice" =~ ^[123]$ ]]; do
+                            echo -ne "${WHITE}  Enter your choice [1-3]${NC}: "
+                            read export_choice
+                        done
+                        case $export_choice in
+                            1)
+                                echo -ne "${WHITE}  Enter NFS export path${NC}: "
+                                read NFS_PATH
+                                ;;
+                            2)
+                                print_warning "Continuing with unvalidated NFS export"
+                                export_validated=true
+                                ;;
+                            3)
+                                NFS_SERVER=""
+                                NFS_CONFIGURED=false
+                                print_info "Skipping NFS - backups will be stored locally"
+                                export_validated=true
+                                ;;
+                        esac
+                    fi
+                else
+                    # No export path specified - prompt for one
+                    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                        print_error "NFS_PATH is required when NFS_SERVER is specified"
+                        exit 1
+                    fi
+                    print_warning "NFS_PATH not specified"
+                    print_info "Available exports on $NFS_SERVER:"
+                    showmount -e "$NFS_SERVER" 2>/dev/null | tail -n +2 || echo "  (unable to query exports)"
+                    echo ""
+                    echo -ne "${WHITE}  Enter NFS export path${NC}: "
+                    read NFS_PATH
+                fi
+            done
+
+            # Final NFS configuration
+            if [ -n "$NFS_SERVER" ] && [ "$NFS_SERVER" != "" ]; then
+                NFS_CONFIGURED=true
+                NFS_LOCAL_MOUNT="${NFS_LOCAL_MOUNT:-/mnt/nfs_backups}"
+                print_success "NFS backup storage configured"
             fi
         fi
-
-        NFS_CONFIGURED=true
-        NFS_LOCAL_MOUNT="${NFS_LOCAL_MOUNT:-/mnt/nfs_backups}"
-        print_success "NFS backup storage configured"
     else
         NFS_CONFIGURED=false
     fi
@@ -1039,28 +1115,49 @@ load_preconfig() {
     # SSL configuration
     SSL_METHOD="${SSL_METHOD:-certbot}"
 
+    # Set auto-confirm flag early (needed for validation prompts)
+    if [ "$AUTO_CONFIRM" = "true" ]; then
+        PRECONFIG_AUTO_CONFIRM=true
+    else
+        PRECONFIG_AUTO_CONFIRM=false
+    fi
+
     # Restore DNS settings based on provider
     restore_dns_settings_from_provider
 
     # Set up DNS credentials file content based on provider
-    # Validate credentials are provided when using certbot
+    # Validate credentials are provided when using certbot (with interactive correction)
     if [ "$SSL_METHOD" = "certbot" ]; then
         case $DNS_PROVIDER_NAME in
             cloudflare)
-                if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$CLOUDFLARE_API_TOKEN" = "" ]; then
+                while [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$CLOUDFLARE_API_TOKEN" = "" ]; do
                     print_error "CLOUDFLARE_API_TOKEN is required when DNS_PROVIDER=cloudflare"
-                    exit 1
-                fi
+                    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                        exit 1
+                    fi
+                    echo -ne "${WHITE}  Enter Cloudflare API token${NC}: "
+                    read CLOUDFLARE_API_TOKEN
+                done
                 mkdir -p "${SCRIPT_DIR}"
                 echo "dns_cloudflare_api_token = $CLOUDFLARE_API_TOKEN" > "${SCRIPT_DIR}/cloudflare.ini"
                 chmod 600 "${SCRIPT_DIR}/cloudflare.ini"
                 print_success "Cloudflare credentials configured"
                 ;;
             route53)
-                if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-                    print_error "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required when DNS_PROVIDER=route53"
-                    exit 1
-                fi
+                while [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; do
+                    print_error "AWS credentials are required when DNS_PROVIDER=route53"
+                    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                        exit 1
+                    fi
+                    if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+                        echo -ne "${WHITE}  Enter AWS Access Key ID${NC}: "
+                        read AWS_ACCESS_KEY_ID
+                    fi
+                    if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+                        echo -ne "${WHITE}  Enter AWS Secret Access Key${NC}: "
+                        read AWS_SECRET_ACCESS_KEY
+                    fi
+                done
                 mkdir -p "${SCRIPT_DIR}"
                 cat > "${SCRIPT_DIR}/route53.ini" << EOF
 [default]
@@ -1071,24 +1168,32 @@ EOF
                 print_success "Route53 credentials configured"
                 ;;
             digitalocean)
-                if [ -z "$DIGITALOCEAN_TOKEN" ] || [ "$DIGITALOCEAN_TOKEN" = "" ]; then
+                while [ -z "$DIGITALOCEAN_TOKEN" ] || [ "$DIGITALOCEAN_TOKEN" = "" ]; do
                     print_error "DIGITALOCEAN_TOKEN is required when DNS_PROVIDER=digitalocean"
-                    exit 1
-                fi
+                    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                        exit 1
+                    fi
+                    echo -ne "${WHITE}  Enter DigitalOcean API token${NC}: "
+                    read DIGITALOCEAN_TOKEN
+                done
                 mkdir -p "${SCRIPT_DIR}"
                 echo "dns_digitalocean_token = $DIGITALOCEAN_TOKEN" > "${SCRIPT_DIR}/digitalocean.ini"
                 chmod 600 "${SCRIPT_DIR}/digitalocean.ini"
                 print_success "DigitalOcean credentials configured"
                 ;;
             google)
-                if [ -z "$GOOGLE_CREDENTIALS_FILE" ]; then
-                    print_error "GOOGLE_CREDENTIALS_FILE is required when DNS_PROVIDER=google"
-                    exit 1
-                fi
-                if [ ! -f "$GOOGLE_CREDENTIALS_FILE" ]; then
-                    print_error "Google credentials file not found: $GOOGLE_CREDENTIALS_FILE"
-                    exit 1
-                fi
+                while [ -z "$GOOGLE_CREDENTIALS_FILE" ] || [ ! -f "$GOOGLE_CREDENTIALS_FILE" ]; do
+                    if [ -z "$GOOGLE_CREDENTIALS_FILE" ]; then
+                        print_error "GOOGLE_CREDENTIALS_FILE is required when DNS_PROVIDER=google"
+                    else
+                        print_error "Google credentials file not found: $GOOGLE_CREDENTIALS_FILE"
+                    fi
+                    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                        exit 1
+                    fi
+                    echo -ne "${WHITE}  Enter path to Google credentials JSON file${NC}: "
+                    read GOOGLE_CREDENTIALS_FILE
+                done
                 cp "$GOOGLE_CREDENTIALS_FILE" "${SCRIPT_DIR}/google.json"
                 chmod 600 "${SCRIPT_DIR}/google.json"
                 print_success "Google DNS credentials configured"
@@ -1099,34 +1204,115 @@ EOF
             *)
                 print_error "Unknown DNS_PROVIDER: $DNS_PROVIDER_NAME"
                 print_info "Valid options: cloudflare, route53, google, digitalocean, manual"
+                if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                    exit 1
+                fi
+                echo ""
+                echo -e "  ${WHITE}Select DNS provider:${NC}"
+                echo -e "    ${CYAN}1)${NC} Cloudflare"
+                echo -e "    ${CYAN}2)${NC} Route53 (AWS)"
+                echo -e "    ${CYAN}3)${NC} Google Cloud DNS"
+                echo -e "    ${CYAN}4)${NC} DigitalOcean"
+                echo -e "    ${CYAN}5)${NC} Manual"
+                echo ""
+                local dns_choice=""
+                while [[ ! "$dns_choice" =~ ^[1-5]$ ]]; do
+                    echo -ne "${WHITE}  Enter your choice [1-5]${NC}: "
+                    read dns_choice
+                done
+                case $dns_choice in
+                    1) DNS_PROVIDER_NAME="cloudflare" ;;
+                    2) DNS_PROVIDER_NAME="route53" ;;
+                    3) DNS_PROVIDER_NAME="google" ;;
+                    4) DNS_PROVIDER_NAME="digitalocean" ;;
+                    5) DNS_PROVIDER_NAME="manual" ;;
+                esac
+                restore_dns_settings_from_provider
+                # Re-run the validation with new provider (recursive call would be complex, so just notify)
+                print_info "Please re-run with correct DNS_PROVIDER in your config file"
                 exit 1
                 ;;
         esac
     fi
 
-    # Validate required fields
-    if [ -z "$N8N_DOMAIN" ]; then
-        print_error "DOMAIN is required in configuration file"
-        exit 1
+    # Validate required fields with interactive correction
+    # Domain validation
+    while [ -z "$N8N_DOMAIN" ] || [ "$N8N_DOMAIN" = "" ]; do
+        print_error "DOMAIN is required"
+        if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+            print_error "Cannot continue in auto-confirm mode without DOMAIN"
+            exit 1
+        fi
+        echo -ne "${WHITE}  Enter your domain (e.g., n8n.example.com)${NC}: "
+        read N8N_DOMAIN
+    done
+
+    # Validate domain format (basic check)
+    while ! echo "$N8N_DOMAIN" | grep -qE '^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$'; do
+        print_error "Invalid domain format: $N8N_DOMAIN"
+        if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+            print_error "Cannot continue in auto-confirm mode with invalid domain"
+            exit 1
+        fi
+        echo -ne "${WHITE}  Enter a valid domain (e.g., n8n.example.com)${NC}: "
+        read N8N_DOMAIN
+    done
+    print_success "Domain validated: $N8N_DOMAIN"
+
+    # Email validation for certbot
+    if [ "$SSL_METHOD" = "certbot" ]; then
+        while [ -z "$LETSENCRYPT_EMAIL" ] || [ "$LETSENCRYPT_EMAIL" = "" ]; do
+            print_error "LETSENCRYPT_EMAIL is required when using certbot"
+            if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                print_error "Cannot continue in auto-confirm mode without LETSENCRYPT_EMAIL"
+                exit 1
+            fi
+            echo -ne "${WHITE}  Enter email for Let's Encrypt notifications${NC}: "
+            read LETSENCRYPT_EMAIL
+        done
+
+        # Basic email format validation
+        while ! echo "$LETSENCRYPT_EMAIL" | grep -qE '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; do
+            print_error "Invalid email format: $LETSENCRYPT_EMAIL"
+            if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                print_error "Cannot continue in auto-confirm mode with invalid email"
+                exit 1
+            fi
+            echo -ne "${WHITE}  Enter a valid email address${NC}: "
+            read LETSENCRYPT_EMAIL
+        done
+        print_success "Email validated: $LETSENCRYPT_EMAIL"
     fi
 
-    if [ "$SSL_METHOD" = "certbot" ] && [ -z "$LETSENCRYPT_EMAIL" ]; then
-        print_error "LETSENCRYPT_EMAIL is required when SSL_METHOD=certbot"
-        exit 1
+    # Admin password validation
+    if [ -z "$ADMIN_PASS" ] || [ "$ADMIN_PASS" = "" ]; then
+        if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+            # Auto-generate admin password in auto-confirm mode
+            if command_exists openssl; then
+                ADMIN_PASS=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
+            else
+                ADMIN_PASS=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 16)
+            fi
+            print_info "Auto-generated admin password (will be shown at end of setup)"
+        else
+            print_warning "Admin password not set in config file"
+            while [ -z "$ADMIN_PASS" ] || [ ${#ADMIN_PASS} -lt 8 ]; do
+                echo -ne "${WHITE}  Enter admin password (min 8 characters)${NC}: "
+                read -s ADMIN_PASS
+                echo ""
+                if [ ${#ADMIN_PASS} -lt 8 ]; then
+                    print_error "Password must be at least 8 characters"
+                fi
+            done
+            print_success "Admin password set"
+        fi
     fi
 
-    print_success "Configuration loaded successfully"
+    print_success "Configuration loaded and validated successfully"
     echo ""
 
     # Set flag for preconfig mode
     PRECONFIG_MODE=true
-
-    # Auto-confirm if specified
-    if [ "$AUTO_CONFIRM" = "true" ]; then
-        PRECONFIG_AUTO_CONFIRM=true
-    else
-        PRECONFIG_AUTO_CONFIRM=false
-    fi
 
     # Skip deploy if specified
     if [ "$SKIP_DEPLOY" = "true" ]; then
