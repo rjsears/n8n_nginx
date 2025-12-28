@@ -2600,6 +2600,9 @@ EOF
 
     # Add Tailscale if configured
     if [ "$INSTALL_TAILSCALE" = true ]; then
+        # Generate tailscale-serve.json for Tailscale Serve
+        generate_tailscale_serve_config
+
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
   # ===========================================================================
   # Tailscale VPN
@@ -2616,9 +2619,10 @@ EOF
       - TS_EXTRA_ARGS=--accept-routes
       - TS_ROUTES=${TAILSCALE_HOST_IP}/32
       - TS_AUTH_ONCE=true
-      - TS_SERVE=https://${DOMAIN}:443
+      - TS_SERVE_CONFIG=/config/tailscale-serve.json
     volumes:
       - tailscale_data:/var/lib/tailscale
+      - ./tailscale-serve.json:/config/tailscale-serve.json:ro
     cap_add:
       - NET_ADMIN
     networks:
@@ -3701,6 +3705,37 @@ configure_tailscale() {
     print_success "Tailscale configured"
     echo ""
     print_info "Your n8n instance will be accessible at: ${TAILSCALE_HOSTNAME}.your-tailnet.ts.net"
+    echo ""
+    echo -e "  ${YELLOW}IMPORTANT: After deployment, approve advertised routes:${NC}"
+    echo -e "    1. Visit: ${CYAN}https://login.tailscale.com/admin/machines${NC}"
+    echo -e "    2. Find your ${WHITE}${TAILSCALE_HOSTNAME:-n8n-tailscale}${NC} node"
+    echo -e "    3. Click the node and approve the advertised route (${TAILSCALE_HOST_IP}/32)"
+    echo ""
+    echo -e "  ${GRAY}Once approved, access via Tailscale:${NC}"
+    echo -e "    • n8n:        ${CYAN}https://${TAILSCALE_HOSTNAME:-n8n-tailscale}.your-tailnet.ts.net${NC}"
+    echo -e "    • Management: ${CYAN}https://${TAILSCALE_HOST_IP}:3333${NC} (via route)"
+    echo -e "    • SSH:        ${CYAN}ssh user@${TAILSCALE_HOST_IP}${NC} (via route)"
+}
+
+# Generate tailscale-serve.json for TS_SERVE_CONFIG
+generate_tailscale_serve_config() {
+    print_info "Generating tailscale-serve.json..."
+
+    cat > "${SCRIPT_DIR}/tailscale-serve.json" << 'EOF'
+{
+  "TCP": { "443": { "HTTPS": true } },
+  "Web": {
+    "${TS_CERT_DOMAIN}:443": {
+      "Handlers": {
+        "/": { "Proxy": "https://n8n_nginx:443" }
+      }
+    }
+  }
+}
+EOF
+
+    chmod 644 "${SCRIPT_DIR}/tailscale-serve.json"
+    print_success "tailscale-serve.json generated"
 }
 
 configure_adminer() {
