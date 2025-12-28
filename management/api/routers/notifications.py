@@ -32,9 +32,20 @@ from api.schemas.notifications import (
 )
 from api.schemas.common import SuccessResponse, PaginatedResponse
 from api.models.settings import Settings as SettingsModel
+from api.models.notifications import NotificationService as NotificationServiceModel
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# Import sync function lazily to avoid circular imports
+async def _sync_ntfy_channel_to_topic(db: AsyncSession, service: NotificationServiceModel, action: str = "create"):
+    """Sync NTFY notification channel to NTFY topic if pointing to local server."""
+    try:
+        from api.routers.ntfy import sync_notification_channel_to_ntfy_topic
+        await sync_notification_channel_to_ntfy_topic(db, service, action)
+    except Exception as e:
+        logger.warning(f"Failed to sync NTFY channel to topic: {e}")
 
 # Webhook API key constants
 WEBHOOK_API_KEY_SETTING = "webhook_api_key"
@@ -144,6 +155,11 @@ async def create_service(
         webhook_enabled=data.webhook_enabled,
         priority=data.priority,
     )
+
+    # Sync NTFY channels to NTFY topics if pointing to local server
+    if data.service_type.value == "ntfy":
+        await _sync_ntfy_channel_to_topic(db, created, "create")
+
     return NotificationServiceResponse.model_validate(created)
 
 
@@ -184,6 +200,10 @@ async def update_service(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Service not found",
         )
+
+    # Sync NTFY channels to NTFY topics if pointing to local server
+    if updated.service_type == "ntfy":
+        await _sync_ntfy_channel_to_topic(db, updated, "update")
 
     return NotificationServiceResponse.model_validate(updated)
 
