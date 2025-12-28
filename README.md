@@ -54,31 +54,33 @@ A production-ready, self-hosted deployment solution for [n8n](https://n8n.io) wo
   - [3.1 Gathering Required Information](#31-gathering-required-information)
   - [3.2 Preparing Your Server](#32-preparing-your-server)
   - [3.3 Downloading the Repository](#33-downloading-the-repository)
-- [4. Interactive Setup](#4-interactive-setup)
-  - [4.1 Starting the Setup](#41-starting-the-setup)
-  - [4.2 Docker Installation](#42-docker-installation)
-  - [4.3 Domain Configuration](#43-domain-configuration)
-  - [4.4 DNS Provider Selection](#44-dns-provider-selection)
-  - [4.5 Database Configuration](#45-database-configuration)
-  - [4.6 Administrator Account Setup](#46-administrator-account-setup)
-  - [4.7 Security Configuration](#47-security-configuration)
-  - [4.8 Container Naming](#48-container-naming)
-  - [4.9 Timezone Configuration](#49-timezone-configuration)
-  - [4.10 Optional Services](#410-optional-services)
-  - [4.11 Configuration Summary](#411-configuration-summary)
-  - [4.12 Deployment Process](#412-deployment-process)
-  - [4.13 Post-Installation Summary](#413-post-installation-summary)
+- [4. Installation Methods](#4-installation-methods)
+  - [4.1 Unattended Installation (Pre-Configuration)](#41-unattended-installation-pre-configuration)
+- [5. Interactive Setup](#5-interactive-setup)
+  - [5.1 Welcome Screen](#51-welcome-screen)
+  - [5.2 Running as Root](#52-running-as-root)
+  - [5.3 Docker Installation](#53-docker-installation)
+  - [5.4 System Checks](#54-system-checks)
+  - [5.5 DNS Provider Selection](#55-dns-provider-selection)
+  - [5.6 Domain Configuration](#56-domain-configuration)
+  - [5.7 Database Configuration](#57-database-configuration)
+  - [5.8 Container Names](#58-container-names)
+  - [5.9 Email & Timezone](#59-email--timezone)
+  - [5.10 Encryption Key](#510-encryption-key)
+  - [5.11 Portainer Agent](#511-portainer-agent)
+  - [5.12 Configuration Summary](#512-configuration-summary)
+  - [5.13 Deployment & Testing](#513-deployment--testing)
 
 ### Part III: Initial Configuration
-- [5. First-Time Setup](#5-first-time-setup)
-  - [5.1 Accessing the n8n Interface](#51-accessing-the-n8n-interface)
-  - [5.2 Accessing the Management Console](#52-accessing-the-management-console)
-  - [5.3 Configuring the n8n API Connection](#53-configuring-the-n8n-api-connection)
-  - [5.4 Deploying Test Workflows](#54-deploying-test-workflows)
-  - [5.5 IP Access Control Configuration](#55-ip-access-control-configuration)
+- [6. First-Time Setup](#6-first-time-setup)
+  - [6.1 Accessing the n8n Interface](#61-accessing-the-n8n-interface)
+  - [6.2 Accessing the Management Console](#62-accessing-the-management-console)
+  - [6.3 Configuring the n8n API Connection](#63-configuring-the-n8n-api-connection)
+  - [6.4 Deploying Test Workflows](#64-deploying-test-workflows)
+  - [6.5 IP Access Control Configuration](#65-ip-access-control-configuration)
 
 ### Part IV: Management Console Reference
-- [6. Dashboard](#6-dashboard)
+- [7. Dashboard](#7-dashboard)
 - [7. Backup Management](#7-backup-management)
   - [7.1 Understanding the Backup System](#71-understanding-the-backup-system)
   - [7.2 Backup History](#72-backup-history)
@@ -610,11 +612,75 @@ chmod +x setup.sh
 
 ---
 
-## 4. Interactive Setup
+## 4. Installation Methods
+
+The setup script supports two installation methods: **Interactive Setup** (guided wizard) and **Unattended Installation** (pre-configured).
+
+### 4.1 Unattended Installation (Pre-Configuration)
+
+For automated deployments, you can use a pre-configuration file to skip the interactive prompts:
+
+#### Step 1: Create Configuration File
+
+```bash
+cp setup-config.example setup-config
+```
+
+#### Step 2: Edit Configuration
+
+Edit `setup-config` with your values. Key settings include:
+
+```bash
+# Required
+DOMAIN=n8n.example.com
+SSL_METHOD=certbot              # certbot, existing, or none
+LETSENCRYPT_EMAIL=admin@example.com
+DNS_PROVIDER=cloudflare
+CLOUDFLARE_API_TOKEN=your-api-token
+
+# Auto-generated if left blank
+POSTGRES_PASSWORD=
+N8N_ENCRYPTION_KEY=
+MGMT_SECRET_KEY=
+
+# Optional - Tailscale (auto-enables when key provided)
+TAILSCALE_AUTH_KEY=tskey-auth-xxxxx
+
+# Optional - Cloudflare Tunnel (auto-enables when token provided)
+CLOUDFLARE_TUNNEL_TOKEN=
+
+# Fully unattended mode
+AUTO_CONFIRM=true
+```
+
+#### Step 3: Run Setup
+
+```bash
+./setup.sh --config setup-config
+```
+
+#### Smart Defaults
+
+- **Credentials**: If `POSTGRES_PASSWORD`, `N8N_ENCRYPTION_KEY`, or `ADMIN_PASS` are left blank, secure random values are auto-generated and displayed at the end of setup
+- **Service Enablement**: Tailscale and Cloudflare Tunnel are automatically enabled when their auth keys/tokens are provided
+- **Validation**: The script validates all settings (domain format, DNS credentials, NFS connectivity) and prompts for corrections if needed (unless `AUTO_CONFIRM=true`)
+
+#### Available Options
+
+See `setup-config.example` for all available options including:
+- Storage settings (local, NFS)
+- Compression settings
+- Retention policies
+- Optional services (Adminer, Dozzle, Portainer)
+- Access control (IP whitelisting)
+
+---
+
+## 5. Interactive Setup
 
 
 
-### 4.1 Welcome Screen
+### 5.1 Welcome Screen
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -637,7 +703,7 @@ chmod +x setup.sh
 
 ---
 
-### 4.2 Running as Root
+### 5.2 Running as Root
 
 If you run the script as root (common for server administrators), you'll see a note:
 
@@ -665,7 +731,7 @@ The script intelligently handles different execution contexts:
 
 ---
 
-### 4.3 Docker Installation
+### 5.3 Docker Installation
 
 The script checks if Docker and Docker Compose are installed. If not, it offers to install them automatically.
 
@@ -809,7 +875,7 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
 
 ---
 
-### 4.4 System Checks
+### 5.4 System Checks
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -825,7 +891,7 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
 
 ---
 
-### 4.5 DNS Provider Selection
+### 5.5 DNS Provider Selection
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -859,7 +925,7 @@ The script checks if Docker and Docker Compose are installed. If not, it offers 
 
 ---
 
-### 4.6 Domain Configuration
+### 5.6 Domain Configuration
 
 The script validates your domain and checks if it resolves to your server:
 
@@ -977,7 +1043,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
 ---
 
-### 4.7 Database Configuration
+### 5.7 Database Configuration
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -999,7 +1065,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
 ---
 
-### 4.8 Container Names
+### 5.8 Container Names
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1018,7 +1084,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
 ---
 
-### 4.9 Email & Timezone
+### 5.9 Email & Timezone
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1041,7 +1107,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
 ---
 
-### 4.10 Encryption Key
+### 5.10 Encryption Key
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1058,7 +1124,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
 ---
 
-### 4.11 Portainer Agent (Optional)
+### 5.11 Portainer Agent (Optional)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1077,7 +1143,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
 ---
 
-### 4.12 Configuration Summary
+### 5.12 Configuration Summary
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1116,7 +1182,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 
 ---
 
-### 4.13 Deployment & Testing
+### 5.13 Deployment & Testing
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
