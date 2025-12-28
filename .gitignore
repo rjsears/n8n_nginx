@@ -8,6 +8,7 @@ credentials.ini
 
 # Setup configuration (contains sensitive settings)
 .n8n_setup_config
+setup-config
 
 # Environment files
 .env
