@@ -99,19 +99,25 @@ async def sync_notification_channel_to_ntfy_topic(
     """
     # Only process ntfy type services
     if service.service_type != "ntfy":
+        logger.debug(f"Skipping sync - not ntfy type: {service.service_type}")
         return None
 
     config = service.config or {}
     server_url = config.get("server", "")
     topic_name = config.get("topic", "")
 
+    logger.info(f"NTFY sync check: service={service.name}, server={server_url}, topic={topic_name}")
+
     # Skip if not pointing to local server or no topic
     if not topic_name:
+        logger.debug(f"Skipping sync - no topic name in config")
         return None
 
     if not is_local_ntfy_server(server_url):
-        logger.debug(f"Skipping sync for non-local NTFY server: {server_url}")
+        logger.info(f"Skipping sync for non-local NTFY server: {server_url}")
         return None
+
+    logger.info(f"Local NTFY server detected, syncing topic: {topic_name}")
 
     # Check if topic already exists
     existing_result = await db.execute(
@@ -136,13 +142,14 @@ async def sync_notification_channel_to_ntfy_topic(
                 default_tags=config.get("tags", []),
             )
             db.add(new_topic)
-            await db.flush()  # Get the ID without committing
-            logger.info(f"Created NTFY topic from notification channel: {topic_name}")
+            await db.commit()  # Commit the new topic
+            await db.refresh(new_topic)
+            logger.info(f"Created NTFY topic from notification channel: {topic_name} (id={new_topic.id})")
             return new_topic
         else:
             # Topic exists, optionally update if channel is the source
             # Don't overwrite existing topic settings
-            logger.debug(f"NTFY topic already exists: {topic_name}")
+            logger.info(f"NTFY topic already exists: {topic_name} (id={existing_topic.id})")
             return existing_topic
 
     return existing_topic
@@ -749,6 +756,46 @@ async def sync_topics_to_channels(
         "total_topics": len(topics),
         "errors": errors if errors else None,
         "message": f"Synced {synced} of {len(topics)} topics to notification channels"
+    }
+
+
+@router.post("/topics/sync-from-channels")
+async def sync_channels_to_topics(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sync all NTFY notification channels (pointing to local server) to NTFY topics.
+    This creates topics for channels that don't have corresponding topics yet.
+    """
+    # Get all NTFY type notification services
+    result = await db.execute(
+        select(NotificationService).where(NotificationService.service_type == "ntfy")
+    )
+    channels = result.scalars().all()
+
+    synced = 0
+    skipped = 0
+    errors = []
+
+    for channel in channels:
+        try:
+            topic = await sync_notification_channel_to_ntfy_topic(db, channel, action="create")
+            if topic:
+                synced += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            errors.append({"channel": channel.name, "error": str(e)})
+            logger.error(f"Failed to sync channel {channel.name}: {e}")
+
+    return {
+        "success": True,
+        "synced": synced,
+        "skipped": skipped,
+        "total_channels": len(channels),
+        "errors": errors if errors else None,
+        "message": f"Synced {synced} channels to topics ({skipped} skipped - non-local or already exist)"
     }
 
 
