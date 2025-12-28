@@ -264,8 +264,35 @@ async def delete_service(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a notification service."""
+    """Delete a notification service and associated NTFY topic if local."""
     service = NotificationService(db)
+
+    # Get the service first to check if we need to delete associated topic
+    existing = await service.get_service(service_id)
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Service not found",
+        )
+
+    # If it's a local NTFY channel, also delete the associated topic
+    if existing.service_type == "ntfy" and _is_local_ntfy_channel(existing.config):
+        topic_name = existing.config.get("topic", "") if existing.config else ""
+        if topic_name:
+            try:
+                from api.models.ntfy import NtfyTopic
+                # Find and delete the topic
+                topic_result = await db.execute(
+                    select(NtfyTopic).where(NtfyTopic.name == topic_name)
+                )
+                topic = topic_result.scalar_one_or_none()
+                if topic:
+                    await db.delete(topic)
+                    await db.commit()
+                    logger.info(f"Deleted NTFY topic '{topic_name}' along with channel")
+            except Exception as e:
+                logger.warning(f"Failed to delete associated NTFY topic: {e}")
+
     deleted = await service.delete_service(service_id)
 
     if not deleted:
