@@ -3701,6 +3701,17 @@ configure_tailscale() {
     print_success "Tailscale configured"
     echo ""
     print_info "Your n8n instance will be accessible at: ${TAILSCALE_HOSTNAME}.your-tailnet.ts.net"
+    echo ""
+    echo -e "  ${YELLOW}IMPORTANT: After deployment, you must approve the advertised routes:${NC}"
+    echo -e "    1. Visit: ${CYAN}https://login.tailscale.com/admin/machines${NC}"
+    echo -e "    2. Find your ${WHITE}${TAILSCALE_HOSTNAME:-n8n-tailscale}${NC} node"
+    echo -e "    3. Click the node and approve the advertised route (${TAILSCALE_HOST_IP}/32)"
+    echo -e "    4. Enable 'Serve' if prompted"
+    echo ""
+    echo -e "  ${GRAY}Once approved, you can access via Tailscale Magic DNS:${NC}"
+    echo -e "    • n8n:        ${CYAN}https://${TAILSCALE_HOSTNAME:-n8n-tailscale}.your-tailnet.ts.net${NC}"
+    echo -e "    • Management: ${CYAN}https://${TAILSCALE_HOST_IP}:3333${NC} (via route)"
+    echo -e "    • SSH:        ${CYAN}ssh user@${TAILSCALE_HOST_IP}${NC} (via route)"
 }
 
 configure_adminer() {

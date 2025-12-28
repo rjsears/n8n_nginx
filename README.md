@@ -2800,7 +2800,10 @@ For disaster recovery, store backups on a separate NFS server:
 
 ### Setting Up Tailscale
 
-If you enabled Tailscale during setup, the container is already configured.
+If you enabled Tailscale during setup, the container is already configured with:
+- **TS_ROUTES**: Advertises your Docker host IP to the Tailscale network
+- **TS_SERVE**: Exposes your n8n instance via Tailscale's HTTPS proxy
+- **TS_AUTH_ONCE**: Prevents re-authentication on container restarts
 
 For manual setup:
 
@@ -2808,11 +2811,46 @@ For manual setup:
 2. Add to `.env`:
    ```
    TAILSCALE_AUTH_KEY=tskey-auth-xxx
+   TAILSCALE_HOST_IP=192.168.1.10  # Your Docker host's local IP
    ```
 3. Restart the stack:
    ```bash
    docker compose up -d
    ```
+
+### Approving Advertised Routes (Required)
+
+**IMPORTANT**: After the Tailscale container starts, you must approve the advertised routes in the Tailscale Admin Console:
+
+1. Visit [Tailscale Admin - Machines](https://login.tailscale.com/admin/machines)
+2. Find your **n8n-tailscale** node in the list
+3. Click on the node to open its settings
+4. Look for the **Subnets** section showing the advertised route (e.g., `192.168.1.10/32`)
+5. Click **Approve** to enable the route
+6. If prompted about **Serve**, enable it to allow HTTPS proxying
+
+Without approving the routes, you won't be able to access your Docker host via the Tailscale network.
+
+### Accessing Services via Tailscale
+
+Once routes are approved, you can access your services from any device on your Tailscale network:
+
+#### Using Magic DNS (n8n via Tailscale Serve)
+```
+https://n8n-tailscale.your-tailnet.ts.net
+```
+This uses Tailscale's HTTPS proxy to securely access n8n.
+
+#### Using the Advertised Route (Docker Host Access)
+The advertised route gives you direct access to your Docker host IP via Tailscale:
+
+| Service | URL |
+|---------|-----|
+| **n8n** | `https://192.168.1.10` |
+| **Management Console** | `https://192.168.1.10:3333` |
+| **SSH to Docker Host** | `ssh user@192.168.1.10` |
+
+Replace `192.168.1.10` with your actual `TAILSCALE_HOST_IP` value.
 
 ### Restricting Access to Tailscale IPs
 
@@ -2823,22 +2861,20 @@ To restrict management console access to Tailscale only:
 3. Keep only `100.64.0.0/10` (Tailscale range)
 4. Access via Tailscale IP only
 
-### Accessing n8n via Tailscale
+### Finding Your Tailscale IP
 
-After Tailscale is running:
+To find the container's Tailscale IP:
+```bash
+docker exec n8n_tailscale tailscale ip
+```
 
-1. Find the container's Tailscale IP:
-   ```bash
-   docker exec tailscale tailscale ip
-   ```
-2. Access n8n:
-   ```
-   https://[tailscale-ip]:443
-   ```
-3. Or use MagicDNS:
-   ```
-   https://n8n-server.tailnet-name.ts.net
-   ```
+### Troubleshooting Tailscale
+
+If routes aren't working:
+1. Check the container logs: `docker logs n8n_tailscale`
+2. Verify the route is advertised: `docker exec n8n_tailscale tailscale status`
+3. Ensure routes are approved in the admin console
+4. Check that `TAILSCALE_HOST_IP` in `.env` matches your Docker host's actual IP
 
 ---
 
