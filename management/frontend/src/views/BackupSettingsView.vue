@@ -1238,26 +1238,26 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-              <div class="p-5 flex flex-col">
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 min-h-[40px]">
+              <div class="px-5 pt-4 pb-3">
+                <p class="text-sm text-gray-500 dark:text-gray-400">
                   Keep one backup per day for the most recent period. Ideal for quick recovery from recent changes.
                 </p>
-                <div class="space-y-3">
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Keep for</label>
-                  <div class="flex items-center gap-3">
-                    <input
-                      v-model.number="form.retention_daily_count"
-                      type="number"
-                      min="1"
-                      max="30"
-                      class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    />
-                    <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-12">days</span>
-                  </div>
-                  <p class="text-xs text-gray-500 dark:text-gray-500">
-                    Keeps {{ form.retention_daily_count }} daily backup{{ form.retention_daily_count !== 1 ? 's' : '' }}
-                  </p>
+              </div>
+              <div class="border-t border-gray-100 dark:border-gray-700 px-5 pt-3 pb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Keep for</label>
+                <div class="flex items-center gap-3">
+                  <input
+                    v-model.number="form.retention_daily_count"
+                    type="number"
+                    min="1"
+                    max="30"
+                    class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                  <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-16">days</span>
                 </div>
+                <p class="text-xs text-gray-500 dark:text-gray-500 mt-2">
+                  Keeps {{ form.retention_daily_count }} daily backup{{ form.retention_daily_count !== 1 ? 's' : '' }}
+                </p>
               </div>
             </div>
 
@@ -1276,26 +1276,26 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-              <div class="p-5 flex flex-col">
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 min-h-[40px]">
+              <div class="px-5 pt-4 pb-3">
+                <p class="text-sm text-gray-500 dark:text-gray-400">
                   Keep one backup per week for medium-term retention. Great for recovering from issues discovered later.
                 </p>
-                <div class="space-y-3">
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Keep for</label>
-                  <div class="flex items-center gap-3">
-                    <input
-                      v-model.number="form.retention_weekly_count"
-                      type="number"
-                      min="1"
-                      max="52"
-                      class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-12">weeks</span>
-                  </div>
-                  <p class="text-xs text-gray-500 dark:text-gray-500">
-                    Keeps {{ form.retention_weekly_count }} weekly backup{{ form.retention_weekly_count !== 1 ? 's' : '' }}
-                  </p>
+              </div>
+              <div class="border-t border-gray-100 dark:border-gray-700 px-5 pt-3 pb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Keep for</label>
+                <div class="flex items-center gap-3">
+                  <input
+                    v-model.number="form.retention_weekly_count"
+                    type="number"
+                    min="1"
+                    max="52"
+                    class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-16">weeks</span>
                 </div>
+                <p class="text-xs text-gray-500 dark:text-gray-500 mt-2">
+                  Keeps {{ form.retention_weekly_count }} weekly backup{{ form.retention_weekly_count !== 1 ? 's' : '' }}
+                </p>
               </div>
             </div>
 
@@ -1314,26 +1314,26 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-              <div class="p-5 flex flex-col">
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 min-h-[40px]">
+              <div class="px-5 pt-4 pb-3">
+                <p class="text-sm text-gray-500 dark:text-gray-400">
                   Keep one backup per month for long-term archives. Essential for compliance and historical recovery.
                 </p>
-                <div class="space-y-3">
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Keep for</label>
-                  <div class="flex items-center gap-3">
-                    <input
-                      v-model.number="form.retention_monthly_count"
-                      type="number"
-                      min="1"
-                      max="24"
-                      class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                    <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-12">months</span>
-                  </div>
-                  <p class="text-xs text-gray-500 dark:text-gray-500">
-                    Keeps {{ form.retention_monthly_count }} monthly backup{{ form.retention_monthly_count !== 1 ? 's' : '' }}
-                  </p>
+              </div>
+              <div class="border-t border-gray-100 dark:border-gray-700 px-5 pt-3 pb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Keep for</label>
+                <div class="flex items-center gap-3">
+                  <input
+                    v-model.number="form.retention_monthly_count"
+                    type="number"
+                    min="1"
+                    max="24"
+                    class="flex-1 px-4 py-3 text-center font-mono text-lg border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  />
+                  <span class="text-sm font-medium text-gray-600 dark:text-gray-400 w-16">months</span>
                 </div>
+                <p class="text-xs text-gray-500 dark:text-gray-500 mt-2">
+                  Keeps {{ form.retention_monthly_count }} monthly backup{{ form.retention_monthly_count !== 1 ? 's' : '' }}
+                </p>
               </div>
             </div>
           </div>
