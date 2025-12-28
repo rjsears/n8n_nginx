@@ -1238,8 +1238,8 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-              <div class="p-5">
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              <div class="p-5 flex flex-col">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 min-h-[40px]">
                   Keep one backup per day for the most recent period. Ideal for quick recovery from recent changes.
                 </p>
                 <div class="space-y-3">
@@ -1276,8 +1276,8 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-              <div class="p-5">
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              <div class="p-5 flex flex-col">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 min-h-[40px]">
                   Keep one backup per week for medium-term retention. Great for recovering from issues discovered later.
                 </p>
                 <div class="space-y-3">
@@ -1314,8 +1314,8 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-              <div class="p-5">
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              <div class="p-5 flex flex-col">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4 min-h-[40px]">
                   Keep one backup per month for long-term archives. Essential for compliance and historical recovery.
                 </p>
                 <div class="space-y-3">
