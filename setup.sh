@@ -3727,7 +3727,7 @@ generate_tailscale_serve_config() {
   "Web": {
     "${TS_CERT_DOMAIN}:443": {
       "Handlers": {
-        "/": { "Proxy": "https://n8n_nginx:443" }
+        "/": { "Proxy": "http://n8n:5678" }
       }
     }
   }
