@@ -1044,8 +1044,8 @@ onUnmounted(stopPolling)
           @click="router.push('/backup-settings?tab=schedule')"
           class="w-full text-left hover:bg-surface-hover transition-colors rounded-lg"
         >
-          <!-- Schedule Header -->
-          <div class="p-4 flex items-center justify-between">
+          <div class="p-4 flex items-center justify-between gap-4">
+            <!-- Left: Icon and Schedule Info -->
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-gradient-to-br from-indigo-100 to-indigo-100 dark:from-indigo-500/20 dark:to-indigo-500/20">
                 <CalendarIcon class="h-5 w-5 text-indigo-500" />
@@ -1060,52 +1060,22 @@ onUnmounted(stopPolling)
                 </p>
               </div>
             </div>
-            <StatusBadge :status="primarySchedule?.enabled ? 'enabled' : 'disabled'" />
-          </div>
 
-          <!-- Retention Policy Bars -->
-          <div class="border-t border-gray-200 dark:border-gray-700 px-4 py-3">
-            <p class="text-xs font-medium text-muted mb-2 uppercase tracking-wide">Retention Policy</p>
-            <div class="grid grid-cols-3 gap-2">
-              <!-- Daily -->
-              <div class="rounded-lg overflow-hidden">
-                <div class="bg-gradient-to-r from-emerald-500 to-teal-500 px-3 py-1.5">
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs font-medium text-white/90">Daily</span>
-                    <span class="text-sm font-bold text-white">{{ backupConfig?.retention_daily_count || 7 }}</span>
-                  </div>
-                </div>
-                <div class="bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1">
-                  <span class="text-xs text-emerald-700 dark:text-emerald-300">{{ (backupConfig?.retention_daily_count || 7) === 1 ? 'day' : 'days' }}</span>
-                </div>
+            <!-- Center: Compact Retention Bars -->
+            <div class="flex items-center gap-1.5">
+              <div class="bg-gradient-to-r from-emerald-500 to-teal-500 px-2 py-1 rounded text-xs font-medium text-white">
+                Daily {{ backupConfig?.retention_daily_count || 7 }}
               </div>
-
-              <!-- Weekly -->
-              <div class="rounded-lg overflow-hidden">
-                <div class="bg-gradient-to-r from-blue-500 to-indigo-500 px-3 py-1.5">
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs font-medium text-white/90">Weekly</span>
-                    <span class="text-sm font-bold text-white">{{ backupConfig?.retention_weekly_count || 4 }}</span>
-                  </div>
-                </div>
-                <div class="bg-blue-50 dark:bg-blue-900/30 px-3 py-1">
-                  <span class="text-xs text-blue-700 dark:text-blue-300">{{ (backupConfig?.retention_weekly_count || 4) === 1 ? 'week' : 'weeks' }}</span>
-                </div>
+              <div class="bg-gradient-to-r from-blue-500 to-indigo-500 px-2 py-1 rounded text-xs font-medium text-white">
+                Weekly {{ backupConfig?.retention_weekly_count || 4 }}
               </div>
-
-              <!-- Monthly -->
-              <div class="rounded-lg overflow-hidden">
-                <div class="bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-1.5">
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs font-medium text-white/90">Monthly</span>
-                    <span class="text-sm font-bold text-white">{{ backupConfig?.retention_monthly_count || 6 }}</span>
-                  </div>
-                </div>
-                <div class="bg-purple-50 dark:bg-purple-900/30 px-3 py-1">
-                  <span class="text-xs text-purple-700 dark:text-purple-300">{{ (backupConfig?.retention_monthly_count || 6) === 1 ? 'month' : 'months' }}</span>
-                </div>
+              <div class="bg-gradient-to-r from-purple-500 to-pink-500 px-2 py-1 rounded text-xs font-medium text-white">
+                Monthly {{ backupConfig?.retention_monthly_count || 6 }}
               </div>
             </div>
+
+            <!-- Right: Status Badge -->
+            <StatusBadge :status="primarySchedule?.enabled ? 'enabled' : 'disabled'" />
           </div>
         </button>
       </Card>
