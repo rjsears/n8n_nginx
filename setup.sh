@@ -2615,6 +2615,7 @@ EOF
       - TS_USERSPACE=true
       - TS_EXTRA_ARGS=--accept-routes
       - TS_ROUTES=${TAILSCALE_HOST_IP}/32
+      - TS_AUTH_ONCE=true
     volumes:
       - tailscale_data:/var/lib/tailscale
     cap_add:
