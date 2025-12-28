@@ -64,6 +64,14 @@ def _ensure_ntfy_prefix(name: str) -> str:
         return f"NTFY: {name}"
     return name
 
+
+def _generate_ntfy_slug(topic: str) -> str:
+    """Generate consistent slug for local NTFY channel: ntfy_{topic}."""
+    from api.models.notifications import generate_slug
+    # Clean the topic name and prefix with ntfy_
+    clean_topic = generate_slug(topic)
+    return f"ntfy_{clean_topic}"
+
 # Webhook API key constants
 WEBHOOK_API_KEY_SETTING = "webhook_api_key"
 WEBHOOK_API_KEY_CATEGORY = "notifications"
@@ -162,15 +170,21 @@ async def create_service(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a notification service (channel)."""
-    # Auto-prefix local NTFY channels with "NTFY:"
     name = data.name
+    slug = data.slug
+
+    # For local NTFY channels: auto-prefix name and generate consistent slug
     if data.service_type.value == "ntfy" and _is_local_ntfy_channel(data.config):
         name = _ensure_ntfy_prefix(data.name)
+        # Generate slug from topic name: ntfy_{topic}
+        topic = data.config.get("topic", "") if data.config else ""
+        if topic:
+            slug = _generate_ntfy_slug(topic)
 
     service = NotificationService(db)
     created = await service.create_service(
         name=name,
-        slug=data.slug,
+        slug=slug,
         service_type=data.service_type.value,
         config=data.config,
         enabled=data.enabled,
