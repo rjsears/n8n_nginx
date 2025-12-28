@@ -1062,14 +1062,15 @@ onUnmounted(stopPolling)
             </div>
 
             <!-- Center: Compact Retention Bars -->
-            <div class="flex items-center gap-1.5">
-              <div class="bg-gradient-to-r from-emerald-500 to-teal-500 px-2 py-1 rounded text-xs font-medium text-white">
+            <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50">
+              <span class="text-xs font-medium text-gray-500 dark:text-gray-400 mr-1">Retention Policy</span>
+              <div class="bg-gradient-to-r from-emerald-500 to-teal-500 px-2.5 py-1 rounded text-xs font-semibold text-white">
                 Daily {{ backupConfig?.retention_daily_count || 7 }}
               </div>
-              <div class="bg-gradient-to-r from-blue-500 to-indigo-500 px-2 py-1 rounded text-xs font-medium text-white">
+              <div class="bg-gradient-to-r from-blue-500 to-indigo-500 px-2.5 py-1 rounded text-xs font-semibold text-white">
                 Weekly {{ backupConfig?.retention_weekly_count || 4 }}
               </div>
-              <div class="bg-gradient-to-r from-purple-500 to-pink-500 px-2 py-1 rounded text-xs font-medium text-white">
+              <div class="bg-gradient-to-r from-purple-500 to-pink-500 px-2.5 py-1 rounded text-xs font-semibold text-white">
                 Monthly {{ backupConfig?.retention_monthly_count || 6 }}
               </div>
             </div>
