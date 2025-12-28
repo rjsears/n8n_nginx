@@ -164,6 +164,19 @@ const schedule = ref({
 // Backup configuration
 const backupConfig = ref(null)
 
+// Backup schedules
+const backupSchedules = ref([])
+
+// Computed: primary schedule (first enabled schedule or first schedule)
+const primarySchedule = computed(() => {
+  if (!backupSchedules.value || backupSchedules.value.length === 0) {
+    return null
+  }
+  // Prefer enabled schedules
+  const enabled = backupSchedules.value.find(s => s.enabled)
+  return enabled || backupSchedules.value[0]
+})
+
 // Filter and sort
 const filterStatus = ref('all')
 const sortBy = ref('date')
@@ -203,13 +216,23 @@ function formatBytes(bytes) {
 }
 
 function formatScheduleTime(time) {
-  if (!time) return '00:00'
+  if (!time) return '00:00 AM'
   const [h, m] = time.split(':')
   const hour = parseInt(h, 10)
   const minute = m || '00'
   const period = hour >= 12 ? 'PM' : 'AM'
   const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
   return `${displayHour}:${minute} ${period}`
+}
+
+// Format schedule time from schedule object (hour/minute fields)
+function formatScheduleTimeFromSchedule(schedule) {
+  if (!schedule) return 'Not configured'
+  const hour = schedule.hour ?? 0
+  const minute = schedule.minute ?? 0
+  const period = hour >= 12 ? 'PM' : 'AM'
+  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+  return `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
 }
 
 function toggleSection(section) {
@@ -733,11 +756,17 @@ async function loadData() {
   loading.value = true
   try {
     await backupStore.fetchBackups()
-    // Fetch backup configuration
+    // Fetch backup configuration and schedules
     try {
       backupConfig.value = await backupStore.fetchConfiguration()
     } catch (err) {
       console.error('Failed to fetch backup configuration:', err)
+    }
+    try {
+      await backupStore.fetchSchedules()
+      backupSchedules.value = backupStore.schedules
+    } catch (err) {
+      console.error('Failed to fetch backup schedules:', err)
     }
     // Check if a backup is already mounted (e.g., from previous session)
     try {
@@ -1010,7 +1039,7 @@ onUnmounted(stopPolling)
       </Card>
 
       <!-- Schedule Card (Clickable - navigates to schedule settings) -->
-      <Card v-if="backupConfig" :neon="true" :padding="false">
+      <Card :neon="true" :padding="false">
         <button
           @click="router.push('/backup-settings?tab=schedule')"
           class="w-full p-4 text-left hover:bg-surface-hover transition-colors rounded-lg"
@@ -1022,12 +1051,15 @@ onUnmounted(stopPolling)
               </div>
               <div>
                 <h3 class="font-semibold text-primary">Backup Schedule</h3>
-                <p class="text-sm text-secondary">
-                  {{ backupConfig.schedule_frequency }} at {{ formatScheduleTime(backupConfig.schedule_time) }} • {{ backupConfig.retention_days }} day retention
+                <p v-if="primarySchedule" class="text-sm text-secondary">
+                  {{ primarySchedule.frequency }} at {{ formatScheduleTimeFromSchedule(primarySchedule) }} • {{ backupConfig?.retention_daily_count || 7 }} day retention
+                </p>
+                <p v-else class="text-sm text-secondary">
+                  No schedule configured
                 </p>
               </div>
             </div>
-            <StatusBadge :status="backupConfig.schedule_enabled ? 'enabled' : 'disabled'" />
+            <StatusBadge :status="primarySchedule?.enabled ? 'enabled' : 'disabled'" />
           </div>
         </button>
       </Card>
