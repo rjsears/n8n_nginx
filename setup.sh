@@ -678,6 +678,7 @@ SAVED_CLOUDFLARE_TUNNEL_TOKEN="$CLOUDFLARE_TUNNEL_TOKEN"
 SAVED_INSTALL_TAILSCALE="$INSTALL_TAILSCALE"
 SAVED_TAILSCALE_AUTH_KEY="$TAILSCALE_AUTH_KEY"
 SAVED_TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME"
+SAVED_TAILSCALE_HOST_IP="$TAILSCALE_HOST_IP"
 SAVED_INSTALL_ADMINER="$INSTALL_ADMINER"
 SAVED_ADMINER_PORT="$ADMINER_PORT"
 SAVED_INSTALL_DOZZLE="$INSTALL_DOZZLE"
@@ -737,6 +738,7 @@ load_state() {
         INSTALL_TAILSCALE="${SAVED_INSTALL_TAILSCALE:-false}"
         TAILSCALE_AUTH_KEY="${SAVED_TAILSCALE_AUTH_KEY:-}"
         TAILSCALE_HOSTNAME="${SAVED_TAILSCALE_HOSTNAME:-}"
+        TAILSCALE_HOST_IP="${SAVED_TAILSCALE_HOST_IP:-}"
         INSTALL_ADMINER="${SAVED_INSTALL_ADMINER:-false}"
         ADMINER_PORT="${SAVED_ADMINER_PORT:-}"
         INSTALL_DOZZLE="${SAVED_INSTALL_DOZZLE:-false}"
@@ -2285,6 +2287,7 @@ CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
 # Optional: Tailscale VPN
 # ===========================================
 TAILSCALE_AUTH_KEY=${TAILSCALE_AUTH_KEY:-}
+TAILSCALE_HOST_IP=${TAILSCALE_HOST_IP:-}
 
 # ===========================================
 # Container Names (generally don't change)
@@ -2611,6 +2614,7 @@ EOF
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_EXTRA_ARGS=--accept-routes
+      - TS_ROUTES=${TAILSCALE_HOST_IP}/32
     volumes:
       - tailscale_data:/var/lib/tailscale
     cap_add:
@@ -3679,6 +3683,18 @@ configure_tailscale() {
     echo -ne "${WHITE}  Tailscale hostname [n8n-server]${NC}: "
     read ts_hostname
     TAILSCALE_HOSTNAME=${ts_hostname:-n8n-server}
+
+    # Capture the host IP for TS_ROUTES (advertise this host to Tailscale network)
+    local primary_ip=$(get_local_ips | head -1)
+    if [ -n "$primary_ip" ]; then
+        TAILSCALE_HOST_IP="$primary_ip"
+        echo ""
+        print_info "Docker host IP detected: ${TAILSCALE_HOST_IP}"
+        print_info "This IP will be advertised via TS_ROUTES for Tailscale access"
+    else
+        print_warning "Could not detect host IP for TS_ROUTES"
+        TAILSCALE_HOST_IP=""
+    fi
 
     print_success "Tailscale configured"
     echo ""

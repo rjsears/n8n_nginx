@@ -263,6 +263,7 @@ services:
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_EXTRA_ARGS=--accept-routes
+      - TS_ROUTES=${TAILSCALE_HOST_IP}/32
     volumes:
       - tailscale_data:/var/lib/tailscale
     cap_add:
