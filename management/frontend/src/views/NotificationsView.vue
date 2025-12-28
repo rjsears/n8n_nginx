@@ -741,15 +741,24 @@ async function handleNtfyDeleteTopic(id) {
   }
 }
 
-// NTFY Sync topics to channels
+// NTFY Sync topics <-> channels (bidirectional)
 async function handleNtfySyncTopics() {
   try {
-    const res = await api.ntfy.syncTopicsToChannels()
-    if (res.data.success) {
-      // Refresh channels list to show newly synced topics
-      await loadData()
+    // Sync in both directions
+    const [topicsToChannels, channelsToTopics] = await Promise.all([
+      api.ntfy.syncTopicsToChannels(),
+      api.ntfy.syncChannelsToTopics()
+    ])
+
+    // Refresh data to show changes
+    await Promise.all([loadData(), loadNtfyData()])
+
+    return {
+      success: true,
+      topicsToChannels: topicsToChannels.data,
+      channelsToTopics: channelsToTopics.data,
+      message: `Synced ${topicsToChannels.data.synced || 0} topics to channels, ${channelsToTopics.data.synced || 0} channels to topics`
     }
-    return res.data
   } catch (error) {
     return { success: false, error: error.response?.data?.detail || error.message }
   }

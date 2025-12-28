@@ -219,6 +219,7 @@ export const ntfyApi = {
   updateTopic: (id, data) => api.put(`/ntfy/topics/${id}`, data),
   deleteTopic: (id) => api.delete(`/ntfy/topics/${id}`),
   syncTopicsToChannels: () => api.post('/ntfy/topics/sync-channels'),
+  syncChannelsToTopics: () => api.post('/ntfy/topics/sync-from-channels'),
   // Saved Messages
   getSavedMessages: () => api.get('/ntfy/saved-messages'),
   createSavedMessage: (data) => api.post('/ntfy/saved-messages', data),
