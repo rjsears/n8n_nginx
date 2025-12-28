@@ -994,6 +994,37 @@ load_preconfig() {
                 exit 1
             fi
         fi
+
+        # Validate NFS server is reachable
+        print_info "Validating NFS server connectivity..."
+        if ! ping -c 1 -W 3 "$NFS_SERVER" >/dev/null 2>&1; then
+            print_error "Cannot reach NFS server: $NFS_SERVER"
+            print_info "Please check the server name/IP and network connectivity."
+            exit 1
+        fi
+        print_success "NFS server is reachable"
+
+        # Validate NFS export path if provided
+        if [ -n "$NFS_PATH" ] && [ "$NFS_PATH" != "" ]; then
+            print_info "Validating NFS export..."
+            if ! showmount -e "$NFS_SERVER" 2>/dev/null | grep -q "$NFS_PATH"; then
+                print_warning "NFS export '$NFS_PATH' not found on $NFS_SERVER"
+                print_info "Available exports:"
+                showmount -e "$NFS_SERVER" 2>/dev/null | tail -n +2 || echo "  (unable to query exports)"
+                echo ""
+                if [ "$PRECONFIG_AUTO_CONFIRM" != "true" ]; then
+                    if ! confirm_prompt "Continue anyway?"; then
+                        exit 1
+                    fi
+                else
+                    print_error "Cannot continue in auto-confirm mode with invalid NFS export."
+                    exit 1
+                fi
+            else
+                print_success "NFS export validated"
+            fi
+        fi
+
         NFS_CONFIGURED=true
         NFS_LOCAL_MOUNT="${NFS_LOCAL_MOUNT:-/mnt/nfs_backups}"
         print_success "NFS backup storage configured"
@@ -1012,17 +1043,24 @@ load_preconfig() {
     restore_dns_settings_from_provider
 
     # Set up DNS credentials file content based on provider
-    case $DNS_PROVIDER_NAME in
-        cloudflare)
-            if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+    # Validate credentials are provided when using certbot
+    if [ "$SSL_METHOD" = "certbot" ]; then
+        case $DNS_PROVIDER_NAME in
+            cloudflare)
+                if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$CLOUDFLARE_API_TOKEN" = "" ]; then
+                    print_error "CLOUDFLARE_API_TOKEN is required when DNS_PROVIDER=cloudflare"
+                    exit 1
+                fi
                 mkdir -p "${SCRIPT_DIR}"
                 echo "dns_cloudflare_api_token = $CLOUDFLARE_API_TOKEN" > "${SCRIPT_DIR}/cloudflare.ini"
                 chmod 600 "${SCRIPT_DIR}/cloudflare.ini"
                 print_success "Cloudflare credentials configured"
-            fi
-            ;;
-        route53)
-            if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+                ;;
+            route53)
+                if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+                    print_error "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required when DNS_PROVIDER=route53"
+                    exit 1
+                fi
                 mkdir -p "${SCRIPT_DIR}"
                 cat > "${SCRIPT_DIR}/route53.ini" << EOF
 [default]
@@ -1031,24 +1069,40 @@ aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
 EOF
                 chmod 600 "${SCRIPT_DIR}/route53.ini"
                 print_success "Route53 credentials configured"
-            fi
-            ;;
-        digitalocean)
-            if [ -n "$DIGITALOCEAN_TOKEN" ]; then
+                ;;
+            digitalocean)
+                if [ -z "$DIGITALOCEAN_TOKEN" ] || [ "$DIGITALOCEAN_TOKEN" = "" ]; then
+                    print_error "DIGITALOCEAN_TOKEN is required when DNS_PROVIDER=digitalocean"
+                    exit 1
+                fi
                 mkdir -p "${SCRIPT_DIR}"
                 echo "dns_digitalocean_token = $DIGITALOCEAN_TOKEN" > "${SCRIPT_DIR}/digitalocean.ini"
                 chmod 600 "${SCRIPT_DIR}/digitalocean.ini"
                 print_success "DigitalOcean credentials configured"
-            fi
-            ;;
-        google)
-            if [ -n "$GOOGLE_CREDENTIALS_FILE" ] && [ -f "$GOOGLE_CREDENTIALS_FILE" ]; then
+                ;;
+            google)
+                if [ -z "$GOOGLE_CREDENTIALS_FILE" ]; then
+                    print_error "GOOGLE_CREDENTIALS_FILE is required when DNS_PROVIDER=google"
+                    exit 1
+                fi
+                if [ ! -f "$GOOGLE_CREDENTIALS_FILE" ]; then
+                    print_error "Google credentials file not found: $GOOGLE_CREDENTIALS_FILE"
+                    exit 1
+                fi
                 cp "$GOOGLE_CREDENTIALS_FILE" "${SCRIPT_DIR}/google.json"
                 chmod 600 "${SCRIPT_DIR}/google.json"
                 print_success "Google DNS credentials configured"
-            fi
-            ;;
-    esac
+                ;;
+            manual)
+                print_info "Manual DNS validation selected - you will need to add DNS records manually"
+                ;;
+            *)
+                print_error "Unknown DNS_PROVIDER: $DNS_PROVIDER_NAME"
+                print_info "Valid options: cloudflare, route53, google, digitalocean, manual"
+                exit 1
+                ;;
+        esac
+    fi
 
     # Validate required fields
     if [ -z "$N8N_DOMAIN" ]; then
