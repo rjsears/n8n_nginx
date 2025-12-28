@@ -13,6 +13,7 @@ const props = defineProps({
 const emit = defineEmits(['save', 'cancel', 'update:open'])
 
 const loading = ref(false)
+const slugManuallyEdited = ref(false)
 
 // Form data
 const form = ref({
@@ -35,11 +36,16 @@ function generateSlug(name) {
     .replace(/_+/g, '_')
 }
 
-// Auto-generate slug when name changes (only for new services)
+// Auto-generate slug when name changes (only for new services and if slug hasn't been manually edited)
 function onNameChange() {
-  if (!props.service && !form.value.slug) {
+  if (!props.service && !slugManuallyEdited.value) {
     form.value.slug = generateSlug(form.value.name)
   }
+}
+
+// Track when user manually edits the slug
+function onSlugInput() {
+  slugManuallyEdited.value = true
 }
 
 // Service type options
@@ -113,7 +119,8 @@ watch(() => props.open, (isOpen) => {
     loading.value = false
 
     if (props.service) {
-      // Editing existing service
+      // Editing existing service - slug was already set, so mark as manually edited
+      slugManuallyEdited.value = true
       form.value = {
         name: props.service.name || '',
         slug: props.service.slug || '',
@@ -124,7 +131,8 @@ watch(() => props.open, (isOpen) => {
         config: { ...props.service.config } || { url: '' },
       }
     } else {
-      // New service
+      // New service - allow auto-generation of slug
+      slugManuallyEdited.value = false
       form.value = {
         name: '',
         slug: '',
@@ -274,6 +282,7 @@ const appriseExamples = [
                   <span class="text-sm text-gray-500 dark:text-gray-400 font-mono">channel:</span>
                   <input
                     v-model="form.slug"
+                    @input="onSlugInput"
                     type="text"
                     class="flex-1 px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="discord_alerts"
