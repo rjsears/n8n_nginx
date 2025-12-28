@@ -268,6 +268,19 @@
         </div>
       </div>
     </div>
+
+    <!-- Delete Confirmation Dialog -->
+    <ConfirmDialog
+      :open="deleteDialog.open"
+      title="Delete Topic"
+      :message="`Are you sure you want to delete the topic '${deleteDialog.topic?.name}'? This cannot be undone.`"
+      confirm-text="Delete"
+      :loading="deleteDialog.loading"
+      :error="deleteDialog.error"
+      variant="danger"
+      @confirm="confirmDelete"
+      @cancel="cancelDelete"
+    />
   </div>
 </template>
 
@@ -282,6 +295,7 @@ import {
   ArrowPathIcon,
   ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const props = defineProps({
   topics: { type: Array, default: () => [] },
@@ -299,6 +313,7 @@ const syncing = ref(false)
 const syncMessage = ref('')
 const syncSuccess = ref(false)
 const expandedTopics = ref({})
+const deleteDialog = ref({ open: false, topic: null, loading: false, error: null })
 
 // Toggle topic expand/collapse
 function toggleTopic(id) {
@@ -390,14 +405,35 @@ async function saveTopic() {
   }
 }
 
-// Delete topic
-async function deleteTopic(topic) {
-  if (!confirm(`Delete topic "${topic.name}"? This cannot be undone.`)) return
+// Delete topic - open confirmation dialog
+function deleteTopic(topic) {
+  deleteDialog.value = { open: true, topic, loading: false, error: null }
+}
 
-  const result = await props.onDelete(topic.id)
-  if (!result?.success) {
-    alert(result?.error || 'Failed to delete topic')
+// Confirm delete
+async function confirmDelete() {
+  if (!deleteDialog.value.topic) return
+
+  deleteDialog.value.loading = true
+  deleteDialog.value.error = null
+
+  try {
+    const result = await props.onDelete(deleteDialog.value.topic.id)
+    if (result?.success) {
+      deleteDialog.value = { open: false, topic: null, loading: false, error: null }
+    } else {
+      deleteDialog.value.error = result?.error || 'Failed to delete topic'
+      deleteDialog.value.loading = false
+    }
+  } catch (error) {
+    deleteDialog.value.error = error.message || 'Failed to delete topic'
+    deleteDialog.value.loading = false
   }
+}
+
+// Cancel delete
+function cancelDelete() {
+  deleteDialog.value = { open: false, topic: null, loading: false, error: null }
 }
 
 // Sync topics to notification channels
