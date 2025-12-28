@@ -265,8 +265,10 @@ services:
       - TS_EXTRA_ARGS=--accept-routes
       - TS_ROUTES=${TAILSCALE_HOST_IP}/32
       - TS_AUTH_ONCE=true
+      - TS_SERVE_CONFIG=/config/tailscale-serve.json
     volumes:
       - tailscale_data:/var/lib/tailscale
+      - ./tailscale-serve.json:/config/tailscale-serve.json:ro
     cap_add:
       - NET_ADMIN
     networks:

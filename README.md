@@ -2831,20 +2831,11 @@ For manual setup:
 
 Without approving the routes, you won't be able to access your Docker host via the Tailscale network.
 
-### Enabling Tailscale Serve (Required for Magic DNS Access)
+### Tailscale Serve (Automatic)
 
-After the container is running and routes are approved, enable Tailscale Serve to proxy HTTPS traffic:
+Tailscale Serve is automatically configured via `TS_SERVE_CONFIG` using the `tailscale-serve.json` file. This proxies HTTPS traffic from your Tailscale Magic DNS name to the nginx container.
 
-```bash
-docker exec n8n_tailscale tailscale serve https://your-domain.com:443
-```
-
-Replace `your-domain.com` with your actual domain (e.g., `loftai7.loft.aero`).
-
-This command:
-- Enables HTTPS access via Magic DNS (`https://n8n-tailscale.your-tailnet.ts.net`)
-- Persists in Tailscale state, so it survives container restarts
-- Only needs to be run once after initial setup
+The configuration uses `${TS_CERT_DOMAIN}` which Tailscale automatically replaces with your node's FQDN (e.g., `n8n-tailscale.your-tailnet.ts.net`).
 
 To verify serve is enabled:
 ```bash
