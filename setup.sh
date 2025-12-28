@@ -2616,7 +2616,7 @@ EOF
       - TS_EXTRA_ARGS=--accept-routes
       - TS_ROUTES=${TAILSCALE_HOST_IP}/32
       - TS_AUTH_ONCE=true
-      - TS_SERVE=https://${DOMAIN}:443
+      - TS_SERVE=https+insecure://n8n_nginx:443
     volumes:
       - tailscale_data:/var/lib/tailscale
     cap_add:
