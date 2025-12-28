@@ -2616,7 +2616,6 @@ EOF
       - TS_EXTRA_ARGS=--accept-routes
       - TS_ROUTES=${TAILSCALE_HOST_IP}/32
       - TS_AUTH_ONCE=true
-      - TS_SERVE=https+insecure://n8n_nginx:443
     volumes:
       - tailscale_data:/var/lib/tailscale
     cap_add:
@@ -3702,13 +3701,18 @@ configure_tailscale() {
     echo ""
     print_info "Your n8n instance will be accessible at: ${TAILSCALE_HOSTNAME}.your-tailnet.ts.net"
     echo ""
-    echo -e "  ${YELLOW}IMPORTANT: After deployment, you must approve the advertised routes:${NC}"
+    echo -e "  ${YELLOW}IMPORTANT: After deployment, complete these steps:${NC}"
+    echo ""
+    echo -e "  ${WHITE}Step 1: Approve advertised routes${NC}"
     echo -e "    1. Visit: ${CYAN}https://login.tailscale.com/admin/machines${NC}"
     echo -e "    2. Find your ${WHITE}${TAILSCALE_HOSTNAME:-n8n-tailscale}${NC} node"
     echo -e "    3. Click the node and approve the advertised route (${TAILSCALE_HOST_IP}/32)"
-    echo -e "    4. Enable 'Serve' if prompted"
     echo ""
-    echo -e "  ${GRAY}Once approved, you can access via Tailscale Magic DNS:${NC}"
+    echo -e "  ${WHITE}Step 2: Enable Tailscale Serve (run once after deployment)${NC}"
+    echo -e "    ${CYAN}docker exec n8n_tailscale tailscale serve https://\${DOMAIN}:443${NC}"
+    echo -e "    ${GRAY}This persists across restarts - only needed once.${NC}"
+    echo ""
+    echo -e "  ${GRAY}Once complete, access via Tailscale:${NC}"
     echo -e "    • n8n:        ${CYAN}https://${TAILSCALE_HOSTNAME:-n8n-tailscale}.your-tailnet.ts.net${NC}"
     echo -e "    • Management: ${CYAN}https://${TAILSCALE_HOST_IP}:3333${NC} (via route)"
     echo -e "    • SSH:        ${CYAN}ssh user@${TAILSCALE_HOST_IP}${NC} (via route)"
