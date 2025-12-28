@@ -3713,18 +3713,13 @@ generate_tailscale_serve_config() {
     cat > "${SCRIPT_DIR}/tailscale-serve.json" << EOF
 {
   "TCP": {
-    "443": {
-      "HTTPS": true
-    }
-  },
-  "Web": {
-    "https://${DOMAIN}:443": {
-      "Handlers": {
-        "/": {
-          "Proxy": "https://${DOMAIN}"
-        }
+    "443": [
+      {
+        "Proto": "https",
+        "TLSTermination": true,
+        "Proxy": "https://${DOMAIN}"
       }
-    }
+    ]
   }
 }
 EOF
