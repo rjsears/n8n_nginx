@@ -3,7 +3,7 @@
   "Web": {
     "${TS_CERT_DOMAIN}:443": {
       "Handlers": {
-        "/": { "Proxy": "http://n8n:5678" }
+        "/": { "Proxy": "https://your-domain.com:443" }
       }
     }
   }
