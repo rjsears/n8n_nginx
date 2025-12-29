@@ -177,8 +177,7 @@
   - Managing Existing Schedules
 - 7.5 Backup Verification
   - How Verification Works
-  - Manual Verification
-  - Scheduled Verification
+  - Manual Verification (via Backup History)
   - Understanding Verification Results
 - 7.6 Restoration
   - Workflow Restoration
@@ -753,8 +752,8 @@ The following screenshots will be needed (approximately 50-55):
    - GET /api/backups/stats
    - GET /api/backups/retention-policies
    - PUT /api/backups/retention-policies
-   - GET /api/backups/verification-schedule
-   - PUT /api/backups/verification-schedule
+   - GET /api/backups/verification/schedule (API only - no UI)
+   - PUT /api/backups/verification/schedule (API only - no UI)
    - POST /api/backups/pruning-settings
    - GET /api/backups/pruning-settings
 
