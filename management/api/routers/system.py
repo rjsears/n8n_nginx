@@ -16,7 +16,51 @@ from api.models.audit import AuditLog, SystemMetricsCache
 from api.config import settings
 from api.schemas.common import HealthResponse
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+def _run_alpine_container_sync(docker_client, command: list, **kwargs) -> bytes:
+    """
+    Run an alpine container with guaranteed cleanup.
+
+    Uses detach mode with manual cleanup to ensure containers don't get orphaned
+    even if remove=True fails due to exceptions or timeouts.
+    """
+    container = None
+    try:
+        # Don't use remove=True - we'll handle cleanup manually
+        kwargs.pop("remove", None)
+
+        container = docker_client.containers.run(
+            "alpine:latest",
+            command=command,
+            detach=True,
+            **kwargs
+        )
+
+        # Wait for container to complete (timeout after 30 seconds)
+        result = container.wait(timeout=30)
+
+        # Get logs before removing
+        output = container.logs(stdout=True, stderr=False)
+
+        return output
+
+    except Exception as e:
+        logger.debug(f"Alpine container error: {e}")
+        raise
+
+    finally:
+        # Always try to clean up the container
+        if container:
+            try:
+                container.remove(force=True)
+            except Exception as cleanup_err:
+                logger.debug(f"Failed to remove container: {cleanup_err}")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -253,13 +297,10 @@ ip -4 addr show | grep -E 'inet [0-9]' | grep -v '127.0.0.1'
 ip route | grep default | head -1
 cat /etc/resolv.conf | grep nameserver
 """
-        result = client.containers.run(
-            "alpine:latest",
+        result = _run_alpine_container_sync(
+            client,
             command=["sh", "-c", commands],
             network_mode="host",
-            remove=True,
-            stdout=True,
-            stderr=False,
         )
 
         output = result.decode("utf-8").strip()
@@ -1189,13 +1230,10 @@ async def get_tailscale_status(
         else:
             # Try host tailscale via alpine container with host networking
             try:
-                result = client.containers.run(
-                    "alpine:latest",
+                result = _run_alpine_container_sync(
+                    client,
                     command=["sh", "-c", "which tailscale && tailscale status --json 2>/dev/null || echo 'not_found'"],
                     network_mode="host",
-                    remove=True,
-                    stdout=True,
-                    stderr=False,
                 )
                 output = result.decode("utf-8").strip()
                 if output != "not_found" and output:
@@ -1598,13 +1636,10 @@ async def get_full_health_check(
                         # Run openssl in alpine container sharing nginx's network
                         # This ensures openssl is available and can connect to nginx's localhost:443
                         try:
-                            result = client.containers.run(
-                                "alpine:latest",
+                            result = _run_alpine_container_sync(
+                                client,
                                 command=["sh", "-c", f"apk add --no-cache openssl >/dev/null 2>&1 && echo | openssl s_client -servername {domain} -connect localhost:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null"],
                                 network_mode=f"container:{nginx_container.id}",
-                                remove=True,
-                                stdout=True,
-                                stderr=False,
                             )
                             cert_output = result.decode("utf-8").strip()
                             if cert_output.startswith("notAfter="):
