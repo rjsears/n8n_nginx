@@ -343,6 +343,8 @@ class BackupConfiguration(Base):
     # Verification Settings
     auto_verify_enabled = Column(Boolean, default=False)
     verify_after_backup = Column(Boolean, default=False)
+    # Verify every Nth backup (1 = every backup, 5 = every 5th backup, etc.)
+    verify_frequency = Column(Integer, default=1)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))

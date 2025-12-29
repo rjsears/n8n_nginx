@@ -134,6 +134,9 @@ const form = ref({
   notify_on_success: false,
   notify_on_failure: true,
   notification_channel_id: null, // Single channel ID
+  // Verification
+  auto_verify_enabled: false,
+  verify_frequency: 1, // Verify every Nth backup (1 = every backup)
 })
 
 const tabs = [
@@ -141,6 +144,7 @@ const tabs = [
   { id: 'schedule', name: 'Schedule', icon: ClockIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
   { id: 'retention', name: 'Retention', icon: TrashIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
   { id: 'compression', name: 'Compression', icon: ServerIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
+  { id: 'verification', name: 'Verification', icon: ShieldCheckIcon, iconColor: 'text-cyan-500', bgActive: 'bg-cyan-500/15 dark:bg-cyan-500/20', textActive: 'text-cyan-700 dark:text-cyan-400', borderActive: 'border-cyan-500/30' },
   { id: 'notifications', name: 'Notifications', icon: BellIcon, iconColor: 'text-pink-500', bgActive: 'bg-pink-500/15 dark:bg-pink-500/20', textActive: 'text-pink-700 dark:text-pink-400', borderActive: 'border-pink-500/30' },
 ]
 
@@ -1458,6 +1462,148 @@ onMounted(() => {
                   <span>Smaller</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Verification Tab -->
+      <div v-if="activeTab === 'verification'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <!-- Header -->
+          <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <div class="flex items-center gap-3">
+              <div class="p-2 rounded-lg bg-cyan-100 dark:bg-cyan-500/20">
+                <ShieldCheckIcon class="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+              </div>
+              <div>
+                <h3 class="font-semibold text-primary">Auto-Verification</h3>
+                <p class="text-sm text-secondary">Automatically verify backups after they complete</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-6 space-y-6">
+            <!-- Enable Toggle -->
+            <div class="flex items-center justify-between p-4 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg border border-cyan-200 dark:border-cyan-800">
+              <div>
+                <p class="font-medium text-cyan-800 dark:text-cyan-300">Enable Auto-Verification</p>
+                <p class="text-sm text-cyan-700 dark:text-cyan-400">Automatically verify backup integrity after each backup completes</p>
+              </div>
+              <button
+                type="button"
+                @click="form.auto_verify_enabled = !form.auto_verify_enabled"
+                :class="[
+                  'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2',
+                  form.auto_verify_enabled ? 'bg-cyan-500' : 'bg-gray-300 dark:bg-gray-600'
+                ]"
+              >
+                <span :class="['inline-block h-5 w-5 transform rounded-full bg-white transition-transform', form.auto_verify_enabled ? 'translate-x-5' : 'translate-x-0']" />
+              </button>
+            </div>
+
+            <!-- Frequency Setting -->
+            <div v-if="form.auto_verify_enabled" class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-primary mb-2">Verification Frequency</label>
+                <p class="text-sm text-secondary mb-3">Choose how often backups should be verified</p>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <button
+                    type="button"
+                    @click="form.verify_frequency = 1"
+                    :class="[
+                      'p-4 rounded-lg border-2 transition-all text-center',
+                      form.verify_frequency === 1
+                        ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/30'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-cyan-300 dark:hover:border-cyan-700'
+                    ]"
+                  >
+                    <div :class="['text-2xl font-bold mb-1', form.verify_frequency === 1 ? 'text-cyan-600 dark:text-cyan-400' : 'text-gray-700 dark:text-gray-300']">1</div>
+                    <div :class="['text-xs', form.verify_frequency === 1 ? 'text-cyan-700 dark:text-cyan-400' : 'text-secondary']">Every backup</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    @click="form.verify_frequency = 3"
+                    :class="[
+                      'p-4 rounded-lg border-2 transition-all text-center',
+                      form.verify_frequency === 3
+                        ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/30'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-cyan-300 dark:hover:border-cyan-700'
+                    ]"
+                  >
+                    <div :class="['text-2xl font-bold mb-1', form.verify_frequency === 3 ? 'text-cyan-600 dark:text-cyan-400' : 'text-gray-700 dark:text-gray-300']">3</div>
+                    <div :class="['text-xs', form.verify_frequency === 3 ? 'text-cyan-700 dark:text-cyan-400' : 'text-secondary']">Every 3rd</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    @click="form.verify_frequency = 5"
+                    :class="[
+                      'p-4 rounded-lg border-2 transition-all text-center',
+                      form.verify_frequency === 5
+                        ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/30'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-cyan-300 dark:hover:border-cyan-700'
+                    ]"
+                  >
+                    <div :class="['text-2xl font-bold mb-1', form.verify_frequency === 5 ? 'text-cyan-600 dark:text-cyan-400' : 'text-gray-700 dark:text-gray-300']">5</div>
+                    <div :class="['text-xs', form.verify_frequency === 5 ? 'text-cyan-700 dark:text-cyan-400' : 'text-secondary']">Every 5th</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    @click="form.verify_frequency = 10"
+                    :class="[
+                      'p-4 rounded-lg border-2 transition-all text-center',
+                      form.verify_frequency === 10
+                        ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/30'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-cyan-300 dark:hover:border-cyan-700'
+                    ]"
+                  >
+                    <div :class="['text-2xl font-bold mb-1', form.verify_frequency === 10 ? 'text-cyan-600 dark:text-cyan-400' : 'text-gray-700 dark:text-gray-300']">10</div>
+                    <div :class="['text-xs', form.verify_frequency === 10 ? 'text-cyan-700 dark:text-cyan-400' : 'text-secondary']">Every 10th</div>
+                  </button>
+                </div>
+
+                <!-- Custom frequency input -->
+                <div class="mt-4">
+                  <label class="block text-sm font-medium text-primary mb-1">Or enter a custom frequency</label>
+                  <div class="flex items-center gap-2">
+                    <span class="text-secondary">Verify every</span>
+                    <input
+                      v-model.number="form.verify_frequency"
+                      type="number"
+                      min="1"
+                      max="100"
+                      class="w-20 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary text-center"
+                    />
+                    <span class="text-secondary">backup(s)</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Info Box -->
+              <div class="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <div class="flex gap-3">
+                  <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                  <div class="text-sm">
+                    <p class="font-medium text-blue-800 dark:text-blue-300 mb-1">What does verification do?</p>
+                    <ul class="text-blue-700 dark:text-blue-400 space-y-1">
+                      <li>Validates archive integrity (checks for corruption)</li>
+                      <li>Verifies database dump can be read by PostgreSQL</li>
+                      <li>Confirms checksums match expected values</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Disabled state info -->
+            <div v-else class="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <p class="text-sm text-secondary">
+                When disabled, backups will not be automatically verified. You can still manually verify any backup from the Backup History page.
+              </p>
             </div>
           </div>
         </div>

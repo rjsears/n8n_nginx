@@ -371,6 +371,7 @@ class BackupConfigurationUpdate(BaseModel):
     # Verification Settings
     auto_verify_enabled: Optional[bool] = None
     verify_after_backup: Optional[bool] = None
+    verify_frequency: Optional[int] = Field(None, ge=1, le=100)  # Verify every Nth backup
 
 
 class BackupConfigurationResponse(BaseModel):
@@ -413,6 +414,7 @@ class BackupConfigurationResponse(BaseModel):
     # Verification Settings
     auto_verify_enabled: bool
     verify_after_backup: bool
+    verify_frequency: int = 1  # Verify every Nth backup
 
     created_at: datetime
     updated_at: datetime
