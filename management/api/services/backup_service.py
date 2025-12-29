@@ -261,6 +261,10 @@ class BackupService:
             })
 
             logger.info(f"Backup completed: {filename} ({file_size} bytes)")
+
+            # Run auto-verification if enabled
+            await self._run_auto_verification(history)
+
             return history
 
         except Exception as e:
@@ -369,6 +373,45 @@ class BackupService:
         stmt = select(BackupConfiguration).limit(1)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def _should_auto_verify(self, backup_id: int) -> bool:
+        """
+        Check if this backup should be auto-verified based on configuration.
+        Returns True if auto_verify_enabled and this is the Nth backup (based on verify_frequency).
+        """
+        config = await self._get_backup_configuration()
+        if not config or not config.auto_verify_enabled:
+            return False
+
+        frequency = config.verify_frequency or 1
+
+        if frequency == 1:
+            # Verify every backup
+            return True
+
+        # Count total successful backups to determine if this is an Nth backup
+        stmt = select(func.count(BackupHistory.id)).where(
+            BackupHistory.status == "success"
+        )
+        result = await self.db.execute(stmt)
+        total_backups = result.scalar() or 0
+
+        # Verify every Nth backup (e.g., if frequency=5, verify backups 5, 10, 15, etc.)
+        return total_backups % frequency == 0
+
+    async def _run_auto_verification(self, backup: BackupHistory) -> None:
+        """
+        Run auto-verification on a backup if enabled in configuration.
+        This is called after a successful backup completes.
+        """
+        try:
+            if await self._should_auto_verify(backup.id):
+                logger.info(f"Auto-verifying backup {backup.id}")
+                result = await self.verify_backup(backup.id)
+                logger.info(f"Auto-verification result for backup {backup.id}: {result.get('status', 'unknown')}")
+        except Exception as e:
+            # Don't fail the backup if verification fails - just log it
+            logger.error(f"Auto-verification failed for backup {backup.id}: {e}")
 
     async def _get_storage_location(self) -> str:
         """Get backup storage location based on configuration."""
@@ -1556,6 +1599,10 @@ exit 0
             })
 
             logger.info(f"Backup completed: {filename} ({file_size} bytes)")
+
+            # Run auto-verification if enabled
+            await self._run_auto_verification(history)
+
             return history
 
         except Exception as e:

@@ -676,46 +676,77 @@ async def _cleanup_orphaned_alpine_containers() -> None:
     """
     Clean up any orphaned alpine containers that weren't properly removed.
     This runs periodically to catch any containers that slipped through.
+    Handles both 'exited' and 'created' (stuck/never started) containers.
     """
     import docker
 
     try:
         client = docker.from_env()
 
-        # Find exited alpine containers
-        containers = client.containers.list(
-            all=True,
-            filters={
-                "status": "exited",
-                "ancestor": "alpine:latest"
-            }
-        )
+        # Find alpine containers in problematic states
+        # - 'exited': completed but not removed
+        # - 'created': stuck in created state (never started)
+        # - 'dead': container failed to start
+        containers = []
+        for status in ["exited", "created", "dead"]:
+            try:
+                status_containers = client.containers.list(
+                    all=True,
+                    filters={
+                        "status": status,
+                        "ancestor": "alpine:latest"
+                    }
+                )
+                containers.extend(status_containers)
+            except Exception:
+                pass
 
         removed_count = 0
         for container in containers:
             try:
-                # Check if it's been exited for more than 5 minutes
-                # to avoid removing containers that are just finishing up
+                from datetime import datetime, timezone
+                import re
+
                 attrs = container.attrs
-                finished_at = attrs.get("State", {}).get("FinishedAt", "")
-                if finished_at and "0001-01-01" not in finished_at:
-                    from datetime import datetime, timezone
-                    import re
+                container_status = attrs.get("State", {}).get("Status", "")
+
+                # For 'created' or 'dead' containers, check creation time
+                # For 'exited' containers, check finished time
+                timestamp_to_check = None
+
+                if container_status in ["created", "dead"]:
+                    # Use creation time - these containers never ran
+                    created_at = attrs.get("Created", "")
+                    if created_at:
+                        timestamp_to_check = created_at
+                else:
+                    # Use finished time for exited containers
+                    finished_at = attrs.get("State", {}).get("FinishedAt", "")
+                    if finished_at and "0001-01-01" not in finished_at:
+                        timestamp_to_check = finished_at
+
+                if timestamp_to_check:
                     # Parse Docker timestamp (e.g., "2024-01-15T10:30:00.123456789Z")
                     # Truncate nanoseconds to microseconds
-                    finished_at_clean = re.sub(r'\.(\d{6})\d*Z', r'.\1Z', finished_at)
+                    timestamp_clean = re.sub(r'\.(\d{6})\d*Z', r'.\1Z', timestamp_to_check)
                     try:
-                        finished_time = datetime.fromisoformat(finished_at_clean.replace("Z", "+00:00"))
-                        age_seconds = (datetime.now(timezone.utc) - finished_time).total_seconds()
+                        parsed_time = datetime.fromisoformat(timestamp_clean.replace("Z", "+00:00"))
+                        age_seconds = (datetime.now(timezone.utc) - parsed_time).total_seconds()
 
-                        if age_seconds > 300:  # 5 minutes
+                        # Remove if older than 5 minutes
+                        if age_seconds > 300:
                             container.remove(force=True)
                             removed_count += 1
-                            logger.debug(f"Cleaned up orphaned alpine container: {container.short_id}")
+                            logger.debug(f"Cleaned up orphaned alpine container ({container_status}): {container.short_id}")
                     except ValueError:
-                        # If we can't parse the timestamp, remove it anyway if it's exited
+                        # If we can't parse the timestamp, remove it anyway
                         container.remove(force=True)
                         removed_count += 1
+                else:
+                    # No valid timestamp, remove it anyway (it's orphaned)
+                    container.remove(force=True)
+                    removed_count += 1
+
             except Exception as e:
                 logger.debug(f"Failed to clean up container {container.short_id}: {e}")
 

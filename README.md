@@ -1666,15 +1666,14 @@ A progress modal shows:
 
 #### Creating a Backup Schedule
 
-1. Go to **Backups** > **Settings** > **Schedules**
-2. Click **Add Schedule**
+1. Go to **Backups** and click **Configure**
+2. Select the **Schedule** tab
 3. Configure:
-   - **Name**: Schedule identifier
+   - **Enable Scheduled Backups**: Toggle on
    - **Frequency**: Hourly, Daily, Weekly, or Monthly
    - **Time**: When to run (for daily/weekly/monthly)
    - **Day**: Which day (for weekly/monthly)
-   - **Compression**: Compression type
-   - **Enabled**: Toggle on/off
+4. Click **Save Changes**
 
 <!-- SCREENSHOT: Schedule configuration -->
 *[Screenshot placeholder: Backup schedule creation form]*
@@ -1721,14 +1720,26 @@ Status: Backup is valid and restorable
 <!-- SCREENSHOT: Verification results -->
 *[Screenshot placeholder: Verification report dialog]*
 
-#### Scheduled Verification
+#### Auto-Verification
 
-Configure automatic verification:
+Configure automatic verification to run after backups complete:
 
-1. Go to **Backups** > **Settings** > **Verification**
-2. Enable scheduled verification
-3. Set frequency (e.g., verify each backup, weekly verification)
-4. Save settings
+1. Go to **Backups** and click **Configure**
+2. Select the **Verification** tab
+3. Enable **Auto-Verification**
+4. Choose verification frequency:
+   - **Every backup** (frequency = 1): Verify every backup immediately
+   - **Every 3rd, 5th, or 10th**: Verify periodically to balance thoroughness and performance
+   - **Custom frequency**: Enter any number from 1-100
+
+| Frequency | Use Case |
+|-----------|----------|
+| Every backup | Critical production environments requiring maximum assurance |
+| Every 3rd | Balanced approach for most deployments |
+| Every 5th-10th | High-volume backup schedules where verification overhead matters |
+
+<!-- SCREENSHOT: Auto-verification settings -->
+*[Screenshot placeholder: Verification tab with frequency options]*
 
 ### 7.6 Restoration
 
@@ -3071,13 +3082,14 @@ exportfs -ra
 
 In the management console:
 
-1. Go to **Backups** > **Settings** > **Storage**
-2. Enable NFS storage
-3. Enter:
+1. Go to **Backups** and click **Configure**
+2. Select the **Storage** tab
+3. Enable NFS storage
+4. Enter:
    - **Server**: `nfs.example.com`
    - **Path**: `/export/n8n_backups`
-4. Test the connection
-5. Save
+5. Test the connection
+6. Click **Save Changes**
 
 ### Troubleshooting NFS
 
