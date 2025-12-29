@@ -218,6 +218,9 @@ async def run_schema_migrations() -> None:
         ("backup_configuration", "retention_daily_count", "INTEGER DEFAULT 7"),
         ("backup_configuration", "retention_weekly_count", "INTEGER DEFAULT 4"),
         ("backup_configuration", "retention_monthly_count", "INTEGER DEFAULT 6"),
+        # backup_configuration workflow and verification columns
+        ("backup_configuration", "backup_workflow", "VARCHAR(20) DEFAULT 'direct'"),
+        ("backup_configuration", "verify_frequency", "INTEGER DEFAULT 1"),
     ]
 
     async with engine.begin() as conn:
