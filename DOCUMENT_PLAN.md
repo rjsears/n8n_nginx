@@ -1,7 +1,7 @@
 # n8n Enterprise Deployment Suite - Documentation Plan
 
-> **Status:** Planning Complete - Ready for User Approval
-> **Last Updated:** 2025-12-20
+> **Status:** Implementation In Progress
+> **Last Updated:** 2025-12-29
 > **Author:** Documentation Agent
 
 ---
@@ -10,18 +10,18 @@
 
 | Section | Status | Notes |
 |---------|--------|-------|
-| PART I: Introduction | Not Started | |
-| PART II: Installation | Not Started | |
-| PART III: Initial Configuration | Not Started | |
-| PART IV: Management Console Reference | Not Started | |
-| PART V: Operations & Maintenance | Not Started | |
-| PART VI: Advanced Configuration | Not Started | |
-| PART VII: Troubleshooting | Not Started | |
-| PART VIII: Reference | Not Started | |
-| Appendices | Not Started | |
-| API.md | Not Started | |
+| PART I: Introduction | ✅ Complete | Overview, features, architecture, tech stack |
+| PART II: Installation | ✅ Complete | Full setup.sh walkthrough, all options documented |
+| PART III: Initial Configuration | ✅ Complete | First-time setup, API connection, IP access |
+| PART IV: Management Console Reference | ✅ Complete | All console pages documented |
+| PART V: Operations & Maintenance | ✅ Complete | Daily ops, SSL, database, containers |
+| PART VI: Advanced Configuration | ✅ Complete | Tailscale, Cloudflare, NFS, Nginx |
+| PART VII: Troubleshooting | ✅ Complete | Common issues and solutions |
+| PART VIII: Reference | ✅ Complete | Commands, file locations, glossary |
+| Appendices | ✅ Complete | DNS provider guides, auth key generation |
+| API.md | Not Started | Separate API reference document |
 
-**Current Task:** Awaiting user approval of plan
+**Current Task:** README.md complete, API.md pending
 
 ---
 
@@ -217,7 +217,11 @@
   - Email Notifications
   - Webhook Integration
 - 8.3 Creating Notification Channels
-  - Channel Configuration Options
+  - Apprise Channel Configuration
+  - NTFY Channel Configuration
+    - Local NTFY Server Detection
+    - Success Dialog (explains topic vs channel slug)
+    - Auto-naming and slug generation
   - Testing Channels
   - Channel Priority Settings
 - 8.4 Notification Groups
@@ -227,6 +231,17 @@
 - 8.5 NTFY Configuration
   - NTFY Server Settings
   - Topic Management
+    - Topic Name Sanitization (spaces → underscores, invalid chars removed)
+    - Success Dialog (explains topic vs channel slug)
+    - Sync Channels Button
+  - Topics vs Channel Slugs Concept
+    - Topic: What to subscribe to in NTFY app
+    - Channel Slug: What to use in n8n webhook payloads
+  - Bidirectional Sync (Channels ↔ NTFY Topics)
+  - Local NTFY Server Detection
+    - Auto "NTFY:" prefix for channel names
+    - Auto slug format: `ntfy_{topic_name}`
+    - "Local" badge and megaphone icon indicator
   - Message Composer
   - Template Builder
     - Go Template Syntax
@@ -609,7 +624,7 @@ flowchart TD
 
 ## Screenshot Placeholders
 
-The following screenshots will be needed (approximately 45-50):
+The following screenshots will be needed (approximately 50-55):
 
 ### Setup Process (~10)
 - [ ] Initial setup.sh welcome screen
@@ -643,14 +658,18 @@ The following screenshots will be needed (approximately 45-50):
 - [ ] System restore wizard
 - [ ] Backup settings page
 
-### Management Console - Notifications (~8)
+### Management Console - Notifications (~12)
 - [ ] Notification channels list
+- [ ] Notification channels list with local NTFY indicator (megaphone icon, "Local" badge)
 - [ ] Create channel dialog (Apprise)
 - [ ] Create channel dialog (NTFY)
+- [ ] NTFY channel success dialog (showing topic vs slug explanation)
 - [ ] Notification groups
 - [ ] NTFY message composer
 - [ ] NTFY template builder
 - [ ] NTFY topics manager
+- [ ] NTFY topic creation success dialog
+- [ ] NTFY topic delete confirmation dialog
 - [ ] Test notification result
 
 ### Management Console - System Notifications (~4)
@@ -767,9 +786,11 @@ The following screenshots will be needed (approximately 45-50):
    - DELETE /api/ntfy/templates/{id}
    - POST /api/ntfy/templates/{id}/preview
    - GET /api/ntfy/topics
-   - POST /api/ntfy/topics
+   - POST /api/ntfy/topics (with topic name sanitization)
    - PUT /api/ntfy/topics/{id}
-   - DELETE /api/ntfy/topics/{id}
+   - DELETE /api/ntfy/topics/{id} (with bidirectional channel deletion)
+   - POST /api/ntfy/topics/sync-channels (sync topics to notification channels)
+   - POST /api/ntfy/topics/sync-from-channels (sync channels to topics)
    - GET /api/ntfy/saved-messages
    - POST /api/ntfy/saved-messages
    - DELETE /api/ntfy/saved-messages/{id}
