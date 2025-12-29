@@ -65,6 +65,25 @@ def _ensure_ntfy_prefix(name: str) -> str:
     return name
 
 
+def _sanitize_ntfy_topic(topic: str) -> str:
+    """
+    Sanitize NTFY topic name to be valid.
+    NTFY topics must be alphanumeric with dashes and underscores only.
+    """
+    import re
+    if not topic:
+        return topic
+    # Replace spaces with underscores
+    sanitized = topic.replace(" ", "_")
+    # Remove any characters that aren't alphanumeric, dash, or underscore
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', sanitized)
+    # Remove leading/trailing underscores/dashes
+    sanitized = sanitized.strip('_-')
+    # Collapse multiple underscores/dashes
+    sanitized = re.sub(r'[_-]+', '_', sanitized)
+    return sanitized
+
+
 def _generate_ntfy_slug(topic: str) -> str:
     """Generate consistent slug for local NTFY channel: ntfy_{topic}."""
     from api.models.notifications import generate_slug
@@ -172,21 +191,30 @@ async def create_service(
     """Create a notification service (channel)."""
     name = data.name
     slug = data.slug
+    config = data.config
 
-    # For local NTFY channels: auto-prefix name and generate consistent slug
-    if data.service_type.value == "ntfy" and _is_local_ntfy_channel(data.config):
-        name = _ensure_ntfy_prefix(data.name)
-        # Generate slug from topic name: ntfy_{topic}
-        topic = data.config.get("topic", "") if data.config else ""
+    # For NTFY channels: sanitize the topic name
+    if data.service_type.value == "ntfy" and config:
+        topic = config.get("topic", "")
         if topic:
-            slug = _generate_ntfy_slug(topic)
+            sanitized_topic = _sanitize_ntfy_topic(topic)
+            if sanitized_topic != topic:
+                config = {**config, "topic": sanitized_topic}
+                logger.info(f"Sanitized NTFY topic: '{topic}' -> '{sanitized_topic}'")
+
+        # For local NTFY channels: auto-prefix name and generate consistent slug
+        if _is_local_ntfy_channel(config):
+            name = _ensure_ntfy_prefix(data.name)
+            # Generate slug from sanitized topic name: ntfy_{topic}
+            if sanitized_topic := config.get("topic", ""):
+                slug = _generate_ntfy_slug(sanitized_topic)
 
     service = NotificationService(db)
     created = await service.create_service(
         name=name,
         slug=slug,
         service_type=data.service_type.value,
-        config=data.config,
+        config=config,
         enabled=data.enabled,
         webhook_enabled=data.webhook_enabled,
         priority=data.priority,
@@ -233,6 +261,15 @@ async def update_service(
     # Get the existing service to check if it's local NTFY
     existing = await service.get_service(service_id)
     if existing and existing.service_type == "ntfy":
+        # Sanitize topic name if config is being updated
+        if "config" in updates and updates["config"]:
+            topic = updates["config"].get("topic", "")
+            if topic:
+                sanitized_topic = _sanitize_ntfy_topic(topic)
+                if sanitized_topic != topic:
+                    updates["config"] = {**updates["config"], "topic": sanitized_topic}
+                    logger.info(f"Sanitized NTFY topic: '{topic}' -> '{sanitized_topic}'")
+
         # Use updated config if provided, otherwise use existing
         config_to_check = updates.get("config", existing.config)
         if _is_local_ntfy_channel(config_to_check):
