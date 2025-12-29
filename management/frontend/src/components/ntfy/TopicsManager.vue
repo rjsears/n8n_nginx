@@ -281,6 +281,79 @@
       @confirm="confirmDelete"
       @cancel="cancelDelete"
     />
+
+    <!-- Topic Created Success Dialog -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="successDialog.open"
+          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          @click.self="successDialog.open = false"
+        >
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
+            <!-- Header -->
+            <div class="flex items-center gap-3 mb-4">
+              <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
+                <CheckCircleIcon class="h-6 w-6 text-green-500" />
+              </div>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                NTFY Topic Created!
+              </h3>
+            </div>
+
+            <!-- Content -->
+            <div class="space-y-4">
+              <p class="text-sm text-gray-600 dark:text-gray-300">
+                Your NTFY topic has been created successfully. Here's how to use it:
+              </p>
+
+              <!-- Topic Info -->
+              <div class="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <div class="flex items-center gap-2 mb-2">
+                  <MegaphoneIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  <span class="font-semibold text-amber-800 dark:text-amber-300">Subscribe to Topic</span>
+                </div>
+                <p class="text-sm text-amber-700 dark:text-amber-400 mb-2">
+                  In your NTFY app or browser, subscribe to:
+                </p>
+                <code class="block px-3 py-2 bg-amber-100 dark:bg-amber-900/40 rounded text-amber-900 dark:text-amber-200 font-mono text-sm">
+                  {{ successDialog.topic?.name }}
+                </code>
+              </div>
+
+              <!-- Slug Info -->
+              <div class="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <div class="flex items-center gap-2 mb-2">
+                  <LinkIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <span class="font-semibold text-blue-800 dark:text-blue-300">Send via n8n Webhook</span>
+                </div>
+                <p class="text-sm text-blue-700 dark:text-blue-400 mb-2">
+                  To send notifications from n8n workflows, use this channel slug:
+                </p>
+                <code class="block px-3 py-2 bg-blue-100 dark:bg-blue-900/40 rounded text-blue-900 dark:text-blue-200 font-mono text-sm">
+                  channel:ntfy_{{ successDialog.topic?.name?.toLowerCase().replace(/[^a-z0-9]+/g, '_') }}
+                </code>
+              </div>
+
+              <!-- Note -->
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                <strong>Note:</strong> The topic is what you subscribe to in the NTFY app. The channel slug is used in n8n webhook payloads to route messages to this topic.
+              </p>
+            </div>
+
+            <!-- Footer -->
+            <div class="mt-6 flex justify-end">
+              <button
+                @click="successDialog.open = false"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+              >
+                Got it!
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -294,6 +367,9 @@ import {
   XMarkIcon,
   ArrowPathIcon,
   ChevronRightIcon,
+  CheckCircleIcon,
+  LinkIcon,
+  MegaphoneIcon,
 } from '@heroicons/vue/24/outline'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
@@ -314,6 +390,7 @@ const syncMessage = ref('')
 const syncSuccess = ref(false)
 const expandedTopics = ref({})
 const deleteDialog = ref({ open: false, topic: null, loading: false, error: null })
+const successDialog = ref({ open: false, topic: null })
 
 // Toggle topic expand/collapse
 function toggleTopic(id) {
@@ -389,6 +466,7 @@ async function saveTopic() {
     }
 
     let result
+    const isCreating = !editingTopic.value
     if (editingTopic.value) {
       result = await props.onUpdate(editingTopic.value.id, data)
     } else {
@@ -397,6 +475,10 @@ async function saveTopic() {
 
     if (result?.success) {
       closeEditor()
+      // Show success dialog for new topics
+      if (isCreating && result.topic) {
+        successDialog.value = { open: true, topic: result.topic }
+      }
     } else {
       alert(result?.error || 'Failed to save topic')
     }
@@ -469,3 +551,14 @@ async function syncChannels() {
   }
 }
 </script>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

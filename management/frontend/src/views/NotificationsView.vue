@@ -711,13 +711,14 @@ async function handleNtfyPreviewTemplate(data) {
 // NTFY Topic handlers
 async function handleNtfyCreateTopic(topic) {
   try {
-    await api.ntfy.createTopic(topic)
+    const createRes = await api.ntfy.createTopic(topic)
+    const createdTopic = createRes.data
     const res = await api.ntfy.getTopics()
     ntfyTopics.value = res.data || []
     // Refresh status
     const statusRes = await api.ntfy.status()
     ntfyStatus.value = statusRes.data
-    return { success: true }
+    return { success: true, topic: createdTopic }
   } catch (error) {
     return { success: false, error: error.response?.data?.detail || error.message }
   }
