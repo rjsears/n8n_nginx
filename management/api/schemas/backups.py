@@ -379,42 +379,42 @@ class BackupConfigurationResponse(BaseModel):
     id: int
 
     # Storage Settings
-    primary_storage_path: str
+    primary_storage_path: str = "/app/backups"
     nfs_storage_path: Optional[str] = None
-    nfs_enabled: bool
-    storage_preference: str
-    backup_workflow: str = "direct"
+    nfs_enabled: bool = False
+    storage_preference: str = "local"
+    backup_workflow: Optional[str] = "direct"
 
     # Compression Settings
-    compression_enabled: bool
-    compression_algorithm: str
-    compression_level: int
+    compression_enabled: bool = True
+    compression_algorithm: str = "gzip"
+    compression_level: int = 6
 
     # Retention Settings - Tiered GFS (Grandfather-Father-Son) strategy
-    retention_enabled: bool
-    retention_daily_count: int
-    retention_weekly_count: int
-    retention_monthly_count: int
-    retention_min_count: int
+    retention_enabled: bool = True
+    retention_daily_count: Optional[int] = 7
+    retention_weekly_count: Optional[int] = 4
+    retention_monthly_count: Optional[int] = 6
+    retention_min_count: int = 3
 
     # NOTE: Schedule settings have been moved to BackupSchedule.
     # Use /api/backups/schedules endpoints for schedule management.
 
     # Backup Type Settings
-    default_backup_type: str
-    include_n8n_config: bool
-    include_ssl_certs: bool
-    include_env_files: bool
+    default_backup_type: str = "postgres_full"
+    include_n8n_config: bool = True
+    include_ssl_certs: bool = True
+    include_env_files: bool = True
 
     # Notification Settings
-    notify_on_success: bool
-    notify_on_failure: bool
+    notify_on_success: bool = False
+    notify_on_failure: bool = True
     notification_channel_id: Optional[int] = None
 
     # Verification Settings
-    auto_verify_enabled: bool
-    verify_after_backup: bool
-    verify_frequency: int = 1  # Verify every Nth backup
+    auto_verify_enabled: bool = False
+    verify_after_backup: bool = False
+    verify_frequency: Optional[int] = 1  # Verify every Nth backup
 
     created_at: datetime
     updated_at: datetime
