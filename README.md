@@ -2442,14 +2442,20 @@ Monitor and control Docker containers.
 
 ### Container List
 
-View all containers with:
-- **Name**: Container name
-- **Status**: Running, Stopped, Exited
-- **Health**: Healthy, Unhealthy, None
-- **CPU**: Current CPU usage
-- **Memory**: Current memory usage
-- **Network**: I/O statistics
-- **Uptime**: Time since container started
+Containers are displayed in a collapsible card format:
+
+**Collapsed View (default)**:
+- Status icon and color indicator
+- Container name and image
+- Status badge (Running/Stopped/etc.)
+- Health badge (Healthy/Unhealthy)
+- Remove button (for stopped containers)
+
+**Expanded View** (click to expand):
+- Recreate button (for N8N project containers)
+- Stats grid: Uptime, CPU, Memory, Network
+- Memory usage progress bar
+- Action buttons
 
 ### Container Operations
 
@@ -2457,29 +2463,40 @@ View all containers with:
 |--------|-------------|
 | **Start** | Start a stopped container |
 | **Stop** | Gracefully stop a running container |
-| **Restart** | Stop and start a container |
-| **View Logs** | Display container log output |
+| **Restart** | Stop and start a running container |
+| **Recreate** | Remove and recreate container (with optional image pull) |
+| **Alerts** | Configure container-specific notifications |
+| **Logs** | Display container log output with filtering |
+| **Terminal** | Open interactive terminal session |
+| **Remove** | Delete a stopped container |
+
+> **Note**: Restart, Alerts, Logs, and Terminal buttons are only available for running containers. Stopped containers show only Start and Remove options.
 
 ### Viewing Container Logs
 
-1. Click a container
-2. Click **View Logs**
-3. Options:
-   - **Lines**: Number of lines to show
-   - **Follow**: Stream new logs in real-time
-   - **Since**: Show logs since timestamp
-4. Use search to filter logs
+1. Click a container to expand it
+2. Click **Logs** to open the log viewer
+
+**Log Viewer Controls**:
+- **Lines**: Select number of lines (50, 100, 200, 500, 1000, or All)
+- **Since**: Filter logs by time (e.g., "1h", "30m", "2024-01-01")
+- **Follow**: Enable real-time log streaming (auto-refreshes every 2 seconds)
+- **Refresh**: Manually refresh logs
+- **Search**: Filter displayed logs by keyword
+
+The search feature filters logs client-side and shows a match count. Use the "Since" field to reduce server load when viewing large log files.
 
 <!-- SCREENSHOT: Container logs viewer -->
-*[Screenshot placeholder: Container log output]*
+*[Screenshot placeholder: Enhanced container log viewer with controls]*
 
 ### Resource Monitoring
 
-Click a container to view detailed metrics:
-- CPU usage over time
-- Memory usage over time
-- Network I/O over time
-- Block I/O statistics
+Expand a container to view current metrics:
+- **Uptime**: Time since container started
+- **CPU**: Current CPU usage percentage
+- **Memory**: Current memory usage in MB
+- **Network**: Network I/O (download bytes)
+- **Memory Bar**: Visual progress bar showing memory percentage
 
 ---
 

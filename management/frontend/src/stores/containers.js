@@ -117,11 +117,22 @@ export const useContainerStore = defineStore('containers', () => {
     }
   }
 
-  async function getLogs(name, tail = 100) {
+  async function getLogs(name, options = {}) {
     try {
-      const response = await api.get(`/containers/${name}/logs`, {
-        params: { tail }
-      })
+      const params = {}
+      // Support both 'tail' and 'lines' parameter names
+      if (options.lines !== undefined) {
+        params.tail = options.lines
+      } else if (options.tail !== undefined) {
+        params.tail = options.tail
+      } else {
+        params.tail = 100
+      }
+      // Add since parameter if provided
+      if (options.since) {
+        params.since = options.since
+      }
+      const response = await api.get(`/containers/${name}/logs`, { params })
       return response.data.logs
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to fetch logs'
