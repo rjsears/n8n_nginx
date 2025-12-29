@@ -3,6 +3,7 @@ NTFY API routes for the management console.
 Provides endpoints for message sending, templates, topics, and server configuration.
 """
 
+import re
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
@@ -48,6 +49,28 @@ from api.services.ntfy_service import ntfy_service, COMMON_EMOJIS
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# =============================================================================
+# Helper: Sanitize NTFY Topic Name
+# =============================================================================
+
+def sanitize_ntfy_topic(topic: str) -> str:
+    """
+    Sanitize NTFY topic name to be valid.
+    NTFY topic names can only contain alphanumeric characters, dashes, and underscores.
+    """
+    if not topic:
+        return topic
+    # Replace spaces with underscores
+    sanitized = topic.replace(" ", "_")
+    # Remove any characters that aren't alphanumeric, dash, or underscore
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', sanitized)
+    # Remove leading/trailing dashes and underscores
+    sanitized = sanitized.strip('_-')
+    # Collapse multiple underscores or dashes into single underscore
+    sanitized = re.sub(r'[_-]+', '_', sanitized)
+    return sanitized
 
 
 # =============================================================================
@@ -832,18 +855,26 @@ async def create_topic(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new NTFY topic and sync to notification channels."""
+    # Sanitize the topic name (replace spaces, remove invalid chars)
+    sanitized_name = sanitize_ntfy_topic(topic.name)
+    if not sanitized_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Topic name is invalid after sanitization. Use alphanumeric characters, dashes, or underscores."
+        )
+
     # Check for duplicate
     existing = await db.execute(
-        select(NtfyTopic).where(NtfyTopic.name == topic.name)
+        select(NtfyTopic).where(NtfyTopic.name == sanitized_name)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Topic '{topic.name}' already exists"
+            detail=f"Topic '{sanitized_name}' already exists"
         )
 
     db_topic = NtfyTopic(
-        name=topic.name,
+        name=sanitized_name,
         description=topic.description,
         access_level=topic.access_level,
         requires_auth=topic.requires_auth,
