@@ -169,6 +169,7 @@ function toggleHistoryItem(itemId) {
 const regenerateDialog = ref({ open: false, loading: false })
 const deleteDialog = ref({ open: false, channel: null, loading: false })
 const serviceDialog = ref({ open: false, service: null })
+const ntfySuccessDialog = ref({ open: false, channel: null })
 const testingChannel = ref(null)
 const n8nStatus = ref({ checking: false, configured: false, connected: false, error: null })
 const creatingWorkflow = ref(false)
@@ -430,7 +431,13 @@ async function handleServiceSave(formData) {
         config: formData.config,
       })
       channels.value.push(response.data)
-      notificationStore.success('Channel created')
+
+      // Show success info dialog for local NTFY channels
+      if (formData.service_type === 'ntfy' && isLocalNtfyChannel(response.data)) {
+        ntfySuccessDialog.value = { open: true, channel: response.data }
+      } else {
+        notificationStore.success('Channel created')
+      }
     }
     serviceDialog.value.open = false
   } catch (error) {
@@ -2070,6 +2077,79 @@ async function handleNtfyUpdateConfig(config) {
       @confirm="confirmDeleteGroup"
       @cancel="deleteGroupDialog.open = false"
     />
+
+    <!-- NTFY Channel Created Success Dialog -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="ntfySuccessDialog.open"
+          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          @click.self="ntfySuccessDialog.open = false"
+        >
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
+            <!-- Header -->
+            <div class="flex items-center gap-3 mb-4">
+              <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
+                <CheckCircleIcon class="h-6 w-6 text-green-500" />
+              </div>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                NTFY Channel Created!
+              </h3>
+            </div>
+
+            <!-- Content -->
+            <div class="space-y-4">
+              <p class="text-sm text-gray-600 dark:text-gray-300">
+                Your local NTFY channel has been created successfully. Here's how to use it:
+              </p>
+
+              <!-- Topic Info -->
+              <div class="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <div class="flex items-center gap-2 mb-2">
+                  <MegaphoneIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  <span class="font-semibold text-amber-800 dark:text-amber-300">Subscribe to Topic</span>
+                </div>
+                <p class="text-sm text-amber-700 dark:text-amber-400 mb-2">
+                  In your NTFY app or browser, subscribe to:
+                </p>
+                <code class="block px-3 py-2 bg-amber-100 dark:bg-amber-900/40 rounded text-amber-900 dark:text-amber-200 font-mono text-sm">
+                  {{ ntfySuccessDialog.channel?.config?.topic }}
+                </code>
+              </div>
+
+              <!-- Slug Info -->
+              <div class="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <div class="flex items-center gap-2 mb-2">
+                  <LinkIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <span class="font-semibold text-blue-800 dark:text-blue-300">Send via n8n Webhook</span>
+                </div>
+                <p class="text-sm text-blue-700 dark:text-blue-400 mb-2">
+                  To send notifications from n8n workflows, use this channel slug:
+                </p>
+                <code class="block px-3 py-2 bg-blue-100 dark:bg-blue-900/40 rounded text-blue-900 dark:text-blue-200 font-mono text-sm">
+                  channel:{{ ntfySuccessDialog.channel?.slug }}
+                </code>
+              </div>
+
+              <!-- Note -->
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                <strong>Note:</strong> The topic is what you subscribe to in the NTFY app. The channel slug is used in n8n webhook payloads to route messages to this channel.
+              </p>
+            </div>
+
+            <!-- Footer -->
+            <div class="mt-6 flex justify-end">
+              <button
+                @click="ntfySuccessDialog.open = false"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+              >
+                Got it!
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
