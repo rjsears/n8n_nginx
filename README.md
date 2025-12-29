@@ -1720,7 +1720,26 @@ Status: Backup is valid and restorable
 <!-- SCREENSHOT: Verification results -->
 *[Screenshot placeholder: Verification report dialog]*
 
-> **Tip:** Regularly verify your backups to ensure they can be restored when needed. A good practice is to verify backups after creation and periodically verify older backups.
+#### Auto-Verification
+
+Configure automatic verification to run after backups complete:
+
+1. Go to **Backups** and click **Configure**
+2. Select the **Verification** tab
+3. Enable **Auto-Verification**
+4. Choose verification frequency:
+   - **Every backup** (frequency = 1): Verify every backup immediately
+   - **Every 3rd, 5th, or 10th**: Verify periodically to balance thoroughness and performance
+   - **Custom frequency**: Enter any number from 1-100
+
+| Frequency | Use Case |
+|-----------|----------|
+| Every backup | Critical production environments requiring maximum assurance |
+| Every 3rd | Balanced approach for most deployments |
+| Every 5th-10th | High-volume backup schedules where verification overhead matters |
+
+<!-- SCREENSHOT: Auto-verification settings -->
+*[Screenshot placeholder: Verification tab with frequency options]*
 
 ### 7.6 Restoration
 
