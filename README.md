@@ -1924,6 +1924,18 @@ Native NTFY integration provides:
 - Priority levels
 - Scheduled delivery
 
+**Understanding Topics vs Channel Slugs:**
+
+| Concept | Purpose | Example |
+|---------|---------|---------|
+| **Topic** | What you subscribe to in the NTFY app to receive notifications | `backup_alerts` |
+| **Channel Slug** | What you use in n8n webhook payloads to route messages | `channel:ntfy_backup_alerts` |
+
+The topic is the NTFY subscription identifier, while the channel slug is how n8n's notification system routes messages to that topic.
+
+**Bidirectional Sync:**
+Topics created in the NTFY Push section automatically create corresponding notification channels, and vice versa. Use the **Sync Channels** button to ensure both sections are synchronized.
+
 #### Email Notifications
 
 Direct SMTP integration:
@@ -1973,10 +1985,24 @@ Send HTTP POST requests to any endpoint:
 1. Select **NTFY** as the type
 2. Configure:
    - **Server URL**: NTFY server address
-   - **Topic**: Topic name
+   - **Topic**: Topic name (spaces are automatically converted to underscores)
    - **Priority**: Default priority (1-5)
    - **Authentication**: Username/password if required
 3. Click **Save**
+
+**Local NTFY Server Detection:**
+When adding an NTFY channel that points to your local NTFY server, the system automatically:
+- Adds "NTFY: " prefix to the channel name
+- Generates a slug in the format `ntfy_{topic_name}`
+- Displays a "Local" badge and megaphone icon to distinguish it from external NTFY channels
+- Syncs the topic to the NTFY Push section
+
+**Success Dialog:**
+After creating a local NTFY channel, a helpful dialog appears explaining:
+- **Topic** (amber): What you subscribe to in your NTFY app (e.g., `my_alerts`)
+- **Channel Slug** (blue): What you use in n8n webhook payloads (e.g., `channel:ntfy_my_alerts`)
+
+> **Important:** Subscribe to the *topic* in your NTFY app to receive notifications. Use the *channel slug* in your n8n workflows to send notifications.
 
 #### Testing Channels
 
@@ -2031,12 +2057,28 @@ Configure the NTFY integration:
 Organize notifications with topics:
 
 1. Go to **NTFY** > **Topics**
-2. Click **Add Topic**
+2. Click **New Topic**
 3. Configure:
    - **Name**: Topic identifier (e.g., `n8n-alerts`)
-   - **Display Name**: Friendly name
-   - **Default Priority**: 1 (min) to 5 (max)
+   - **Description**: Optional description
+   - **Access Level**: Read & Write, Read Only, or Write Only
+   - **Default Priority**: Min (1) to Urgent (5)
    - **Default Tags**: Emoji tags (e.g., `warning`, `backup`)
+   - **Require Authentication**: Enable if topic needs auth
+
+**Topic Name Sanitization:**
+Topic names are automatically sanitized to meet NTFY requirements:
+- Spaces are converted to underscores (e.g., "my alerts" → "my_alerts")
+- Invalid characters are removed (only alphanumeric, dashes, underscores allowed)
+- Multiple consecutive underscores/dashes are collapsed
+
+**Success Dialog:**
+After creating a topic, a helpful dialog appears explaining:
+- **Topic** (amber): The name to subscribe to in your NTFY app
+- **Channel Slug** (blue): The slug to use in n8n webhook payloads (e.g., `channel:ntfy_my_alerts`)
+
+**Sync Channels Button:**
+Click **Sync Channels** to synchronize topics with the Notification Channels section. This creates corresponding notification channels that can be used in notification groups.
 
 <!-- SCREENSHOT: Topic management -->
 *[Screenshot placeholder: NTFY topics list]*
