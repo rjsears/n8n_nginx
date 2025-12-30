@@ -20,6 +20,7 @@ import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import BackupScanLoader from '@/components/common/BackupScanLoader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ProgressModal from '@/components/backups/ProgressModal.vue'
@@ -1446,8 +1447,8 @@ onUnmounted(stopPolling)
                           Backup Contents
                         </h4>
                         <!-- Loading State -->
-                        <div v-if="loadingContents.has(backup.id)" class="flex items-center justify-center py-4">
-                          <LoadingSpinner size="md" text="Loading backup contents..." />
+                        <div v-if="loadingContents.has(backup.id)" class="flex items-center justify-center py-8">
+                          <BackupScanLoader text="Scanning backup contents..." />
                         </div>
                         <!-- No Data State -->
                         <div v-else-if="backupContents[backup.id] === null" class="text-center py-4 text-secondary">
