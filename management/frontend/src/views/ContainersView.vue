@@ -76,6 +76,8 @@ const notifyDialog = ref({
 })
 const containerConfigs = ref({})  // Cache of container notification configs
 const hasContainerEventTargets = ref(false)  // Track if any container events have targets configured
+const anyContainerEventsEnabled = ref(false)  // Track if any global container events are enabled
+const containerEvents = ref([])  // Store container events for individual toggle checks
 const expandedContainers = ref({})  // Track which containers are expanded
 
 // Toggle container expand/collapse
@@ -588,14 +590,39 @@ async function loadContainerConfigs() {
 
 async function checkContainerEventTargets() {
   try {
-    // Check if any container events have notification targets configured
+    // Check if any container events have notification targets configured and are enabled
     const response = await api.get('/system-notifications/events')
-    const containerEvents = response.data.filter(e => e.category === 'container')
-    hasContainerEventTargets.value = containerEvents.some(e => e.targets && e.targets.length > 0)
+    const events = response.data.filter(e => e.category === 'container')
+    containerEvents.value = events
+    hasContainerEventTargets.value = events.some(e => e.targets && e.targets.length > 0)
+    anyContainerEventsEnabled.value = events.some(e => e.enabled)
   } catch (error) {
     console.error('Failed to check container event targets:', error)
     hasContainerEventTargets.value = false
+    anyContainerEventsEnabled.value = false
+    containerEvents.value = []
   }
+}
+
+// Check if a specific container event type is enabled globally
+function isContainerEventEnabled(eventType) {
+  const event = containerEvents.value.find(e => e.event_type === eventType)
+  return event?.enabled || false
+}
+
+// Map container config fields to event types
+const containerConfigEventMap = {
+  monitor_stopped: 'container_stopped',
+  monitor_unhealthy: 'container_unhealthy',
+  monitor_restart: 'container_restart',
+  monitor_high_cpu: 'container_high_cpu',
+  monitor_high_memory: 'container_high_memory',
+}
+
+// Check if a specific container config option can be enabled
+function canEnableContainerOption(optionField) {
+  const eventType = containerConfigEventMap[optionField]
+  return isContainerEventEnabled(eventType)
 }
 
 async function fetchStats() {
@@ -1239,8 +1266,32 @@ onUnmounted(() => {
               <LoadingSpinner v-if="notifyDialog.loading" text="Loading settings..." />
 
               <div v-else class="space-y-6">
-                <!-- Warning: No targets configured -->
-                <div v-if="!hasContainerEventTargets" class="p-4 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                <!-- Critical Warning: No global container events enabled -->
+                <div v-if="!anyContainerEventsEnabled" class="p-4 rounded-lg bg-red-50 dark:bg-red-500/10 border-2 border-red-300 dark:border-red-500/50">
+                  <div class="flex gap-3">
+                    <ExclamationTriangleIcon class="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p class="font-semibold text-red-700 dark:text-red-400">No Global Container Events Enabled</p>
+                      <p class="text-sm text-red-600 dark:text-red-400 mt-1">
+                        Container notifications cannot be configured because no container event types are enabled in Global Event Settings.
+                        You must enable at least one container event type before setting up per-container alerts.
+                      </p>
+                      <router-link
+                        to="/settings?section=notifications"
+                        class="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
+                        @click="notifyDialog.open = false"
+                      >
+                        Configure Global Event Settings
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </router-link>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Warning: No targets configured (only show if events are enabled) -->
+                <div v-else-if="!hasContainerEventTargets" class="p-4 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
                   <div class="flex gap-3">
                     <ExclamationTriangleIcon class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
                     <div>
@@ -1262,17 +1313,18 @@ onUnmounted(() => {
                   </div>
                 </div>
 
-                <!-- Enable/Disable Toggle -->
-                <div class="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                <!-- Enable/Disable Toggle - disabled if no global events enabled -->
+                <div :class="['flex items-center justify-between p-4 rounded-lg', !anyContainerEventsEnabled ? 'bg-gray-100 dark:bg-gray-800 opacity-50' : 'bg-gray-50 dark:bg-gray-700/50']">
                   <div>
                     <p class="font-medium text-gray-900 dark:text-white">Enable Notifications</p>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">Receive alerts for this container</p>
+                    <p v-if="anyContainerEventsEnabled" class="text-sm text-gray-500 dark:text-gray-400">Receive alerts for this container</p>
+                    <p v-else class="text-sm text-red-500 dark:text-red-400">Enable global container events first</p>
                   </div>
-                  <label :class="['relative inline-flex items-center', !hasContainerEventTargets ? 'cursor-not-allowed opacity-50' : 'cursor-pointer']">
+                  <label :class="['relative inline-flex items-center', (!anyContainerEventsEnabled || !hasContainerEventTargets) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer']">
                     <input
                       type="checkbox"
                       v-model="notifyDialog.config.enabled"
-                      :disabled="!hasContainerEventTargets && !notifyDialog.config.enabled"
+                      :disabled="!anyContainerEventsEnabled || (!hasContainerEventTargets && !notifyDialog.config.enabled)"
                       class="sr-only peer"
                       @change="!hasContainerEventTargets && notifyDialog.config.enabled && notificationStore.warning('Configure notification targets first in Settings → System Notifications')"
                     >
@@ -1281,47 +1333,71 @@ onUnmounted(() => {
                 </div>
 
                 <!-- Status Events -->
-                <div :class="['space-y-3', !notifyDialog.config.enabled && 'opacity-50 pointer-events-none']">
+                <div :class="['space-y-3', (!notifyDialog.config.enabled || !anyContainerEventsEnabled) && 'opacity-50 pointer-events-none']">
                   <h4 class="font-medium text-gray-900 dark:text-white text-sm">Status Events</h4>
 
-                  <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-                    <input type="checkbox" v-model="notifyDialog.config.monitor_stopped" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_stopped') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
+                    <input
+                      type="checkbox"
+                      v-model="notifyDialog.config.monitor_stopped"
+                      :disabled="!canEnableContainerOption('monitor_stopped')"
+                      class="form-checkbox h-4 w-4 text-blue-600 rounded disabled:opacity-50"
+                    >
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Container Stopped</p>
-                      <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container stops unexpectedly</p>
+                      <p v-if="canEnableContainerOption('monitor_stopped')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container stops unexpectedly</p>
+                      <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
                     </div>
-                  </label>
+                  </div>
 
-                  <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-                    <input type="checkbox" v-model="notifyDialog.config.monitor_unhealthy" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_unhealthy') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
+                    <input
+                      type="checkbox"
+                      v-model="notifyDialog.config.monitor_unhealthy"
+                      :disabled="!canEnableContainerOption('monitor_unhealthy')"
+                      class="form-checkbox h-4 w-4 text-blue-600 rounded disabled:opacity-50"
+                    >
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Health Check Failed</p>
-                      <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container becomes unhealthy</p>
+                      <p v-if="canEnableContainerOption('monitor_unhealthy')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container becomes unhealthy</p>
+                      <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
                     </div>
-                  </label>
+                  </div>
 
-                  <label class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-                    <input type="checkbox" v-model="notifyDialog.config.monitor_restart" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_restart') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
+                    <input
+                      type="checkbox"
+                      v-model="notifyDialog.config.monitor_restart"
+                      :disabled="!canEnableContainerOption('monitor_restart')"
+                      class="form-checkbox h-4 w-4 text-blue-600 rounded disabled:opacity-50"
+                    >
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Container Restarted</p>
-                      <p class="text-xs text-gray-500 dark:text-gray-400">Alert when container restarts automatically</p>
+                      <p v-if="canEnableContainerOption('monitor_restart')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container restarts automatically</p>
+                      <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
                     </div>
-                  </label>
+                  </div>
                 </div>
 
                 <!-- Resource Thresholds -->
-                <div :class="['space-y-3', !notifyDialog.config.enabled && 'opacity-50 pointer-events-none']">
+                <div :class="['space-y-3', (!notifyDialog.config.enabled || !anyContainerEventsEnabled) && 'opacity-50 pointer-events-none']">
                   <h4 class="font-medium text-gray-900 dark:text-white text-sm">Resource Thresholds</h4>
 
-                  <div class="p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <label class="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" v-model="notifyDialog.config.monitor_high_cpu" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                  <div :class="['p-3 rounded-lg', canEnableContainerOption('monitor_high_cpu') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
+                    <div class="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        v-model="notifyDialog.config.monitor_high_cpu"
+                        :disabled="!canEnableContainerOption('monitor_high_cpu')"
+                        class="form-checkbox h-4 w-4 text-blue-600 rounded disabled:opacity-50"
+                      >
                       <div class="flex-1">
                         <p class="text-sm font-medium text-gray-900 dark:text-white">High CPU Usage</p>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Alert when CPU exceeds threshold</p>
+                        <p v-if="canEnableContainerOption('monitor_high_cpu')" class="text-xs text-gray-500 dark:text-gray-400">Alert when CPU exceeds threshold</p>
+                        <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
                       </div>
-                    </label>
-                    <div v-if="notifyDialog.config.monitor_high_cpu" class="mt-3 ml-7">
+                    </div>
+                    <div v-if="notifyDialog.config.monitor_high_cpu && canEnableContainerOption('monitor_high_cpu')" class="mt-3 ml-7">
                       <div class="flex items-center gap-2">
                         <input
                           type="range"
@@ -1338,15 +1414,21 @@ onUnmounted(() => {
                     </div>
                   </div>
 
-                  <div class="p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <label class="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" v-model="notifyDialog.config.monitor_high_memory" class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                  <div :class="['p-3 rounded-lg', canEnableContainerOption('monitor_high_memory') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
+                    <div class="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        v-model="notifyDialog.config.monitor_high_memory"
+                        :disabled="!canEnableContainerOption('monitor_high_memory')"
+                        class="form-checkbox h-4 w-4 text-blue-600 rounded disabled:opacity-50"
+                      >
                       <div class="flex-1">
                         <p class="text-sm font-medium text-gray-900 dark:text-white">High Memory Usage</p>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Alert when memory exceeds threshold</p>
+                        <p v-if="canEnableContainerOption('monitor_high_memory')" class="text-xs text-gray-500 dark:text-gray-400">Alert when memory exceeds threshold</p>
+                        <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
                       </div>
-                    </label>
-                    <div v-if="notifyDialog.config.monitor_high_memory" class="mt-3 ml-7">
+                    </div>
+                    <div v-if="notifyDialog.config.monitor_high_memory && canEnableContainerOption('monitor_high_memory')" class="mt-3 ml-7">
                       <div class="flex items-center gap-2">
                         <input
                           type="range"
