@@ -195,11 +195,11 @@ Whether you are running n8n for personal automation or deploying it for an organ
 - Automatic pruning with space management
 
 #### Notifications
-- 30+ notification providers via Apprise integration
+- 80+ notification providers via Apprise integration
 - Native NTFY push notification support via ntfy.sh
 - Optional locally hosted and integrated NFTY container
 - Email notifications with customizable templates
-- Webhook integration for n8n workflows
+- Webhook integration for notifications within n8n workflows
 - System event notifications with configurable triggers
 - L1/L2 escalation support
 - Maintenance mode and quiet hours
@@ -3776,6 +3776,15 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## Support
+
+- **Documentation**: This README and [docs/](docs/) folder
+- **Issues**: [GitHub Issues](https://github.com/rjsears/n8n_nginx/issues)
+- **API Reference**: See [API.md](docs/API.md)
+- **n8n Community**: [community.n8n.io](https://community.n8n.io)
+
+---
+
 ## Acknowledgments
 
 - [n8n.io](https://n8n.io) - Workflow automation platform
@@ -3790,15 +3799,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 - [Apprise](https://github.com/caronc/apprise) - Notification library
 - [ntfy](https://ntfy.sh) - Push notifications
 
----
+  
+* **My Amazing and loving family!** My family puts up with all my coding and automation projects and encourages me in everything. Without them, my projects would not be possible.
+* **My brother James**, who is a continual source of inspiration to me and others. Everyone should have a brother as awesome as mine!
 
-## Support
-
-- **Documentation**: This README and [docs/](docs/) folder
-- **Issues**: [GitHub Issues](https://github.com/rjsears/n8n_nginx/issues)
-- **API Reference**: See [API.md](docs/API.md)
-- **n8n Community**: [community.n8n.io](https://community.n8n.io)
-
----
-
-**Created by Richard J. Sears** - richardjsears@gmail.com
