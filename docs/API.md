@@ -1,21 +1,36 @@
-# n8n Management API Reference
+# n8n Management Console API Reference
 
-Base URL: `https://your-domain.com:{port}/api`
+<p align="center">
+  <em>Complete REST API documentation for the n8n Management Console</em>
+</p>
 
-All endpoints except `/auth/login` and `/health` require authentication via Bearer token.
+<p align="center">
+  <a href="https://fastapi.tiangolo.com"><img src="https://img.shields.io/badge/FastAPI-Python%203.11+-009688?logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="#authentication"><img src="https://img.shields.io/badge/Auth-JWT%20Bearer-blue" alt="JWT Auth"></a>
+  <a href="#"><img src="https://img.shields.io/badge/API%20Version-3.0.0-orange" alt="API Version"></a>
+</p>
 
 ---
 
 ## Table of Contents
 
-1. [Authentication](#authentication)
-2. [Health Check](#health-check)
-3. [Backups](#backups)
-4. [Containers](#containers)
-5. [Workflows](#workflows)
-6. [System](#system)
-7. [Notifications](#notifications)
-8. [Settings](#settings)
+- [Overview](#overview)
+- [Authentication](#authentication)
+- [API Endpoints](#api-endpoints)
+  - [Authentication](#authentication-endpoints)
+  - [Backups](#backup-endpoints)
+  - [Notifications](#notification-endpoints)
+  - [NTFY](#ntfy-endpoints)
+  - [System Notifications](#system-notification-endpoints)
+  - [Containers](#container-endpoints)
+  - [Workflows](#workflow-endpoints)
+  - [System](#system-endpoints)
+  - [Email](#email-endpoints)
+  - [Settings](#settings-endpoints)
+- [Error Handling](#error-handling)
+- [Rate Limiting](#rate-limiting)
+- [WebSocket Endpoints](#websocket-endpoints)
+- [OpenAPI Documentation](#openapi-documentation)
 
 ### Other Documentation
 
@@ -29,12 +44,30 @@ All endpoints except `/auth/login` and `/health` require authentication via Bear
 
 ---
 
+## Overview
+
+The n8n Management Console API is a RESTful API built with FastAPI that provides comprehensive management capabilities for your n8n deployment. All endpoints return JSON responses.
+
+### Base URL
+
+```
+https://your-domain.com:3333/api
+```
+
+### Content Type
+
+All requests and responses use `application/json` unless otherwise specified.
+
+---
+
 ## Authentication
 
-### Login
+The API uses JWT (JSON Web Token) Bearer authentication. Most endpoints require authentication.
+
+### Obtaining a Token
 
 ```http
-POST /auth/login
+POST /api/auth/login
 Content-Type: application/json
 
 {
@@ -46,662 +79,1681 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "token": "eyJ...",
-  "expires_at": "2024-01-15T12:00:00Z",
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer",
+  "expires_in": 86400
+}
+```
+
+### Using the Token
+
+Include the token in the `Authorization` header:
+
+```http
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+```
+
+### Token Refresh
+
+```http
+POST /api/auth/refresh
+Authorization: Bearer <current-token>
+```
+
+---
+
+## API Endpoints
+
+### Authentication Endpoints
+
+#### Login
+
+Authenticate and obtain a JWT token.
+
+```http
+POST /api/auth/login
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `username` | string | Yes | Username |
+| `password` | string | Yes | Password |
+
+**Response:** `200 OK`
+```json
+{
+  "access_token": "string",
+  "token_type": "bearer",
+  "expires_in": 86400
+}
+```
+
+#### Logout
+
+Invalidate the current session.
+
+```http
+POST /api/auth/logout
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Logged out successfully"
+}
+```
+
+#### Verify Token
+
+Check if the current token is valid.
+
+```http
+GET /api/auth/verify
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "valid": true,
   "user": {
     "id": 1,
-    "username": "admin",
-    "email": "admin@example.com"
+    "username": "admin"
   }
 }
 ```
 
-### Logout
+#### Change Password
+
+Update the current user's password.
 
 ```http
-POST /auth/logout
-Authorization: Bearer {token}
+POST /api/auth/change-password
+Authorization: Bearer <token>
 ```
 
-### Verify Session
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `current_password` | string | Yes | Current password |
+| `new_password` | string | Yes | New password (min 8 characters) |
 
-```http
-GET /auth/verify
-Authorization: Bearer {token}
+**Response:** `200 OK`
+```json
+{
+  "message": "Password changed successfully"
+}
 ```
-
-Used by nginx `auth_request` for SSO to Adminer and Dozzle.
 
 ---
 
-## Backups
+### Backup Endpoints
 
-### List Backup History
+#### List Backups
+
+Get a paginated list of all backups.
 
 ```http
-GET /backups/history
-Authorization: Bearer {token}
+GET /api/backups
+Authorization: Bearer <token>
 ```
 
 **Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | 50 | Number of results per page |
+| `offset` | integer | 0 | Number of results to skip |
+| `status` | string | - | Filter by status (success, failed, in_progress) |
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `backup_type` | string | Filter by type: `postgres_full`, `postgres_n8n`, `n8n_config` |
-| `status` | string | Filter by status: `success`, `failed`, `running` |
-| `limit` | integer | Number of results (default: 50) |
-| `offset` | integer | Pagination offset |
-
-**Response:**
+**Response:** `200 OK`
 ```json
 {
-  "items": [
+  "backups": [
     {
       "id": 1,
-      "backup_type": "postgres_n8n",
-      "filename": "postgres_n8n_20240115_120000.sql.gz",
+      "filename": "n8n_backup_20241220_120000.tar.gz",
       "file_size": 1048576,
       "status": "success",
-      "started_at": "2024-01-15T12:00:00Z",
-      "completed_at": "2024-01-15T12:00:30Z",
-      "verification_status": "passed"
+      "backup_type": "full",
+      "created_at": "2024-12-20T12:00:00Z",
+      "verified": true,
+      "protected": false,
+      "description": "Scheduled daily backup"
     }
   ],
-  "total": 100
+  "total": 100,
+  "limit": 50,
+  "offset": 0
 }
 ```
 
-### Get Backup Details
+#### Get Backup Details
+
+Get detailed information about a specific backup.
 
 ```http
-GET /backups/history/{id}
-Authorization: Bearer {token}
+GET /api/backups/{backup_id}
+Authorization: Bearer <token>
 ```
 
-### Trigger Manual Backup
-
-```http
-POST /backups/run
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{
-  "backup_type": "postgres_n8n"
-}
-```
-
-**Backup Types:**
-- `postgres_full` - Complete PostgreSQL dump of all databases
-- `postgres_n8n` - n8n database only
-- `n8n_config` - n8n configuration files
-
-### Download Backup
-
-```http
-GET /backups/download/{id}
-Authorization: Bearer {token}
-```
-
-Returns file stream with appropriate `Content-Disposition` header.
-
-### Delete Backup
-
-```http
-DELETE /backups/{id}
-Authorization: Bearer {token}
-```
-
-### List Schedules
-
-```http
-GET /backups/schedules
-Authorization: Bearer {token}
-```
-
-### Create Schedule
-
-```http
-POST /backups/schedules
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{
-  "name": "Daily n8n backup",
-  "backup_type": "postgres_n8n",
-  "frequency": "daily",
-  "hour": 2,
-  "minute": 0,
-  "enabled": true
-}
-```
-
-**Frequency Options:**
-- `hourly` - Runs every hour at specified minute
-- `daily` - Runs daily at specified hour and minute
-- `weekly` - Runs weekly on specified day, hour, and minute
-- `monthly` - Runs monthly on specified day, hour, and minute
-
-### Update Schedule
-
-```http
-PUT /backups/schedules/{id}
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{
-  "enabled": false
-}
-```
-
-### Delete Schedule
-
-```http
-DELETE /backups/schedules/{id}
-Authorization: Bearer {token}
-```
-
-### Verify Backup
-
-```http
-POST /backups/verify/{id}
-Authorization: Bearer {token}
-```
-
-Triggers async verification. Returns immediately with verification job ID.
-
----
-
-## Notifications
-
-### List Services
-
-```http
-GET /notifications/services
-Authorization: Bearer {token}
-```
-
-**Response:**
-```json
-[
-  {
-    "id": 1,
-    "name": "Slack Alerts",
-    "service_type": "apprise",
-    "enabled": true,
-    "last_test": "2024-01-15T10:00:00Z",
-    "last_test_result": "success"
-  }
-]
-```
-
-### Create Service
-
-```http
-POST /notifications/services
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{
-  "name": "My Slack Channel",
-  "service_type": "apprise",
-  "config": {
-    "url": "slack://tokenA/tokenB/tokenC"
-  },
-  "enabled": true
-}
-```
-
-**Service Types:**
-- `apprise` - Apprise URL format (supports 80+ services)
-- `ntfy` - NTFY push service
-- `email` - Email notifications
-- `webhook` - Custom webhook
-
-### Update Service
-
-```http
-PUT /notifications/services/{id}
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{
-  "enabled": false
-}
-```
-
-### Delete Service
-
-```http
-DELETE /notifications/services/{id}
-Authorization: Bearer {token}
-```
-
-### Test Service
-
-```http
-POST /notifications/services/{id}/test
-Authorization: Bearer {token}
-```
-
-Sends a test notification to the service.
-
-### List Event Types
-
-```http
-GET /notifications/event-types
-Authorization: Bearer {token}
-```
-
-Returns all available event types for rule configuration.
-
-### List Rules
-
-```http
-GET /notifications/rules
-Authorization: Bearer {token}
-```
-
-### Create Rule
-
-```http
-POST /notifications/rules
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{
-  "name": "Backup failure alert",
-  "event_type": "backup.failed",
-  "service_id": 1,
-  "priority": "high",
-  "enabled": true,
-  "conditions": {
-    "cooldown_minutes": 30
-  }
-}
-```
-
-**Priority Levels:**
-- `low` - Informational
-- `normal` - Standard priority
-- `high` - Important
-- `critical` - Requires immediate attention
-
-### Update Rule
-
-```http
-PUT /notifications/rules/{id}
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{
-  "priority": "critical"
-}
-```
-
-### Delete Rule
-
-```http
-DELETE /notifications/rules/{id}
-Authorization: Bearer {token}
-```
-
-### Notification History
-
-```http
-GET /notifications/history
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `event_type` | string | Filter by event type |
-| `status` | string | Filter: `sent`, `failed`, `pending` |
-| `limit` | integer | Number of results |
-
----
-
-## Containers
-
-### List Containers
-
-```http
-GET /containers
-Authorization: Bearer {token}
-```
-
-**Response:**
-```json
-[
-  {
-    "name": "n8n",
-    "id": "abc123",
-    "status": "running",
-    "health": "healthy",
-    "image": "n8nio/n8n:latest",
-    "started_at": "2024-01-15T00:00:00Z"
-  }
-]
-```
-
-### Get Container Details
-
-```http
-GET /containers/{name}
-Authorization: Bearer {token}
-```
-
-### Container Stats
-
-```http
-GET /containers/stats
-Authorization: Bearer {token}
-```
-
-Returns CPU, memory, and network stats for all containers.
-
-**Response:**
-```json
-[
-  {
-    "name": "n8n",
-    "cpu_percent": 2.5,
-    "memory_usage": 268435456,
-    "memory_limit": 4294967296,
-    "memory_percent": 6.25,
-    "network_rx": 1048576,
-    "network_tx": 2097152
-  }
-]
-```
-
-### Start Container
-
-```http
-POST /containers/{name}/start
-Authorization: Bearer {token}
-```
-
-### Stop Container
-
-```http
-POST /containers/{name}/stop
-Authorization: Bearer {token}
-```
-
-### Restart Container
-
-```http
-POST /containers/{name}/restart
-Authorization: Bearer {token}
-```
-
-### Container Logs
-
-```http
-GET /containers/{name}/logs
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `tail` | integer | Number of lines (default: 100) |
-| `since` | string | ISO timestamp |
-
----
-
-## Flows
-
-### List Flows (Live Database)
-
-```http
-GET /flows/list
-Authorization: Bearer {token}
-```
-
-**Response:**
-```json
-[
-  {
-    "id": "abc-123",
-    "name": "My Workflow",
-    "active": true,
-    "created_at": "2024-01-01T00:00:00Z",
-    "updated_at": "2024-01-15T12:00:00Z"
-  }
-]
-```
-
-### Export Flow
-
-```http
-GET /flows/export/{id}
-Authorization: Bearer {token}
-```
-
-Returns flow as JSON file.
-
-### List Flows from Backup
-
-```http
-GET /flows/from-backup/{backup_id}
-Authorization: Bearer {token}
-```
-
-### Restore Flow from Backup
-
-```http
-POST /flows/restore
-Authorization: Bearer {token}
-Content-Type: application/json
-
-{
-  "backup_id": 5,
-  "flow_id": "abc-123",
-  "conflict_action": "rename"
-}
-```
-
-**Conflict Actions:**
-- `rename` - Add timestamp suffix to name
-- `overwrite` - Replace existing flow
-- `skip` - Don't restore if exists
-
----
-
-## System
-
-### System Metrics
-
-```http
-GET /system/metrics
-Authorization: Bearer {token}
-```
-
-**Response:**
+**Response:** `200 OK`
 ```json
 {
-  "cpu": {
-    "percent": 45.2,
-    "cores": 4
-  },
-  "memory": {
-    "used": 4294967296,
-    "total": 8589934592,
-    "percent": 50.0
-  },
-  "disk": {
-    "used": 107374182400,
-    "total": 214748364800,
-    "percent": 50.0
-  }
+  "id": 1,
+  "filename": "n8n_backup_20241220_120000.tar.gz",
+  "file_size": 1048576,
+  "status": "success",
+  "backup_type": "full",
+  "created_at": "2024-12-20T12:00:00Z",
+  "verified": true,
+  "verified_at": "2024-12-20T12:05:00Z",
+  "protected": false,
+  "description": "Scheduled daily backup",
+  "checksum": "sha256:abc123...",
+  "workflows": [
+    {
+      "id": "workflow-uuid",
+      "name": "My Workflow",
+      "active": true,
+      "node_count": 5
+    }
+  ]
 }
 ```
 
-### NFS Status
+#### Create Backup
+
+Trigger a new backup.
 
 ```http
-GET /system/nfs
-Authorization: Bearer {token}
+POST /api/backups
+Authorization: Bearer <token>
 ```
 
-**Response:**
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `backup_type` | string | No | Type: "full" or "database" (default: "full") |
+| `description` | string | No | Optional description |
+| `compression` | string | No | Compression: "gzip", "zstd", "none" |
+
+**Response:** `202 Accepted`
 ```json
 {
-  "configured": true,
-  "connected": true,
-  "server": "192.168.1.100",
-  "path": "/backups",
-  "mount_point": "/mnt/nfs",
-  "last_check": "2024-01-15T12:00:00Z"
+  "id": 2,
+  "status": "in_progress",
+  "message": "Backup started"
 }
 ```
 
-### Power Control
+#### Get Backup Status
+
+Get the current status of a backup operation.
 
 ```http
-POST /system/power/{action}
-Authorization: Bearer {token}
+GET /api/backups/{backup_id}/status
+Authorization: Bearer <token>
 ```
 
-**Actions:**
-- `restart_all` - Restart all containers
-- `stop_all` - Stop all containers
-- `restart_host` - Restart host system (requires confirmation)
-- `shutdown_host` - Shutdown host system (requires confirmation)
-
----
-
-## Settings
-
-### Get Settings
-
-```http
-GET /settings
-Authorization: Bearer {token}
-```
-
-**Response:**
+**Response:** `200 OK`
 ```json
 {
-  "timezone": "America/New_York",
-  "session_timeout_hours": 24,
-  "backup_retention": {
+  "id": 2,
+  "status": "in_progress",
+  "progress": 45,
+  "current_step": "Dumping database",
+  "started_at": "2024-12-20T12:00:00Z"
+}
+```
+
+#### Download Backup
+
+Download a backup file.
+
+```http
+GET /api/backups/{backup_id}/download
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK` (binary file stream)
+
+#### Verify Backup
+
+Verify the integrity of a backup.
+
+```http
+POST /api/backups/{backup_id}/verify
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "verified": true,
+  "checksum_valid": true,
+  "archive_valid": true,
+  "database_valid": true,
+  "verified_at": "2024-12-20T12:10:00Z"
+}
+```
+
+#### Restore Backup
+
+Restore from a backup.
+
+```http
+POST /api/backups/{backup_id}/restore
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `restore_type` | string | No | "full", "workflows", "credentials" |
+| `workflow_ids` | array | No | Specific workflow IDs to restore |
+| `overwrite` | boolean | No | Overwrite existing data (default: false) |
+
+**Response:** `202 Accepted`
+```json
+{
+  "restore_id": "restore-uuid",
+  "status": "in_progress",
+  "message": "Restore started"
+}
+```
+
+#### Delete Backup
+
+Delete a backup file.
+
+```http
+DELETE /api/backups/{backup_id}
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Backup deleted successfully"
+}
+```
+
+#### Protect/Unprotect Backup
+
+Toggle backup protection status.
+
+```http
+POST /api/backups/{backup_id}/protect
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `protected` | boolean | Yes | Protection status |
+
+**Response:** `200 OK`
+```json
+{
+  "id": 1,
+  "protected": true,
+  "message": "Backup protection updated"
+}
+```
+
+#### Get Backup Schedules
+
+List all backup schedules.
+
+```http
+GET /api/backups/schedules
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "schedules": [
+    {
+      "id": 1,
+      "name": "Daily Backup",
+      "enabled": true,
+      "cron_expression": "0 2 * * *",
+      "backup_type": "full",
+      "retention_days": 30,
+      "next_run": "2024-12-21T02:00:00Z"
+    }
+  ]
+}
+```
+
+#### Create Backup Schedule
+
+Create a new backup schedule.
+
+```http
+POST /api/backups/schedules
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Schedule name |
+| `cron_expression` | string | Yes | Cron expression |
+| `backup_type` | string | No | "full" or "database" |
+| `retention_days` | integer | No | Days to retain backups |
+| `enabled` | boolean | No | Enable schedule (default: true) |
+
+**Response:** `201 Created`
+
+#### Update Backup Schedule
+
+```http
+PUT /api/backups/schedules/{schedule_id}
+Authorization: Bearer <token>
+```
+
+#### Delete Backup Schedule
+
+```http
+DELETE /api/backups/schedules/{schedule_id}
+Authorization: Bearer <token>
+```
+
+#### Get Backup Settings
+
+Get backup configuration settings.
+
+```http
+GET /api/backups/settings
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "retention": {
     "daily": 7,
     "weekly": 4,
     "monthly": 12
   },
-  "notifications_enabled": true
+  "compression": "gzip",
+  "storage_path": "/app/backups",
+  "nfs_enabled": false,
+  "auto_verify": true,
+  "max_concurrent": 1
 }
 ```
 
-### Update Settings
+#### Update Backup Settings
 
 ```http
-PUT /settings
-Authorization: Bearer {token}
-Content-Type: application/json
+PUT /api/backups/settings
+Authorization: Bearer <token>
+```
 
+---
+
+### Notification Endpoints
+
+#### List Notification Channels
+
+Get all configured notification channels.
+
+```http
+GET /api/notifications/channels
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
 {
-  "timezone": "America/New_York",
-  "session_timeout_hours": 24
+  "channels": [
+    {
+      "id": 1,
+      "name": "Discord Alerts",
+      "type": "apprise",
+      "enabled": true,
+      "priority": "normal",
+      "apprise_url": "discord://***",
+      "created_at": "2024-12-20T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### Create Notification Channel
+
+```http
+POST /api/notifications/channels
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Channel name |
+| `type` | string | Yes | "apprise", "ntfy", "email", "webhook" |
+| `enabled` | boolean | No | Enable channel (default: true) |
+| `priority` | string | No | "low", "normal", "high", "critical" |
+| `apprise_url` | string | Conditional | Required for apprise type |
+| `webhook_url` | string | Conditional | Required for webhook type |
+
+**Response:** `201 Created`
+
+#### Update Notification Channel
+
+```http
+PUT /api/notifications/channels/{channel_id}
+Authorization: Bearer <token>
+```
+
+#### Delete Notification Channel
+
+```http
+DELETE /api/notifications/channels/{channel_id}
+Authorization: Bearer <token>
+```
+
+#### Test Notification Channel
+
+Send a test notification through a channel.
+
+```http
+POST /api/notifications/channels/{channel_id}/test
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "message": "Test notification sent"
+}
+```
+
+#### List Notification Groups
+
+```http
+GET /api/notifications/groups
+Authorization: Bearer <token>
+```
+
+#### Create Notification Group
+
+```http
+POST /api/notifications/groups
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Group name |
+| `channel_ids` | array | Yes | Array of channel IDs |
+
+#### Send Notification
+
+Send a notification through specified channels.
+
+```http
+POST /api/notifications/send
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | Yes | Notification title |
+| `message` | string | Yes | Notification body |
+| `priority` | string | No | Priority level |
+| `channel_ids` | array | No | Specific channels (or uses default) |
+| `group_id` | integer | No | Send to a group |
+
+**Response:** `200 OK`
+```json
+{
+  "sent": 3,
+  "failed": 0,
+  "results": [
+    {"channel_id": 1, "success": true},
+    {"channel_id": 2, "success": true},
+    {"channel_id": 3, "success": true}
+  ]
+}
+```
+
+#### Webhook Receiver
+
+Receive notifications from external sources (e.g., n8n workflows).
+
+```http
+POST /api/notifications/webhook
+X-API-Key: <webhook-api-key>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | Yes | Notification title |
+| `message` | string | Yes | Notification body |
+| `priority` | string | No | Priority level |
+| `channel` | string | No | Target channel name |
+
+---
+
+### NTFY Endpoints
+
+#### Get NTFY Configuration
+
+```http
+GET /api/ntfy/config
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "server_url": "https://ntfy.example.com",
+  "default_topic": "n8n-alerts",
+  "auth_enabled": true,
+  "configured": true
+}
+```
+
+#### Update NTFY Configuration
+
+```http
+PUT /api/ntfy/config
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `server_url` | string | Yes | NTFY server URL |
+| `default_topic` | string | No | Default topic name |
+| `username` | string | No | Authentication username |
+| `password` | string | No | Authentication password |
+| `token` | string | No | Authentication token |
+
+#### List NTFY Topics
+
+```http
+GET /api/ntfy/topics
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "topics": [
+    {
+      "id": 1,
+      "name": "n8n-alerts",
+      "display_name": "n8n Alerts",
+      "default_priority": 3,
+      "default_tags": ["n8n", "automation"]
+    }
+  ]
+}
+```
+
+#### Create NTFY Topic
+
+```http
+POST /api/ntfy/topics
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Topic name (alphanumeric) |
+| `display_name` | string | No | Friendly display name |
+| `default_priority` | integer | No | Default priority (1-5) |
+| `default_tags` | array | No | Default emoji tags |
+
+#### Update NTFY Topic
+
+```http
+PUT /api/ntfy/topics/{topic_id}
+Authorization: Bearer <token>
+```
+
+#### Delete NTFY Topic
+
+```http
+DELETE /api/ntfy/topics/{topic_id}
+Authorization: Bearer <token>
+```
+
+#### Send NTFY Message
+
+Send a message to an NTFY topic.
+
+```http
+POST /api/ntfy/send
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `topic` | string | Yes | Topic name |
+| `title` | string | No | Message title |
+| `message` | string | Yes | Message body |
+| `priority` | integer | No | Priority 1-5 (default: 3) |
+| `tags` | array | No | Emoji tags |
+| `actions` | array | No | Action buttons |
+| `click` | string | No | URL to open on click |
+| `attach` | string | No | Attachment URL |
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "message_id": "abc123",
+  "topic": "n8n-alerts"
+}
+```
+
+#### Test NTFY Connection
+
+```http
+POST /api/ntfy/test
+Authorization: Bearer <token>
+```
+
+#### Get NTFY Message History
+
+```http
+GET /api/ntfy/history
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | 50 | Number of messages |
+| `topic` | string | - | Filter by topic |
+
+#### List NTFY Templates
+
+```http
+GET /api/ntfy/templates
+Authorization: Bearer <token>
+```
+
+#### Create NTFY Template
+
+```http
+POST /api/ntfy/templates
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Template name |
+| `title_template` | string | No | Go template for title |
+| `body_template` | string | Yes | Go template for body |
+| `default_priority` | integer | No | Default priority |
+| `default_tags` | array | No | Default tags |
+
+---
+
+### System Notification Endpoints
+
+#### List System Events
+
+Get all configurable system events.
+
+```http
+GET /api/system-notifications/events
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "events": [
+    {
+      "id": 1,
+      "event_type": "backup_success",
+      "category": "backup",
+      "display_name": "Backup Success",
+      "description": "Triggered when a backup completes successfully",
+      "enabled": true,
+      "severity": "info",
+      "channel_ids": [1, 2],
+      "cooldown_minutes": 5
+    }
+  ]
+}
+```
+
+#### Update System Event Configuration
+
+```http
+PUT /api/system-notifications/events/{event_type}
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `enabled` | boolean | No | Enable/disable event |
+| `severity` | string | No | "info", "warning", "critical" |
+| `channel_ids` | array | No | Channels to notify |
+| `cooldown_minutes` | integer | No | Minimum time between notifications |
+| `escalation_enabled` | boolean | No | Enable L2 escalation |
+| `escalation_delay_minutes` | integer | No | Delay before escalation |
+| `escalation_channel_ids` | array | No | L2 escalation channels |
+
+#### Get Global Notification Settings
+
+```http
+GET /api/system-notifications/settings
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "global_enabled": true,
+  "maintenance_mode": false,
+  "quiet_hours_enabled": false,
+  "quiet_hours_start": "22:00",
+  "quiet_hours_end": "07:00",
+  "default_cooldown_minutes": 5,
+  "flapping_detection_enabled": true,
+  "flapping_threshold": 5,
+  "flapping_window_minutes": 10
+}
+```
+
+#### Update Global Notification Settings
+
+```http
+PUT /api/system-notifications/settings
+Authorization: Bearer <token>
+```
+
+#### Get Container-Specific Settings
+
+```http
+GET /api/system-notifications/containers/{container_name}
+Authorization: Bearer <token>
+```
+
+#### Update Container-Specific Settings
+
+```http
+PUT /api/system-notifications/containers/{container_name}
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `enabled` | boolean | No | Enable notifications for container |
+| `override_events` | object | No | Per-event overrides |
+| `cpu_threshold` | integer | No | CPU alert threshold % |
+| `memory_threshold` | integer | No | Memory alert threshold % |
+
+#### Get Notification History
+
+```http
+GET /api/system-notifications/history
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | 50 | Number of entries |
+| `event_type` | string | - | Filter by event type |
+| `category` | string | - | Filter by category |
+
+---
+
+### Container Endpoints
+
+#### List Containers
+
+Get all Docker containers.
+
+```http
+GET /api/containers
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "containers": [
+    {
+      "id": "abc123def456",
+      "name": "n8n",
+      "image": "n8nio/n8n:latest",
+      "status": "running",
+      "state": "running",
+      "health": "healthy",
+      "created": "2024-12-20T10:00:00Z",
+      "ports": ["5678/tcp"],
+      "cpu_percent": 2.5,
+      "memory_usage": 256000000,
+      "memory_limit": 1073741824
+    }
+  ]
+}
+```
+
+#### Get Container Details
+
+```http
+GET /api/containers/{container_id}
+Authorization: Bearer <token>
+```
+
+#### Get Container Logs
+
+```http
+GET /api/containers/{container_id}/logs
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `tail` | integer | 100 | Number of lines |
+| `since` | string | - | Timestamp or duration (e.g., "1h") |
+| `timestamps` | boolean | false | Include timestamps |
+
+**Response:** `200 OK`
+```json
+{
+  "logs": "2024-12-20 10:00:00 Starting n8n...\n...",
+  "container_id": "abc123def456"
+}
+```
+
+#### Start Container
+
+```http
+POST /api/containers/{container_id}/start
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Container started",
+  "container_id": "abc123def456"
+}
+```
+
+#### Stop Container
+
+```http
+POST /api/containers/{container_id}/stop
+Authorization: Bearer <token>
+```
+
+#### Restart Container
+
+```http
+POST /api/containers/{container_id}/restart
+Authorization: Bearer <token>
+```
+
+#### Get Container Stats
+
+Get real-time resource statistics.
+
+```http
+GET /api/containers/{container_id}/stats
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "cpu_percent": 2.5,
+  "memory_usage": 256000000,
+  "memory_limit": 1073741824,
+  "memory_percent": 23.8,
+  "network_rx_bytes": 1048576,
+  "network_tx_bytes": 524288,
+  "block_read_bytes": 0,
+  "block_write_bytes": 1024
 }
 ```
 
 ---
 
-## Email
+### Workflow Endpoints
 
-### Get Email Configuration
+#### List Workflows
+
+Get all n8n workflows via the n8n API.
 
 ```http
-GET /email/config
-Authorization: Bearer {token}
+GET /api/flows
+Authorization: Bearer <token>
 ```
 
-### Update Email Configuration
-
-```http
-PUT /email/config
-Authorization: Bearer {token}
-Content-Type: application/json
-
+**Response:** `200 OK`
+```json
 {
-  "provider": "gmail_relay",
-  "from_email": "alerts@company.com",
-  "from_name": "n8n Management"
+  "workflows": [
+    {
+      "id": "workflow-uuid",
+      "name": "My Workflow",
+      "active": true,
+      "created_at": "2024-12-20T10:00:00Z",
+      "updated_at": "2024-12-20T12:00:00Z",
+      "tags": ["production"],
+      "node_count": 5
+    }
+  ],
+  "total": 25
 }
 ```
 
-**Providers:**
-- `gmail_relay` - Gmail corporate relay
-- `smtp` - Custom SMTP server
-- `sendgrid` - SendGrid API
-- `mailgun` - Mailgun API
-- `ses` - AWS SES
-
-### Test Email
+#### Get Workflow Details
 
 ```http
-POST /email/test
-Authorization: Bearer {token}
-Content-Type: application/json
+GET /api/flows/{workflow_id}
+Authorization: Bearer <token>
+```
 
-{
-  "recipient": "test@example.com"
-}
+#### Activate Workflow
+
+```http
+POST /api/flows/{workflow_id}/activate
+Authorization: Bearer <token>
+```
+
+#### Deactivate Workflow
+
+```http
+POST /api/flows/{workflow_id}/deactivate
+Authorization: Bearer <token>
+```
+
+#### Get Workflow Executions
+
+```http
+GET /api/flows/{workflow_id}/executions
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | 20 | Number of executions |
+| `status` | string | - | Filter by status |
+
+#### Deploy Test Workflow
+
+Deploy a test workflow to verify system functionality.
+
+```http
+POST /api/flows/test/deploy
+Authorization: Bearer <token>
 ```
 
 ---
 
-## Health
+### System Endpoints
 
-### Health Check
+#### Health Check (Public)
+
+Check system health status. Does not require authentication.
 
 ```http
-GET /health
+GET /api/system/health
 ```
 
-No authentication required.
-
-**Response:**
+**Response:** `200 OK`
 ```json
 {
   "status": "healthy",
   "version": "3.0.0",
-  "components": {
-    "database": "healthy",
-    "n8n": "healthy",
-    "nfs": "not_configured"
+  "service": "n8n-management",
+  "database": "connected",
+  "nfs": null
+}
+```
+
+#### Full Health Check
+
+Comprehensive health check of all components.
+
+```http
+GET /api/system/health/full
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `quick` | boolean | false | Skip slow checks for faster response |
+
+**Response:** `200 OK`
+```json
+{
+  "timestamp": "2024-12-20T12:00:00Z",
+  "version": "3.0.0",
+  "overall_status": "healthy",
+  "warnings": 0,
+  "errors": 0,
+  "passed": 7,
+  "checks": {
+    "docker": {"status": "ok", "details": {"running": 5, "stopped": 0}},
+    "services": {"status": "ok", "details": {"n8n_api": "ok", "nginx": "ok"}},
+    "database": {"status": "ok", "details": {"connection": "ok", "version": "16.0"}},
+    "resources": {"status": "ok", "details": {"disk_percent": 45.2, "memory_percent": 62.1}},
+    "ssl": {"status": "ok", "details": {"days_until_expiry": 75}},
+    "network": {"status": "ok", "details": {"dns": "ok", "internet": "ok"}},
+    "backups": {"status": "ok", "details": {"recent_count": 7}}
   }
 }
 ```
 
----
+#### Get System Metrics
 
-## Error Responses
+Get current system resource metrics.
 
-All errors follow this format:
+```http
+GET /api/system/metrics
+Authorization: Bearer <token>
+```
 
+**Response:** `200 OK`
 ```json
 {
-  "detail": "Error message description"
+  "cpu": {
+    "percent": 15.2,
+    "count": 4
+  },
+  "memory": {
+    "total_bytes": 8589934592,
+    "available_bytes": 4294967296,
+    "used_bytes": 4294967296,
+    "percent": 50.0
+  },
+  "disk": {
+    "total_bytes": 107374182400,
+    "used_bytes": 53687091200,
+    "free_bytes": 53687091200,
+    "percent": 50.0
+  },
+  "network": {
+    "bytes_sent": 1048576,
+    "bytes_recv": 2097152
+  },
+  "timestamp": "2024-12-20T12:00:00Z"
 }
 ```
 
-**HTTP Status Codes:**
+#### Get Cached Host Metrics
+
+Get host metrics from database cache (faster, includes history).
+
+```http
+GET /api/system/host-metrics/cached
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `history_minutes` | integer | 60 | Minutes of history for charts |
+
+#### Get System Information
+
+```http
+GET /api/system/info
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "hostname": "n8n-server",
+  "platform": "Linux",
+  "platform_release": "5.15.0",
+  "architecture": "x86_64",
+  "python_version": "3.11.0",
+  "boot_time": "2024-12-19T08:00:00Z",
+  "uptime_seconds": 100800,
+  "uptime_human": "1 day, 4:00:00"
+}
+```
+
+#### Get Docker Information
+
+```http
+GET /api/system/docker/info
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "version": "24.0.7",
+  "containers": 5,
+  "containers_running": 5,
+  "containers_stopped": 0,
+  "images": 12,
+  "driver": "overlay2",
+  "memory_total": 8589934592,
+  "cpus": 4
+}
+```
+
+#### Get Network Information
+
+```http
+GET /api/system/network
+Authorization: Bearer <token>
+```
+
+#### Get SSL Certificate Information
+
+```http
+GET /api/system/ssl
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "configured": true,
+  "certificates": [
+    {
+      "domain": "n8n.example.com",
+      "type": "Let's Encrypt",
+      "valid_from": "Dec 01 00:00:00 2024 GMT",
+      "valid_until": "Mar 01 00:00:00 2025 GMT",
+      "days_until_expiry": 71,
+      "status": "valid"
+    }
+  ]
+}
+```
+
+#### Force SSL Certificate Renewal
+
+```http
+POST /api/system/ssl/renew
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "message": "Certificate renewed and nginx reloaded successfully",
+  "nginx_reloaded": true
+}
+```
+
+#### Get Timezone
+
+```http
+GET /api/system/timezone
+Authorization: Bearer <token>
+```
+
+#### Get Audit Logs
+
+```http
+GET /api/system/audit
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `action` | string | - | Filter by action type |
+| `user_id` | integer | - | Filter by user |
+| `limit` | integer | 50 | Number of entries |
+| `offset` | integer | 0 | Pagination offset |
+
+#### Get Audit Actions
+
+List distinct audit action types.
+
+```http
+GET /api/system/audit/actions
+Authorization: Bearer <token>
+```
+
+#### Get Terminal Targets
+
+List available terminal connection targets.
+
+```http
+GET /api/system/terminal/targets
+Authorization: Bearer <token>
+```
+
+#### Get External Services
+
+Detect external services from nginx configuration.
+
+```http
+GET /api/system/external-services
+Authorization: Bearer <token>
+```
+
+#### Get Tailscale Status
+
+```http
+GET /api/system/tailscale
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "installed": true,
+  "running": true,
+  "logged_in": true,
+  "tailscale_ip": "100.64.1.1",
+  "hostname": "n8n-server",
+  "dns_name": "n8n-server.tailnet.ts.net",
+  "peers": [...],
+  "peer_count": 5,
+  "online_peers": 3
+}
+```
+
+#### Get Cloudflare Tunnel Status
+
+```http
+GET /api/system/cloudflare
+Authorization: Bearer <token>
+```
+
+#### Get Scheduler Status
+
+```http
+GET /api/system/scheduler/status
+Authorization: Bearer <token>
+```
+
+---
+
+### Email Endpoints
+
+#### Get Email Configuration
+
+```http
+GET /api/email/config
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "provider": "smtp",
+  "from_email": "noreply@example.com",
+  "from_name": "n8n Management",
+  "smtp_host": "smtp.example.com",
+  "smtp_port": 587,
+  "smtp_username": "user@example.com",
+  "use_tls": true,
+  "configured": true
+}
+```
+
+#### Update Email Configuration
+
+```http
+PUT /api/email/config
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `provider` | string | Yes | "smtp", "sendgrid", "ses" |
+| `from_email` | string | Yes | Sender email address |
+| `from_name` | string | No | Sender display name |
+| `smtp_host` | string | Conditional | SMTP server host |
+| `smtp_port` | integer | Conditional | SMTP server port |
+| `smtp_username` | string | Conditional | SMTP username |
+| `smtp_password` | string | Conditional | SMTP password |
+| `use_tls` | boolean | No | Use TLS (default: true) |
+| `api_key` | string | Conditional | API key for SendGrid/SES |
+
+#### Send Test Email
+
+```http
+POST /api/email/test
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `recipient` | string | Yes | Test recipient email |
+
+#### Get Email Test History
+
+```http
+GET /api/email/test-history
+Authorization: Bearer <token>
+```
+
+#### List Email Templates
+
+```http
+GET /api/email/templates
+Authorization: Bearer <token>
+```
+
+#### Get Email Template
+
+```http
+GET /api/email/templates/{template_key}
+Authorization: Bearer <token>
+```
+
+#### Update Email Template
+
+```http
+PUT /api/email/templates/{template_key}
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `subject` | string | No | Email subject |
+| `body_html` | string | No | HTML body |
+| `body_text` | string | No | Plain text body |
+
+#### Preview Email Template
+
+```http
+POST /api/email/templates/preview
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `template_key` | string | Yes | Template identifier |
+| `variables` | object | No | Template variables |
+
+---
+
+### Settings Endpoints
+
+#### List All Settings
+
+```http
+GET /api/settings
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `category` | string | Filter by category |
+
+#### List Setting Categories
+
+```http
+GET /api/settings/categories
+Authorization: Bearer <token>
+```
+
+#### Get Setting
+
+```http
+GET /api/settings/{key}
+Authorization: Bearer <token>
+```
+
+#### Update Setting
+
+```http
+PUT /api/settings/{key}
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `value` | any | Yes | Setting value |
+| `description` | string | No | Optional description |
+
+#### Get System Configuration
+
+```http
+GET /api/settings/config/{config_type}
+Authorization: Bearer <token>
+```
+
+#### Update System Configuration
+
+```http
+PUT /api/settings/config/{config_type}
+Authorization: Bearer <token>
+```
+
+#### Get NFS Status
+
+```http
+GET /api/settings/nfs/status
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "status": "connected",
+  "message": "NFS mounted and writable",
+  "server": "192.168.1.100",
+  "path": "/exports/backups",
+  "mount_point": "/mnt/nfs",
+  "is_mounted": true
+}
+```
+
+#### Update NFS Configuration
+
+```http
+PUT /api/settings/nfs/config
+Authorization: Bearer <token>
+```
+
+#### Get Access Control Configuration
+
+```http
+GET /api/settings/access-control
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "enabled": true,
+  "ip_ranges": [
+    {
+      "cidr": "127.0.0.1/32",
+      "description": "Localhost",
+      "access_level": "internal",
+      "protected": true
+    },
+    {
+      "cidr": "192.168.0.0/16",
+      "description": "Local network",
+      "access_level": "internal",
+      "protected": false
+    }
+  ]
+}
+```
+
+#### Update Access Control
+
+```http
+PUT /api/settings/access-control
+Authorization: Bearer <token>
+```
+
+#### Add IP Range
+
+```http
+POST /api/settings/access-control/ip
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `cidr` | string | Yes | CIDR notation (e.g., "10.0.0.0/8") |
+| `description` | string | No | Description |
+| `access_level` | string | No | "internal" or "external" |
+
+#### Delete IP Range
+
+```http
+DELETE /api/settings/access-control/ip/{cidr}
+Authorization: Bearer <token>
+```
+
+#### Reload Nginx
+
+Apply access control changes by reloading nginx.
+
+```http
+POST /api/settings/access-control/reload-nginx
+Authorization: Bearer <token>
+```
+
+#### Get Default IP Ranges
+
+```http
+GET /api/settings/access-control/defaults
+Authorization: Bearer <token>
+```
+
+#### Get External Routes
+
+List all externally accessible routes.
+
+```http
+GET /api/settings/external-routes
+Authorization: Bearer <token>
+```
+
+#### Add External Route
+
+```http
+POST /api/settings/external-routes
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | string | Yes | URL path (e.g., "/ntfy/") |
+| `description` | string | No | Route description |
+| `upstream` | string | No | Backend service name |
+| `upstream_port` | integer | No | Backend port |
+| `is_public` | boolean | No | Public access (default: true) |
+
+#### Delete External Route
+
+```http
+DELETE /api/settings/external-routes/{path}
+Authorization: Bearer <token>
+```
+
+#### Get Environment Variable
+
+```http
+GET /api/settings/env/{key}
+Authorization: Bearer <token>
+```
+
+**Allowed Keys:** `N8N_API_KEY`, `NTFY_TOKEN`, `TAILSCALE_AUTH_KEY`, `CLOUDFLARE_TUNNEL_TOKEN`
+
+#### Update Environment Variable
+
+```http
+PUT /api/settings/env/{key}
+Authorization: Bearer <token>
+```
+
+#### Get Debug Mode
+
+```http
+GET /api/settings/debug
+Authorization: Bearer <token>
+```
+
+#### Set Debug Mode
+
+```http
+PUT /api/settings/debug
+Authorization: Bearer <token>
+```
+
+---
+
+## Error Handling
+
+All errors return a JSON response with appropriate HTTP status codes.
+
+### Error Response Format
+
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+### Common HTTP Status Codes
 
 | Code | Description |
 |------|-------------|
-| 400 | Bad Request - Invalid input |
-| 401 | Unauthorized - Missing or invalid token |
-| 403 | Forbidden - Insufficient permissions |
-| 404 | Not Found - Resource doesn't exist |
-| 422 | Validation Error - Invalid request body |
-| 500 | Internal Server Error |
+| `200` | Success |
+| `201` | Created |
+| `202` | Accepted (async operation started) |
+| `400` | Bad Request (invalid input) |
+| `401` | Unauthorized (missing/invalid token) |
+| `403` | Forbidden (insufficient permissions) |
+| `404` | Not Found |
+| `409` | Conflict (resource already exists) |
+| `422` | Validation Error |
+| `500` | Internal Server Error |
+
+### Validation Error Response
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "field_name"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+```
 
 ---
 
@@ -709,49 +1761,63 @@ All errors follow this format:
 
 The API implements rate limiting to prevent abuse:
 
-| Endpoint Type | Limit |
-|---------------|-------|
-| Authentication | 5 requests/minute |
-| Read operations | 100 requests/minute |
-| Write operations | 30 requests/minute |
-| Power controls | 1 request/minute |
+| Endpoint Category | Limit |
+|-------------------|-------|
+| Authentication | 10 requests/minute |
+| Backup Operations | 5 requests/minute |
+| Notification Sending | 30 requests/minute |
+| General API | 100 requests/minute |
 
-When rate limited, the API returns HTTP 429 with a `Retry-After` header.
+Rate limit headers are included in responses:
 
----
+```http
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1703073600
+```
 
-## Webhooks
-
-You can configure the management system to send webhooks to external systems when events occur.
-
-### Webhook Payload Format
+When rate limited, the API returns `429 Too Many Requests`:
 
 ```json
 {
-  "event": "backup.completed",
-  "timestamp": "2024-01-15T12:00:00Z",
-  "data": {
-    "backup_id": 123,
-    "backup_type": "postgres_n8n",
-    "status": "success",
-    "file_size": 1048576
-  }
+  "detail": "Rate limit exceeded. Try again in 60 seconds."
 }
 ```
 
-### Webhook Signature
+---
 
-All webhooks include an `X-Signature-256` header containing an HMAC-SHA256 signature of the payload using your webhook secret.
+## WebSocket Endpoints
 
-```python
-import hmac
-import hashlib
+### Container Logs Stream
 
-def verify_signature(payload, signature, secret):
-    expected = hmac.new(
-        secret.encode(),
-        payload.encode(),
-        hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(f"sha256={expected}", signature)
+Real-time container log streaming.
+
 ```
+WS /api/ws/containers/{container_id}/logs
+Authorization: Bearer <token> (via query param or header)
+```
+
+### Terminal Session
+
+Interactive terminal session to containers.
+
+```
+WS /api/ws/terminal/{target}
+Authorization: Bearer <token>
+```
+
+---
+
+## OpenAPI Documentation
+
+Interactive API documentation is available at:
+
+- **Swagger UI**: `https://your-domain.com:3333/docs`
+- **ReDoc**: `https://your-domain.com:3333/redoc`
+- **OpenAPI JSON**: `https://your-domain.com:3333/openapi.json`
+
+---
+
+<p align="center">
+  <em>For more information, see the <a href="README.md">main documentation</a>.</em>
+</p>
