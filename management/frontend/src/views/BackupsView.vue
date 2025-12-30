@@ -322,7 +322,7 @@ function isRestoreItemExpanded(backupId, itemId) {
 async function mountBackup(backupId) {
   mountingBackup.value = backupId
   try {
-    const response = await api.post(`/backups/${backupId}/mount`)
+    const response = await api.post(`/backups/${backupId}/mount`, {}, { timeout: 600000 }) // 10 minute timeout
     if (response.data.status === 'success') {
       mountedBackup.value = {
         backup_id: backupId,
@@ -700,7 +700,7 @@ async function restoreWorkflowToN8n(backup, workflow) {
     const response = await api.post(`/backups/${backup.id}/restore/workflow`, {
       workflow_id: workflow.id,
       rename_format: '{name}_backup_{date}',
-    })
+    }, { timeout: 300000 }) // 5 minute timeout
     if (response.data.status === 'success') {
       notificationStore.success(`Restored workflow: ${response.data.new_name}`)
     } else {
@@ -721,7 +721,7 @@ async function restoreConfigFile(backup, configFile) {
     const response = await api.post(`/backups/${backup.id}/restore/config`, {
       config_path: configFile.path,
       create_backup: true,
-    })
+    }, { timeout: 300000 }) // 5 minute timeout
     if (response.data.status === 'success') {
       notificationStore.success(`Restored ${configFile.name}. Original backed up to ${response.data.backup_created || 'backup file'}`)
     } else {
