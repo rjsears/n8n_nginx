@@ -15,7 +15,7 @@
 
 set -e
 
-DOMAIN="${1:-loftai5.loft.aero}"
+DOMAIN="${1}"
 VOLUME="letsencrypt"
 
 echo "=== SSL Certificate Diagnostic Script ==="
