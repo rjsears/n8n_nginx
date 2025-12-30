@@ -166,9 +166,9 @@ TS_ROUTES=192.168.1.10/32
 
 With the Docker host IP routed (`192.168.1.10/32`), you gain the ability to SSH directly to your Docker host from anywhere on your Tailscale network. However, for web services, **we recommend using Tailscale Serve** (Magic DNS) which provides a cleaner experience without port numbers.
 
-**SSH Access (via advertised route):**
+**SSH Access (via Tailscale):**
 ```bash
-ssh user@192.168.1.10
+ssh user@n8n-tailscale.your-tailnet.ts.net
 ```
 
 **Web Services (via Tailscale Serve - recommended):**
@@ -390,19 +390,16 @@ The n8n Management Suite uses nginx reverse proxy to eliminate port requirements
 - Automatic HTTPS certificate from Tailscale
 - Works from any Tailscale-connected device
 
-### SSH Access via Advertised Route
+### SSH Access to Docker Host
 
-The /32 subnet route allows direct SSH to your Docker host:
+SSH to your Docker host using the Tailscale Magic DNS name:
 
 ```bash
-# SSH to Docker host
-ssh user@192.168.1.10
+# SSH to Docker host via Tailscale
+ssh user@n8n-tailscale.your-tailnet.ts.net
 ```
 
-Or using the Tailscale IP:
-```bash
-ssh user@100.x.x.x
-```
+This works from anywhere in the world as long as you're connected to your Tailscale network.
 
 ### Finding the Tailscale IP
 
