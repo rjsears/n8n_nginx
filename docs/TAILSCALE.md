@@ -187,18 +187,36 @@ All web services are accessed through nginx reverse proxy with path-based routin
 
 ### When to Use Larger Subnets
 
-You might want `/24` or larger if:
+The default configuration uses `/32` (single host) routing, which is sufficient for most users since all services are accessible via Tailscale Serve's Magic DNS.
 
-- You need to access multiple servers on your LAN
+You might want `/24` or larger subnet routing if:
+
+- You need to access multiple servers on your LAN via Tailscale
 - You're setting up a full site-to-site VPN
 - You have IoT devices you want to access remotely
 
-To enable a full subnet:
-```env
-TAILSCALE_HOST_IP=192.168.1.0/24
+**To enable full subnet routing:**
+
+The `/32` is hardcoded in `docker-compose.yaml`:
+```yaml
+- TS_ROUTES=${TAILSCALE_HOST_IP}/32
 ```
 
-> ⚠️ **Warning**: Larger subnets require careful ACL configuration to prevent unintended access.
+To change this, you must edit `docker-compose.yaml` directly:
+```yaml
+# Change from:
+- TS_ROUTES=${TAILSCALE_HOST_IP}/32
+
+# To (for full /24 subnet):
+- TS_ROUTES=192.168.1.0/24
+```
+
+Then restart the Tailscale container:
+```bash
+docker compose up -d n8n_tailscale
+```
+
+> ⚠️ **Advanced Configuration**: Larger subnets require careful ACL configuration to prevent unintended access. Most users should stick with the default `/32` configuration and use Magic DNS for all services.
 
 ---
 
