@@ -197,19 +197,21 @@ You might want `/24` or larger subnet routing if:
 
 **To enable full subnet routing:**
 
-The `/32` is hardcoded in `docker-compose.yaml`:
+The `/32` suffix is hardcoded in `docker-compose.yaml`:
 ```yaml
 - TS_ROUTES=${TAILSCALE_HOST_IP}/32
 ```
 
-To change this, you must edit `docker-compose.yaml` directly:
+To advertise a larger subnet, you must edit `docker-compose.yaml` and change the CIDR suffix:
 ```yaml
 # Change from:
 - TS_ROUTES=${TAILSCALE_HOST_IP}/32
 
-# To (for full /24 subnet):
+# To (for full /24 subnet - note: uses network address, not host IP):
 - TS_ROUTES=192.168.1.0/24
 ```
+
+> **Important**: The `.env` file's `TAILSCALE_HOST_IP` should only contain an IP address (e.g., `192.168.1.10`), not a CIDR notation. The CIDR suffix is added by `docker-compose.yaml`.
 
 Then restart the Tailscale container:
 ```bash
