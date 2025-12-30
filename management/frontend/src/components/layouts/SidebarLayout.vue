@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { useDebugStore } from '@/stores/debug'
 import AboutDialog from '@/components/common/AboutDialog.vue'
+import HelpDialog from '@/components/common/HelpDialog.vue'
 import {
   HomeIcon,
   CloudIcon,
@@ -19,6 +20,7 @@ import {
   Bars3Icon,
   XMarkIcon,
   InformationCircleIcon,
+  QuestionMarkCircleIcon,
   BugAntIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -28,8 +30,9 @@ const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const debugStore = useDebugStore()
 
-// About dialog state
+// Dialog states
 const showAbout = ref(false)
+const showHelp = ref(false)
 
 const navItems = [
   { name: 'Dashboard', route: 'dashboard', icon: HomeIcon, color: 'text-blue-500' },
@@ -128,6 +131,14 @@ async function handleLogout() {
           </button>
 
           <button
+            @click="showHelp = true"
+            class="p-2 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+            title="Help & Documentation"
+          >
+            <QuestionMarkCircleIcon class="h-5 w-5" />
+          </button>
+
+          <button
             @click="showAbout = true"
             class="p-2 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             title="About"
@@ -175,5 +186,8 @@ async function handleLogout() {
 
     <!-- About Dialog -->
     <AboutDialog :open="showAbout" @close="showAbout = false" />
+
+    <!-- Help Dialog -->
+    <HelpDialog :open="showHelp" @close="showHelp = false" />
   </div>
 </template>
