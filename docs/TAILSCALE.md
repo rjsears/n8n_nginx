@@ -164,14 +164,26 @@ TS_ROUTES=192.168.1.10/32
 
 ### What Can You Access via the /32 Route?
 
-With the Docker host IP routed (`192.168.1.10/32`), you can access:
+With the Docker host IP routed (`192.168.1.10/32`), you gain the ability to SSH directly to your Docker host from anywhere on your Tailscale network. However, for web services, **we recommend using Tailscale Serve** (Magic DNS) which provides a cleaner experience without port numbers.
 
-| Service | How to Access | Port |
-|---------|---------------|------|
-| **n8n** | `https://192.168.1.10` | 443 |
-| **Management Console** | `https://192.168.1.10:3333` | 3333 |
-| **SSH** | `ssh user@192.168.1.10` | 22 |
-| **Any Docker Port** | `http://192.168.1.10:PORT` | Any exposed port |
+**SSH Access (via advertised route):**
+```bash
+ssh user@192.168.1.10
+```
+
+**Web Services (via Tailscale Serve - recommended):**
+
+All web services are accessed through nginx reverse proxy with path-based routing - no ports to remember:
+
+| Service | URL |
+|---------|-----|
+| **n8n** | `https://n8n-tailscale.your-tailnet.ts.net` |
+| **Management Console** | `https://n8n-tailscale.your-tailnet.ts.net/management` |
+| **Adminer** (optional) | `https://n8n-tailscale.your-tailnet.ts.net/adminer` |
+| **Portainer** (optional) | `https://n8n-tailscale.your-tailnet.ts.net/portainer` |
+| **Dozzle** (optional) | `https://n8n-tailscale.your-tailnet.ts.net/dozzle` |
+
+> **Note**: This system is specifically designed to eliminate port requirements. All services are routed through nginx on standard HTTPS (443), with paths determining which service you access.
 
 ### When to Use Larger Subnets
 
@@ -360,39 +372,39 @@ https://n8n-tailscale.your-tailnet.ts.net (Tailscale Serve)
 
 ## Accessing Services via Tailscale
 
-### Method 1: Magic DNS (Tailscale Serve)
+### Recommended: Magic DNS with Path-Based Routing
 
-Access n8n via the Tailscale proxy URL:
-```
-https://n8n-tailscale.your-tailnet.ts.net
-```
+The n8n Management Suite uses nginx reverse proxy to eliminate port requirements. All services are accessed via paths on a single URL:
 
-**Pros:**
-- Automatic HTTPS certificate
+| Service | URL |
+|---------|-----|
+| **n8n** | `https://n8n-tailscale.your-tailnet.ts.net` |
+| **Management Console** | `https://n8n-tailscale.your-tailnet.ts.net/management` |
+| **Adminer** (optional) | `https://n8n-tailscale.your-tailnet.ts.net/adminer` |
+| **Portainer** (optional) | `https://n8n-tailscale.your-tailnet.ts.net/portainer` |
+| **Dozzle** (optional) | `https://n8n-tailscale.your-tailnet.ts.net/dozzle` |
+
+**Benefits:**
+- No ports to remember
+- Single URL for all services
+- Automatic HTTPS certificate from Tailscale
 - Works from any Tailscale-connected device
-- No need to remember IP addresses
 
-### Method 2: Advertised Route (Direct Access)
+### SSH Access via Advertised Route
 
-Access services directly via the Docker host IP:
+The /32 subnet route allows direct SSH to your Docker host:
 
 ```bash
-# n8n
-https://192.168.1.10
-
-# Management Console
-https://192.168.1.10:3333
-
 # SSH to Docker host
 ssh user@192.168.1.10
 ```
 
-**Pros:**
-- Direct connection (potentially faster)
-- Access any port on the host
-- SSH access to manage the server
+Or using the Tailscale IP:
+```bash
+ssh user@100.x.x.x
+```
 
-### Method 3: Tailscale IP
+### Finding the Tailscale IP
 
 Access via the container's Tailscale IP:
 

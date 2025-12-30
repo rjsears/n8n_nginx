@@ -188,6 +188,20 @@ Configure what services are accessible through the tunnel:
 
 This creates: `n8n.example.com` → your n8n instance
 
+**Available Services (Path-Based Routing):**
+
+The n8n Management Suite uses nginx reverse proxy with path-based routing - no ports required:
+
+| Service | URL |
+|---------|-----|
+| **n8n** | `https://n8n.example.com` |
+| **Management Console** | `https://n8n.example.com/management` |
+| **Adminer** (optional) | `https://n8n.example.com/adminer` |
+| **Portainer** (optional) | `https://n8n.example.com/portainer` |
+| **Dozzle** (optional) | `https://n8n.example.com/dozzle` |
+
+> **Note**: All services are accessed via paths on your single domain. The tunnel only needs to expose one hostname - nginx handles routing to the appropriate service.
+
 **Additional Options (click "Additional application settings"):**
 
 | Setting | Recommended | Purpose |
