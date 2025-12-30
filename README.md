@@ -195,11 +195,11 @@ Whether you are running n8n for personal automation or deploying it for an organ
 - Automatic pruning with space management
 
 #### Notifications
-- 30+ notification providers via Apprise integration
+- 80+ notification providers via Apprise integration
 - Native NTFY push notification support via ntfy.sh
 - Optional locally hosted and integrated NFTY container
 - Email notifications with customizable templates
-- Webhook integration for n8n workflows
+- Webhook integration for notifications within n8n workflows
 - System event notifications with configurable triggers
 - L1/L2 escalation support
 - Maintenance mode and quiet hours
