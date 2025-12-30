@@ -1645,8 +1645,18 @@ Protected backups show a shield icon in the list.
 3. Select backup options:
    - **Backup Type**: Full or n8n database only
    - **Compression**: gzip, zstd, or none
-   - **Description**: Optional note
+   - **Verify after backup**: Toggle to automatically verify backup integrity after completion
 4. Click **Start Backup**
+
+#### Verify After Backup
+
+When **Verify after backup** is enabled:
+1. The backup completes normally
+2. Verification automatically starts
+3. Archive integrity and database validation are performed
+4. Results are shown in the progress modal
+
+This is recommended for critical backups where you want immediate confirmation of backup validity.
 
 <!-- SCREENSHOT: Manual backup dialog -->
 *[Screenshot placeholder: Create backup dialog with options]*
@@ -2307,6 +2317,22 @@ Configure each event type individually:
 | **Cooldown** | Minimum time between notifications | Minutes |
 | **Thresholds** | Trigger conditions | Varies by event type |
 
+#### Quick Setup: Apply to All Events
+
+Each event category (Backup, Container, Security, SSL, System) includes a **Quick Setup** section for bulk target assignment:
+
+1. Expand an event category (e.g., **Container Events**)
+2. Click **Apply to All Events** in the Quick Setup section
+3. In the modal, select:
+   - **Target Type**: Channel or Group
+   - **Target**: The specific channel or group
+   - **Escalation Level**: L1 (Primary) or L2 (Escalation)
+4. Click **Apply to All**
+
+This adds the selected notification target to all events in that category at once. Events that already have the target configured are automatically skipped to avoid duplicates.
+
+This feature simplifies initial setup when you want consistent notification routing for an entire category of events.
+
 #### Threshold Configuration
 
 Some events have configurable thresholds:
@@ -2393,7 +2419,7 @@ Prevent notification storms:
 
 Configure monitoring for individual containers:
 
-1. Go to **System Notifications** > **Container Config**
+1. Go to **Settings** > **System Notifications** > **Container Config**
 2. Click **Add Container**
 3. Select the container
 4. Configure:
@@ -2404,6 +2430,20 @@ Configure monitoring for individual containers:
    - **CPU Threshold**: Custom CPU limit (%)
    - **Memory Threshold**: Custom memory limit (%)
    - **Custom Targets**: Override default notification targets
+
+#### Container Config Status Indicators
+
+Each container configuration displays a status badge:
+
+| Status | Badge Color | Meaning |
+|--------|-------------|---------|
+| **Monitoring** | Green | Enabled and has notification targets configured |
+| **No Targets** | Amber | Enabled but no notification targets configured in Container Events |
+| **Disabled** | Gray | Notifications disabled for this container |
+
+> **Important**: A container showing "No Targets" status will not send any notifications even though it appears configured. You must add notification targets in **Notification Events** > **Container Events** for alerts to be delivered.
+
+When enabling a container without targets, a warning toast reminds you to configure notification targets.
 
 <!-- SCREENSHOT: Per-container configuration -->
 *[Screenshot placeholder: Container-specific notification settings]*
