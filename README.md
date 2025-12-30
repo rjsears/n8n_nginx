@@ -226,7 +226,7 @@ flowchart TB
         end
 
         subgraph Management["Management Layer"]
-            MGMT["Management Console<br/>:3333"]
+            MGMT["Management Console<br/>/management"]
             API["FastAPI Backend"]
         end
 
@@ -2227,7 +2227,7 @@ Send notifications from n8n workflows to the management console.
 #### Webhook URL Format
 
 ```
-POST https://your-domain.com:3333/api/notifications/webhook
+POST https://your-domain.com/management/api/notifications/webhook
 ```
 
 #### API Key Generation
@@ -2244,7 +2244,7 @@ Create an HTTP Request node in n8n:
 ```json
 {
   "method": "POST",
-  "url": "https://your-domain.com:3333/api/notifications/webhook",
+  "url": "https://your-domain.com/management/api/notifications/webhook",
   "headers": {
     "X-API-Key": "your-api-key",
     "Content-Type": "application/json"
@@ -2861,7 +2861,7 @@ docker exec n8n_postgres psql -U n8n -c "SELECT pg_database.datname, pg_size_pre
 
 ### Using Adminer
 
-If Adminer is enabled, access it at `https://your-domain.com:3333/adminer/`
+If Adminer is enabled, access it at `https://your-domain.com/adminer/`
 
 1. Select **PostgreSQL** as system
 2. Server: `postgres`
@@ -2912,7 +2912,7 @@ docker image prune -f
 
 ### Viewing Logs with Dozzle
 
-If Dozzle is enabled, access it at `https://your-domain.com:3333/logs/`
+If Dozzle is enabled, access it at `https://your-domain.com/logs/`
 
 Features:
 - Real-time log streaming
@@ -3077,7 +3077,7 @@ The advertised route gives you direct access to your Docker host IP via Tailscal
 | Service | URL |
 |---------|-----|
 | **n8n** | `https://192.168.1.10` |
-| **Management Console** | `https://192.168.1.10:3333` |
+| **Management Console** | `https://192.168.1.10/management/` |
 | **SSH to Docker Host** | `ssh user@192.168.1.10` |
 
 Replace `192.168.1.10` with your actual `TAILSCALE_HOST_IP` value.

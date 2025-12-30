@@ -101,7 +101,7 @@ Export of individual workflows as JSON files.
 ### Via API
 
 ```bash
-curl -X POST https://your-domain.com:3333/api/backups/schedules \
+curl -X POST https://your-domain.com/management/api/backups/schedules \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -203,7 +203,7 @@ Configure how long backups are kept:
 
 **Via API:**
 ```bash
-curl -X PUT https://your-domain.com:3333/api/settings \
+curl -X PUT https://your-domain.com/management/api/settings \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -255,7 +255,7 @@ Verification ensures backups can actually be restored.
 
 **Via API:**
 ```bash
-curl -X POST https://your-domain.com:3333/api/backups/verify/123 \
+curl -X POST https://your-domain.com/management/api/backups/verify/123 \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -354,7 +354,7 @@ print(result)
 
 **Via API:**
 ```bash
-curl -X POST https://your-domain.com:3333/api/backups/run \
+curl -X POST https://your-domain.com/management/api/backups/run \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"backup_type": "postgres_n8n"}'
@@ -380,7 +380,7 @@ docker exec n8n_postgres pg_dump -U n8n -d n8n -F c | gzip \
 
 **Via API:**
 ```bash
-curl -O -J https://your-domain.com:3333/api/backups/download/123 \
+curl -O -J https://your-domain.com/management/api/backups/download/123 \
   -H "Authorization: Bearer $TOKEN"
 ```
 

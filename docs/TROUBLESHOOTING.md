@@ -186,23 +186,23 @@ ss -tlpn | grep -E ':(80|443)'
 
 ### Can't Access Management Console
 
-**Symptoms:** Management port doesn't respond
+**Symptoms:** Management console doesn't respond
 
 **Solutions:**
 
-1. **Check port is open:**
+1. **Check nginx is running:**
    ```bash
-   ss -tlpn | grep :3333
+   docker ps | grep n8n_nginx
    ```
 
-2. **Allow through firewall:**
+2. **Check management container is running:**
    ```bash
-   sudo ufw allow 3333/tcp
+   docker ps | grep n8n_management
    ```
 
-3. **Verify nginx config has management block:**
+3. **Verify nginx config has management location block:**
    ```bash
-   docker exec n8n_nginx cat /etc/nginx/nginx.conf | grep -A 20 "listen 3333"
+   docker exec n8n_nginx cat /etc/nginx/nginx.conf | grep -A 10 "location /management"
    ```
 
 4. **Restart nginx:**
@@ -508,7 +508,7 @@ docker exec n8n_management mount -t nfs nfs-server:/path /mnt/test
 # Adjust session timeout in settings
 # Via UI: Settings → Security → Session Timeout
 # Or via API:
-curl -X PUT https://your-domain.com:3333/api/settings \
+curl -X PUT https://your-domain.com/management/api/settings \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"session_timeout_hours": 48}'
 ```

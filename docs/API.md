@@ -51,7 +51,7 @@ The n8n Management Console API is a RESTful API built with FastAPI that provides
 ### Base URL
 
 ```
-https://your-domain.com:3333/api
+https://your-domain.com/management/api
 ```
 
 ### Content Type
@@ -1812,9 +1812,9 @@ Authorization: Bearer <token>
 
 Interactive API documentation is available at:
 
-- **Swagger UI**: `https://your-domain.com:3333/docs`
-- **ReDoc**: `https://your-domain.com:3333/redoc`
-- **OpenAPI JSON**: `https://your-domain.com:3333/openapi.json`
+- **Swagger UI**: `https://your-domain.com/management/docs`
+- **ReDoc**: `https://your-domain.com/management/redoc`
+- **OpenAPI JSON**: `https://your-domain.com/management/openapi.json`
 
 ---
 
