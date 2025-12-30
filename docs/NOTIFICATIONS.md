@@ -2,23 +2,39 @@
 
 ## Overview
 
-The notification system alerts you about important events like backup failures, container issues, and system warnings. It supports multiple channels and granular routing rules.
+The notification system alerts you about important events like backup failures, container issues, and system warnings. All configuration is done through the **Management Console UI** - no manual file editing required.
 
 ---
 
-## Quick Start - Proper Setup Order
+## Table of Contents
 
-The notification system enforces a proper setup order to prevent misconfiguration. Follow these steps:
+1. [Quick Start](#quick-start)
+2. [Notification Channels](#notification-channels)
+3. [NTFY Push Notifications](#ntfy-push-notifications)
+4. [Event Types](#event-types)
+5. [Using the Management Console](#using-the-management-console)
+6. [Common Service Setups](#common-service-setups)
+7. [Best Practices](#best-practices)
+8. [Troubleshooting](#troubleshooting)
 
-### 1. Create Notification Channels
+---
 
-First, set up where notifications will be sent:
+## Quick Start
+
+The notification system enforces a proper setup order to prevent misconfiguration:
+
+### Step 1: Create Notification Channels
+
+Set up where notifications will be sent:
 
 1. Go to **Settings** > **Notifications**
-2. Create channels (Slack, Discord, Email, NTFY, etc.)
-3. Test each channel to ensure delivery works
+2. Click **Add Channel**
+3. Select the service type (Slack, Discord, NTFY, etc.)
+4. Fill in the required fields
+5. Click **Test** to verify delivery
+6. Click **Save**
 
-### 2. Create Notification Groups (Optional)
+### Step 2: Create Notification Groups (Optional)
 
 Group channels together for easier management:
 
@@ -26,25 +42,22 @@ Group channels together for easier management:
 2. Create groups like "Critical Alerts" or "Daily Digest"
 3. Add channels to groups
 
-### 3. Enable Global Event Types
+### Step 3: Enable Global Event Types
 
 **This is critical** - Global events must be enabled before per-container settings work:
 
 1. Go to **Settings** > **System Notifications** > **Global Event Settings**
 2. Expand each category (Backup, Container, Security, SSL, System)
 3. Enable the event types you want to monitor
-4. Add notification targets to each event using **Quick Setup** > **Apply to All Events**
+4. Add notification targets using **Quick Setup** > **Apply to All Events**
 
-### 4. Configure Per-Container Settings (Optional)
+### Step 4: Configure Per-Container Settings (Optional)
 
 After global events are enabled, customize individual containers:
 
 1. Go to **Settings** > **System Notifications** > **Container Config**
 2. Add containers you want custom settings for
 3. Toggle which events to monitor per container
-4. Set custom CPU/memory thresholds if needed
-
-> **Important**: If you see "Enable in Global Event Settings" on a toggle, you must first enable that event type in the Global Event Settings tab. The system prevents configuration of events that won't work.
 
 ### Status Indicators
 
@@ -57,125 +70,72 @@ After global events are enabled, customize individual containers:
 
 ---
 
-## Supported Services
+## Notification Channels
 
-### Apprise (80+ Services)
+### Supported Services
 
-Apprise is a universal notification library supporting:
-- Slack, Discord, Microsoft Teams
-- Telegram, WhatsApp
-- Email, SMS
-- PagerDuty, Opsgenie
-- And many more...
+All channel configuration is done through the Management Console UI. Here are the supported services:
 
-**Configuration:**
-```json
-{
-  "service_type": "apprise",
-  "config": {
-    "url": "slack://tokenA/tokenB/tokenC"
-  }
-}
-```
+| Service Type | Description | Use Case |
+|--------------|-------------|----------|
+| **Apprise** | Universal notification library (80+ services) | Slack, Discord, Teams, Telegram, etc. |
+| **NTFY** | Push notifications to phone | Mobile alerts |
+| **Email** | SMTP email | Record keeping, digests |
+| **Webhook** | Custom HTTP endpoints | Integration with other systems |
 
-**Common Apprise URLs:**
+### Apprise (Recommended for Chat Services)
 
-| Service | URL Format | Example |
-|---------|------------|---------|
-| Slack | `slack://tokenA/tokenB/tokenC` | `slack://T0123/B0456/abcdef` |
-| Discord | `discord://webhook_id/webhook_token` | `discord://123456/abcdef` |
-| Telegram | `tgram://bot_token/chat_id` | `tgram://123:ABC/987654` |
-| Teams | `msteams://TokenA/TokenB/TokenC` | `msteams://abc/def/ghi` |
-| Pushover | `pover://user_key/api_token` | `pover://abc123/def456` |
-| Email | `mailto://user:pass@host` | `mailto://user:pass@smtp.gmail.com` |
+Apprise is a universal notification library that supports 80+ services with a simple URL format.
 
-See: https://github.com/caronc/apprise/wiki for complete documentation.
+**Adding an Apprise Channel:**
 
-### NTFY (Push Notifications)
+1. Go to **Settings** > **Notifications** > **Add Channel**
+2. Select **Apprise**
+3. Enter a name (e.g., "Slack - Ops Channel")
+4. Enter the Apprise URL for your service
+5. Test and save
 
-Free push notifications to your phone via ntfy.sh or self-hosted server.
+**Common Apprise URL Formats:**
 
-**Configuration:**
-```json
-{
-  "service_type": "ntfy",
-  "config": {
-    "server": "https://ntfy.sh",
-    "topic": "your-unique-topic",
-    "token": "optional-auth-token"
-  }
-}
-```
+| Service | URL Format |
+|---------|------------|
+| Slack | `slack://TokenA/TokenB/TokenC/#channel` |
+| Discord | `discord://webhook_id/webhook_token` |
+| Telegram | `tgram://bot_token/chat_id` |
+| Microsoft Teams | `msteams://TokenA/TokenB/TokenC` |
+| Pushover | `pover://user_key/api_token` |
+| Email | `mailto://user:pass@smtp.gmail.com` |
 
-**Setup:**
-1. Install NTFY app on your phone (iOS/Android)
-2. Subscribe to your topic in the app
-3. Configure service in management UI
-4. Test the notification
-
-**Self-Hosted NTFY:**
-```json
-{
-  "service_type": "ntfy",
-  "config": {
-    "server": "https://ntfy.your-domain.com",
-    "topic": "n8n-alerts",
-    "username": "admin",
-    "password": "your-password"
-  }
-}
-```
+For complete documentation: https://github.com/caronc/apprise/wiki
 
 ### Email
 
-Direct email notifications via your email provider.
+Email notifications use your configured email provider.
 
-**Gmail Corporate Relay:**
-```json
-{
-  "service_type": "email",
-  "config": {
-    "to": "alerts@company.com"
-  }
-}
-```
+**Setup:**
 
-Requires email provider configured in **Settings** → **Email**.
-
-**SMTP Configuration (in Settings):**
-```json
-{
-  "provider": "smtp",
-  "smtp_host": "smtp.your-server.com",
-  "smtp_port": 587,
-  "smtp_user": "notifications@company.com",
-  "smtp_password": "your-password",
-  "smtp_tls": true,
-  "from_email": "n8n-alerts@company.com",
-  "from_name": "n8n Management"
-}
-```
+1. First, configure your email provider in **Settings** > **Email**
+2. Then go to **Settings** > **Notifications** > **Add Channel**
+3. Select **Email**
+4. Enter recipient email addresses
+5. Test and save
 
 ### Webhook
 
 Custom HTTP webhooks for integration with other systems.
 
-**Configuration:**
-```json
-{
-  "service_type": "webhook",
-  "config": {
-    "url": "https://your-server.com/webhook",
-    "method": "POST",
-    "headers": {
-      "Authorization": "Bearer token123",
-      "Content-Type": "application/json"
-    }
-  }
-}
-```
+**Adding a Webhook Channel:**
 
-**Webhook Payload:**
+1. Go to **Settings** > **Notifications** > **Add Channel**
+2. Select **Webhook**
+3. Enter the webhook URL
+4. Optionally add headers (like Authorization)
+5. Test and save
+
+**Payload Format:**
+
+When an event triggers, the webhook receives a JSON payload like:
+
 ```json
 {
   "event": "backup.failed",
@@ -189,6 +149,256 @@ Custom HTTP webhooks for integration with other systems.
   }
 }
 ```
+
+---
+
+## NTFY Push Notifications
+
+NTFY provides instant push notifications to your phone. There are two options:
+
+### Option 1: Public ntfy.sh (Recommended for Getting Started)
+
+The free public server at `ntfy.sh` - no setup required.
+
+**Pros:**
+- Zero setup - just subscribe to a topic
+- Free for personal use
+- Works immediately
+
+**Cons:**
+- Topics are public (anyone who guesses your topic can see messages)
+- No authentication by default
+- Subject to rate limits
+- Limited customization
+
+**Setup:**
+
+1. Install the NTFY app on your phone ([iOS](https://apps.apple.com/app/ntfy/id1625396347) / [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy))
+2. Subscribe to a unique topic (e.g., `n8n-alerts-8472xkj`)
+3. In Management Console, go to **Settings** > **Notifications** > **Add Channel**
+4. Select **NTFY**
+5. Server: `https://ntfy.sh`
+6. Topic: your unique topic name
+7. Test and save
+
+> **Security Tip:** Use a long, random topic name since public topics are guessable.
+
+---
+
+### Option 2: Self-Hosted NTFY (Recommended for Production)
+
+Run your own NTFY server for full control, authentication, and advanced features.
+
+**Pros:**
+- Full authentication (username/password or tokens)
+- Message templates
+- Email notifications from NTFY
+- Attachments and file sharing
+- Rate limiting control
+- Complete privacy
+
+**Cons:**
+- Requires subdomain configuration
+- Additional Cloudflare Tunnel setup
+
+### Critical Requirement: Subdomain Required
+
+**Self-hosted NTFY requires its own subdomain.** It will NOT work as a path on your n8n domain.
+
+| Configuration | Works? | Example |
+|--------------|--------|---------|
+| `ntfy.yourdomain.com` | ✅ Yes | Required for self-hosted |
+| `n8n.yourdomain.com/ntfy` | ❌ No | Will not work |
+
+**Why a subdomain is required:**
+
+1. NTFY uses WebSocket connections for real-time push notifications
+2. The NTFY protocol expects to be at the root path (`/`)
+3. Mobile apps and the web UI don't support path-based routing
+4. UnifiedPush (Android) requires a root domain
+
+### Setting Up Self-Hosted NTFY
+
+#### Step 1: Enable NTFY During Setup
+
+When running `./setup.sh`, select NTFY as an optional service:
+
+```
+  Optional Components:
+    ...
+    5. NTFY (push notifications)
+    ...
+
+  Enable NTFY? [y/N]: y
+```
+
+Or add to your `.env` file:
+
+```env
+# NTFY public URL - MUST be a subdomain
+NTFY_BASE_URL=https://ntfy.yourdomain.com
+
+# Authentication settings
+NTFY_AUTH_DEFAULT_ACCESS=read-write
+NTFY_ENABLE_LOGIN=true
+NTFY_ENABLE_SIGNUP=false
+
+# Cache and attachment settings
+NTFY_CACHE_DURATION=24h
+NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT=100M
+NTFY_ATTACHMENT_FILE_SIZE_LIMIT=15M
+NTFY_ATTACHMENT_EXPIRY_DURATION=24h
+NTFY_KEEPALIVE_INTERVAL=45s
+
+# Optional: SMTP for email notifications from NTFY
+NTFY_SMTP_SENDER_ADDR=smtp.gmail.com:587
+NTFY_SMTP_SENDER_USER=your-email@gmail.com
+NTFY_SMTP_SENDER_PASS=your-app-password
+NTFY_SMTP_SENDER_FROM=your-email@gmail.com
+```
+
+#### Step 2: Configure Cloudflare Tunnel for NTFY Subdomain
+
+Self-hosted NTFY requires an additional public hostname in your Cloudflare Tunnel.
+
+1. Go to [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com)
+2. Navigate to **Networks** > **Tunnels**
+3. Click on your tunnel (e.g., `n8n-tunnel`)
+4. Go to the **Public Hostname** tab
+5. Click **Add a public hostname**
+
+**Configure the NTFY hostname:**
+
+| Field | Value |
+|-------|-------|
+| Subdomain | `ntfy` |
+| Domain | `yourdomain.com` |
+| Type | `HTTP` |
+| URL | `n8n_ntfy:80` |
+
+**Additional Settings:**
+
+| Setting | Value |
+|---------|-------|
+| TLS > No TLS Verify | Leave disabled (NTFY uses HTTP internally) |
+| HTTP Settings > HTTP Host Header | `ntfy.yourdomain.com` |
+
+6. Click **Save hostname**
+
+> **Important:** Notice the URL is `HTTP` to `n8n_ntfy:80`, not HTTPS. The NTFY container exposes port 80 internally. Cloudflare provides the HTTPS termination.
+
+#### Step 3: Create NTFY Users
+
+After deployment, create user accounts for authentication:
+
+```bash
+# Enter the NTFY container
+docker exec -it n8n_ntfy sh
+
+# Add a user
+ntfy user add admin
+
+# Set password when prompted
+# Grant admin role if needed
+ntfy user change-role admin admin
+
+# List users
+ntfy user list
+
+# Exit container
+exit
+```
+
+#### Step 4: Configure Access Tokens
+
+For the Management Console to send notifications:
+
+```bash
+# Create an access token for the management console
+docker exec n8n_ntfy ntfy token add admin
+
+# This outputs a token like: tk_xxxxxxxxxxxxxxxxxxxxx
+# Save this token for the notification channel configuration
+```
+
+#### Step 5: Add NTFY Channel in Management Console
+
+1. Go to **Settings** > **Notifications** > **Add Channel**
+2. Select **NTFY**
+3. Configure:
+   - **Server:** `https://ntfy.yourdomain.com`
+   - **Topic:** `alerts` (or any topic name)
+   - **Token:** `tk_xxxxxxxxxxxxxxxxxxxxx` (from Step 4)
+4. Test and save
+
+### Self-Hosted NTFY Advanced Features
+
+These features are only available with self-hosted NTFY:
+
+#### Message Templates
+
+Create custom message templates in the NTFY web UI:
+
+1. Access `https://ntfy.yourdomain.com`
+2. Log in with your admin account
+3. Go to Settings > Templates
+
+#### Priority and Tags
+
+Configure different priority levels with visual indicators:
+
+| Priority | Mobile Behavior |
+|----------|----------------|
+| `min` / `1` | No sound, no vibration |
+| `low` / `2` | No sound |
+| `default` / `3` | Sound + vibration |
+| `high` / `4` | Sound + vibration + display on |
+| `urgent` / `5` | Bypasses Do Not Disturb |
+
+#### Action Buttons
+
+Add clickable action buttons to notifications:
+
+```
+Click to view logs: view, https://n8n.yourdomain.com/management
+```
+
+#### Scheduled Delivery
+
+Delay notifications for future delivery:
+
+```
+Delay: 1h (deliver in 1 hour)
+At: 9am (deliver at next 9 AM)
+```
+
+#### Email Forwarding
+
+Forward notifications to email (requires SMTP configuration in `.env`):
+
+1. Go to NTFY web UI
+2. Subscribe to your topic
+3. Enable email notifications for that subscription
+
+### Firewall Configuration (Non-Cloudflare Users)
+
+If you're not using Cloudflare Tunnel and exposing NTFY directly:
+
+```bash
+# Allow NTFY subdomain traffic
+# Replace with your actual firewall commands
+
+# UFW example
+ufw allow 443/tcp
+
+# iptables example
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+```
+
+You'll also need:
+- DNS A/CNAME record pointing `ntfy.yourdomain.com` to your server
+- SSL certificate (Let's Encrypt via Certbot)
+- nginx configuration for the NTFY subdomain
 
 ---
 
@@ -242,379 +452,174 @@ Custom HTTP webhooks for integration with other systems.
 
 ---
 
-## Creating Notification Services
+## Using the Management Console
 
-### Via Management UI
+### Adding a Notification Channel
 
-1. Go to **Notifications** → **Services**
-2. Click **Add Service**
-3. Fill in:
-   - **Name**: Descriptive name (e.g., "Slack - Ops Channel")
-   - **Type**: Select service type
-   - **Configuration**: Service-specific settings
-   - **Enabled**: Toggle on
-4. Click **Test** to verify
-5. Click **Save**
+1. Navigate to **Settings** > **Notifications**
+2. Click **Add Channel**
+3. Select the service type
+4. Fill in the configuration form:
 
-### Via API
+   **For Apprise:**
+   - Name: Descriptive name
+   - URL: The Apprise URL for your service
 
-```bash
-curl -X POST https://your-domain.com:3333/api/notifications/services \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Slack Ops Channel",
-    "service_type": "apprise",
-    "config": {
-      "url": "slack://T0123/B0456/abcdef"
-    },
-    "enabled": true
-  }'
-```
+   **For NTFY:**
+   - Name: Descriptive name
+   - Server: `https://ntfy.sh` or your self-hosted URL
+   - Topic: Your topic name
+   - Token: (optional, for self-hosted with auth)
 
----
+   **For Email:**
+   - Name: Descriptive name
+   - To: Recipient email addresses
 
-## Creating Notification Rules
+   **For Webhook:**
+   - Name: Descriptive name
+   - URL: Your webhook endpoint
+   - Headers: (optional) Key-value pairs
 
-Rules determine which events trigger which notifications.
+5. Click **Test** to verify
+6. Click **Save**
 
-### Via Management UI
+### Creating Notification Groups
 
-1. Go to **Notifications** → **Rules**
-2. Click **Add Rule**
-3. Configure:
-   - **Name**: Descriptive name
-   - **Event Type**: Select from dropdown
-   - **Service**: Target notification service
-   - **Priority**: low, normal, high, critical
-   - **Conditions**: Optional filters
-4. Click **Save**
+Groups allow you to send to multiple channels at once:
 
-### Example Rules
+1. Go to **Settings** > **Notifications** > **Groups**
+2. Click **Add Group**
+3. Enter a group name (e.g., "Critical Alerts")
+4. Select channels to include
+5. Save
 
-**Alert on backup failures (critical):**
-```json
-{
-  "name": "Backup Failure Alert",
-  "event_type": "backup.failed",
-  "service_id": 1,
-  "priority": "critical",
-  "enabled": true
-}
-```
+### Configuring Global Events
 
-**Container health alerts:**
-```json
-{
-  "name": "Container Unhealthy Alert",
-  "event_type": "container.unhealthy",
-  "service_id": 1,
-  "priority": "high",
-  "enabled": true,
-  "conditions": {
-    "containers": ["n8n", "n8n_postgres"]
-  }
-}
-```
+1. Go to **Settings** > **System Notifications**
+2. Select the **Global Event Settings** tab
+3. Expand each event category
+4. For each event type:
+   - Toggle to enable/disable
+   - Add notification targets (channels or groups)
+5. Save changes
 
-**Daily digest of container restarts:**
-```json
-{
-  "name": "Container Restart Digest",
-  "event_type": "container.restarted",
-  "service_id": 2,
-  "priority": "low",
-  "conditions": {
-    "cooldown_minutes": 1440
-  }
-}
-```
+### Per-Container Configuration
 
-**Disk space warning:**
-```json
-{
-  "name": "Disk Space Warning",
-  "event_type": "system.disk_warning",
-  "service_id": 1,
-  "priority": "normal",
-  "enabled": true
-}
-```
+1. Go to **Settings** > **System Notifications**
+2. Select the **Container Config** tab
+3. Click **Add Container**
+4. Select the container
+5. Configure:
+   - Which events to monitor
+   - Custom CPU/memory thresholds
+   - Override notification targets
+6. Save
+
+### Testing Notifications
+
+Always test before relying on notifications:
+
+1. Go to **Settings** > **Notifications**
+2. Find your channel
+3. Click the **Test** button
+4. Verify you received the test message
+
+### Viewing Notification History
+
+1. Go to **Settings** > **Notifications** > **History**
+2. Filter by:
+   - Event type
+   - Channel
+   - Status (sent, failed, pending)
+   - Date range
+3. Click on any notification to see details
 
 ---
 
-## Advanced Configuration
-
-### Cooldown
-
-Prevent notification spam by setting a cooldown period:
-
-```json
-{
-  "conditions": {
-    "cooldown_minutes": 30
-  }
-}
-```
-
-This ensures at least 30 minutes between notifications for the same event type.
-
-### Custom Messages
-
-Override default notification content:
-
-```json
-{
-  "custom_title": "🚨 Backup Failed!",
-  "custom_message": "The {{backup_type}} backup has failed. Check the management console immediately.",
-  "include_details": true
-}
-```
-
-**Available Variables:**
-
-| Variable | Events | Description |
-|----------|--------|-------------|
-| `{{backup_type}}` | backup.* | Type of backup |
-| `{{container_name}}` | container.* | Name of container |
-| `{{error}}` | *.failed | Error message |
-| `{{timestamp}}` | all | Event timestamp |
-| `{{hostname}}` | all | Server hostname |
-
-### Multiple Services per Event
-
-Create multiple rules for the same event to notify different channels:
-
-```
-Rule 1: backup.failed → Slack (immediate, critical)
-Rule 2: backup.failed → Email (digest, normal)
-Rule 3: backup.failed → PagerDuty (if critical)
-```
-
-### Priority Filtering
-
-Route notifications based on priority:
-
-```json
-{
-  "name": "Critical to PagerDuty",
-  "event_type": "*",
-  "service_id": 3,
-  "conditions": {
-    "min_priority": "critical"
-  }
-}
-```
-
----
-
-## Setting Up Common Services
+## Common Service Setups
 
 ### Slack
 
-1. Create a Slack App at https://api.slack.com/apps
-2. Add **Incoming Webhooks** feature
-3. Create webhook for your channel
-4. Copy webhook URL
-5. Create Apprise service with URL format:
+1. **Create a Slack App:**
+   - Go to https://api.slack.com/apps
+   - Click **Create New App** > **From scratch**
+   - Name it (e.g., "n8n Alerts")
+   - Select your workspace
+
+2. **Add Incoming Webhooks:**
+   - Go to **Incoming Webhooks**
+   - Toggle **Activate Incoming Webhooks** on
+   - Click **Add New Webhook to Workspace**
+   - Select the channel
+   - Copy the webhook URL
+
+3. **Extract Apprise tokens from the webhook URL:**
    ```
-   slack://TokenA/TokenB/TokenC/#channel
+   https://hooks.slack.com/services/T0123ABCD/B0456EFGH/xyzXYZ123abcABC456def
+                                       └─TokenA─┘ └─TokenB──┘ └────TokenC────┘
    ```
 
-**Alternative - Direct Webhook:**
-```json
-{
-  "service_type": "webhook",
-  "config": {
-    "url": "https://hooks.slack.com/services/T00/B00/XXX",
-    "method": "POST",
-    "headers": {
-      "Content-Type": "application/json"
-    }
-  }
-}
-```
+4. **In Management Console:**
+   - Add Apprise channel
+   - URL: `slack://T0123ABCD/B0456EFGH/xyzXYZ123abcABC456def/#channel-name`
 
 ### Discord
 
-1. Go to Server Settings → Integrations → Webhooks
-2. Create webhook
-3. Copy webhook URL
-4. Create Apprise service:
+1. **Create a Webhook:**
+   - In Discord, go to Server Settings > Integrations > Webhooks
+   - Click **New Webhook**
+   - Name it and select the channel
+   - Copy the webhook URL
+
+2. **Extract tokens from the URL:**
    ```
-   discord://webhook_id/webhook_token
+   https://discord.com/api/webhooks/1234567890/abcdefghijklmnop
+                                    └─webhook_id─┘└──webhook_token──┘
    ```
+
+3. **In Management Console:**
+   - Add Apprise channel
+   - URL: `discord://1234567890/abcdefghijklmnop`
 
 ### Microsoft Teams
 
-1. In Teams channel, click **⋯** → **Connectors**
-2. Add **Incoming Webhook**
-3. Copy webhook URL
-4. Create Apprise service:
-   ```
-   msteams://TokenA/TokenB/TokenC
-   ```
+1. **Create an Incoming Webhook:**
+   - In Teams, go to the channel
+   - Click **...** > **Connectors**
+   - Find **Incoming Webhook** and click **Configure**
+   - Name it and copy the URL
+
+2. **In Management Console:**
+   - Add Apprise channel
+   - URL: `msteams://TokenA/TokenB/TokenC` (extract from webhook URL)
 
 ### Telegram
 
-1. Create bot via @BotFather
-2. Get bot token
-3. Get your chat ID (message @userinfobot)
-4. Create Apprise service:
-   ```
-   tgram://bot_token/chat_id
-   ```
+1. **Create a Bot:**
+   - Message @BotFather on Telegram
+   - Send `/newbot`
+   - Follow prompts to name your bot
+   - Copy the bot token
+
+2. **Get your Chat ID:**
+   - Message @userinfobot
+   - It replies with your chat ID
+
+3. **In Management Console:**
+   - Add Apprise channel
+   - URL: `tgram://BOT_TOKEN/CHAT_ID`
 
 ### PagerDuty
 
-1. Create integration in PagerDuty
-2. Get integration key
-3. Create Apprise service:
-   ```
-   pagerduty://integration_key
-   ```
+1. **Create a Service:**
+   - In PagerDuty, go to Services
+   - Create a new service or use existing
+   - Add an integration (Events API v2)
+   - Copy the Integration Key
 
----
-
-## Testing Notifications
-
-Always test your notification services before relying on them.
-
-### Via Management UI
-
-1. Go to **Notifications** → **Services**
-2. Find your service
-3. Click **Test**
-4. Verify you received the test message
-
-### Via API
-
-```bash
-curl -X POST https://your-domain.com:3333/api/notifications/services/1/test \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### Via CLI
-
-```bash
-# Test Apprise directly
-docker exec n8n_management apprise -t "Test" -b "Test message" "your-url"
-
-# Test NTFY
-docker exec n8n_management curl -d "Test notification" \
-  https://ntfy.sh/your-topic
-```
-
----
-
-## Notification History
-
-View past notifications in the management UI:
-
-1. Go to **Notifications** → **History**
-2. Filter by:
-   - Event type
-   - Service
-   - Status (sent, failed, pending)
-   - Date range
-3. Click on notification to see details
-
-### Via API
-
-```bash
-curl "https://your-domain.com:3333/api/notifications/history?limit=50" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
----
-
-## Troubleshooting
-
-### Notifications Not Sending
-
-1. **Check service is enabled:**
-   - Go to **Notifications** → **Services**
-   - Verify service is enabled (toggle on)
-
-2. **Check rule is enabled:**
-   - Go to **Notifications** → **Rules**
-   - Verify rule is enabled
-
-3. **Test service directly:**
-   - Click **Test** on the service
-   - Check for error message
-
-4. **Check notification history:**
-   - Go to **Notifications** → **History**
-   - Look for failed notifications with error details
-
-### Apprise URL Not Working
-
-1. **Verify URL format:**
-   - Check Apprise documentation for your service
-   - Test URL with Apprise CLI:
-     ```bash
-     docker exec n8n_management apprise -t "Test" -b "Message" "your-url"
-     ```
-
-2. **Check network connectivity:**
-   ```bash
-   docker exec n8n_management curl -v https://your-service-endpoint
-   ```
-
-3. **Check credentials:**
-   - Verify tokens/API keys are correct
-   - Check for expired credentials
-
-### Email Notifications Failing
-
-1. **Check email provider configuration:**
-   - Go to **Settings** → **Email**
-   - Verify SMTP settings
-
-2. **Send test email:**
-   - Go to **Settings** → **Email** → **Test**
-   - Check for error messages
-
-3. **Common SMTP issues:**
-   - Port blocked by firewall
-   - Authentication required
-   - TLS/SSL misconfiguration
-   - Sender not authorized
-
-### Too Many Notifications
-
-1. **Add cooldown to rules:**
-   ```json
-   {
-     "conditions": {
-       "cooldown_minutes": 30
-     }
-   }
-   ```
-
-2. **Adjust event thresholds:**
-   - Go to **Settings** → **System**
-   - Adjust CPU/memory/disk thresholds
-
-3. **Consider batching:**
-   - Create rules with longer cooldowns for informational events
-   - Use digest services for non-critical notifications
-
-### NTFY Not Working
-
-1. **Check topic subscription:**
-   - Verify you're subscribed to the correct topic in the app
-   - Try subscribing again
-
-2. **Check server connectivity:**
-   ```bash
-   docker exec n8n_management curl https://ntfy.sh/your-topic
-   ```
-
-3. **Check authentication:**
-   - If using self-hosted NTFY, verify credentials
-   - Check token is valid
+2. **In Management Console:**
+   - Add Apprise channel
+   - URL: `pagerduty://INTEGRATION_KEY`
 
 ---
 
@@ -629,24 +634,33 @@ Begin with one notification channel for critical events:
 ### 2. Use Multiple Channels
 
 Don't rely on a single notification method:
-- Primary: Slack/Teams for immediate alerts
-- Secondary: Email for record keeping
-- Critical: PagerDuty/phone for emergencies
+
+| Priority | Primary | Backup |
+|----------|---------|--------|
+| Critical | PagerDuty + Phone | Slack |
+| High | Slack | Email |
+| Normal | Slack | - |
+| Low | Email digest | - |
 
 ### 3. Set Appropriate Priorities
 
-- **Critical**: Requires immediate action (backup failure, disk full)
-- **High**: Important but can wait briefly (container unhealthy)
-- **Normal**: Should be reviewed soon (backup warnings)
-- **Low**: Informational only (successful backups)
+| Priority | Use For | Example |
+|----------|---------|---------|
+| Critical | Requires immediate action | Backup failure, disk full |
+| High | Important, can wait briefly | Container unhealthy |
+| Normal | Should be reviewed soon | Backup warnings |
+| Low | Informational only | Successful backups |
 
-### 4. Use Cooldowns Wisely
+### 4. Use Cooldowns
 
-Prevent alert fatigue:
-- Critical events: No cooldown or short (5 min)
-- High priority: 15-30 minutes
-- Normal: 1-4 hours
-- Low/informational: Daily digest
+Prevent alert fatigue by setting cooldown periods in event configuration:
+
+| Priority | Suggested Cooldown |
+|----------|-------------------|
+| Critical | 0-5 minutes |
+| High | 15-30 minutes |
+| Normal | 1-4 hours |
+| Low | Daily digest |
 
 ### 5. Test Regularly
 
@@ -656,6 +670,150 @@ Prevent alert fatigue:
 
 ### 6. Document Your Setup
 
-- Keep a list of notification channels and purposes
+- Keep a list of notification channels and their purposes
 - Document who receives what alerts
 - Update documentation when rules change
+
+---
+
+## Troubleshooting
+
+### Notifications Not Sending
+
+1. **Check channel is enabled:**
+   - Go to **Notifications** > find your channel
+   - Verify the toggle is on
+
+2. **Check event is enabled:**
+   - Go to **System Notifications** > **Global Event Settings**
+   - Verify the event type is enabled
+
+3. **Test the channel:**
+   - Click **Test** on the channel
+   - Check for error messages
+
+4. **Check notification history:**
+   - Go to **Notifications** > **History**
+   - Look for failed notifications with error details
+
+### NTFY Not Working
+
+**Public ntfy.sh:**
+
+1. Verify you're subscribed to the correct topic in the app
+2. Check topic name matches exactly (case-sensitive)
+3. Test from command line:
+   ```bash
+   curl -d "Test message" https://ntfy.sh/your-topic
+   ```
+
+**Self-hosted NTFY:**
+
+1. Verify the subdomain is accessible:
+   ```bash
+   curl https://ntfy.yourdomain.com/v1/health
+   ```
+   Should return: `{"healthy":true}`
+
+2. Check Cloudflare Tunnel configuration:
+   - Verify public hostname exists for `ntfy.yourdomain.com`
+   - Verify URL is `n8n_ntfy:80` (HTTP, not HTTPS)
+
+3. Check container is running:
+   ```bash
+   docker logs n8n_ntfy
+   ```
+
+4. Verify authentication token is valid:
+   ```bash
+   docker exec n8n_ntfy ntfy token list admin
+   ```
+
+### Apprise URL Not Working
+
+1. Test the URL directly:
+   ```bash
+   docker exec n8n_management apprise -t "Test" -b "Message" "your-apprise-url"
+   ```
+
+2. Check URL format matches the service documentation
+
+3. Verify tokens/API keys are correct and not expired
+
+### Email Notifications Failing
+
+1. Check email provider configuration in **Settings** > **Email**
+
+2. Send a test email from that page
+
+3. Common issues:
+   - Port blocked by firewall
+   - Authentication required
+   - TLS/SSL misconfiguration
+   - App password needed (Gmail, etc.)
+
+### Too Many Notifications
+
+1. Add cooldowns to event configuration
+
+2. Adjust thresholds:
+   - Go to **Settings** > **System**
+   - Increase CPU/memory/disk thresholds
+
+3. Disable low-priority events you don't need
+
+---
+
+## Quick Reference
+
+### Management Console Paths
+
+| Task | Location |
+|------|----------|
+| Add notification channel | Settings > Notifications > Add Channel |
+| Create channel group | Settings > Notifications > Groups |
+| Enable global events | Settings > System Notifications > Global Event Settings |
+| Per-container config | Settings > System Notifications > Container Config |
+| View history | Settings > Notifications > History |
+| Configure email | Settings > Email |
+
+### Environment Variables (for Self-Hosted NTFY)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NTFY_BASE_URL` | Yes | Public URL (e.g., `https://ntfy.yourdomain.com`) |
+| `NTFY_AUTH_DEFAULT_ACCESS` | No | Default: `read-write` |
+| `NTFY_ENABLE_LOGIN` | No | Default: `true` |
+| `NTFY_ENABLE_SIGNUP` | No | Default: `false` |
+| `NTFY_CACHE_DURATION` | No | Default: `24h` |
+| `NTFY_SMTP_SENDER_ADDR` | No | SMTP server for email notifications |
+| `NTFY_SMTP_SENDER_USER` | No | SMTP username |
+| `NTFY_SMTP_SENDER_PASS` | No | SMTP password |
+| `NTFY_SMTP_SENDER_FROM` | No | From email address |
+
+### NTFY Commands
+
+```bash
+# Check NTFY health
+curl https://ntfy.yourdomain.com/v1/health
+
+# Add user
+docker exec n8n_ntfy ntfy user add USERNAME
+
+# Create token
+docker exec n8n_ntfy ntfy token add USERNAME
+
+# List users
+docker exec n8n_ntfy ntfy user list
+
+# View logs
+docker logs n8n_ntfy
+```
+
+---
+
+## Related Documentation
+
+- [README.md](../README.md) - Main documentation
+- [CLOUDFLARE.md](./CLOUDFLARE.md) - Cloudflare Tunnel setup (required for NTFY subdomain)
+- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - General troubleshooting
