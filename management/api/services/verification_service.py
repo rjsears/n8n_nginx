@@ -1,8 +1,14 @@
 """
-Verification service - comprehensive backup integrity verification.
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+/management/api/services/verification_service.py
 
-Phase 5: Backup Verification System
-Proves backups are restorable by testing against stored metadata.
+Part of the "n8n_nginx/n8n_management" suite
+Version 3.0.0 - January 1st, 2026
+
+Richard J. Sears
+richardjsears@gmail.com
+https://github.com/rjsears
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
 import subprocess

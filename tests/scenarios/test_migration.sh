@@ -1,4 +1,15 @@
 #!/bin/bash
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# /tests/scenarios/test_migration.sh
+#
+# Part of the "n8n_nginx/n8n_management" suite
+# Version 3.0.0 - January 1st, 2026
+#
+# Richard J. Sears
+# richardjsears@gmail.com
+# https://github.com/rjsears
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
 #
 # test_migration.sh - Migration Test Scenarios for n8n_nginx v3.0
 # Tests v2.0 to v3.0 upgrade paths and rollback functionality

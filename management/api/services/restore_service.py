@@ -1,7 +1,14 @@
 """
-Restore service - handles selective workflow restoration from backups.
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+/management/api/services/restore_service.py
 
-Phase 3: Selective workflow restore using temporary PostgreSQL containers.
+Part of the "n8n_nginx/n8n_management" suite
+Version 3.0.0 - January 1st, 2026
+
+Richard J. Sears
+richardjsears@gmail.com
+https://github.com/rjsears
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
 import subprocess

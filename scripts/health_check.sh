@@ -1,4 +1,15 @@
 #!/bin/bash
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# /scripts/health_check.sh
+#
+# Part of the "n8n_nginx/n8n_management" suite
+# Version 3.0.0 - January 1st, 2026
+#
+# Richard J. Sears
+# richardjsears@gmail.com
+# https://github.com/rjsears
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
 #
 # health_check.sh - System Health Check Script for n8n_nginx v3.0
 # Performs comprehensive health checks on all system components
