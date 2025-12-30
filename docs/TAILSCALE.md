@@ -166,9 +166,9 @@ TS_ROUTES=192.168.1.10/32
 
 With the Docker host IP routed (`192.168.1.10/32`), you gain the ability to SSH directly to your Docker host from anywhere on your Tailscale network. However, for web services, **we recommend using Tailscale Serve** (Magic DNS) which provides a cleaner experience without port numbers.
 
-**SSH Access (via advertised route):**
+**SSH Access (via Tailscale):**
 ```bash
-ssh user@192.168.1.10
+ssh user@n8n-tailscale.your-tailnet.ts.net
 ```
 
 **Web Services (via Tailscale Serve - recommended):**
@@ -390,19 +390,59 @@ The n8n Management Suite uses nginx reverse proxy to eliminate port requirements
 - Automatic HTTPS certificate from Tailscale
 - Works from any Tailscale-connected device
 
-### SSH Access via Advertised Route
+### SSH Access to Docker Host
 
-The /32 subnet route allows direct SSH to your Docker host:
+SSH to your Docker host using the Tailscale Magic DNS name:
 
 ```bash
-# SSH to Docker host
-ssh user@192.168.1.10
+# SSH to Docker host via Tailscale
+ssh user@n8n-tailscale.your-tailnet.ts.net
 ```
 
-Or using the Tailscale IP:
-```bash
-ssh user@100.x.x.x
-```
+This works from anywhere in the world as long as you're connected to your Tailscale network.
+
+> **Note about the Tailscale Container**: The SSH connection above connects to your **Docker host**, not the Tailscale container itself. If you need shell access to the Tailscale container:
+>
+> 1. **Easiest**: Use the **Terminal** button in the Management Console's Container view - no extra configuration needed
+> 2. **Alternative**: Enable [Tailscale SSH](https://tailscale.com/kb/1193/tailscale-ssh) on the container (see below)
+
+### Tailscale SSH (Optional Advanced Feature)
+
+Tailscale offers its own SSH server that provides passwordless, key-less SSH authentication using your Tailscale identity. This is separate from traditional SSH and provides additional security features.
+
+**To enable Tailscale SSH on the container:**
+
+1. Enter the container:
+   ```bash
+   docker exec -it n8n_tailscale sh
+   ```
+
+2. Enable Tailscale SSH:
+   ```bash
+   tailscale set --ssh
+   ```
+
+3. Configure ACLs in the [Tailscale Admin Console](https://login.tailscale.com/admin/acls) to permit SSH access:
+   ```json
+   "ssh": [
+     {
+       "action": "accept",
+       "src": ["autogroup:member"],
+       "dst": ["tag:n8n"],
+       "users": ["root", "autogroup:nonroot"]
+     }
+   ]
+   ```
+
+**Benefits of Tailscale SSH:**
+- No SSH keys to manage
+- Authentication via your identity provider
+- Session recording (optional)
+- Check mode for re-authentication on sensitive connections
+
+**For most users**: The Management Console's built-in Terminal feature is the simplest way to access containers without any additional configuration.
+
+For more details, see the [Tailscale SSH documentation](https://tailscale.com/kb/1193/tailscale-ssh).
 
 ### Finding the Tailscale IP
 

@@ -845,7 +845,7 @@ onUnmounted(() => {
         description="No containers match your current filter."
       />
 
-      <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <Card
           v-for="container in filteredContainers"
           :key="container.id"
