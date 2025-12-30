@@ -18,6 +18,16 @@ This guide explains why SSL certificates are essential for the n8n Management Su
 8. [Manual Certificate Management](#manual-certificate-management)
 9. [Troubleshooting](#troubleshooting)
 
+### Other Documentation
+
+- [API Reference](./API.md) - REST API documentation
+- [Backup Guide](./BACKUP_GUIDE.md) - Backup and restore procedures
+- [Cloudflare Guide](./CLOUDFLARE.md) - Cloudflare Tunnel setup
+- [Migration Guide](./MIGRATION.md) - Upgrading from v2.0 to v3.0
+- [Notifications Guide](./NOTIFICATIONS.md) - Alert and notification setup
+- [Tailscale Guide](./TAILSCALE.md) - Tailscale VPN integration
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+
 ---
 
 ## Why SSL Certificates Are Required
@@ -681,11 +691,3 @@ echo | openssl s_client -connect YOUR_DOMAIN:443 2>/dev/null | openssl x509 -noo
 | `DNS_CERTBOT_FLAGS` | `--dns-cloudflare --dns-cloudflare-credentials /credentials.ini` | Certbot CLI flags |
 | `DNS_CREDENTIALS_FILE` | `cloudflare.ini` | Credentials file name |
 
----
-
-## Related Documentation
-
-- [README.md](../README.md) - Main documentation
-- [CLOUDFLARE.md](./CLOUDFLARE.md) - Cloudflare Tunnel setup
-- [TAILSCALE.md](./TAILSCALE.md) - Tailscale VPN setup
-- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - General troubleshooting

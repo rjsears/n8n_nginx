@@ -6,6 +6,29 @@ All endpoints except `/auth/login` and `/health` require authentication via Bear
 
 ---
 
+## Table of Contents
+
+1. [Authentication](#authentication)
+2. [Health Check](#health-check)
+3. [Backups](#backups)
+4. [Containers](#containers)
+5. [Workflows](#workflows)
+6. [System](#system)
+7. [Notifications](#notifications)
+8. [Settings](#settings)
+
+### Other Documentation
+
+- [Backup Guide](./BACKUP_GUIDE.md) - Backup and restore procedures
+- [Certbot Guide](./CERTBOT.md) - SSL certificate management
+- [Cloudflare Guide](./CLOUDFLARE.md) - Cloudflare Tunnel setup
+- [Migration Guide](./MIGRATION.md) - Upgrading from v2.0 to v3.0
+- [Notifications Guide](./NOTIFICATIONS.md) - Alert and notification setup
+- [Tailscale Guide](./TAILSCALE.md) - Tailscale VPN integration
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+
+---
+
 ## Authentication
 
 ### Login

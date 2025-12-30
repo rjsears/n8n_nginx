@@ -4,6 +4,28 @@ This guide covers common issues and their solutions for n8n_nginx v3.0.
 
 ---
 
+## Table of Contents
+
+1. [Quick Diagnostics](#quick-diagnostics)
+2. [Container Issues](#container-issues)
+3. [Database Issues](#database-issues)
+4. [SSL/Certificate Issues](#sslcertificate-issues)
+5. [Network Issues](#network-issues)
+6. [Backup Issues](#backup-issues)
+7. [Management Console Issues](#management-console-issues)
+
+### Other Documentation
+
+- [API Reference](./API.md) - REST API documentation
+- [Backup Guide](./BACKUP_GUIDE.md) - Backup and restore procedures
+- [Certbot Guide](./CERTBOT.md) - SSL certificate management
+- [Cloudflare Guide](./CLOUDFLARE.md) - Cloudflare Tunnel setup
+- [Migration Guide](./MIGRATION.md) - Upgrading from v2.0 to v3.0
+- [Notifications Guide](./NOTIFICATIONS.md) - Alert and notification setup
+- [Tailscale Guide](./TAILSCALE.md) - Tailscale VPN integration
+
+---
+
 ## Quick Diagnostics
 
 Run these commands first to understand the current state:

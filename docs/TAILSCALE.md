@@ -19,6 +19,16 @@ Tailscale provides secure, zero-config VPN access to your n8n installation and D
 9. [Security Best Practices](#security-best-practices)
 10. [Troubleshooting](#troubleshooting)
 
+### Other Documentation
+
+- [API Reference](./API.md) - REST API documentation
+- [Backup Guide](./BACKUP_GUIDE.md) - Backup and restore procedures
+- [Certbot Guide](./CERTBOT.md) - SSL certificate management
+- [Cloudflare Guide](./CLOUDFLARE.md) - Cloudflare Tunnel setup
+- [Migration Guide](./MIGRATION.md) - Upgrading from v2.0 to v3.0
+- [Notifications Guide](./NOTIFICATIONS.md) - Alert and notification setup
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+
 ---
 
 ## What is Tailscale?
@@ -663,10 +673,3 @@ docker compose restart n8n_tailscale
 | `TAILSCALE_AUTH_KEY` | `tskey-auth-xxx` | Authentication |
 | `TAILSCALE_ROUTES` | `192.168.1.10/32` | Subnet routes (CIDR notation) |
 
----
-
-## Related Documentation
-
-- [README.md](../README.md) - Main documentation
-- [SECURITY.md](./SECURITY.md) - Security configuration
-- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - General troubleshooting
