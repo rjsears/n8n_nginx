@@ -131,8 +131,9 @@ class RestoreService:
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode == 0 and result.stdout.strip():
-                logger.info(f"Found network from postgres container: {result.stdout.strip()}")
-                return result.stdout.strip()
+                network = result.stdout.strip()
+                logger.info(f"Found network from postgres container: {network}")
+                return network
         except Exception as e:
             logger.warning(f"Failed to get network from postgres container: {e}")
 
@@ -141,15 +142,15 @@ class RestoreService:
             cmd = ["docker", "network", "ls", "--format", "{{.Name}}"]
             result = subprocess.run(cmd, capture_output=True, text=True)
             for network in result.stdout.strip().split('\n'):
-                if 'n8n' in network.lower() and 'network' in network.lower():
+                if 'n8n' in network.lower():
                     logger.info(f"Found n8n network by search: {network}")
                     return network
         except Exception:
             pass
 
-        # Final fallback
-        logger.warning("Using fallback network name: n8n_nginx_n8n_network")
-        return "n8n_nginx_n8n_network"
+        # Final fallback: use bridge network (restore container doesn't need to connect to anything)
+        logger.warning("No n8n network found, using bridge network. This should still work since restore container is standalone.")
+        return "bridge"
 
     async def spin_up_restore_container(self) -> bool:
         """
@@ -214,6 +215,20 @@ class RestoreService:
         start_time = time.time()
 
         while time.time() - start_time < timeout:
+            # First check if container is still running
+            check_running = subprocess.run(
+                ["docker", "ps", "--filter", f"name={RESTORE_CONTAINER_NAME}", "--format", "{{.Names}}"],
+                capture_output=True, text=True
+            )
+            if RESTORE_CONTAINER_NAME not in check_running.stdout:
+                # Container stopped - get logs to see why
+                logs_result = subprocess.run(
+                    ["docker", "logs", "--tail", "50", RESTORE_CONTAINER_NAME],
+                    capture_output=True, text=True
+                )
+                logger.error(f"Restore container stopped unexpectedly. Logs:\n{logs_result.stdout}\n{logs_result.stderr}")
+                raise Exception(f"Restore container stopped unexpectedly. Check logs for details.")
+
             try:
                 check_cmd = [
                     "docker", "exec", RESTORE_CONTAINER_NAME,
@@ -222,10 +237,16 @@ class RestoreService:
                 result = subprocess.run(check_cmd, capture_output=True, text=True)
                 if result.returncode == 0:
                     return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"pg_isready check failed: {e}")
             await asyncio.sleep(1)
 
+        # Timeout - get container status and logs
+        logs_result = subprocess.run(
+            ["docker", "logs", "--tail", "50", RESTORE_CONTAINER_NAME],
+            capture_output=True, text=True
+        )
+        logger.error(f"Timeout waiting for PostgreSQL. Container logs:\n{logs_result.stdout}\n{logs_result.stderr}")
         raise Exception("Timeout waiting for PostgreSQL to be ready")
 
     async def teardown_restore_container(self) -> bool:
