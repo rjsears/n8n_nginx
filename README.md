@@ -2252,6 +2252,8 @@ Create an HTTP Request node in n8n:
 
 ## 9. System Notifications
 
+> **📚 Detailed Guide Available**: For comprehensive documentation including proper setup order and technical configuration, see **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)**.
+
 System notifications automatically alert you to important events.
 
 ### 9.1 Event Types
@@ -2367,7 +2369,9 @@ L1/L2 escalation ensures critical events are not missed.
 
 ### 9.4 Global Settings
 
-System-wide notification controls:
+System-wide notification controls are located at the bottom of the **Global Event Settings** tab, below the event categories.
+
+> **Note**: Global Settings (Rate Limiting, Daily Digest) have been consolidated into the Global Event Settings tab for easier access. You'll find them after scrolling past the event categories.
 
 <!-- SCREENSHOT: Global notification settings -->
 *[Screenshot placeholder: Global settings panel]*
@@ -2439,9 +2443,20 @@ Each container configuration displays a status badge:
 |--------|-------------|---------|
 | **Monitoring** | Green | Enabled and has notification targets configured |
 | **No Targets** | Amber | Enabled but no notification targets configured in Container Events |
+| **No Global Events** | Red | No container event types are enabled globally |
 | **Disabled** | Gray | Notifications disabled for this container |
 
-> **Important**: A container showing "No Targets" status will not send any notifications even though it appears configured. You must add notification targets in **Notification Events** > **Container Events** for alerts to be delivered.
+#### Prerequisite Enforcement
+
+The notification system enforces a proper setup order to prevent misconfiguration:
+
+1. **Global events must be enabled first** - Before you can configure per-container notifications, you must enable at least one container event type in **Global Event Settings** > **Container Events**.
+
+2. **Individual toggles reflect global state** - Each per-container toggle (Stopped, Unhealthy, High CPU, etc.) is disabled if the corresponding global event is not enabled. A message "Enable in Global Event Settings" indicates which events need to be enabled globally.
+
+3. **Warning when disabling global events** - If you try to disable a global container event that has per-container configurations, a confirmation dialog shows which containers will be affected.
+
+> **Important**: A container showing "No Targets" status will not send any notifications even though it appears configured. You must add notification targets in **Global Event Settings** > **Container Events** for alerts to be delivered.
 
 When enabling a container without targets, a warning toast reminds you to configure notification targets.
 
@@ -2974,6 +2989,8 @@ For disaster recovery, store backups on a separate NFS server:
 
 ## 19. Tailscale Integration
 
+> **📚 Detailed Guide Available**: For comprehensive documentation including account creation, auth key generation, and detailed explanation of subnet routing, see **[docs/TAILSCALE.md](docs/TAILSCALE.md)**.
+
 ### Setting Up Tailscale
 
 If you enabled Tailscale during setup, the container is already configured with:
@@ -3082,6 +3099,8 @@ If routes aren't working:
 ---
 
 ## 20. Cloudflare Tunnel
+
+> **📚 Detailed Guide Available**: For comprehensive documentation including account creation, Zero Trust setup, and tunnel configuration, see **[docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)**.
 
 ### Tunnel Configuration
 
