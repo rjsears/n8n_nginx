@@ -52,7 +52,7 @@ const notificationStore = useNotificationStore()
 const loading = ref(true)
 const runningBackup = ref(false)
 const deleteDialog = ref({ open: false, backup: null, loading: false })
-const backupConfirmDialog = ref({ open: false })
+const backupConfirmDialog = ref({ open: false, verifyAfterBackup: false })
 
 // Progress Modal State
 const progressModal = ref({
@@ -429,6 +429,7 @@ function promptBackupNow() {
 }
 
 async function runBackupNow() {
+  const shouldVerify = backupConfirmDialog.value.verifyAfterBackup
   backupConfirmDialog.value.open = false
   runningBackup.value = true
 
@@ -449,6 +450,44 @@ async function runBackupNow() {
 
     // Poll for completion
     await pollForCompletion('backup')
+
+    // If backup succeeded and verify option was selected, run verification
+    if (shouldVerify && progressModal.value.status === 'success' && progressModal.value.backupId) {
+      notificationStore.success('Backup completed. Starting verification...')
+
+      // Brief pause to show backup success before switching to verify
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Switch to verify mode
+      progressModal.value.type = 'verify'
+      progressModal.value.status = 'running'
+
+      // Start polling for progress updates
+      pollForProgress()
+
+      // Call the verification API
+      const verifyResult = await backupStore.verifyBackup(progressModal.value.backupId)
+
+      // Update modal status based on result
+      if (verifyResult.overall_status === 'passed') {
+        progressModal.value.status = 'success'
+        notificationStore.success('Backup and verification completed successfully')
+      } else if (verifyResult.overall_status === 'failed' || verifyResult.error || verifyResult.errors?.length > 0) {
+        progressModal.value.status = 'failed'
+        const errorMsg = verifyResult.error || verifyResult.errors?.join(', ') || 'Verification failed'
+        notificationStore.error(`Verification failed: ${errorMsg}`)
+      } else if (verifyResult.warnings?.length > 0) {
+        progressModal.value.status = 'success'
+        const warnMsg = verifyResult.warnings.join(', ')
+        notificationStore.warning(`Verification completed with warnings: ${warnMsg}`)
+      } else {
+        progressModal.value.status = 'failed'
+        notificationStore.error('Verification failed: Unknown status')
+      }
+
+      // Final refresh
+      await backupStore.fetchBackups()
+    }
 
   } catch (error) {
     progressModal.value.status = 'failed'
@@ -1960,6 +1999,24 @@ onUnmounted(stopPolling)
                   <span>Does <span class="font-bold">NOT</span> backup other data, additional containers, or custom configuration files you may have added.</span>
                 </p>
               </div>
+
+              <!-- Verify After Backup Toggle -->
+              <div class="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700">
+                <label class="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="backupConfirmDialog.verifyAfterBackup"
+                    class="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:bg-gray-700"
+                  />
+                  <div class="flex-1">
+                    <span class="text-sm font-medium text-blue-800 dark:text-blue-300">Verify after backup</span>
+                    <p class="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                      Automatically run verification to ensure backup integrity
+                    </p>
+                  </div>
+                  <ShieldCheckIcon class="h-5 w-5 text-blue-500 flex-shrink-0" />
+                </label>
+              </div>
             </div>
 
             <!-- Actions -->
@@ -1975,7 +2032,7 @@ onUnmounted(stopPolling)
                 class="flex-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors flex items-center justify-center gap-2"
               >
                 <PlayIcon class="h-4 w-4" />
-                Start Backup
+                {{ backupConfirmDialog.verifyAfterBackup ? 'Backup & Verify' : 'Start Backup' }}
               </button>
             </div>
           </div>
