@@ -1812,9 +1812,9 @@ Authorization: Bearer <token>
 
 Interactive API documentation is available at:
 
-- **Swagger UI**: `https://your-domain.com/management/docs`
-- **ReDoc**: `https://your-domain.com/management/redoc`
-- **OpenAPI JSON**: `https://your-domain.com/management/openapi.json`
+- **Swagger UI**: `https://your-domain.com/management/api/docs`
+- **ReDoc**: `https://your-domain.com/management/api/redoc`
+- **OpenAPI JSON**: `https://your-domain.com/management/api/openapi.json`
 
 ---
 
