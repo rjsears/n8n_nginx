@@ -42,9 +42,14 @@ Even with Tailscale or Cloudflare Tunnel providing encrypted transport, **you st
 
 Modern browsers enforce strict security policies:
 
-```
-[Browser] → [Cloudflare Tunnel] → [Your Server]
-                HTTPS                  ???
+```mermaid
+flowchart LR
+    A[Browser] -->|HTTPS| B[Cloudflare Tunnel]
+    B -->|"???"| C[Your Server]
+
+    style A fill:#d4edda,stroke:#28a745
+    style B fill:#cce5ff,stroke:#004085
+    style C fill:#fff3cd,stroke:#856404
 ```
 
 When you access `https://n8n.yourdomain.com`:
@@ -63,10 +68,16 @@ Without valid SSL on your origin:
 
 n8n requires HTTPS for production webhooks:
 
-```
-[External Service] → [Your Domain] → [n8n]
-                       HTTPS           ↓
-                                    Webhook processed
+```mermaid
+flowchart LR
+    A[External Service] -->|HTTPS| B[Your Domain]
+    B --> C[n8n]
+    C --> D[Webhook Processed]
+
+    style A fill:#f8d7da,stroke:#721c24
+    style B fill:#cce5ff,stroke:#004085
+    style C fill:#d4edda,stroke:#28a745
+    style D fill:#d1ecf1,stroke:#0c5460
 ```
 
 If the SSL chain is broken, webhook payloads may:
@@ -78,10 +89,23 @@ If the SSL chain is broken, webhook payloads may:
 
 The Management Console frontend makes API calls to its backend:
 
-```
-Frontend (Browser)  →  /management/api/*  →  FastAPI Backend
-       ↓                     ↓                    ↓
-   JavaScript            nginx proxy          Python API
+```mermaid
+flowchart LR
+    subgraph Browser
+        A[Frontend JavaScript]
+    end
+
+    subgraph Server
+        B[nginx proxy]
+        C[FastAPI Backend]
+    end
+
+    A -->|/management/api/*| B
+    B --> C
+
+    style A fill:#fff3cd,stroke:#856404
+    style B fill:#cce5ff,stroke:#004085
+    style C fill:#d4edda,stroke:#28a745
 ```
 
 Browsers require:
@@ -110,18 +134,28 @@ Without valid SSL, these internal API calls fail with cryptic errors.
 
 If you really don't want to set up local SSL certificates, there's an alternative called "hairpinning" or "NAT loopback":
 
-```
-                    ┌──────────────────────────────────────┐
-                    │           Your Network               │
-                    │                                      │
-[Internal Device]   │   ──────────────────────────────────┼───────┐
-     │              │                                      │       │
-     └──────────────┼──→ Router ──→ Internet ──→ Cloudflare        │
-                    │        ↑                      │              │
-                    │        └──────────────────────┼──────────────┘
-                    │                               ↓
-                    │                         [Your Server]
-                    └──────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph YourNetwork["Your Network"]
+        A[Internal Device]
+        B[Router]
+        C[Your Server]
+    end
+
+    subgraph External["Internet"]
+        D[Cloudflare]
+    end
+
+    A -->|1. Request| B
+    B -->|2. Exit to Internet| D
+    D -->|3. Return via Tunnel| B
+    B -->|4. Deliver to Server| C
+
+    style YourNetwork fill:#e8f4f8,stroke:#0077b6
+    style External fill:#fff3cd,stroke:#ffc107
+    style A fill:#d4edda,stroke:#28a745
+    style C fill:#d4edda,stroke:#28a745
+    style D fill:#f8d7da,stroke:#dc3545
 ```
 
 With hairpinning:
@@ -181,25 +215,20 @@ The n8n Management Suite uses **DNS-01 challenge** rather than HTTP-01 because:
 
 ### The DNS-01 Process
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    DNS-01 Challenge Flow                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. Certbot requests certificate for n8n.example.com           │
-│     ↓                                                           │
-│  2. Let's Encrypt says: "Prove you control the domain"         │
-│     ↓                                                           │
-│  3. Certbot creates TXT record:                                 │
-│     _acme-challenge.n8n.example.com → [random-token]           │
-│     ↓                                                           │
-│  4. Let's Encrypt queries DNS for the TXT record               │
-│     ↓                                                           │
-│  5. If found and matches → Certificate issued!                  │
-│     ↓                                                           │
-│  6. Certbot removes the TXT record                              │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant Certbot
+    participant DNS as DNS Provider
+    participant LE as Let's Encrypt
+
+    Certbot->>LE: 1. Request certificate for n8n.example.com
+    LE->>Certbot: 2. Prove you control the domain
+    Certbot->>DNS: 3. Create TXT record<br/>_acme-challenge.n8n.example.com
+    Note over DNS: TXT record contains random token
+    LE->>DNS: 4. Query for TXT record
+    DNS->>LE: 5. Return token value
+    LE->>Certbot: 6. Token matches → Certificate issued!
+    Certbot->>DNS: 7. Remove TXT record
 ```
 
 ### DNS Propagation
