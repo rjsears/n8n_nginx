@@ -1,3 +1,15 @@
+<!--
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+/management/frontend/src/components/ntfy/IntegrationHub.vue
+
+Part of the "n8n_nginx/n8n_management" suite
+Version 3.0.0 - January 1st, 2026
+
+Richard J. Sears
+richardjsears@gmail.com
+https://github.com/rjsears
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+-->
 <template>
   <div class="integration-hub">
     <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Integration Examples</h3>

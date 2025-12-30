@@ -1,3 +1,15 @@
+<!--
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+/management/frontend/src/components/ntfy/SavedMessages.vue
+
+Part of the "n8n_nginx/n8n_management" suite
+Version 3.0.0 - January 1st, 2026
+
+Richard J. Sears
+richardjsears@gmail.com
+https://github.com/rjsears
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+-->
 <template>
   <div class="saved-messages">
     <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Saved Messages</h3>

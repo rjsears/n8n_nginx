@@ -1,9 +1,14 @@
 """
-Pruning service - automatic backup cleanup with notifications.
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+/management/api/services/pruning_service.py
 
-Phase 7: Pruning & Retention System
-Implements time-based, space-based, and size-based pruning with
-pre-deletion notifications and protected backup handling.
+Part of the "n8n_nginx/n8n_management" suite
+Version 3.0.0 - January 1st, 2026
+
+Richard J. Sears
+richardjsears@gmail.com
+https://github.com/rjsears
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
 import os

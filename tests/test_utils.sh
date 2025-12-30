@@ -1,4 +1,15 @@
 #!/bin/bash
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# /tests/test_utils.sh
+#
+# Part of the "n8n_nginx/n8n_management" suite
+# Version 3.0.0 - January 1st, 2026
+#
+# Richard J. Sears
+# richardjsears@gmail.com
+# https://github.com/rjsears
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
 #
 # test_utils.sh - Test Utility Functions for n8n_nginx v3.0
 # Common functions used across all test scripts

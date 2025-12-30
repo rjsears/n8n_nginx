@@ -1,10 +1,14 @@
 """
-System Notification models for event-based alerting with advanced features:
-- Configurable event types with severity, frequency, thresholds
-- Rate limiting with cooldown and flapping detection
-- L1/L2 escalation support
-- Per-container monitoring configuration
-- Global settings (maintenance mode, quiet hours, digest)
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+/management/api/models/system_notifications.py
+
+Part of the "n8n_nginx/n8n_management" suite
+Version 3.0.0 - January 1st, 2026
+
+Richard J. Sears
+richardjsears@gmail.com
+https://github.com/rjsears
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint, Index
