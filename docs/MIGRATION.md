@@ -247,13 +247,13 @@ curl -s https://your-domain.com/healthz
 # Expected: {"status":"ok"}
 
 # Check management console
-curl -s https://your-domain.com:3333/api/health
+curl -s https://your-domain.com/management/api/health
 # Expected: {"status":"healthy","version":"3.0.0"}
 ```
 
 ### Access Management Console
 
-1. Open `https://your-domain.com:3333`
+1. Open `https://your-domain.com/management/`
 2. Log in with your admin credentials
 3. Explore the dashboard
 
@@ -405,7 +405,7 @@ docker exec n8n_postgres psql -U n8n -c "CREATE DATABASE n8n_management;"
 
 4. Test from server:
    ```bash
-   curl -k https://localhost:3333/api/health
+   curl -k https://localhost/management/api/health
    ```
 
 ### n8n Stops Working After Migration
