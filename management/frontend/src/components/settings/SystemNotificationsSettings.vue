@@ -175,6 +175,25 @@ const hasNoTargets = computed(() => {
   return (event) => !eventHasTargets(event)
 })
 
+// Check if any container events have targets configured
+const containerEventsHaveTargets = computed(() => {
+  const containerEvents = events.value.filter(e => e.category === 'container')
+  return containerEvents.some(e => eventHasTargets(e))
+})
+
+// Check if a specific category has any events with targets
+function categoryHasTargets(category) {
+  const categoryEvents = events.value.filter(e => e.category === category)
+  return categoryEvents.some(e => eventHasTargets(e))
+}
+
+// Get container config status - returns 'monitoring', 'no_targets', or 'disabled'
+function getContainerConfigStatus(config) {
+  if (!config.enabled) return 'disabled'
+  if (!containerEventsHaveTargets.value) return 'no_targets'
+  return 'monitoring'
+}
+
 // Get channels available for adding (excluding already assigned to this event)
 const availableChannelsForTarget = computed(() => {
   if (!selectedEventForTarget.value) return channels.value
@@ -368,6 +387,11 @@ function getContainerConfigSummary(config) {
 }
 
 async function updateContainerConfig(config, updates) {
+  // Warn if enabling without targets configured
+  if (updates.enabled === true && !containerEventsHaveTargets.value) {
+    notificationStore.warning('No notification targets configured for container events. Go to Notification Events → Container Events to add targets.')
+  }
+
   try {
     const response = await api.put(`/system-notifications/container-configs/${config.container_name}`, {
       ...config,
@@ -619,6 +643,84 @@ async function removeTarget(eventId, targetId) {
   } catch (error) {
     console.error('Failed to remove target:', error)
     notificationStore.error('Failed to remove notification target')
+  }
+}
+
+// State for "Apply to All" modal
+const showApplyToAllModal = ref(false)
+const applyToAllCategory = ref(null)
+const applyToAllTargetType = ref('channel')
+const applyToAllTargetId = ref(null)
+const applyToAllLevel = ref(1)
+const applyingToAll = ref(false)
+
+function openApplyToAllModal(category) {
+  applyToAllCategory.value = category
+  applyToAllTargetType.value = 'channel'
+  applyToAllTargetId.value = null
+  applyToAllLevel.value = 1
+  showApplyToAllModal.value = true
+}
+
+async function applyTargetToAllEvents() {
+  if (!applyToAllCategory.value || !applyToAllTargetId.value) {
+    notificationStore.error('Please select a target')
+    return
+  }
+
+  applyingToAll.value = true
+  const categoryEvents = events.value.filter(e => e.category === applyToAllCategory.value)
+  let successCount = 0
+  let skipCount = 0
+
+  try {
+    for (const event of categoryEvents) {
+      // Check if this target is already added to this event
+      const existingTarget = event.targets?.find(t =>
+        t.target_type === applyToAllTargetType.value &&
+        (applyToAllTargetType.value === 'channel'
+          ? t.channel_id === applyToAllTargetId.value
+          : t.group_id === applyToAllTargetId.value) &&
+        t.escalation_level === applyToAllLevel.value
+      )
+
+      if (existingTarget) {
+        skipCount++
+        continue
+      }
+
+      try {
+        const data = {
+          target_type: applyToAllTargetType.value,
+          escalation_level: applyToAllLevel.value,
+        }
+        if (applyToAllTargetType.value === 'channel') {
+          data.channel_id = applyToAllTargetId.value
+        } else {
+          data.group_id = applyToAllTargetId.value
+        }
+
+        await api.post(`/system-notifications/events/${event.id}/targets`, data)
+        successCount++
+      } catch (error) {
+        console.error(`Failed to add target to event ${event.id}:`, error)
+      }
+    }
+
+    await loadEvents()
+
+    if (successCount > 0) {
+      notificationStore.success(`Target added to ${successCount} event(s)${skipCount > 0 ? ` (${skipCount} already had it)` : ''}`)
+    } else if (skipCount > 0) {
+      notificationStore.info(`All ${skipCount} events already have this target`)
+    }
+
+    showApplyToAllModal.value = false
+  } catch (error) {
+    console.error('Failed to apply targets:', error)
+    notificationStore.error('Failed to apply targets to all events')
+  } finally {
+    applyingToAll.value = false
   }
 }
 
@@ -926,6 +1028,47 @@ onMounted(() => {
           <Transition name="collapse">
             <div v-if="expandedCategories.has(category)" class="border-t border-gray-400 dark:border-gray-700">
               <div class="p-4 space-y-3">
+                <!-- Quick Action: Apply Target to All Events -->
+                <div class="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600">
+                  <div class="flex items-center gap-3">
+                    <div :class="[
+                      'p-2 rounded-lg',
+                      category === 'backup' ? 'bg-emerald-100 dark:bg-emerald-500/20'
+                        : category === 'container' ? 'bg-blue-100 dark:bg-blue-500/20'
+                        : category === 'security' ? 'bg-red-100 dark:bg-red-500/20'
+                        : category === 'ssl' ? 'bg-amber-100 dark:bg-amber-500/20'
+                        : 'bg-purple-100 dark:bg-purple-500/20'
+                    ]">
+                      <BellAlertIcon :class="[
+                        'h-5 w-5',
+                        category === 'backup' ? 'text-emerald-500'
+                          : category === 'container' ? 'text-blue-500'
+                          : category === 'security' ? 'text-red-500'
+                          : category === 'ssl' ? 'text-amber-500'
+                          : 'text-purple-500'
+                      ]" />
+                    </div>
+                    <div>
+                      <p class="text-sm font-medium text-primary">Quick Setup</p>
+                      <p class="text-xs text-secondary">Add the same target to all events in this category</p>
+                    </div>
+                  </div>
+                  <button
+                    @click.stop="openApplyToAllModal(category)"
+                    :class="[
+                      'flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all',
+                      category === 'backup' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-400 dark:hover:bg-emerald-500/30'
+                        : category === 'container' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-500/20 dark:text-blue-400 dark:hover:bg-blue-500/30'
+                        : category === 'security' ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500/30'
+                        : category === 'ssl' ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-400 dark:hover:bg-amber-500/30'
+                        : 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-500/20 dark:text-purple-400 dark:hover:bg-purple-500/30'
+                    ]"
+                  >
+                    <PlusIcon class="h-4 w-4" />
+                    Apply to All Events
+                  </button>
+                </div>
+
                 <!-- Event Rows -->
                 <div
                   v-for="event in categoryEvents"
@@ -1510,11 +1653,13 @@ onMounted(() => {
                 <!-- Status Badge -->
                 <span :class="[
                   'px-3 py-1 rounded-full text-xs font-semibold',
-                  config.enabled
+                  getContainerConfigStatus(config) === 'monitoring'
                     ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                    : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                    : getContainerConfigStatus(config) === 'no_targets'
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                      : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
                 ]">
-                  {{ config.enabled ? 'Monitoring' : 'Disabled' }}
+                  {{ getContainerConfigStatus(config) === 'monitoring' ? 'Monitoring' : getContainerConfigStatus(config) === 'no_targets' ? 'No Targets' : 'Disabled' }}
                 </span>
                 <ChevronDownIcon
                   :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedContainerConfigs.has(config.id) ? 'rotate-180' : '']"
@@ -1546,6 +1691,26 @@ onMounted(() => {
                       />
                       <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-500"></div>
                     </label>
+                  </div>
+
+                  <!-- Warning: No Targets Configured -->
+                  <div v-if="!containerEventsHaveTargets" class="p-4 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                    <div class="flex items-start gap-3">
+                      <ExclamationTriangleIcon class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p class="font-medium text-amber-800 dark:text-amber-300">No Notification Targets Configured</p>
+                        <p class="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                          Notifications are enabled but won't be sent because no targets are configured for container events.
+                        </p>
+                        <button
+                          @click="activeSection = 'events'; expandedCategories.add('container')"
+                          class="mt-2 text-sm font-medium text-amber-700 dark:text-amber-300 hover:underline flex items-center gap-1"
+                        >
+                          Configure targets in Container Events
+                          <ChevronRightIcon class="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   <!-- Status Events Section -->
@@ -1911,6 +2076,155 @@ onMounted(() => {
                 class="btn-primary"
               >
                 Add Target
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Apply to All Events Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showApplyToAllModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5 border border-gray-400 dark:border-gray-700">
+            <div class="flex items-center gap-3">
+              <div :class="[
+                'p-3 rounded-xl',
+                applyToAllCategory === 'backup' ? 'bg-emerald-100 dark:bg-emerald-500/20'
+                  : applyToAllCategory === 'container' ? 'bg-blue-100 dark:bg-blue-500/20'
+                  : applyToAllCategory === 'security' ? 'bg-red-100 dark:bg-red-500/20'
+                  : applyToAllCategory === 'ssl' ? 'bg-amber-100 dark:bg-amber-500/20'
+                  : 'bg-purple-100 dark:bg-purple-500/20'
+              ]">
+                <BellAlertIcon :class="[
+                  'h-6 w-6',
+                  applyToAllCategory === 'backup' ? 'text-emerald-600'
+                    : applyToAllCategory === 'container' ? 'text-blue-600'
+                    : applyToAllCategory === 'security' ? 'text-red-600'
+                    : applyToAllCategory === 'ssl' ? 'text-amber-600'
+                    : 'text-purple-600'
+                ]" />
+              </div>
+              <div>
+                <h3 class="text-lg font-semibold text-primary">Apply Target to All Events</h3>
+                <p class="text-sm text-secondary">{{ categoryInfo[applyToAllCategory]?.label }}</p>
+              </div>
+            </div>
+
+            <div class="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-4">
+              <p class="text-sm text-blue-800 dark:text-blue-300">
+                This will add the selected notification target to <strong>all events</strong> in this category. Events that already have this target will be skipped.
+              </p>
+            </div>
+
+            <div class="space-y-4">
+              <!-- Target Type Selection -->
+              <div>
+                <label class="block text-sm font-medium text-primary mb-2">Target Type</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <button
+                    @click="applyToAllTargetType = 'channel'; applyToAllTargetId = null"
+                    :class="[
+                      'p-3 rounded-lg text-sm font-medium border transition-all',
+                      applyToAllTargetType === 'channel'
+                        ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
+                        : 'bg-white dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    Channel
+                  </button>
+                  <button
+                    @click="applyToAllTargetType = 'group'; applyToAllTargetId = null"
+                    :class="[
+                      'p-3 rounded-lg text-sm font-medium border transition-all',
+                      applyToAllTargetType === 'group'
+                        ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
+                        : 'bg-white dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    Group
+                  </button>
+                </div>
+              </div>
+
+              <!-- Channel/Group Selection -->
+              <div>
+                <label class="block text-sm font-medium text-primary mb-2">
+                  Select {{ applyToAllTargetType === 'channel' ? 'Channel' : 'Group' }}
+                </label>
+                <select
+                  v-model="applyToAllTargetId"
+                  class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary"
+                >
+                  <option :value="null" disabled>Choose a {{ applyToAllTargetType }}</option>
+                  <template v-if="applyToAllTargetType === 'channel'">
+                    <option v-for="channel in channels" :key="channel.id" :value="channel.id">
+                      {{ channel.name }} ({{ channel.service_type }})
+                    </option>
+                  </template>
+                  <template v-else>
+                    <option v-for="group in groups" :key="group.id" :value="group.id">
+                      {{ group.name }} ({{ group.channels?.length || 0 }} channels)
+                    </option>
+                  </template>
+                </select>
+                <p v-if="applyToAllTargetType === 'channel' && channels.length === 0" class="mt-2 text-sm text-amber-600 dark:text-amber-400">
+                  No notification channels configured. Add channels in Notifications settings first.
+                </p>
+                <p v-if="applyToAllTargetType === 'group' && groups.length === 0" class="mt-2 text-sm text-amber-600 dark:text-amber-400">
+                  No notification groups configured. Create groups in Notifications settings first.
+                </p>
+              </div>
+
+              <!-- Escalation Level -->
+              <div>
+                <label class="block text-sm font-medium text-primary mb-2">Escalation Level</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <button
+                    @click="applyToAllLevel = 1"
+                    :class="[
+                      'p-3 rounded-lg text-sm font-medium border transition-all',
+                      applyToAllLevel === 1
+                        ? 'bg-green-100 dark:bg-green-500/20 border-green-400 text-green-700 dark:text-green-300'
+                        : 'bg-white dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    <span class="font-bold">L1</span> - Primary
+                  </button>
+                  <button
+                    @click="applyToAllLevel = 2"
+                    :class="[
+                      'p-3 rounded-lg text-sm font-medium border transition-all',
+                      applyToAllLevel === 2
+                        ? 'bg-orange-100 dark:bg-orange-500/20 border-orange-400 text-orange-700 dark:text-orange-300'
+                        : 'bg-white dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    <span class="font-bold">L2</span> - Escalation
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-4">
+              <button @click="showApplyToAllModal = false" class="btn-secondary">
+                Cancel
+              </button>
+              <button
+                @click="applyTargetToAllEvents"
+                :disabled="!applyToAllTargetId || applyingToAll"
+                :class="[
+                  'btn-primary flex items-center gap-2',
+                  applyToAllCategory === 'backup' ? '!bg-emerald-500 hover:!bg-emerald-600'
+                    : applyToAllCategory === 'container' ? '!bg-blue-500 hover:!bg-blue-600'
+                    : applyToAllCategory === 'security' ? '!bg-red-500 hover:!bg-red-600'
+                    : applyToAllCategory === 'ssl' ? '!bg-amber-500 hover:!bg-amber-600'
+                    : '!bg-purple-500 hover:!bg-purple-600'
+                ]"
+              >
+                <ArrowPathIcon v-if="applyingToAll" class="h-4 w-4 animate-spin" />
+                {{ applyingToAll ? 'Applying...' : 'Apply to All Events' }}
               </button>
             </div>
           </div>
