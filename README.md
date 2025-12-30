@@ -2252,6 +2252,8 @@ Create an HTTP Request node in n8n:
 
 ## 9. System Notifications
 
+> **📚 Detailed Guide Available**: For comprehensive documentation including proper setup order and technical configuration, see **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)**.
+
 System notifications automatically alert you to important events.
 
 ### 9.1 Event Types
@@ -2987,6 +2989,8 @@ For disaster recovery, store backups on a separate NFS server:
 
 ## 19. Tailscale Integration
 
+> **📚 Detailed Guide Available**: For comprehensive documentation including account creation, auth key generation, and detailed explanation of subnet routing, see **[docs/TAILSCALE.md](docs/TAILSCALE.md)**.
+
 ### Setting Up Tailscale
 
 If you enabled Tailscale during setup, the container is already configured with:
@@ -3095,6 +3099,8 @@ If routes aren't working:
 ---
 
 ## 20. Cloudflare Tunnel
+
+> **📚 Detailed Guide Available**: For comprehensive documentation including account creation, Zero Trust setup, and tunnel configuration, see **[docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)**.
 
 ### Tunnel Configuration
 
