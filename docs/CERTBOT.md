@@ -104,7 +104,7 @@ If you really don't want to set up local SSL certificates, there's an alternativ
                     ┌──────────────────────────────────────┐
                     │           Your Network               │
                     │                                      │
-[Internal Device]   │   ──────────────────────────────────┼───────┐
+[Internal Device]   │    ──────────────────────────────────┼───────┐
      │              │                                      │       │
      └──────────────┼──→ Router ──→ Internet ──→ Cloudflare        │
                     │        ↑                      │              │
@@ -176,14 +176,14 @@ The n8n Management Suite uses **DNS-01 challenge** rather than HTTP-01 because:
 │                    DNS-01 Challenge Flow                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  1. Certbot requests certificate for n8n.example.com           │
+│  1. Certbot requests certificate for n8n.example.com            │
 │     ↓                                                           │
-│  2. Let's Encrypt says: "Prove you control the domain"         │
+│  2. Let's Encrypt says: "Prove you control the domain"          │
 │     ↓                                                           │
 │  3. Certbot creates TXT record:                                 │
-│     _acme-challenge.n8n.example.com → [random-token]           │
+│     _acme-challenge.n8n.example.com → [random-token]            │
 │     ↓                                                           │
-│  4. Let's Encrypt queries DNS for the TXT record               │
+│  4. Let's Encrypt queries DNS for the TXT record                │
 │     ↓                                                           │
 │  5. If found and matches → Certificate issued!                  │
 │     ↓                                                           │
