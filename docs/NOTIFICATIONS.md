@@ -6,6 +6,57 @@ The notification system alerts you about important events like backup failures, 
 
 ---
 
+## Quick Start - Proper Setup Order
+
+The notification system enforces a proper setup order to prevent misconfiguration. Follow these steps:
+
+### 1. Create Notification Channels
+
+First, set up where notifications will be sent:
+
+1. Go to **Settings** > **Notifications**
+2. Create channels (Slack, Discord, Email, NTFY, etc.)
+3. Test each channel to ensure delivery works
+
+### 2. Create Notification Groups (Optional)
+
+Group channels together for easier management:
+
+1. Go to **Settings** > **Notifications** > **Groups**
+2. Create groups like "Critical Alerts" or "Daily Digest"
+3. Add channels to groups
+
+### 3. Enable Global Event Types
+
+**This is critical** - Global events must be enabled before per-container settings work:
+
+1. Go to **Settings** > **System Notifications** > **Global Event Settings**
+2. Expand each category (Backup, Container, Security, SSL, System)
+3. Enable the event types you want to monitor
+4. Add notification targets to each event using **Quick Setup** > **Apply to All Events**
+
+### 4. Configure Per-Container Settings (Optional)
+
+After global events are enabled, customize individual containers:
+
+1. Go to **Settings** > **System Notifications** > **Container Config**
+2. Add containers you want custom settings for
+3. Toggle which events to monitor per container
+4. Set custom CPU/memory thresholds if needed
+
+> **Important**: If you see "Enable in Global Event Settings" on a toggle, you must first enable that event type in the Global Event Settings tab. The system prevents configuration of events that won't work.
+
+### Status Indicators
+
+| Status | Color | Meaning |
+|--------|-------|---------|
+| **Monitoring** | Green | Properly configured and working |
+| **No Targets** | Amber | No notification targets configured |
+| **No Global Events** | Red | Global event type not enabled |
+| **Disabled** | Gray | Notifications turned off |
+
+---
+
 ## Supported Services
 
 ### Apprise (80+ Services)
