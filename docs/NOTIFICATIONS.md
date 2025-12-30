@@ -17,6 +17,16 @@ The notification system alerts you about important events like backup failures, 
 7. [Best Practices](#best-practices)
 8. [Troubleshooting](#troubleshooting)
 
+### Other Documentation
+
+- [API Reference](./API.md) - REST API documentation
+- [Backup Guide](./BACKUP_GUIDE.md) - Backup and restore procedures
+- [Certbot Guide](./CERTBOT.md) - SSL certificate management
+- [Cloudflare Guide](./CLOUDFLARE.md) - Cloudflare Tunnel setup
+- [Migration Guide](./MIGRATION.md) - Upgrading from v2.0 to v3.0
+- [Tailscale Guide](./TAILSCALE.md) - Tailscale VPN integration
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+
 ---
 
 ## Quick Start
@@ -810,10 +820,3 @@ docker exec n8n_ntfy ntfy user list
 docker logs n8n_ntfy
 ```
 
----
-
-## Related Documentation
-
-- [README.md](../README.md) - Main documentation
-- [CLOUDFLARE.md](./CLOUDFLARE.md) - Cloudflare Tunnel setup (required for NTFY subdomain)
-- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - General troubleshooting

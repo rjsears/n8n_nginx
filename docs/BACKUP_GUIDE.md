@@ -10,6 +10,28 @@ The n8n Management System provides comprehensive backup capabilities for:
 
 ---
 
+## Table of Contents
+
+1. [Backup Types](#backup-types)
+2. [Scheduling Backups](#scheduling-backups)
+3. [Manual Backups](#manual-backups)
+4. [Backup Storage](#backup-storage)
+5. [Restore Procedures](#restore-procedures)
+6. [Backup Verification](#backup-verification)
+7. [Best Practices](#best-practices)
+
+### Other Documentation
+
+- [API Reference](./API.md) - REST API documentation
+- [Certbot Guide](./CERTBOT.md) - SSL certificate management
+- [Cloudflare Guide](./CLOUDFLARE.md) - Cloudflare Tunnel setup
+- [Migration Guide](./MIGRATION.md) - Upgrading from v2.0 to v3.0
+- [Notifications Guide](./NOTIFICATIONS.md) - Alert and notification setup
+- [Tailscale Guide](./TAILSCALE.md) - Tailscale VPN integration
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+
+---
+
 ## Backup Types
 
 ### postgres_full

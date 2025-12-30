@@ -6,6 +6,27 @@ This guide covers upgrading from n8n_nginx v2.0 to v3.0, which adds the manageme
 
 ---
 
+## Table of Contents
+
+1. [What Changes](#what-changes)
+2. [Pre-Migration Checklist](#pre-migration-checklist)
+3. [Migration Steps](#migration-steps)
+4. [Post-Migration Verification](#post-migration-verification)
+5. [Rollback Procedure](#rollback-procedure)
+6. [Troubleshooting Migration Issues](#troubleshooting-migration-issues)
+
+### Other Documentation
+
+- [API Reference](./API.md) - REST API documentation
+- [Backup Guide](./BACKUP_GUIDE.md) - Backup and restore procedures
+- [Certbot Guide](./CERTBOT.md) - SSL certificate management
+- [Cloudflare Guide](./CLOUDFLARE.md) - Cloudflare Tunnel setup
+- [Notifications Guide](./NOTIFICATIONS.md) - Alert and notification setup
+- [Tailscale Guide](./TAILSCALE.md) - Tailscale VPN integration
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+
+---
+
 ## What Changes
 
 ### Added

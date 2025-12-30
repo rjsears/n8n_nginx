@@ -139,6 +139,16 @@ A production-ready, self-hosted deployment solution for [n8n](https://n8n.io) wo
 - [Appendix C: Cloudflare Tunnel Token Generation](#appendix-c-cloudflare-tunnel-token-generation)
 - [Appendix D: n8n API Key Generation](#appendix-d-n8n-api-key-generation)
 
+### Detailed Guides
+- [API Reference](./docs/API.md) - REST API documentation
+- [Backup Guide](./docs/BACKUP_GUIDE.md) - Backup and restore procedures
+- [Certbot Guide](./docs/CERTBOT.md) - SSL certificate management with Let's Encrypt
+- [Cloudflare Guide](./docs/CLOUDFLARE.md) - Cloudflare Tunnel setup and configuration
+- [Migration Guide](./docs/MIGRATION.md) - Upgrading from v2.0 to v3.0
+- [Notifications Guide](./docs/NOTIFICATIONS.md) - Alert and notification setup
+- [Tailscale Guide](./docs/TAILSCALE.md) - Tailscale VPN integration
+- [Troubleshooting](./docs/TROUBLESHOOTING.md) - Common issues and solutions
+
 ---
 
 # Part I: Introduction

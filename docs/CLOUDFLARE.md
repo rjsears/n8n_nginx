@@ -20,6 +20,16 @@ Cloudflare Tunnel (formerly Argo Tunnel) provides secure, outbound-only access t
 10. [Security Best Practices](#security-best-practices)
 11. [Troubleshooting](#troubleshooting)
 
+### Other Documentation
+
+- [API Reference](./API.md) - REST API documentation
+- [Backup Guide](./BACKUP_GUIDE.md) - Backup and restore procedures
+- [Certbot Guide](./CERTBOT.md) - SSL certificate management
+- [Migration Guide](./MIGRATION.md) - Upgrading from v2.0 to v3.0
+- [Notifications Guide](./NOTIFICATIONS.md) - Alert and notification setup
+- [Tailscale Guide](./TAILSCALE.md) - Tailscale VPN integration
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+
 ---
 
 ## What is Cloudflare Tunnel?
@@ -630,11 +640,3 @@ docker exec n8n_cloudflared wget -q -O- https://nginx:443 --no-check-certificate
 - Cloudflare Tunnel for public access
 - Tailscale for SSH and admin access
 
----
-
-## Related Documentation
-
-- [README.md](../README.md) - Main documentation
-- [TAILSCALE.md](./TAILSCALE.md) - Tailscale integration
-- [SECURITY.md](./SECURITY.md) - Security configuration
-- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - General troubleshooting
