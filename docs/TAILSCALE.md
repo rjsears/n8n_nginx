@@ -139,15 +139,19 @@ Subnet routing allows devices on your Tailscale network to access IPs that aren'
 - Your **Docker host** has a local IP (e.g., `192.168.1.10`)
 - Other Tailscale devices need to reach the Docker host
 
-### Why We Use /32 Routing
+### Configuring Routes via .env
 
-The n8n setup advertises a `/32` route (single IP) rather than a full subnet:
+The `TAILSCALE_ROUTES` variable in your `.env` file controls which IP addresses are accessible via Tailscale:
 
+```env
+# Single host (recommended) - only your Docker host is accessible
+TAILSCALE_ROUTES=192.168.1.10/32
+
+# Full subnet - your entire local network is accessible
+TAILSCALE_ROUTES=192.168.1.0/24
 ```
-TS_ROUTES=192.168.1.10/32
-```
 
-**Why /32 specifically?**
+**Route Types Explained:**
 
 | Route Type | Example | What It Exposes |
 |------------|---------|-----------------|
@@ -155,7 +159,7 @@ TS_ROUTES=192.168.1.10/32
 | `/24` | `192.168.1.0/24` | Your entire local network (254 hosts) |
 | `/16` | `192.168.0.0/16` | 65,534 hosts |
 
-**Benefits of /32:**
+**Benefits of /32 (Recommended for Most Users):**
 
 1. **Minimal Exposure** - Only your Docker host is accessible, not your entire LAN
 2. **Precise Control** - You know exactly what's reachable
@@ -197,21 +201,18 @@ You might want `/24` or larger subnet routing if:
 
 **To enable full subnet routing:**
 
-The `/32` suffix is hardcoded in `docker-compose.yaml`:
-```yaml
-- TS_ROUTES=${TAILSCALE_HOST_IP}/32
+Simply update your `.env` file with the desired network range:
+
+```env
+# For single host access (default):
+TAILSCALE_ROUTES=192.168.1.10/32
+
+# For full /24 subnet access:
+TAILSCALE_ROUTES=192.168.1.0/24
+
+# For multiple subnets (comma-separated):
+TAILSCALE_ROUTES=192.168.1.0/24,10.0.0.0/24
 ```
-
-To advertise a larger subnet, you must edit `docker-compose.yaml` and change the CIDR suffix:
-```yaml
-# Change from:
-- TS_ROUTES=${TAILSCALE_HOST_IP}/32
-
-# To (for full /24 subnet - note: uses network address, not host IP):
-- TS_ROUTES=192.168.1.0/24
-```
-
-> **Important**: The `.env` file's `TAILSCALE_HOST_IP` should only contain an IP address (e.g., `192.168.1.10`), not a CIDR notation. The CIDR suffix is added by `docker-compose.yaml`.
 
 Then restart the Tailscale container:
 ```bash
@@ -232,9 +233,10 @@ Add these to your `.env` file:
 # Tailscale auth key (from admin console)
 TAILSCALE_AUTH_KEY=tskey-auth-xxxxxxxxxxxxx
 
-# Your Docker host's LOCAL IP address
-# This is the IP on your LAN, not a public IP
-TAILSCALE_HOST_IP=192.168.1.10
+# Routes to advertise (CIDR notation)
+# Single host: 192.168.1.10/32 (access only the Docker host)
+# Full subnet: 192.168.1.0/24 (access entire local network)
+TAILSCALE_ROUTES=192.168.1.10/32
 ```
 
 ### Finding Your Docker Host IP
@@ -269,7 +271,7 @@ n8n_tailscale:
   hostname: n8n-tailscale
   environment:
     - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
-    - TS_ROUTES=${TAILSCALE_HOST_IP}/32
+    - TS_ROUTES=${TAILSCALE_ROUTES}
     - TS_AUTH_ONCE=true
     - TS_SERVE_CONFIG=/config/tailscale-serve.json
   volumes:
@@ -288,7 +290,7 @@ n8n_tailscale:
 | Variable | Purpose |
 |----------|---------|
 | `TS_AUTHKEY` | Authenticates to your tailnet |
-| `TS_ROUTES` | IP(s) to advertise for subnet routing |
+| `TS_ROUTES` | IP/CIDR to advertise for subnet routing (from `.env`) |
 | `TS_AUTH_ONCE` | Prevents re-auth on restart (requires reusable key) |
 | `TS_SERVE_CONFIG` | Enables HTTPS proxy via Tailscale Serve |
 
@@ -659,7 +661,7 @@ docker compose restart n8n_tailscale
 | Variable | Example | Purpose |
 |----------|---------|---------|
 | `TAILSCALE_AUTH_KEY` | `tskey-auth-xxx` | Authentication |
-| `TAILSCALE_HOST_IP` | `192.168.1.10` | Subnet route IP |
+| `TAILSCALE_ROUTES` | `192.168.1.10/32` | Subnet routes (CIDR notation) |
 
 ---
 

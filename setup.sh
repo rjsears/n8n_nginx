@@ -684,7 +684,7 @@ SAVED_CLOUDFLARE_TUNNEL_TOKEN="$CLOUDFLARE_TUNNEL_TOKEN"
 SAVED_INSTALL_TAILSCALE="$INSTALL_TAILSCALE"
 SAVED_TAILSCALE_AUTH_KEY="$TAILSCALE_AUTH_KEY"
 SAVED_TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME"
-SAVED_TAILSCALE_HOST_IP="$TAILSCALE_HOST_IP"
+SAVED_TAILSCALE_ROUTES="$TAILSCALE_ROUTES"
 SAVED_INSTALL_ADMINER="$INSTALL_ADMINER"
 SAVED_ADMINER_PORT="$ADMINER_PORT"
 SAVED_INSTALL_DOZZLE="$INSTALL_DOZZLE"
@@ -744,7 +744,7 @@ load_state() {
         INSTALL_TAILSCALE="${SAVED_INSTALL_TAILSCALE:-false}"
         TAILSCALE_AUTH_KEY="${SAVED_TAILSCALE_AUTH_KEY:-}"
         TAILSCALE_HOSTNAME="${SAVED_TAILSCALE_HOSTNAME:-}"
-        TAILSCALE_HOST_IP="${SAVED_TAILSCALE_HOST_IP:-}"
+        TAILSCALE_ROUTES="${SAVED_TAILSCALE_ROUTES:-}"
         INSTALL_ADMINER="${SAVED_INSTALL_ADMINER:-false}"
         ADMINER_PORT="${SAVED_ADMINER_PORT:-}"
         INSTALL_DOZZLE="${SAVED_INSTALL_DOZZLE:-false}"
@@ -2749,7 +2749,7 @@ CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
 # Optional: Tailscale VPN
 # ===========================================
 TAILSCALE_AUTH_KEY=${TAILSCALE_AUTH_KEY:-}
-TAILSCALE_HOST_IP=${TAILSCALE_HOST_IP:-}
+TAILSCALE_ROUTES=${TAILSCALE_ROUTES:-}
 
 # ===========================================
 # Container Names (generally don't change)
@@ -3079,7 +3079,7 @@ EOF
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_EXTRA_ARGS=--accept-routes
-      - TS_ROUTES=${TAILSCALE_HOST_IP}/32
+      - TS_ROUTES=${TAILSCALE_ROUTES}
       - TS_AUTH_ONCE=true
       - TS_SERVE_CONFIG=/config/tailscale-serve.json
     volumes:
@@ -4155,13 +4155,14 @@ configure_tailscale() {
     # Capture the host IP for TS_ROUTES (advertise this host to Tailscale network)
     local primary_ip=$(get_local_ips | head -1)
     if [ -n "$primary_ip" ]; then
-        TAILSCALE_HOST_IP="$primary_ip"
+        TAILSCALE_ROUTES="${primary_ip}/32"
         echo ""
-        print_info "Docker host IP detected: ${TAILSCALE_HOST_IP}"
-        print_info "This IP will be advertised via TS_ROUTES for Tailscale access"
+        print_info "Docker host IP detected: ${primary_ip}"
+        print_info "Route configured: ${TAILSCALE_ROUTES}"
+        print_info "To expose your full subnet, change TAILSCALE_ROUTES in .env to ${primary_ip%.*}.0/24"
     else
         print_warning "Could not detect host IP for TS_ROUTES"
-        TAILSCALE_HOST_IP=""
+        TAILSCALE_ROUTES=""
     fi
 
     print_success "Tailscale configured"
@@ -4171,12 +4172,12 @@ configure_tailscale() {
     echo -e "  ${YELLOW}IMPORTANT: After deployment, approve advertised routes:${NC}"
     echo -e "    1. Visit: ${CYAN}https://login.tailscale.com/admin/machines${NC}"
     echo -e "    2. Find your ${WHITE}${TAILSCALE_HOSTNAME:-n8n-tailscale}${NC} node"
-    echo -e "    3. Click the node and approve the advertised route (${TAILSCALE_HOST_IP}/32)"
+    echo -e "    3. Click the node and approve the advertised route (${TAILSCALE_ROUTES})"
     echo ""
     echo -e "  ${GRAY}Once approved, access via Tailscale:${NC}"
     echo -e "    • n8n:        ${CYAN}https://${TAILSCALE_HOSTNAME:-n8n-tailscale}.your-tailnet.ts.net${NC}"
-    echo -e "    • Management: ${CYAN}https://${TAILSCALE_HOST_IP}:3333${NC} (via route)"
-    echo -e "    • SSH:        ${CYAN}ssh user@${TAILSCALE_HOST_IP}${NC} (via route)"
+    echo -e "    • Management: ${CYAN}https://${TAILSCALE_HOSTNAME:-n8n-tailscale}.your-tailnet.ts.net/management${NC}"
+    echo -e "    • SSH:        ${CYAN}ssh user@${TAILSCALE_HOSTNAME:-n8n-tailscale}.your-tailnet.ts.net${NC}"
 }
 
 # Generate tailscale-serve.json for TS_SERVE_CONFIG
