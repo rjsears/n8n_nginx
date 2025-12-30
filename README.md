@@ -3776,6 +3776,15 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## Support
+
+- **Documentation**: This README and [docs/](docs/) folder
+- **Issues**: [GitHub Issues](https://github.com/rjsears/n8n_nginx/issues)
+- **API Reference**: See [API.md](docs/API.md)
+- **n8n Community**: [community.n8n.io](https://community.n8n.io)
+
+---
+
 ## Acknowledgments
 
 - [n8n.io](https://n8n.io) - Workflow automation platform
@@ -3790,19 +3799,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 - [Apprise](https://github.com/caronc/apprise) - Notification library
 - [ntfy](https://ntfy.sh) - Push notifications
 
----
-
-## Support
-
-- **Documentation**: This README and [docs/](docs/) folder
-- **Issues**: [GitHub Issues](https://github.com/rjsears/n8n_nginx/issues)
-- **API Reference**: See [API.md](docs/API.md)
-- **n8n Community**: [community.n8n.io](https://community.n8n.io)
-
----
-
-## Family Matters
-
+  
 * **My Amazing and loving family!** My family puts up with all my coding and automation projects and encourages me in everything. Without them, my projects would not be possible.
 * **My brother James**, who is a continual source of inspiration to me and others. Everyone should have a brother as awesome as mine!
 
