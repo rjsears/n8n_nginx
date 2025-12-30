@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Container configuration
 RESTORE_CONTAINER_NAME = "n8n_postgres_restore"
-RESTORE_CONTAINER_IMAGE = "postgres:16"
+RESTORE_CONTAINER_IMAGE = "pgvector/pgvector:pg16"  # Use pgvector image to support vector extension
 RESTORE_DB_PORT = 5433  # Different port to avoid conflict
 RESTORE_DB_USER = "restore_user"
 RESTORE_DB_PASSWORD = "restore_temp_password"
