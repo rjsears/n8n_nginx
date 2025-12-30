@@ -37,18 +37,32 @@ Cloudflare Tunnel (formerly Argo Tunnel) provides secure, outbound-only access t
 Cloudflare Tunnel creates a secure, encrypted connection between your server and Cloudflare's edge network. Unlike traditional setups:
 
 ### Traditional Setup (Without Tunnel)
+
+```mermaid
+flowchart LR
+    A[Internet] -->|Port 443| B[Your Public IP]
+    B --> C[nginx]
+    C --> D[n8n]
+
+    style B fill:#f8d7da,stroke:#721c24
+    linkStyle 0 stroke:#dc3545,stroke-width:2px
 ```
-Internet → Your Public IP → Port 443 → nginx → n8n
-                    ↑
-            Exposed to attacks
-```
+> ⚠️ **Risk**: Your public IP is exposed to attacks
 
 ### With Cloudflare Tunnel
+
+```mermaid
+flowchart LR
+    A[Internet] --> B[Cloudflare Edge]
+    B -->|Encrypted Tunnel| C[cloudflared]
+    C --> D[nginx]
+    D --> E[n8n]
+
+    style B fill:#cce5ff,stroke:#004085
+    style C fill:#d4edda,stroke:#28a745
+    linkStyle 1 stroke:#28a745,stroke-width:2px
 ```
-Internet → Cloudflare Edge → [Encrypted Tunnel] → cloudflared → nginx → n8n
-                                        ↑
-                              Outbound only, no exposed ports
-```
+> ✅ **Secure**: Outbound only, no exposed ports
 
 ### Key Benefits
 
@@ -331,16 +345,23 @@ INF Connection established connIndex=1 connection=xxxx
 
 When a user visits `n8n.example.com`:
 
-```
-1. User's browser → DNS lookup
-2. DNS returns Cloudflare edge IP
-3. Browser connects to Cloudflare
-4. Cloudflare finds your tunnel
-5. Request sent through encrypted tunnel
-6. Cloudflared receives request
-7. Cloudflared forwards to nginx:443
-8. nginx serves n8n
-9. Response travels back through tunnel
+```mermaid
+sequenceDiagram
+    participant Browser as User's Browser
+    participant DNS
+    participant CF as Cloudflare Edge
+    participant CD as cloudflared
+    participant Nginx as nginx
+    participant N8N as n8n
+
+    Browser->>DNS: 1. DNS lookup
+    DNS->>Browser: 2. Return Cloudflare edge IP
+    Browser->>CF: 3. Connect to Cloudflare
+    CF->>CF: 4. Find your tunnel
+    CF->>CD: 5. Send through encrypted tunnel
+    CD->>Nginx: 6. Forward to nginx:443
+    Nginx->>N8N: 7. Route to n8n
+    N8N->>Browser: 8. Response travels back
 ```
 
 ### Tunnel Redundancy

@@ -34,6 +34,8 @@ import {
   ArrowPathRoundedSquareIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronDoubleDownIcon,
+  ChevronDoubleUpIcon,
   MagnifyingGlassIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
@@ -88,6 +90,20 @@ function toggleContainer(containerId) {
 // Check if container is expanded
 function isExpanded(containerId) {
   return !!expandedContainers.value[containerId]
+}
+
+// Check if all filtered containers are expanded
+const allExpanded = computed(() => {
+  if (filteredContainers.value.length === 0) return false
+  return filteredContainers.value.every(c => expandedContainers.value[c.id])
+})
+
+// Toggle all containers expand/collapse
+function toggleAllContainers() {
+  const shouldExpand = !allExpanded.value
+  filteredContainers.value.forEach(container => {
+    expandedContainers.value[container.id] = shouldExpand
+  })
 }
 
 // Critical containers that require danger zone warning when stopping
@@ -845,7 +861,22 @@ onUnmounted(() => {
         description="No containers match your current filter."
       />
 
-      <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <template v-else>
+        <!-- Expand/Collapse All Button -->
+        <div class="flex justify-end">
+          <button
+            @click="toggleAllContainers"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+          >
+            <component
+              :is="allExpanded ? ChevronDoubleUpIcon : ChevronDoubleDownIcon"
+              class="h-4 w-4"
+            />
+            {{ allExpanded ? 'Collapse All' : 'Expand All' }}
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <Card
           v-for="container in filteredContainers"
           :key="container.id"

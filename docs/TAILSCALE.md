@@ -348,13 +348,19 @@ Tailscale Serve creates an HTTPS endpoint on your tailnet that proxies to your n
 
 ### How It Works
 
+```mermaid
+flowchart LR
+    A[Your Device] -->|WireGuard Encrypted| B[Tailscale Container]
+    B -->|HTTPS Proxy| C[nginx:443]
+    C --> D[n8n]
+
+    style A fill:#d4edda,stroke:#28a745
+    style B fill:#cce5ff,stroke:#004085
+    style C fill:#fff3cd,stroke:#856404
+    style D fill:#d1ecf1,stroke:#0c5460
 ```
-[Your Device]
-    → https://n8n-tailscale.your-tailnet.ts.net (Tailscale encrypted)
-    → [Tailscale Container]
-    → https://your-domain.com:443 (proxied to nginx)
-    → [n8n]
-```
+
+**URL**: `https://n8n-tailscale.your-tailnet.ts.net`
 
 ### Benefits
 
