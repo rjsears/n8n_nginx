@@ -119,7 +119,7 @@ export const useBackupStore = defineStore('backups', () => {
       const response = await api.post('/backups/run', {
         backup_type: backupType,
         compression,
-      })
+      }, { timeout: 600000 }) // 10 minute timeout for backup creation
       return response.data
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to run backup'
@@ -272,7 +272,7 @@ export const useBackupStore = defineStore('backups', () => {
         config_path: configPath,
         target_path: targetPath,
         create_backup: createBackup,
-      })
+      }, { timeout: 300000 }) // 5 minute timeout for config restore
       return response.data
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to restore config file'
@@ -285,7 +285,7 @@ export const useBackupStore = defineStore('backups', () => {
       const response = await api.post(`/backups/${backupId}/restore/database`, {
         database_name: databaseName,
         target_database: targetDatabase,
-      })
+      }, { timeout: 1800000 }) // 30 minute timeout for database restore
       return response.data
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to restore database'
@@ -302,7 +302,7 @@ export const useBackupStore = defineStore('backups', () => {
         database_names: options.databaseNames ?? null,
         config_files: options.configFiles ?? null,
         create_backups: options.createBackups ?? true,
-      })
+      }, { timeout: 1800000 }) // 30 minute timeout for full system restore
       return response.data
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to perform full system restore'
@@ -315,7 +315,7 @@ export const useBackupStore = defineStore('backups', () => {
       const response = await api.post(`/backups/${backupId}/restore/workflow`, {
         workflow_id: workflowId,
         rename_format: renameFormat,
-      })
+      }, { timeout: 300000 }) // 5 minute timeout for workflow restore
       return response.data
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to restore workflow'
@@ -347,11 +347,11 @@ export const useBackupStore = defineStore('backups', () => {
 
   async function verifyBackup(backupId, options = {}) {
     try {
-      // Use 5 minute timeout for verification (can take 1-5 minutes)
+      // Use 10 minute timeout for verification (can take several minutes for large backups)
       const response = await api.post(`/backups/${backupId}/verify`, {
         verify_all_workflows: options.verifyAllWorkflows ?? false,
         workflow_sample_size: options.workflowSampleSize ?? 10,
-      }, { timeout: 300000 })
+      }, { timeout: 600000 })
       // Update local state
       const index = history.value.findIndex(b => b.id === backupId)
       if (index > -1) {
