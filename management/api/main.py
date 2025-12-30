@@ -5,6 +5,7 @@ FastAPI application for managing n8n infrastructure.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 import logging
 import sys
@@ -94,7 +95,7 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
     docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    redoc_url=None,  # Disabled - using custom endpoint below
     openapi_url="/api/openapi.json",
     root_path=ROOT_PATH,
 )
@@ -132,6 +133,29 @@ async def health_check():
         "version": __version__,
         "service": "n8n-management",
     }
+
+
+@app.get("/api/redoc", include_in_schema=False)
+async def custom_redoc():
+    """Custom ReDoc endpoint with explicit spec URL for reverse proxy compatibility."""
+    return HTMLResponse(f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>n8n Management API - ReDoc</title>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
+    <style>
+        body {{ margin: 0; padding: 0; }}
+    </style>
+</head>
+<body>
+    <redoc spec-url="{ROOT_PATH}/api/openapi.json"></redoc>
+    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+</body>
+</html>
+    """)
 
 
 if __name__ == "__main__":

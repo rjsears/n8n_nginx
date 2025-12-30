@@ -16,7 +16,8 @@ const helpLinks = [
     category: 'API Documentation',
     icon: CodeBracketIcon,
     links: [
-      { name: 'Swagger UI (API Docs)', url: '/management/api/docs', description: 'Interactive API documentation', external: false },
+      { name: 'Swagger UI', url: '/management/api/docs', description: 'Interactive API documentation with try-it-out', external: false },
+      { name: 'ReDoc', url: '/management/api/redoc', description: 'Clean, readable API reference documentation', external: false },
       { name: 'OpenAPI Schema', url: '/management/api/openapi.json', description: 'Raw OpenAPI JSON specification', external: false },
     ]
   },
