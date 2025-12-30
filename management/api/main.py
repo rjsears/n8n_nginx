@@ -83,6 +83,11 @@ async def lifespan(app: FastAPI):
         logger.error(f"Shutdown error: {e}")
 
 
+import os
+
+# Get root path from environment (set by uvicorn --root-path or directly)
+ROOT_PATH = os.environ.get("ROOT_PATH", "/management")
+
 app = FastAPI(
     title="n8n Management API",
     description="Management API for n8n infrastructure - backups, monitoring, and administration",
@@ -91,6 +96,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+    root_path=ROOT_PATH,
 )
 
 # CORS middleware
