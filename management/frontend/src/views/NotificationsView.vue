@@ -435,7 +435,7 @@ async function createAllTestWorkflows() {
 
 function getWebhookUrl() {
   const baseUrl = window.location.origin
-  return `${baseUrl}/api/notifications/webhook`
+  return `${baseUrl}/management/api/notifications/webhook`
 }
 
 async function testChannel(channel) {
