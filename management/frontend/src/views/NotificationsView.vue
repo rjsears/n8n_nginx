@@ -340,7 +340,7 @@ async function loadData() {
   if (notificationLoadingInterval) clearInterval(notificationLoadingInterval)
   notificationLoadingInterval = setInterval(() => {
     notificationLoadingMessageIndex.value = (notificationLoadingMessageIndex.value + 1) % notificationLoadingMessages.value.length
-  }, 3500)
+  }, 2000)
 
   try {
     const [servicesRes, groupsRes, historyRes, webhookRes] = await Promise.all([
@@ -741,7 +741,7 @@ async function loadNtfyData() {
   if (ntfyLoadingInterval) clearInterval(ntfyLoadingInterval)
   ntfyLoadingInterval = setInterval(() => {
     ntfyLoadingMessageIndex.value = (ntfyLoadingMessageIndex.value + 1) % ntfyLoadingMessages.value.length
-  }, 3500)
+  }, 2000)
 
   try {
     // Load health and status in parallel

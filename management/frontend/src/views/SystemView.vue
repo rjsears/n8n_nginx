@@ -502,10 +502,10 @@ async function loadHealthData() {
   healthLoadingMessageIndex.value = 0
   shuffleMessages() // Randomize messages each time
 
-  // Start rotating messages every 3.5 seconds
+  // Start rotating messages every 2 seconds
   healthLoadingInterval = setInterval(() => {
     healthLoadingMessageIndex.value = (healthLoadingMessageIndex.value + 1) % healthLoadingMessages.value.length
-  }, 3500)
+  }, 2000)
 
   try {
     const response = await api.system.getHealthFull()
@@ -563,7 +563,7 @@ async function loadNetworkInfo() {
   if (networkLoadingInterval) clearInterval(networkLoadingInterval)
   networkLoadingInterval = setInterval(() => {
     networkLoadingMessageIndex.value = (networkLoadingMessageIndex.value + 1) % networkLoadingMessages.value.length
-  }, 3500)
+  }, 2000)
 
   try {
     // Load network, cloudflare, and tailscale info in parallel
