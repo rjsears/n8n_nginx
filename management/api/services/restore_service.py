@@ -359,6 +359,7 @@ class RestoreService:
                     "id": w["id"],
                     "name": w["name"],
                     "active": w.get("active", False),
+                    "archived": w.get("archived", False),
                     "created_at": w.get("created_at"),
                     "updated_at": w.get("updated_at"),
                 }
@@ -698,7 +699,8 @@ class RestoreService:
                 "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
                 "-t", "-A", "-c",
                 '''SELECT row_to_json(t) FROM (
-                    SELECT id, name, active, nodes, connections, settings,
+                    SELECT id, name, active, COALESCE("isArchived", false) as "isArchived",
+                           nodes, connections, settings,
                            "staticData", "createdAt", "updatedAt"
                     FROM workflow_entity ORDER BY name
                 ) t'''
@@ -719,6 +721,7 @@ class RestoreService:
                         "id": row.get("id"),
                         "name": row.get("name"),
                         "active": row.get("active", False),
+                        "archived": row.get("isArchived", False),
                         "nodes": row.get("nodes") or [],
                         "connections": row.get("connections") or {},
                         "settings": row.get("settings") or {},
@@ -763,7 +766,8 @@ class RestoreService:
                 "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
                 "-t", "-A", "-c",
                 f'''SELECT row_to_json(t) FROM (
-                    SELECT id, name, active, nodes, connections, settings,
+                    SELECT id, name, active, COALESCE("isArchived", false) as "isArchived",
+                           nodes, connections, settings,
                            "staticData", "createdAt", "updatedAt"
                     FROM workflow_entity WHERE id = '{workflow_id}'
                 ) t'''
@@ -789,6 +793,7 @@ class RestoreService:
                 "id": row.get("id"),
                 "name": row.get("name"),
                 "active": row.get("active", False),
+                "archived": row.get("isArchived", False),
                 "nodes": row.get("nodes") or [],
                 "connections": row.get("connections") or {},
                 "settings": row.get("settings") or {},
