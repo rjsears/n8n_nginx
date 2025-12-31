@@ -1048,8 +1048,8 @@ async def create_test_workflow(
     if settings.domain:
         webhook_url = f"https://{settings.domain}/management/api/notifications/webhook"
     else:
-        # Fallback to internal Docker URL if domain not configured
-        webhook_url = "http://n8n_management:8000/api/notifications/webhook"
+        # Fallback if domain not configured
+        webhook_url = f"https://YOUR_DOMAIN/management/api/notifications/webhook"
 
     # Create the appropriate workflow
     if workflow_type == "broadcast":
@@ -1144,8 +1144,8 @@ async def create_all_test_workflows(
     if settings.domain:
         webhook_url = f"https://{settings.domain}/management/api/notifications/webhook"
     else:
-        # Fallback to internal Docker URL if domain not configured
-        webhook_url = "http://n8n_management:8000/api/notifications/webhook"
+        # Fallback if domain not configured
+        webhook_url = f"https://YOUR_DOMAIN/management/api/notifications/webhook"
 
     results = []
     errors = []
