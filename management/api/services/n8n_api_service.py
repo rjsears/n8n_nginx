@@ -578,7 +578,7 @@ class N8nApiService:
                 {
                     "parameters": {
                         "content": "# 👥 Group Targeting Test\n\n## What This Does\nSends a notification to **ALL channels in a group** using the group's slug.\n\n## Setup Instructions\n1. **Create a group** in Management Console → Notifications → Groups tab\n2. **Add channels** to the group\n3. Click on the **Send to Group** node\n4. Edit the JSON body and replace `YOUR_GROUP_SLUG` with your actual group slug\n5. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key\n6. Click **Execute Workflow** to test\n\n## Example Groups\n- `devops` → All DevOps team channels\n- `critical_alerts` → High-priority channels\n- `management` → Management team\n\n## Targeting Syntax\n`\"targets\": [\"group:your_slug\"]`",
-                        "height": 500,
+                        "height": 756,
                         "width": 360,
                         "color": 3,
                     },
@@ -586,7 +586,7 @@ class N8nApiService:
                     "name": "Setup Instructions",
                     "type": "n8n-nodes-base.stickyNote",
                     "typeVersion": 1,
-                    "position": [60, 20],
+                    "position": [0, -288],
                 },
                 {
                     "parameters": {},
@@ -594,7 +594,7 @@ class N8nApiService:
                     "name": "Click to Test",
                     "type": "n8n-nodes-base.manualTrigger",
                     "typeVersion": 1,
-                    "position": [480, 300],
+                    "position": [464, 160],
                 },
                 {
                     "parameters": {
@@ -611,11 +611,11 @@ class N8nApiService:
                     "name": "Send to Group",
                     "type": "n8n-nodes-base.httpRequest",
                     "typeVersion": 4.2,
-                    "position": [700, 300],
+                    "position": [688, 160],
                     "credentials": {
                         "httpHeaderAuth": {
-                            "id": "PLACEHOLDER",
-                            "name": "Management Webhook API Key",
+                            "id": "f0OHZ5wR4J1V0jq5",
+                            "name": "n8n_management",
                         },
                     },
                 },
@@ -646,12 +646,11 @@ class N8nApiService:
                     "name": "Check Result",
                     "type": "n8n-nodes-base.if",
                     "typeVersion": 2,
-                    "position": [920, 300],
+                    "position": [912, 160],
                 },
                 {
                     "parameters": {
                         "content": "=## ✅ Success!\n\n**Channels notified:** {{ $json.channels_notified }}\n\n**Channels in group:** {{ $json.channels.join(', ') }}",
-                        "height": 160,
                         "width": 300,
                         "color": 4,
                     },
@@ -659,7 +658,7 @@ class N8nApiService:
                     "name": "Success Output",
                     "type": "n8n-nodes-base.stickyNote",
                     "typeVersion": 1,
-                    "position": [1140, 180],
+                    "position": [1264, 352],
                 },
                 {
                     "parameters": {
@@ -672,9 +671,22 @@ class N8nApiService:
                     "name": "Error Output",
                     "type": "n8n-nodes-base.stickyNote",
                     "typeVersion": 1,
-                    "position": [1140, 360],
+                    "position": [912, 432],
+                },
+                {
+                    "parameters": {
+                        "content": "![](https://github.com/rjsears/n8n_nginx/blob/main/images/n8n_repo_banner.jpg?raw=true)",
+                        "height": 400,
+                        "width": 640,
+                    },
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [464, -304],
+                    "id": "55ad021d-3fb7-4944-9cf2-7fd01c27a401",
+                    "name": "Sticky Note",
                 },
             ],
+            "pinData": {},
             "connections": {
                 "Click to Test": {
                     "main": [[{"node": "Send to Group", "type": "main", "index": 0}]],
@@ -689,9 +701,18 @@ class N8nApiService:
                     ],
                 },
             },
+            "active": False,
             "settings": {
                 "executionOrder": "v1",
+                "callerPolicy": "workflowsFromSameOwner",
+                "availableInMCP": False,
             },
+            "versionId": "9d33845a-c3d7-411a-8111-21d3c6cb7030",
+            "meta": {
+                "instanceId": "ec6dc3e49787b4f9e787de554eb53e4df6fd973c97ae98d3c81101f8be28305d",
+            },
+            "id": "THBZz25PoUBbAvn8",
+            "tags": [],
         }
 
     def generate_notification_test_workflow(
