@@ -100,8 +100,9 @@ const pendingToggleWorkflow = ref(null)
 // Stats
 const stats = computed(() => ({
   total: workflows.value.length,
-  active: workflows.value.filter((w) => w.active).length,
-  inactive: workflows.value.filter((w) => !w.active).length,
+  active: workflows.value.filter((w) => w.active && !w.archived).length,
+  inactive: workflows.value.filter((w) => !w.active && !w.archived).length,
+  archived: workflows.value.filter((w) => w.archived).length,
   executions: executions.value.length,
 }))
 
@@ -118,11 +119,13 @@ const filteredWorkflows = computed(() => {
     )
   }
 
-  // Active filter
+  // Status filter
   if (filterActive.value === 'active') {
-    result = result.filter((w) => w.active)
+    result = result.filter((w) => w.active && !w.archived)
   } else if (filterActive.value === 'inactive') {
-    result = result.filter((w) => !w.active)
+    result = result.filter((w) => !w.active && !w.archived)
+  } else if (filterActive.value === 'archived') {
+    result = result.filter((w) => w.archived)
   }
 
   return result
@@ -411,11 +414,57 @@ onMounted(loadData)
               class="input-field pl-10"
             />
           </div>
-          <select v-model="filterActive" class="select-field">
-            <option value="all">All Workflows</option>
-            <option value="active">Active Only</option>
-            <option value="inactive">Inactive Only</option>
-          </select>
+          <!-- Filter Buttons -->
+          <div class="flex items-center gap-2">
+            <button
+              @click="filterActive = 'all'"
+              :class="[
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                filterActive === 'all'
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-gray-100 dark:bg-gray-700 text-secondary hover:bg-gray-200 dark:hover:bg-gray-600'
+              ]"
+            >
+              All
+              <span class="ml-1 text-xs opacity-75">({{ stats.total }})</span>
+            </button>
+            <button
+              @click="filterActive = 'active'"
+              :class="[
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                filterActive === 'active'
+                  ? 'bg-emerald-500 text-white shadow-md'
+                  : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-500/30'
+              ]"
+            >
+              Active
+              <span class="ml-1 text-xs opacity-75">({{ stats.active }})</span>
+            </button>
+            <button
+              @click="filterActive = 'inactive'"
+              :class="[
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                filterActive === 'inactive'
+                  ? 'bg-gray-500 text-white shadow-md'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+              ]"
+            >
+              Inactive
+              <span class="ml-1 text-xs opacity-75">({{ stats.inactive }})</span>
+            </button>
+            <button
+              @click="filterActive = 'archived'"
+              :class="[
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                filterActive === 'archived'
+                  ? 'bg-amber-500 text-white shadow-md'
+                  : 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30'
+              ]"
+            >
+              Archived
+              <span class="ml-1 text-xs opacity-75">({{ stats.archived }})</span>
+            </button>
+          </div>
         </div>
       </Card>
 
@@ -489,26 +538,30 @@ onMounted(loadData)
                     <div
                       :class="[
                         'p-1.5 rounded-lg',
-                        workflow.active
-                          ? 'bg-emerald-100 dark:bg-emerald-500/20'
-                          : 'bg-gray-100 dark:bg-gray-500/20'
+                        workflow.archived
+                          ? 'bg-amber-100 dark:bg-amber-500/20'
+                          : workflow.active
+                            ? 'bg-emerald-100 dark:bg-emerald-500/20'
+                            : 'bg-gray-100 dark:bg-gray-500/20'
                       ]"
                     >
                       <BoltIcon
                         :class="[
                           'h-4 w-4',
-                          workflow.active ? 'text-emerald-500' : 'text-gray-500'
+                          workflow.archived
+                            ? 'text-amber-500'
+                            : workflow.active ? 'text-emerald-500' : 'text-gray-500'
                         ]"
                       />
                     </div>
                     <p class="font-medium text-sm text-primary truncate">{{ workflow.name }}</p>
                     <div class="flex justify-center">
-                      <StatusBadge :status="workflow.active ? 'active' : 'inactive'" size="sm" />
+                      <StatusBadge :status="workflow.archived ? 'archived' : (workflow.active ? 'active' : 'inactive')" size="sm" />
                     </div>
                     <p class="text-xs text-secondary text-center font-mono">{{ workflow.id }}</p>
-                    <!-- Quick toggle -->
+                    <!-- Quick toggle (hidden for archived workflows) -->
                     <div class="flex justify-center" @click.stop>
-                      <label class="relative inline-flex items-center cursor-pointer">
+                      <label v-if="!workflow.archived" class="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
                           :checked="workflow.active"
@@ -520,6 +573,7 @@ onMounted(loadData)
                           class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-500"
                         ></div>
                       </label>
+                      <span v-else class="text-xs text-amber-500 dark:text-amber-400 italic">Archived</span>
                     </div>
                   </div>
 
@@ -575,6 +629,7 @@ onMounted(loadData)
                         <span class="font-medium">Execute Now</span>
                       </button>
                       <button
+                        v-if="!workflow.archived"
                         @click="toggleWorkflow(workflow)"
                         :disabled="actionLoading === workflow.id"
                         :class="[
@@ -588,6 +643,13 @@ onMounted(loadData)
                         <PlayIcon v-else class="h-5 w-5" />
                         <span class="font-medium">{{ workflow.active ? 'Deactivate' : 'Activate' }}</span>
                       </button>
+                      <span
+                        v-else
+                        class="px-4 py-2.5 flex items-center gap-2 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 rounded-lg"
+                      >
+                        <ExclamationTriangleIcon class="h-5 w-5" />
+                        <span class="font-medium">Archived - Cannot Toggle</span>
+                      </span>
                     </div>
 
                     <!-- Workflow Executions -->

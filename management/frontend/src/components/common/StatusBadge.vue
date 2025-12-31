@@ -51,6 +51,7 @@ const statusConfig = {
   // Generic
   active: { label: 'Active', color: 'emerald', neonClass: 'status-running' },
   inactive: { label: 'Inactive', color: 'gray', neonClass: 'status-stopped' },
+  archived: { label: 'Archived', color: 'amber', neonClass: 'status-warning' },
   enabled: { label: 'Enabled', color: 'emerald', neonClass: 'status-running' },
   disabled: { label: 'Disabled', color: 'gray', neonClass: 'status-stopped' },
   error: { label: 'Error', color: 'red', neonClass: 'status-error' },

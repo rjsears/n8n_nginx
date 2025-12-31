@@ -43,6 +43,7 @@ class FlowInfo(BaseModel):
     id: str
     name: str
     active: bool
+    archived: bool = False
     node_count: int
     created_at: str
     updated_at: str
@@ -100,6 +101,7 @@ async def list_flows(
 
         query = """
             SELECT id, name, active,
+                   COALESCE("isArchived", false) as is_archived,
                    COALESCE(json_array_length(nodes), 0) as node_count,
                    "createdAt", "updatedAt"
             FROM workflow_entity
@@ -116,9 +118,10 @@ async def list_flows(
                 id=str(row[0]),
                 name=row[1],
                 active=row[2],
-                node_count=row[3] or 0,
-                created_at=row[4].isoformat() if row[4] else "",
-                updated_at=row[5].isoformat() if row[5] else "",
+                archived=row[3] if row[3] is not None else False,
+                node_count=row[4] or 0,
+                created_at=row[5].isoformat() if row[5] else "",
+                updated_at=row[6].isoformat() if row[6] else "",
             )
             for row in rows
         ]
