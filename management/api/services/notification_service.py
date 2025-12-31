@@ -1313,6 +1313,9 @@ async def dispatch_notification(
         from api.models.notifications import NotificationHistory, NotificationGroup
 
         # Build targets list for each channel_sent entry
+        from sqlalchemy.orm import selectinload
+        from api.models.notifications import NotificationGroupMembership
+
         for channel_info in channels_sent:
             target_type = channel_info.get("type")
             target_id_val = channel_info.get("id")
@@ -1320,16 +1323,24 @@ async def dispatch_notification(
             if target_type == "group" and target_id_val:
                 # For groups, get the group slug and create history for each channel in the group
                 try:
+                    # Eagerly load memberships and their services
                     group_result = await db.execute(
-                        select(NotificationGroup).where(NotificationGroup.id == target_id_val)
+                        select(NotificationGroup)
+                        .options(
+                            selectinload(NotificationGroup.memberships)
+                            .selectinload(NotificationGroupMembership.service)
+                        )
+                        .where(NotificationGroup.id == target_id_val)
                     )
                     group = group_result.scalar_one_or_none()
                     if group:
                         targets = [f"group:{group.slug}"]
+                        logger.info(f"Creating history for group '{group.name}' with {len(group.memberships)} memberships")
                         # Create a history record for each channel in the group
                         for membership in group.memberships:
                             service = membership.service
                             if service and service.enabled:
+                                logger.info(f"Creating history record for channel '{service.name}'")
                                 notification_history = NotificationHistory(
                                     event_type=event_type,
                                     event_data={
@@ -1346,8 +1357,10 @@ async def dispatch_notification(
                                     sent_at=now,
                                 )
                                 db.add(notification_history)
+                    else:
+                        logger.warning(f"Group with id {target_id_val} not found")
                 except Exception as e:
-                    logger.error(f"Failed to create history for group {target_id_val}: {e}")
+                    logger.error(f"Failed to create history for group {target_id_val}: {e}", exc_info=True)
 
             elif target_type == "channel" and target_id_val:
                 # For individual channels, create one history record
