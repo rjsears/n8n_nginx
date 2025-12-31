@@ -307,6 +307,18 @@ class N8nApiService:
             "nodes": [
                 {
                     "parameters": {
+                        "content": "![](https://github.com/rjsears/n8n_nginx/blob/main/images/n8n_repo_banner.jpg?raw=true)",
+                        "height": 416,
+                        "width": 704,
+                    },
+                    "id": "banner-image",
+                    "name": "Banner",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [384, -288],
+                },
+                {
+                    "parameters": {
                         "content": "# 📢 Broadcast Test Workflow\n\n## What This Does\nSends a notification to **ALL** webhook-enabled channels.\n\n## Setup Instructions\n1. Click on the **Send to All Channels** node\n2. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key from Management Console\n3. Save the credential\n4. Click **Execute Workflow** to test\n\n## Targeting\nThis workflow uses `\"targets\": [\"all\"]` which sends to every channel that has **Webhook Enabled** checked.",
                         "height": 612,
                         "width": 320,
@@ -402,21 +414,7 @@ class N8nApiService:
                     "typeVersion": 1,
                     "position": [912, 496],
                 },
-                {
-                    "parameters": {
-                        "content": "![](https://github.com/rjsears/n8n_nginx/blob/main/images/n8n_repo_banner.jpg?raw=true)",
-                        "height": 416,
-                        "width": 704,
-                        "color": 5,
-                    },
-                    "type": "n8n-nodes-base.stickyNote",
-                    "typeVersion": 1,
-                    "position": [384, -288],
-                    "id": "46687889-e0bc-4244-af34-8d312816aa54",
-                    "name": "Sticky Note",
-                },
             ],
-            "pinData": {},
             "connections": {
                 "Click to Test": {
                     "main": [[{"node": "Send to All Channels", "type": "main", "index": 0}]],
@@ -431,18 +429,9 @@ class N8nApiService:
                     ],
                 },
             },
-            "active": False,
             "settings": {
                 "executionOrder": "v1",
-                "callerPolicy": "workflowsFromSameOwner",
-                "availableInMCP": False,
             },
-            "versionId": "effcc56d-6ae8-4250-8538-4f8a030b55e9",
-            "meta": {
-                "instanceId": "ec6dc3e49787b4f9e787de554eb53e4df6fd973c97ae98d3c81101f8be28305d",
-            },
-            "id": "j9Uk68YSW2DtgXun",
-            "tags": [],
         }
 
     def generate_channel_test_workflow(
@@ -455,6 +444,18 @@ class N8nApiService:
         return {
             "name": "Notification Test - Target Specific Channel",
             "nodes": [
+                {
+                    "parameters": {
+                        "content": "![](https://github.com/rjsears/n8n_nginx/blob/main/images/n8n_repo_banner.jpg?raw=true)",
+                        "height": 384,
+                        "width": 656,
+                    },
+                    "id": "banner-image",
+                    "name": "Banner",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [400, -944],
+                },
                 {
                     "parameters": {
                         "content": "# 🎯 Channel Targeting Test\n\n## What This Does\nSends a notification to a **SPECIFIC** channel using its slug.\n\n## Setup Instructions\n1. **Find your channel slug** in Management Console → Notifications → Channels tab\n2. Click on the **Send to Channel** node\n3. Edit the JSON body and replace `YOUR_CHANNEL_SLUG` with your actual slug\n4. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key\n5. Click **Execute Workflow** to test\n\n## Example Slugs\n- `devops_slack`\n- `alerts_email`\n- `mobile_push`\n\n## Targeting Syntax\n`\"targets\": [\"channel:your_slug\"]`",
@@ -553,20 +554,7 @@ class N8nApiService:
                     "typeVersion": 1,
                     "position": [928, -144],
                 },
-                {
-                    "parameters": {
-                        "content": "![](https://github.com/rjsears/n8n_nginx/blob/main/images/n8n_repo_banner.jpg?raw=true)\n",
-                        "height": 384,
-                        "width": 656,
-                    },
-                    "type": "n8n-nodes-base.stickyNote",
-                    "typeVersion": 1,
-                    "position": [400, -944],
-                    "id": "0e3e4bea-8853-4ef3-bb93-de0153f724bd",
-                    "name": "Sticky Note",
-                },
             ],
-            "pinData": {},
             "connections": {
                 "Click to Test": {
                     "main": [[{"node": "Send to Channel", "type": "main", "index": 0}]],
@@ -581,18 +569,9 @@ class N8nApiService:
                     ],
                 },
             },
-            "active": False,
             "settings": {
                 "executionOrder": "v1",
-                "callerPolicy": "workflowsFromSameOwner",
-                "availableInMCP": False,
             },
-            "versionId": "e18c9f13-48bd-47a8-a12e-812787da0b4c",
-            "meta": {
-                "instanceId": "ec6dc3e49787b4f9e787de554eb53e4df6fd973c97ae98d3c81101f8be28305d",
-            },
-            "id": "Xr42sxxY1vmX8gxU",
-            "tags": [],
         }
 
     def generate_group_test_workflow(
@@ -605,6 +584,18 @@ class N8nApiService:
         return {
             "name": "Notification Test - Target Group",
             "nodes": [
+                {
+                    "parameters": {
+                        "content": "![](https://github.com/rjsears/n8n_nginx/blob/main/images/n8n_repo_banner.jpg?raw=true)",
+                        "height": 400,
+                        "width": 640,
+                    },
+                    "id": "banner-image",
+                    "name": "Banner",
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [464, -304],
+                },
                 {
                     "parameters": {
                         "content": "# 👥 Group Targeting Test\n\n## What This Does\nSends a notification to **ALL channels in a group** using the group's slug.\n\n## Setup Instructions\n1. **Create a group** in Management Console → Notifications → Groups tab\n2. **Add channels** to the group\n3. Click on the **Send to Group** node\n4. Edit the JSON body and replace `YOUR_GROUP_SLUG` with your actual group slug\n5. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key\n6. Click **Execute Workflow** to test\n\n## Example Groups\n- `devops` → All DevOps team channels\n- `critical_alerts` → High-priority channels\n- `management` → Management team\n\n## Targeting Syntax\n`\"targets\": [\"group:your_slug\"]`",
@@ -703,20 +694,7 @@ class N8nApiService:
                     "typeVersion": 1,
                     "position": [912, 432],
                 },
-                {
-                    "parameters": {
-                        "content": "![](https://github.com/rjsears/n8n_nginx/blob/main/images/n8n_repo_banner.jpg?raw=true)",
-                        "height": 400,
-                        "width": 640,
-                    },
-                    "type": "n8n-nodes-base.stickyNote",
-                    "typeVersion": 1,
-                    "position": [464, -304],
-                    "id": "55ad021d-3fb7-4944-9cf2-7fd01c27a401",
-                    "name": "Sticky Note",
-                },
             ],
-            "pinData": {},
             "connections": {
                 "Click to Test": {
                     "main": [[{"node": "Send to Group", "type": "main", "index": 0}]],
@@ -731,18 +709,9 @@ class N8nApiService:
                     ],
                 },
             },
-            "active": False,
             "settings": {
                 "executionOrder": "v1",
-                "callerPolicy": "workflowsFromSameOwner",
-                "availableInMCP": False,
             },
-            "versionId": "9d33845a-c3d7-411a-8111-21d3c6cb7030",
-            "meta": {
-                "instanceId": "ec6dc3e49787b4f9e787de554eb53e4df6fd973c97ae98d3c81101f8be28305d",
-            },
-            "id": "THBZz25PoUBbAvn8",
-            "tags": [],
         }
 
     def generate_notification_test_workflow(
