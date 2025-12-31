@@ -685,12 +685,13 @@ class BackupService:
         Returns count and list of workflow metadata (no sensitive data).
         """
         try:
-            # Query n8n workflow_entity table
+            # Query n8n workflow_entity table (include isArchived for archived status)
             result = await n8n_db.execute(text("""
                 SELECT
                     id, name, active,
                     "createdAt" as created_at,
-                    "updatedAt" as updated_at
+                    "updatedAt" as updated_at,
+                    COALESCE("isArchived", false) as is_archived
                 FROM workflow_entity
                 ORDER BY name
             """))
@@ -704,6 +705,7 @@ class BackupService:
                     "active": row[2] if row[2] is not None else False,
                     "created_at": row[3].isoformat() if row[3] else None,
                     "updated_at": row[4].isoformat() if row[4] else None,
+                    "archived": row[5] if row[5] is not None else False,
                 }
 
                 # Try to get node count and tags if available

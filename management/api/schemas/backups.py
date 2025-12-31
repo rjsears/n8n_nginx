@@ -214,6 +214,7 @@ class WorkflowManifestItem(BaseModel):
     id: str
     name: str
     active: bool = False
+    archived: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     checksum: Optional[str] = None
