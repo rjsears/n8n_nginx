@@ -1309,42 +1309,72 @@ async def dispatch_notification(
 
         # ALSO log to NotificationHistory (for main Notifications page)
         # This ensures all notifications appear in the unified Recent Notifications view
-        from api.models.notifications import NotificationHistory
+        # We need to create one record per channel for proper grouping in the frontend
+        from api.models.notifications import NotificationHistory, NotificationGroup
 
-        # Get service info from the first channel that was sent to (if any)
-        service_id = None
-        service_name = None
-        if channels_sent:
-            first_channel = channels_sent[0]
-            if first_channel.get("type") == "channel":
-                service_id = first_channel.get("id")
-                # Try to get the service name
+        # Build targets list for each channel_sent entry
+        for channel_info in channels_sent:
+            target_type = channel_info.get("type")
+            target_id_val = channel_info.get("id")
+
+            if target_type == "group" and target_id_val:
+                # For groups, get the group slug and create history for each channel in the group
+                try:
+                    group_result = await db.execute(
+                        select(NotificationGroup).where(NotificationGroup.id == target_id_val)
+                    )
+                    group = group_result.scalar_one_or_none()
+                    if group:
+                        targets = [f"group:{group.slug}"]
+                        # Create a history record for each channel in the group
+                        for membership in group.memberships:
+                            service = membership.service
+                            if service and service.enabled:
+                                notification_history = NotificationHistory(
+                                    event_type=event_type,
+                                    event_data={
+                                        **event_data,
+                                        "title": title,
+                                        "message": message,
+                                        "priority": priority,
+                                        "targets": targets,
+                                    },
+                                    severity=event.severity,
+                                    service_id=service.id,
+                                    service_name=service.name,
+                                    status="sent",
+                                    sent_at=now,
+                                )
+                                db.add(notification_history)
+                except Exception as e:
+                    logger.error(f"Failed to create history for group {target_id_val}: {e}")
+
+            elif target_type == "channel" and target_id_val:
+                # For individual channels, create one history record
                 try:
                     from api.models.notifications import NotificationService as NotificationServiceModel
                     service_result = await db.execute(
-                        select(NotificationServiceModel).where(NotificationServiceModel.id == service_id)
+                        select(NotificationServiceModel).where(NotificationServiceModel.id == target_id_val)
                     )
                     service = service_result.scalar_one_or_none()
                     if service:
-                        service_name = service.name
-                except Exception:
-                    pass
-
-        notification_history = NotificationHistory(
-            event_type=event_type,
-            event_data={
-                **event_data,
-                "title": title,
-                "message": message,
-                "priority": priority,
-            },
-            severity=event.severity,
-            service_id=service_id,
-            service_name=service_name,
-            status="sent" if sent_count > 0 else "failed",
-            sent_at=now if sent_count > 0 else None,
-        )
-        db.add(notification_history)
+                        notification_history = NotificationHistory(
+                            event_type=event_type,
+                            event_data={
+                                **event_data,
+                                "title": title,
+                                "message": message,
+                                "priority": priority,
+                            },
+                            severity=event.severity,
+                            service_id=service.id,
+                            service_name=service.name,
+                            status="sent",
+                            sent_at=now,
+                        )
+                        db.add(notification_history)
+                except Exception as e:
+                    logger.error(f"Failed to create history for channel {target_id_val}: {e}")
 
         await db.commit()
         logger.info(f"Dispatched '{event_type}' notification to {sent_count} channel(s)")
