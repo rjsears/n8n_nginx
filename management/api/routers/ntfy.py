@@ -1362,13 +1362,13 @@ async def get_integration_examples(
 }}''',
         ),
         IntegrationExample(
-            name="n8n HTTP Request (Internal)",
-            description="Configure n8n to send via management API (recommended for internal workflows)",
+            name="n8n HTTP Request",
+            description="Configure n8n to send via management API",
             category="n8n",
-            code='''// Use this URL when n8n and management are on the same Docker network
+            code='''// Replace YOUR_DOMAIN with your actual domain
 {
   "method": "POST",
-  "url": "http://n8n_management:8000/api/ntfy/send",
+  "url": "https://YOUR_DOMAIN/management/api/ntfy/send",
   "headers": {
     "Content-Type": "application/json",
     "Authorization": "Bearer {{ $credentials.managementApiKey }}"
