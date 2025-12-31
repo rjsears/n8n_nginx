@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # Domain configuration
     domain: Optional[str] = Field(
         default=None,
-        description="Domain for external URLs (e.g., loftai7.loft.aero)"
+        description="Domain for external URLs (e.g., n8n.example.com)"
     )
 
     # n8n API integration
