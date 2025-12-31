@@ -149,11 +149,13 @@ class N8nApiService:
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
+                logger.info(f"Creating workflow: {workflow_clean.get('name')}")
                 response = await client.post(
                     f"{self.base_url}/workflows",
                     headers=self._get_headers(),
                     json=workflow_clean,
                 )
+                logger.info(f"n8n response status: {response.status_code}")
                 if response.status_code in (200, 201):
                     data = response.json()
                     return {
@@ -168,12 +170,13 @@ class N8nApiService:
                         error_detail = error_json.get("message", error_detail)
                     except Exception:
                         pass
+                    logger.error(f"n8n workflow creation failed: {response.status_code} - {error_detail}")
                     return {
                         "success": False,
-                        "error": f"Failed to create workflow: {error_detail}",
+                        "error": f"Failed to create workflow ({response.status_code}): {error_detail}",
                     }
         except Exception as e:
-            logger.error(f"Error creating workflow: {e}")
+            logger.error(f"Error creating workflow: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     async def get_workflow(self, workflow_id: str) -> Dict[str, Any]:
@@ -491,8 +494,8 @@ class N8nApiService:
                     "position": [640, -464],
                     "credentials": {
                         "httpHeaderAuth": {
-                            "id": "f0OHZ5wR4J1V0jq5",
-                            "name": "n8n_management",
+                            "id": "PLACEHOLDER",
+                            "name": "Management Webhook API Key",
                         },
                     },
                 },
@@ -641,8 +644,8 @@ class N8nApiService:
                     "position": [688, 160],
                     "credentials": {
                         "httpHeaderAuth": {
-                            "id": "f0OHZ5wR4J1V0jq5",
-                            "name": "n8n_management",
+                            "id": "PLACEHOLDER",
+                            "name": "Management Webhook API Key",
                         },
                     },
                 },
