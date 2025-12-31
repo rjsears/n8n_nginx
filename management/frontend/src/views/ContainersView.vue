@@ -671,10 +671,10 @@ async function loadData() {
   containerLoadingMessageIndex.value = 0
   shuffleContainerMessages()
 
-  // Start rotating messages every 3.5 seconds
+  // Start rotating messages every 2 seconds
   containerLoadingInterval = setInterval(() => {
     containerLoadingMessageIndex.value = (containerLoadingMessageIndex.value + 1) % containerLoadingMessages.value.length
-  }, 3500)
+  }, 2000)
 
   try {
     await Promise.all([
