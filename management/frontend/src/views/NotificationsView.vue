@@ -1262,31 +1262,52 @@ async function handleNtfyUpdateConfig(config) {
                         <Transition name="collapse">
                           <div
                             v-if="expandedHistoryItems.has(item.id)"
-                            class="px-4 pb-3 pt-2 border-t border-gray-400 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                            class="px-4 pb-4 pt-2 border-t border-gray-400 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
                           >
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div class="space-y-2">
+                              <!-- Left Column -->
+                              <div class="space-y-3">
+                                <div>
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Event Type</label>
+                                  <p class="text-sm text-primary font-mono mt-1">{{ item.event_type }}</p>
+                                </div>
                                 <div>
                                   <label class="text-xs font-medium text-secondary uppercase tracking-wide">Channel</label>
-                                  <p class="text-sm text-primary mt-0.5">{{ item.service_name }}</p>
+                                  <p class="text-sm text-primary mt-1">{{ item.service_name }}</p>
+                                </div>
+                                <div>
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Status</label>
+                                  <div class="mt-1">
+                                    <StatusBadge :status="item.status" size="sm" />
+                                  </div>
                                 </div>
                                 <div>
                                   <label class="text-xs font-medium text-secondary uppercase tracking-wide">Sent At</label>
-                                  <p class="text-sm text-primary mt-0.5">{{ new Date(item.sent_at || item.created_at).toLocaleString() }}</p>
+                                  <p class="text-sm text-primary mt-1">{{ new Date(item.sent_at || item.created_at).toLocaleString() }}</p>
                                 </div>
                                 <div v-if="item.error_message">
                                   <label class="text-xs font-medium text-red-500 uppercase tracking-wide">Error</label>
-                                  <p class="text-sm text-red-600 dark:text-red-400 mt-0.5">{{ item.error_message }}</p>
+                                  <p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ item.error_message }}</p>
                                 </div>
                               </div>
-                              <div class="space-y-2">
+
+                              <!-- Right Column - Message Content -->
+                              <div class="space-y-3">
+                                <div v-if="item.event_data?.title">
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Title</label>
+                                  <p class="text-sm text-primary mt-1">{{ item.event_data.title }}</p>
+                                </div>
                                 <div v-if="item.event_data?.message">
                                   <label class="text-xs font-medium text-secondary uppercase tracking-wide">Message</label>
-                                  <p class="text-sm text-primary mt-0.5 whitespace-pre-wrap break-words">{{ item.event_data.message }}</p>
+                                  <p class="text-sm text-primary mt-1 whitespace-pre-wrap break-words">{{ item.event_data.message }}</p>
                                 </div>
                                 <div v-if="item.event_data?.priority">
                                   <label class="text-xs font-medium text-secondary uppercase tracking-wide">Priority</label>
-                                  <p class="text-sm text-primary mt-0.5 capitalize">{{ item.event_data.priority }}</p>
+                                  <p class="text-sm text-primary mt-1 capitalize">{{ item.event_data.priority }}</p>
+                                </div>
+                                <div v-if="item.severity">
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Severity</label>
+                                  <p class="text-sm text-primary mt-1 capitalize">{{ item.severity }}</p>
                                 </div>
                               </div>
                             </div>
