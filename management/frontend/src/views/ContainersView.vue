@@ -122,7 +122,7 @@ function toggleAllContainers() {
 const criticalContainers = {
   'n8n_management': {
     title: 'This action will cause the loss of all management!',
-    description: 'If you stop this container, you will lose access to this management interface. You can start it again from the command line by running: sudo docker start n8n_management from the docker host command line.'
+    description: 'If you stop this container, you will lose access to this management interface. You can start it again from the command line by running: docker compose up -d n8n_management from the n8n_nginx directory on the docker host.'
   },
   'n8n_cloudflared': {
     title: 'This action may cause the loss of connectivity to your N8N instance from outside your network!',
