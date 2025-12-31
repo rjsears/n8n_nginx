@@ -152,20 +152,26 @@ const groupedHistory = computed(() => {
         }
       }
 
-      // Create a group entry for this notification event
-      result.push({
-        type: 'group',
-        id: `group-${item.id}`,
-        groupSlug,
-        groupName,
-        // Use the first item's data for the group header
-        event_type: item.event_type,
-        event_data: item.event_data,
-        status: batchItems.every(b => b.status === 'sent') ? 'sent' : 'failed',
-        sent_at: item.sent_at || item.created_at || item.triggered_at,
-        severity: item.severity,
-        // Individual channel deliveries
-        channels: batchItems.map(b => ({
+      // Build channel entries
+      let channelEntries = []
+
+      // Check if this is a system notification (only one record with channels_sent)
+      // For system notifications, we need to create synthetic channel entries from the group's channels
+      if (item.is_system_notification && group?.channels) {
+        // Create a channel entry for each channel in the group
+        channelEntries = group.channels.map((channel, idx) => ({
+          id: `${item.id}-channel-${channel.id || idx}`,
+          service_name: channel.name,
+          status: item.status,
+          sent_at: item.sent_at || item.triggered_at || item.created_at,
+          error_message: item.error_message,
+          event_type: item.event_type,
+          event_data: item.event_data,
+          severity: item.severity,
+        }))
+      } else {
+        // Regular notifications - use the actual batch items
+        channelEntries = batchItems.map(b => ({
           id: b.id,
           service_name: b.service_name,
           status: b.status,
@@ -175,6 +181,22 @@ const groupedHistory = computed(() => {
           event_data: b.event_data,
           severity: b.severity,
         }))
+      }
+
+      // Create a group entry for this notification event
+      result.push({
+        type: 'group',
+        id: `group-${item.id}`,
+        groupSlug,
+        groupName,
+        // Use the first item's data for the group header
+        event_type: item.event_type,
+        event_data: item.event_data,
+        status: channelEntries.every(b => b.status === 'sent') ? 'sent' : 'failed',
+        sent_at: item.sent_at || item.created_at || item.triggered_at,
+        severity: item.severity,
+        // Individual channel deliveries
+        channels: channelEntries
       })
     } else {
       // Ungrouped item
@@ -1286,75 +1308,92 @@ async function handleNtfyUpdateConfig(config) {
                     </span>
                   </div>
 
-                  <!-- Group Expanded Content -->
+                  <!-- Group Expanded Content - Shows channel entries exactly like standalone messages -->
                   <Transition name="collapse">
-                    <div v-if="expandedHistoryGroups.has(entry.id)" class="border-t border-indigo-200 dark:border-indigo-800">
-                      <!-- Message Details at Group Level -->
-                      <div class="p-4 bg-indigo-50/50 dark:bg-indigo-900/20 border-b border-indigo-200 dark:border-indigo-800">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <!-- Left Column -->
-                          <div class="space-y-3">
-                            <div>
-                              <label class="text-xs font-medium text-secondary uppercase tracking-wide">Event Type</label>
-                              <p class="text-sm text-primary font-mono mt-1">{{ entry.event_type }}</p>
+                    <div v-if="expandedHistoryGroups.has(entry.id)" class="border-t border-indigo-200 dark:border-indigo-800 p-2 space-y-2 bg-white dark:bg-gray-800/50">
+                      <!-- Each channel as a full expandable entry (same as standalone) -->
+                      <div
+                        v-for="channel in entry.channels"
+                        :key="channel.id"
+                        class="border border-gray-400 dark:border-black rounded-lg overflow-hidden"
+                      >
+                        <!-- Channel Header (same layout as standalone) -->
+                        <div
+                          @click="toggleHistoryItem(channel.id)"
+                          class="flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                        >
+                          <component
+                            :is="expandedHistoryItems.has(channel.id) ? ChevronDownIcon : ChevronRightIcon"
+                            class="h-4 w-4 text-secondary flex-shrink-0"
+                          />
+                          <div class="flex-1 min-w-0 flex items-center gap-4">
+                            <div class="flex-1 min-w-0">
+                              <p class="text-sm font-medium text-primary truncate">
+                                {{ channel.event_data?.title || channel.event_type }}
+                              </p>
+                              <p class="text-xs text-secondary truncate">
+                                {{ channel.service_name }} • {{ new Date(channel.sent_at).toLocaleString() }}
+                              </p>
                             </div>
-                            <div>
-                              <label class="text-xs font-medium text-secondary uppercase tracking-wide">Group</label>
-                              <p class="text-sm text-primary mt-1">{{ entry.groupName }}</p>
-                            </div>
-                            <div>
-                              <label class="text-xs font-medium text-secondary uppercase tracking-wide">Status</label>
-                              <div class="mt-1">
-                                <StatusBadge :status="entry.status" size="sm" />
+                            <StatusBadge :status="channel.status" size="sm" class="flex-shrink-0" />
+                          </div>
+                        </div>
+
+                        <!-- Channel Expanded Details (same layout as standalone) -->
+                        <Transition name="collapse">
+                          <div
+                            v-if="expandedHistoryItems.has(channel.id)"
+                            class="px-4 pb-4 pt-2 border-t border-gray-400 dark:border-black bg-gray-50 dark:bg-gray-800/50"
+                          >
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <!-- Left Column -->
+                              <div class="space-y-3">
+                                <div>
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Event Type</label>
+                                  <p class="text-sm text-primary font-mono mt-1">{{ channel.event_type }}</p>
+                                </div>
+                                <div>
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Channel</label>
+                                  <p class="text-sm text-primary mt-1">{{ channel.service_name }}</p>
+                                </div>
+                                <div>
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Status</label>
+                                  <div class="mt-1">
+                                    <StatusBadge :status="channel.status" size="sm" />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Sent At</label>
+                                  <p class="text-sm text-primary mt-1">{{ new Date(channel.sent_at).toLocaleString() }}</p>
+                                </div>
+                                <div v-if="channel.error_message">
+                                  <label class="text-xs font-medium text-red-500 uppercase tracking-wide">Error</label>
+                                  <p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ channel.error_message }}</p>
+                                </div>
+                              </div>
+
+                              <!-- Right Column - Message Content -->
+                              <div class="space-y-3">
+                                <div v-if="channel.event_data?.title">
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Title</label>
+                                  <p class="text-sm text-primary mt-1">{{ channel.event_data.title }}</p>
+                                </div>
+                                <div v-if="channel.event_data?.message">
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Message</label>
+                                  <p class="text-sm text-primary mt-1 whitespace-pre-wrap break-words">{{ channel.event_data.message }}</p>
+                                </div>
+                                <div v-if="channel.event_data?.priority">
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Priority</label>
+                                  <p class="text-sm text-primary mt-1 capitalize">{{ channel.event_data.priority }}</p>
+                                </div>
+                                <div v-if="channel.severity">
+                                  <label class="text-xs font-medium text-secondary uppercase tracking-wide">Severity</label>
+                                  <p class="text-sm text-primary mt-1 capitalize">{{ channel.severity }}</p>
+                                </div>
                               </div>
                             </div>
-                            <div>
-                              <label class="text-xs font-medium text-secondary uppercase tracking-wide">Sent At</label>
-                              <p class="text-sm text-primary mt-1">{{ new Date(entry.sent_at).toLocaleString() }}</p>
-                            </div>
                           </div>
-
-                          <!-- Right Column - Message Content -->
-                          <div class="space-y-3">
-                            <div v-if="entry.event_data?.title">
-                              <label class="text-xs font-medium text-secondary uppercase tracking-wide">Title</label>
-                              <p class="text-sm text-primary mt-1">{{ entry.event_data.title }}</p>
-                            </div>
-                            <div v-if="entry.event_data?.message">
-                              <label class="text-xs font-medium text-secondary uppercase tracking-wide">Message</label>
-                              <p class="text-sm text-primary mt-1 whitespace-pre-wrap break-words">{{ entry.event_data.message }}</p>
-                            </div>
-                            <div v-if="entry.event_data?.priority">
-                              <label class="text-xs font-medium text-secondary uppercase tracking-wide">Priority</label>
-                              <p class="text-sm text-primary mt-1 capitalize">{{ entry.event_data.priority }}</p>
-                            </div>
-                            <div v-if="entry.severity">
-                              <label class="text-xs font-medium text-secondary uppercase tracking-wide">Severity</label>
-                              <p class="text-sm text-primary mt-1 capitalize">{{ entry.severity }}</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Individual Channel Deliveries -->
-                      <div class="p-3 bg-white dark:bg-gray-800/50">
-                        <p class="text-xs font-medium text-secondary uppercase tracking-wide mb-2">Channels in this group:</p>
-                        <div class="space-y-2">
-                          <div
-                            v-for="channel in entry.channels"
-                            :key="channel.id"
-                            class="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600"
-                          >
-                            <div class="flex items-center gap-2">
-                              <BellIcon class="h-4 w-4 text-gray-400" />
-                              <span class="text-sm text-primary">{{ channel.service_name }}</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                              <span class="text-xs text-secondary">{{ new Date(channel.sent_at).toLocaleString() }}</span>
-                              <StatusBadge :status="channel.status" size="sm" />
-                            </div>
-                          </div>
-                        </div>
+                        </Transition>
                       </div>
                     </div>
                   </Transition>
