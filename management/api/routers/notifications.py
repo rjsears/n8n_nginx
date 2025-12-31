@@ -21,6 +21,7 @@ import logging
 
 from api.database import get_db
 from api.dependencies import get_current_user
+from api.config import settings
 from api.services.notification_service import NotificationService
 from api.schemas.notifications import (
     NotificationServiceCreate,
@@ -1043,8 +1044,12 @@ async def create_test_workflow(
             detail="Generate a webhook API key first.",
         )
 
-    # Build webhook URL (use internal Docker network URL for n8n)
-    webhook_url = "http://n8n_management:8000/api/notifications/webhook"
+    # Build webhook URL using the domain from settings
+    if settings.domain:
+        webhook_url = f"https://{settings.domain}/management/api/notifications/webhook"
+    else:
+        # Fallback to internal Docker URL if domain not configured
+        webhook_url = "http://n8n_management:8000/api/notifications/webhook"
 
     # Create the appropriate workflow
     if workflow_type == "broadcast":
@@ -1135,7 +1140,12 @@ async def create_all_test_workflows(
             detail="Generate a webhook API key first.",
         )
 
-    webhook_url = "http://n8n_management:8000/api/notifications/webhook"
+    # Build webhook URL using the domain from settings
+    if settings.domain:
+        webhook_url = f"https://{settings.domain}/management/api/notifications/webhook"
+    else:
+        # Fallback to internal Docker URL if domain not configured
+        webhook_url = "http://n8n_management:8000/api/notifications/webhook"
 
     results = []
     errors = []
