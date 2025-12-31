@@ -299,7 +299,7 @@ class N8nApiService:
                 {
                     "parameters": {
                         "content": "# 📢 Broadcast Test Workflow\n\n## What This Does\nSends a notification to **ALL** webhook-enabled channels.\n\n## Setup Instructions\n1. Click on the **Send to All Channels** node\n2. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key from Management Console\n3. Save the credential\n4. Click **Execute Workflow** to test\n\n## Targeting\nThis workflow uses `\"targets\": [\"all\"]` which sends to every channel that has **Webhook Enabled** checked.",
-                        "height": 340,
+                        "height": 612,
                         "width": 320,
                         "color": 4,
                     },
@@ -307,7 +307,7 @@ class N8nApiService:
                     "name": "Setup Instructions",
                     "type": "n8n-nodes-base.stickyNote",
                     "typeVersion": 1,
-                    "position": [60, 60],
+                    "position": [-64, -208],
                 },
                 {
                     "parameters": {},
@@ -315,7 +315,7 @@ class N8nApiService:
                     "name": "Click to Test",
                     "type": "n8n-nodes-base.manualTrigger",
                     "typeVersion": 1,
-                    "position": [440, 300],
+                    "position": [416, 192],
                 },
                 {
                     "parameters": {
@@ -332,7 +332,7 @@ class N8nApiService:
                     "name": "Send to All Channels",
                     "type": "n8n-nodes-base.httpRequest",
                     "typeVersion": 4.2,
-                    "position": [660, 300],
+                    "position": [640, 192],
                     "credentials": {
                         "httpHeaderAuth": {
                             "id": "PLACEHOLDER",
@@ -367,12 +367,11 @@ class N8nApiService:
                     "name": "Check Result",
                     "type": "n8n-nodes-base.if",
                     "typeVersion": 2,
-                    "position": [880, 300],
+                    "position": [848, 192],
                 },
                 {
                     "parameters": {
                         "content": "=## ✅ Success!\n\n**Channels notified:** {{ $json.channels_notified }}\n\n**Channels:** {{ $json.channels.join(', ') }}",
-                        "height": 160,
                         "width": 280,
                         "color": 4,
                     },
@@ -380,12 +379,11 @@ class N8nApiService:
                     "name": "Success Output",
                     "type": "n8n-nodes-base.stickyNote",
                     "typeVersion": 1,
-                    "position": [1100, 180],
+                    "position": [1232, 368],
                 },
                 {
                     "parameters": {
                         "content": "=## ❌ Failed\n\n**Errors:** {{ $json.errors ? $json.errors.join(', ') : ($json.detail || 'Unknown error') }}",
-                        "height": 160,
                         "width": 280,
                         "color": 5,
                     },
@@ -393,9 +391,23 @@ class N8nApiService:
                     "name": "Error Output",
                     "type": "n8n-nodes-base.stickyNote",
                     "typeVersion": 1,
-                    "position": [1100, 380],
+                    "position": [912, 496],
+                },
+                {
+                    "parameters": {
+                        "content": "![](https://github.com/rjsears/n8n_nginx/blob/main/images/n8n_repo_banner.jpg?raw=true)",
+                        "height": 416,
+                        "width": 704,
+                        "color": 5,
+                    },
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": [384, -288],
+                    "id": "46687889-e0bc-4244-af34-8d312816aa54",
+                    "name": "Sticky Note",
                 },
             ],
+            "pinData": {},
             "connections": {
                 "Click to Test": {
                     "main": [[{"node": "Send to All Channels", "type": "main", "index": 0}]],
@@ -410,9 +422,18 @@ class N8nApiService:
                     ],
                 },
             },
+            "active": False,
             "settings": {
                 "executionOrder": "v1",
+                "callerPolicy": "workflowsFromSameOwner",
+                "availableInMCP": False,
             },
+            "versionId": "effcc56d-6ae8-4250-8538-4f8a030b55e9",
+            "meta": {
+                "instanceId": "ec6dc3e49787b4f9e787de554eb53e4df6fd973c97ae98d3c81101f8be28305d",
+            },
+            "id": "j9Uk68YSW2DtgXun",
+            "tags": [],
         }
 
     def generate_channel_test_workflow(
