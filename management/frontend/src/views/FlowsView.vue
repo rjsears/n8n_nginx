@@ -620,6 +620,7 @@ onMounted(loadData)
                         <span class="font-medium">Download</span>
                       </button>
                       <button
+                        v-if="!workflow.archived"
                         @click="executeWorkflow(workflow)"
                         :disabled="actionLoading === workflow.id"
                         class="btn-secondary px-4 py-2.5 flex items-center gap-2 text-blue-600 hover:text-blue-700 dark:text-blue-400"
@@ -642,13 +643,6 @@ onMounted(loadData)
                         <PlayIcon v-else class="h-5 w-5" />
                         <span class="font-medium">{{ workflow.active ? 'Deactivate' : 'Activate' }}</span>
                       </button>
-                      <span
-                        v-else
-                        class="px-4 py-2.5 flex items-center gap-2 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 rounded-lg"
-                      >
-                        <ExclamationTriangleIcon class="h-5 w-5" />
-                        <span class="font-medium">Archived - Cannot Toggle</span>
-                      </span>
                     </div>
 
                     <!-- Workflow Executions -->
