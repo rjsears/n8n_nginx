@@ -257,16 +257,51 @@ async function loadData() {
     const regularHistory = Array.isArray(historyRes.data) ? historyRes.data : []
     const systemHistory = systemHistoryRes.data?.items || []
 
+    // Create lookup maps for groups and channels
+    const groupsById = new Map(groups.value.map(g => [g.id, g]))
+    const channelsById = new Map(channels.value.map(c => [c.id, c]))
+
     // Transform system notification history to match regular history format
-    const transformedSystemHistory = systemHistory.map(item => ({
-      ...item,
-      // Mark as system notification for display purposes
-      is_system_notification: true,
-      // Use triggered_at as the timestamp for sorting
-      created_at: item.triggered_at || item.sent_at,
-      // Map event_type to message if not present
-      message: item.event_data?.message || `${item.event_type}: ${item.target_label || ''}`,
-    }))
+    const transformedSystemHistory = systemHistory.map(item => {
+      // Build event_data.targets array from channels_sent
+      const targets = []
+      let serviceName = null
+
+      if (item.channels_sent && Array.isArray(item.channels_sent)) {
+        for (const sent of item.channels_sent) {
+          if (sent.type === 'group') {
+            const group = groupsById.get(sent.id)
+            if (group) {
+              targets.push(`group:${group.slug}`)
+            }
+          } else if (sent.type === 'channel') {
+            const channel = channelsById.get(sent.id)
+            if (channel) {
+              // Use first channel's name as service_name
+              if (!serviceName) {
+                serviceName = channel.name
+              }
+            }
+          }
+        }
+      }
+
+      return {
+        ...item,
+        // Mark as system notification for display purposes
+        is_system_notification: true,
+        // Use triggered_at as the timestamp for sorting
+        created_at: item.triggered_at || item.sent_at,
+        // Set service_name for channel display
+        service_name: serviceName || item.target_label || item.event_type,
+        // Build event_data with targets array for grouping
+        event_data: {
+          ...item.event_data,
+          targets: targets.length > 0 ? targets : undefined,
+          title: item.event_data?.title || item.event_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        },
+      }
+    })
 
     // Merge and sort by date (newest first)
     const allHistory = [...regularHistory, ...transformedSystemHistory]
