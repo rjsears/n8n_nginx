@@ -122,23 +122,23 @@ function toggleAllContainers() {
 const criticalContainers = {
   'n8n_management': {
     title: 'This action will cause the loss of all management!',
-    description: 'If you stop this container, you will lose access to this management interface. You can start it again from the command line by running: sudo docker start n8n_management from the docker host command line.'
+    description: 'If you stop this container, you will lose access to this management interface. You can start it again from the command line by running: docker compose up -d n8n_management from the n8n_nginx directory on the docker host.'
   },
   'n8n_cloudflared': {
     title: 'This action may cause the loss of connectivity to your N8N instance from outside your network!',
-    description: 'If you stop this container, you will lose access to N8N from outside your network. It will still be accessible from within your network at its local IP address.'
+    description: 'If you stop this container, you will lose access to N8N from outside your network. It will still be accessible from within your network at its local IP address. You can start it again by running: docker compose up -d n8n_cloudflared from the n8n_nginx directory on the docker host.'
   },
   'n8n_nginx': {
     title: 'This action may cause the loss of connectivity to your N8N instance!',
-    description: 'If you stop this container, you may lose access to your N8N instance.'
+    description: 'If you stop this container, you may lose access to your N8N instance. You can start it again by running: docker compose up -d n8n_nginx from the n8n_nginx directory on the docker host.'
   },
   'n8n_postgres': {
     title: 'This action may cause workflows that require database access to fail!',
-    description: 'If you stop this container, some workflows may fail if they require database access.'
+    description: 'If you stop this container, some workflows may fail if they require database access. You can start it again by running: docker compose up -d n8n_postgres from the n8n_nginx directory on the docker host.'
   },
   'n8n_tailscale': {
     title: 'This action may cause the loss of connectivity to your N8N host server!',
-    description: 'If you stop this container, you may lose access to your N8N docker host if you are using Tailscale exclusively for connectivity. N8N will still be accessible via CloudFlare or from within your network.'
+    description: 'If you stop this container, you may lose access to your N8N docker host if you are using Tailscale exclusively for connectivity. N8N will still be accessible via CloudFlare or from within your network. You can start it again by running: docker compose up -d n8n_tailscale from the n8n_nginx directory on the docker host.'
   },
 }
 
