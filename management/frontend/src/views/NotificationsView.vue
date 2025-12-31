@@ -89,6 +89,43 @@ watch(() => route.query.tab, (newTab) => {
 }, { immediate: true })
 
 const loading = ref(true)
+
+// Notification loading messages
+const allNotificationMessages = [
+  'Ringing all the bells...',
+  'Waking up the notification fairies...',
+  'Checking who wants to be disturbed...',
+  'Polishing the alert buttons...',
+  'Asking Slack if it\'s still awake...',
+  'Convincing emails they\'re important...',
+  'Teaching webhooks new tricks...',
+  'Counting all the notification channels...',
+  'Making sure no alerts got lost...',
+  'Checking if Discord is feeling chatty...',
+  'Verifying the push notifications can push...',
+  'Asking NTFY to ntfy us...',
+  'Loading carrier pigeons as backup...',
+  'Ensuring smoke signals are calibrated...',
+  'Testing if anyone\'s listening...',
+  'Warming up the alert sirens...',
+  'Organizing the notification queue...',
+  'Making sure webhooks are hooked...',
+  'Preparing the royal trumpet fanfare...',
+  'Checking the notification bat signal...',
+  'Ensuring alerts don\'t go to spam...',
+  'Bribing the notification gods...',
+  'Tuning the alert frequencies...',
+  'Loading the notification confetti...',
+]
+const notificationLoadingMessages = ref([])
+const notificationLoadingMessageIndex = ref(0)
+let notificationLoadingInterval = null
+
+function shuffleNotificationMessages() {
+  const shuffled = [...allNotificationMessages].sort(() => Math.random() - 0.5)
+  notificationLoadingMessages.value = shuffled.slice(0, 12)
+}
+
 const channels = ref([])
 const groups = ref([])
 const history = ref([])
@@ -296,6 +333,15 @@ const stats = computed(() => {
 
 async function loadData() {
   loading.value = true
+
+  // Shuffle messages and start cycling
+  shuffleNotificationMessages()
+  notificationLoadingMessageIndex.value = 0
+  if (notificationLoadingInterval) clearInterval(notificationLoadingInterval)
+  notificationLoadingInterval = setInterval(() => {
+    notificationLoadingMessageIndex.value = (notificationLoadingMessageIndex.value + 1) % notificationLoadingMessages.value.length
+  }, 3500)
+
   try {
     const [servicesRes, groupsRes, historyRes, webhookRes] = await Promise.all([
       notificationsApi.getServices(),
@@ -320,6 +366,7 @@ async function loadData() {
     groups.value = []
     history.value = []
   } finally {
+    if (notificationLoadingInterval) clearInterval(notificationLoadingInterval)
     loading.value = false
   }
 }
@@ -617,6 +664,34 @@ onMounted(loadData)
 
 // ==================== NTFY Section ====================
 
+// NTFY Loading messages
+const allNtfyMessages = [
+  'Waking up NTFY...',
+  'Poking the push notification service...',
+  'Asking NTFY if it\'s home...',
+  'Loading the notification launcher...',
+  'Checking NTFY\'s pulse...',
+  'Convincing NTFY to share its secrets...',
+  'Warming up the push engines...',
+  'Making sure NTFY had its coffee...',
+  'Counting all the topics...',
+  'Teaching notifications to fly...',
+  'Calibrating the alert catapult...',
+  'Checking the notification fuel levels...',
+  'Asking topics what they\'re about...',
+  'Loading the emoji arsenal...',
+  'Preparing the message templates...',
+  'Ensuring notifications are properly caffeinated...',
+]
+const ntfyLoadingMessages = ref([])
+const ntfyLoadingMessageIndex = ref(0)
+let ntfyLoadingInterval = null
+
+function shuffleNtfyMessages() {
+  const shuffled = [...allNtfyMessages].sort(() => Math.random() - 0.5)
+  ntfyLoadingMessages.value = shuffled.slice(0, 12)
+}
+
 // NTFY State
 const ntfyLoading = ref(true)
 const ntfyHealth = ref({ healthy: false, status: 'unknown' })
@@ -659,6 +734,15 @@ function formatNtfyTime(dateStr) {
 // NTFY Load data
 async function loadNtfyData() {
   ntfyLoading.value = true
+
+  // Shuffle messages and start cycling
+  shuffleNtfyMessages()
+  ntfyLoadingMessageIndex.value = 0
+  if (ntfyLoadingInterval) clearInterval(ntfyLoadingInterval)
+  ntfyLoadingInterval = setInterval(() => {
+    ntfyLoadingMessageIndex.value = (ntfyLoadingMessageIndex.value + 1) % ntfyLoadingMessages.value.length
+  }, 3500)
+
   try {
     // Load health and status in parallel
     const [healthRes, statusRes] = await Promise.all([
@@ -689,6 +773,7 @@ async function loadNtfyData() {
   } catch (error) {
     console.error('Failed to load NTFY data:', error)
   } finally {
+    if (ntfyLoadingInterval) clearInterval(ntfyLoadingInterval)
     ntfyLoading.value = false
   }
 }
@@ -957,7 +1042,7 @@ async function handleNtfyUpdateConfig(config) {
             <div class="notification-wave animation-delay-1 w-4 h-4 rounded-full bg-emerald-400 absolute top-0 left-0"></div>
           </div>
         </div>
-        <p class="mt-6 text-sm font-medium text-secondary">Loading notifications...</p>
+        <p class="mt-6 text-sm font-medium text-secondary">{{ notificationLoadingMessages[notificationLoadingMessageIndex] || 'Loading notifications...' }}</p>
         <p class="mt-1 text-xs text-muted">Fetching notification channels</p>
       </div>
 
@@ -1720,7 +1805,7 @@ async function handleNtfyUpdateConfig(config) {
             <div class="notification-wave animation-delay-1 w-4 h-4 rounded-full bg-indigo-400 absolute top-0 left-0"></div>
           </div>
         </div>
-        <p class="mt-6 text-sm font-medium text-secondary">Loading groups...</p>
+        <p class="mt-6 text-sm font-medium text-secondary">{{ notificationLoadingMessages[notificationLoadingMessageIndex] || 'Loading groups...' }}</p>
         <p class="mt-1 text-xs text-muted">Fetching notification groups</p>
       </div>
 
@@ -1998,7 +2083,7 @@ async function handleNtfyUpdateConfig(config) {
             <div class="notification-wave animation-delay-1 w-4 h-4 rounded-full bg-rose-400 absolute top-0 left-0"></div>
           </div>
         </div>
-        <p class="mt-6 text-sm font-medium text-secondary">Loading NTFY...</p>
+        <p class="mt-6 text-sm font-medium text-secondary">{{ ntfyLoadingMessages[ntfyLoadingMessageIndex] || 'Loading NTFY...' }}</p>
         <p class="mt-1 text-xs text-muted">Fetching push notification service</p>
       </div>
 
