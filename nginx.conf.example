@@ -79,21 +79,6 @@ http {
         add_header X-XSS-Protection "1; mode=block" always;
 
         # ===========================================
-        # Management Console notification webhook
-        # Routes to n8n_management for internal n8n workflows
-        # ===========================================
-        location /api/notifications/webhook {
-            proxy_pass http://n8n_management;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header X-Forwarded-Port $server_port;
-            proxy_http_version 1.1;
-            proxy_buffering off;
-        }
-
-        # ===========================================
         # PUBLIC: Webhook endpoint (externally accessible)
         # ===========================================
         location /webhook/ {
