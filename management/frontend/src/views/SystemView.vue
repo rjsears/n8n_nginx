@@ -179,6 +179,42 @@ function shuffleMessages() {
   healthLoadingMessages.value = shuffled.slice(0, 12) // Pick 12 random ones
 }
 
+// Network loading messages
+const allNetworkMessages = [
+  'Scanning network interfaces...',
+  'Counting all the IP addresses...',
+  'Asking the router for directions...',
+  'Mapping the series of tubes...',
+  'Pinging all the things...',
+  'Untangling the network cables...',
+  'Checking if the internet is still there...',
+  'Negotiating with DNS servers...',
+  'Following the ethernet breadcrumbs...',
+  'Waking up the network hamsters...',
+  'Consulting the gateway oracle...',
+  'Checking who\'s hogging the bandwidth...',
+  'Making sure packets aren\'t getting lost...',
+  'Verifying the subnet masks are on straight...',
+  'Asking Tailscale how its day is going...',
+  'Checking if Cloudflare is in a good mood...',
+  'Inspecting the packet delivery routes...',
+  'Making friends with the firewall...',
+  'Ensuring no one\'s sniffing the packets...',
+  'Teaching bytes to find their way home...',
+  'Checking the wifi password is still secret...',
+  'Measuring the speed of light through fiber...',
+  'Confirming TCP and UDP are getting along...',
+  'Asking the load balancer to share...',
+]
+const networkLoadingMessages = ref([])
+const networkLoadingMessageIndex = ref(0)
+let networkLoadingInterval = null
+
+function shuffleNetworkMessages() {
+  const shuffled = [...allNetworkMessages].sort(() => Math.random() - 0.5)
+  networkLoadingMessages.value = shuffled.slice(0, 12)
+}
+
 // Network info state
 const networkInfo = ref({
   hostname: '',
@@ -520,6 +556,15 @@ async function loadHealthData() {
 
 async function loadNetworkInfo() {
   networkLoading.value = true
+
+  // Shuffle messages and start cycling
+  shuffleNetworkMessages()
+  networkLoadingMessageIndex.value = 0
+  if (networkLoadingInterval) clearInterval(networkLoadingInterval)
+  networkLoadingInterval = setInterval(() => {
+    networkLoadingMessageIndex.value = (networkLoadingMessageIndex.value + 1) % networkLoadingMessages.value.length
+  }, 3500)
+
   try {
     // Load network, cloudflare, and tailscale info in parallel
     const [networkRes, cloudflareRes, tailscaleRes] = await Promise.all([
@@ -535,6 +580,7 @@ async function loadNetworkInfo() {
     const detail = error.response?.data?.detail
     notificationStore.error(detail ? `Network error: ${detail}` : 'Failed to load network information')
   } finally {
+    if (networkLoadingInterval) clearInterval(networkLoadingInterval)
     networkLoading.value = false
   }
 }
@@ -1628,7 +1674,7 @@ onUnmounted(() => {
 
     <!-- Network Tab -->
     <template v-if="activeTab === 'network'">
-      <DnaHelixLoader v-if="networkLoading" text="Scanning network interfaces..." class="py-16 mt-8" />
+      <DnaHelixLoader v-if="networkLoading" :text="networkLoadingMessages[networkLoadingMessageIndex] || 'Scanning network interfaces...'" class="py-16 mt-8" />
 
       <template v-else>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
