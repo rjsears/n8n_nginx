@@ -659,7 +659,7 @@ class RestoreService:
                 "docker", "exec", RESTORE_CONTAINER_NAME,
                 "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
                 "-t", "-A", "-c",
-                'SELECT id, name, active, "createdAt", "updatedAt" FROM workflow_entity ORDER BY name'
+                'SELECT id, name, active, "createdAt", "updatedAt", COALESCE("isArchived", false) FROM workflow_entity ORDER BY name'
             ]
             result = subprocess.run(query_cmd, capture_output=True, text=True)
 
@@ -673,6 +673,7 @@ class RestoreService:
                         "active": parts[2] == 't' if len(parts) > 2 else False,
                         "created_at": parts[3] if len(parts) > 3 else None,
                         "updated_at": parts[4] if len(parts) > 4 else None,
+                        "archived": parts[5] == 't' if len(parts) > 5 else False,
                     })
 
             return workflows

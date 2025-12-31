@@ -1548,11 +1548,13 @@ onUnmounted(stopPolling)
                                 <td class="px-4 py-3 text-center">
                                   <span :class="[
                                     'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
-                                    workflow.active
-                                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
-                                      : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                                    workflow.archived
+                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                                      : workflow.active
+                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
                                   ]">
-                                    {{ workflow.active ? 'Active' : 'Inactive' }}
+                                    {{ workflow.archived ? 'Archived' : (workflow.active ? 'Active' : 'Inactive') }}
                                   </span>
                                 </td>
                                 <td class="px-4 py-3 text-center">
@@ -1754,7 +1756,9 @@ onUnmounted(stopPolling)
                                   <div class="text-left">
                                     <p class="font-medium text-primary">{{ workflow.name }}</p>
                                     <p class="text-xs text-secondary">
-                                      {{ workflow.active ? 'Active' : 'Inactive' }}
+                                      <span :class="workflow.archived ? 'text-amber-600 dark:text-amber-400' : ''">
+                                        {{ workflow.archived ? 'Archived' : (workflow.active ? 'Active' : 'Inactive') }}
+                                      </span>
                                       <span v-if="workflow.updated_at"> • {{ new Date(workflow.updated_at).toLocaleDateString() }}</span>
                                     </p>
                                   </div>
