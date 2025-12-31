@@ -15,7 +15,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useNotificationStore } from '@/stores/notifications'
-import { notificationsApi, ntfyApi, systemNotificationsApi } from '@/services/api'
+import { notificationsApi, ntfyApi } from '@/services/api'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -110,7 +110,7 @@ const groupedHistory = computed(() => {
   // Get the first 30 history items
   const items = history.value.slice(0, 30)
 
-  // For batching regular notifications that went to the same group
+  // For batching notifications that went to the same group
   // We'll group items with the same group + event_type + similar timestamp
   const processedIds = new Set()
 
@@ -130,7 +130,7 @@ const groupedHistory = computed(() => {
 
       // Find other items that belong to the same notification event
       // (same group, same event_type, within 5 seconds)
-      const itemTime = new Date(item.sent_at || item.created_at || item.triggered_at).getTime()
+      const itemTime = new Date(item.sent_at || item.created_at).getTime()
       const batchItems = [item]
       processedIds.add(item.id)
 
@@ -143,7 +143,7 @@ const groupedHistory = computed(() => {
         const otherGroupTarget = otherTargets.find(t => t.startsWith('group:'))
 
         if (otherGroupTarget === groupTarget && other.event_type === item.event_type) {
-          const otherTime = new Date(other.sent_at || other.created_at || other.triggered_at).getTime()
+          const otherTime = new Date(other.sent_at || other.created_at).getTime()
           // Within 5 seconds = same notification event
           if (Math.abs(otherTime - itemTime) < 5000) {
             batchItems.push(other)
@@ -152,36 +152,17 @@ const groupedHistory = computed(() => {
         }
       }
 
-      // Build channel entries
-      let channelEntries = []
-
-      // Check if this is a system notification (only one record with channels_sent)
-      // For system notifications, we need to create synthetic channel entries from the group's channels
-      if (item.is_system_notification && group?.channels) {
-        // Create a channel entry for each channel in the group
-        channelEntries = group.channels.map((channel, idx) => ({
-          id: `${item.id}-channel-${channel.id || idx}`,
-          service_name: channel.name,
-          status: item.status,
-          sent_at: item.sent_at || item.triggered_at || item.created_at,
-          error_message: item.error_message,
-          event_type: item.event_type,
-          event_data: item.event_data,
-          severity: item.severity,
-        }))
-      } else {
-        // Regular notifications - use the actual batch items
-        channelEntries = batchItems.map(b => ({
-          id: b.id,
-          service_name: b.service_name,
-          status: b.status,
-          sent_at: b.sent_at || b.created_at,
-          error_message: b.error_message,
-          event_type: b.event_type,
-          event_data: b.event_data,
-          severity: b.severity,
-        }))
-      }
+      // Build channel entries from the actual batch items
+      const channelEntries = batchItems.map(b => ({
+        id: b.id,
+        service_name: b.service_name,
+        status: b.status,
+        sent_at: b.sent_at || b.created_at,
+        error_message: b.error_message,
+        event_type: b.event_type,
+        event_data: b.event_data,
+        severity: b.severity,
+      }))
 
       // Create a group entry for this notification event
       result.push({
@@ -193,7 +174,7 @@ const groupedHistory = computed(() => {
         event_type: item.event_type,
         event_data: item.event_data,
         status: channelEntries.every(b => b.status === 'sent') ? 'sent' : 'failed',
-        sent_at: item.sent_at || item.created_at || item.triggered_at,
+        sent_at: item.sent_at || item.created_at,
         severity: item.severity,
         // Individual channel deliveries
         channels: channelEntries
@@ -316,76 +297,20 @@ const stats = computed(() => {
 async function loadData() {
   loading.value = true
   try {
-    const [servicesRes, groupsRes, historyRes, webhookRes, systemHistoryRes] = await Promise.all([
+    const [servicesRes, groupsRes, historyRes, webhookRes] = await Promise.all([
       notificationsApi.getServices(),
       notificationsApi.getGroups(),
       notificationsApi.getHistory(),
       notificationsApi.getWebhookInfo(),
-      systemNotificationsApi.getHistory({ limit: 50 }).catch(() => ({ data: { items: [] } })),
     ])
     // Ensure we always have arrays
     channels.value = Array.isArray(servicesRes.data) ? servicesRes.data : []
     groups.value = Array.isArray(groupsRes.data) ? groupsRes.data : []
 
-    // Merge notification history from both sources
-    const regularHistory = Array.isArray(historyRes.data) ? historyRes.data : []
-    const systemHistory = systemHistoryRes.data?.items || []
-
-    // Create lookup maps for groups and channels
-    const groupsById = new Map(groups.value.map(g => [g.id, g]))
-    const channelsById = new Map(channels.value.map(c => [c.id, c]))
-
-    // Transform system notification history to match regular history format
-    const transformedSystemHistory = systemHistory.map(item => {
-      // Build event_data.targets array from channels_sent
-      const targets = []
-      let serviceName = null
-
-      if (item.channels_sent && Array.isArray(item.channels_sent)) {
-        for (const sent of item.channels_sent) {
-          if (sent.type === 'group') {
-            const group = groupsById.get(sent.id)
-            if (group) {
-              targets.push(`group:${group.slug}`)
-            }
-          } else if (sent.type === 'channel') {
-            const channel = channelsById.get(sent.id)
-            if (channel) {
-              // Use first channel's name as service_name
-              if (!serviceName) {
-                serviceName = channel.name
-              }
-            }
-          }
-        }
-      }
-
-      return {
-        ...item,
-        // Mark as system notification for display purposes
-        is_system_notification: true,
-        // Use triggered_at as the timestamp for sorting
-        created_at: item.triggered_at || item.sent_at,
-        // Set service_name for channel display
-        service_name: serviceName || item.target_label || item.event_type,
-        // Build event_data with targets array for grouping
-        event_data: {
-          ...item.event_data,
-          targets: targets.length > 0 ? targets : undefined,
-          title: item.event_data?.title || item.event_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-        },
-      }
-    })
-
-    // Merge and sort by date (newest first)
-    const allHistory = [...regularHistory, ...transformedSystemHistory]
-    allHistory.sort((a, b) => {
-      const dateA = new Date(a.created_at || a.triggered_at || 0)
-      const dateB = new Date(b.created_at || b.triggered_at || 0)
-      return dateB - dateA
-    })
-
-    history.value = allHistory
+    // Use regular notification history only - it already has all channel delivery records
+    // with proper message content. System notifications create both SystemNotificationHistory
+    // AND regular NotificationHistory records, so we don't need to merge them.
+    history.value = Array.isArray(historyRes.data) ? historyRes.data : []
     webhookInfo.value = webhookRes.data
   } catch (error) {
     console.error('Failed to load notification data:', error)
