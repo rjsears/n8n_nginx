@@ -928,6 +928,9 @@ class NotificationService:
             "backup.success": "Backup Completed Successfully",
             "backup.failed": "Backup Failed",
             "backup.started": "Backup Started",
+            "verification.started": "Backup Verification Started",
+            "verification.passed": "Backup Verification Passed",
+            "verification.failed": "Backup Verification Failed",
             "container.unhealthy": "Container Unhealthy",
             "container.stopped": "Container Stopped",
             "system.disk_warning": "Disk Space Warning",
@@ -1498,6 +1501,37 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
             f"Host: {hostname}\n"
             f"Started: {started_at}\n\n"
             f"Type: {backup_type}"
+        )
+
+    # Verification events
+    elif event_type == "verification_started":
+        backup_filename = event_data.get("backup_filename", "unknown")
+        backup_id = event_data.get("backup_id", "")
+        return (
+            f"Host: {hostname}\n\n"
+            f"Backup verification started.\n\n"
+            f"Backup: {backup_filename}"
+        )
+    elif event_type == "verification_passed":
+        backup_filename = event_data.get("backup_filename", "unknown")
+        duration = event_data.get("duration_seconds", 0)
+        duration_str = f"{duration:.1f}s" if duration else "N/A"
+        return (
+            f"Host: {hostname}\n\n"
+            f"✅ Backup verification passed!\n\n"
+            f"Backup: {backup_filename}\n"
+            f"Duration: {duration_str}"
+        )
+    elif event_type == "verification_failed":
+        backup_filename = event_data.get("backup_filename", "unknown")
+        errors = event_data.get("errors", [])
+        warnings = event_data.get("warnings", [])
+        error_str = "\n".join(f"  • {e}" for e in errors) if errors else "  No specific errors"
+        return (
+            f"Host: {hostname}\n\n"
+            f"❌ Backup verification failed!\n\n"
+            f"Backup: {backup_filename}\n"
+            f"Errors:\n{error_str}"
         )
 
     # Container events

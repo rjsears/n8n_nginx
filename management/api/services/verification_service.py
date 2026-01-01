@@ -32,6 +32,7 @@ from api.services.restore_service import (
     RESTORE_DB_USER,
     RESTORE_DB_NAME,
 )
+from api.services.notification_service import dispatch_notification
 from api.models.backups import BackupHistory, BackupContents
 from api.config import settings
 
@@ -634,6 +635,12 @@ class VerificationService:
 
         # Get backup info
         backup = await self.backup_service.get_backup(backup_id)
+
+        # Dispatch verification started notification
+        await dispatch_notification("verification_started", {
+            "backup_id": backup_id,
+            "backup_filename": backup.filename if backup else "unknown",
+        })
         if not backup:
             return {"overall_status": "failed", "error": "Backup not found"}
 
@@ -799,6 +806,21 @@ class VerificationService:
                 backup.verification_date = datetime.now(UTC)
                 backup.verification_details = results
                 await self.db.commit()
+
+                # Dispatch verification result notification
+                if results["overall_status"] == "passed":
+                    await dispatch_notification("verification_passed", {
+                        "backup_id": backup_id,
+                        "backup_filename": backup.filename,
+                        "duration_seconds": results.get("duration_seconds"),
+                    })
+                else:
+                    await dispatch_notification("verification_failed", {
+                        "backup_id": backup_id,
+                        "backup_filename": backup.filename,
+                        "errors": results.get("errors", []),
+                        "warnings": results.get("warnings", []),
+                    })
 
             return results
 
