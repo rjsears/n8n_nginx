@@ -1396,7 +1396,7 @@ onUnmounted(stopPolling)
 
                   <!-- Delete Button - Always visible -->
                   <button
-                    @click="toggleAction(backup.id, 'delete')"
+                    @click="backup.is_protected ? openDeleteDialog(backup) : toggleAction(backup.id, 'delete')"
                     :class="[
                       'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all',
                       expandedAction[backup.id] === 'delete'
