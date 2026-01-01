@@ -173,7 +173,7 @@ async def run_backup(
 
 # History
 
-@router.get("/history", response_model=List[BackupHistoryResponse])
+@router.get("/history", response_model=List[BackupHistoryExtendedResponse])
 async def list_history(
     backup_type: str = None,
     backup_status: str = None,
@@ -190,10 +190,10 @@ async def list_history(
         backup_type=backup_type,
         status=backup_status,
     )
-    return [BackupHistoryResponse.model_validate(h) for h in history]
+    return [BackupHistoryExtendedResponse.model_validate(h) for h in history]
 
 
-@router.get("/history/{backup_id}", response_model=BackupHistoryResponse)
+@router.get("/history/{backup_id}", response_model=BackupHistoryExtendedResponse)
 async def get_backup_history(
     backup_id: int,
     _=Depends(get_current_user),
@@ -209,7 +209,7 @@ async def get_backup_history(
             detail="Backup not found",
         )
 
-    return BackupHistoryResponse.model_validate(backup)
+    return BackupHistoryExtendedResponse.model_validate(backup)
 
 
 @router.get("/download/{backup_id}")
