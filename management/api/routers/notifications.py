@@ -741,10 +741,10 @@ async def list_event_types(
         "backup.success": ("backup", "Backup completed successfully", "normal"),
         "backup.failed": ("backup", "Backup operation failed", "critical"),
         "backup.warning": ("backup", "Backup completed with warnings", "high"),
-        # Verification events
-        "verification.started": ("verification", "Backup verification started", "normal"),
-        "verification.passed": ("verification", "Backup verification passed", "normal"),
-        "verification.failed": ("verification", "Backup verification failed", "critical"),
+        # Verification events (grouped with backup)
+        "verification.started": ("backup", "Backup verification started", "normal"),
+        "verification.passed": ("backup", "Backup verification passed", "normal"),
+        "verification.failed": ("backup", "Backup verification failed", "critical"),
         # Container events
         "container.started": ("container", "Container started", "normal"),
         "container.stopped": ("container", "Container stopped", "high"),
