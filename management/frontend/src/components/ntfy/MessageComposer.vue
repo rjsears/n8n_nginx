@@ -58,11 +58,127 @@ https://github.com/rjsears
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Message <span class="text-red-500">*</span>
         </label>
+
+        <!-- Markdown Toolbar (shown when markdown is enabled) -->
+        <div v-if="form.markdown" class="flex flex-wrap gap-1 mb-2 p-2 bg-gray-50 dark:bg-gray-700 rounded-t-lg border border-b-0 border-gray-400 dark:border-gray-600">
+          <button
+            type="button"
+            @click="insertMarkdown('bold')"
+            class="px-2 py-1 text-sm font-bold bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Bold (Ctrl+B)"
+          >
+            B
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('italic')"
+            class="px-2 py-1 text-sm italic bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Italic (Ctrl+I)"
+          >
+            I
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('strikethrough')"
+            class="px-2 py-1 text-sm line-through bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Strikethrough"
+          >
+            S
+          </button>
+          <div class="w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+          <button
+            type="button"
+            @click="insertMarkdown('h1')"
+            class="px-2 py-1 text-sm font-bold bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Heading 1"
+          >
+            H1
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('h2')"
+            class="px-2 py-1 text-sm font-bold bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Heading 2"
+          >
+            H2
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('h3')"
+            class="px-2 py-1 text-sm font-bold bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Heading 3"
+          >
+            H3
+          </button>
+          <div class="w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+          <button
+            type="button"
+            @click="insertMarkdown('link')"
+            class="px-2 py-1 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Link"
+          >
+            <LinkIcon class="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('code')"
+            class="px-2 py-1 text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Inline Code"
+          >
+            &lt;/&gt;
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('codeblock')"
+            class="px-2 py-1 text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Code Block"
+          >
+            { }
+          </button>
+          <div class="w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+          <button
+            type="button"
+            @click="insertMarkdown('bullet')"
+            class="px-2 py-1 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Bullet List"
+          >
+            <ListBulletIcon class="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('numbered')"
+            class="px-2 py-1 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Numbered List"
+          >
+            1.
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('quote')"
+            class="px-2 py-1 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Quote"
+          >
+            "
+          </button>
+          <button
+            type="button"
+            @click="insertMarkdown('hr')"
+            class="px-2 py-1 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+            title="Horizontal Rule"
+          >
+            ---
+          </button>
+        </div>
+
         <textarea
+          ref="messageTextarea"
           v-model="form.message"
           rows="4"
           placeholder="Your notification message..."
-          class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          :class="[
+            'w-full px-3 py-2 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700',
+            form.markdown ? 'rounded-b-lg rounded-t-none' : 'rounded-lg'
+          ]"
           required
         ></textarea>
         <div class="flex items-center mt-1">
@@ -106,13 +222,16 @@ https://github.com/rjsears
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Tags & Emojis
         </label>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          Click an emoji to add its shortcode as a tag. NTFY will display the emoji in notifications.
+        </p>
         <div class="flex flex-wrap gap-2 mb-2">
           <span
             v-for="(tag, index) in form.tags"
             :key="index"
             class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300"
           >
-            {{ tag }}
+            {{ getEmojiForTag(tag) }} {{ tag }}
             <button type="button" @click="removeTag(index)" class="hover:text-red-500">
               <XMarkIcon class="w-4 h-4" />
             </button>
@@ -135,19 +254,53 @@ https://github.com/rjsears
           </button>
         </div>
 
-        <!-- Emoji Picker -->
-        <div v-if="showEmojiPicker" class="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600">
-          <div class="flex flex-wrap gap-1 max-h-48 overflow-y-auto">
+        <!-- Emoji Picker with Categories -->
+        <div v-if="showEmojiPicker" class="mt-2 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600">
+          <!-- Search Bar -->
+          <div class="p-2 border-b border-gray-300 dark:border-gray-600">
+            <input
+              v-model="emojiSearch"
+              type="text"
+              placeholder="Search emojis..."
+              class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <!-- Category Tabs -->
+          <div class="flex flex-wrap gap-1 p-2 border-b border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800">
             <button
-              v-for="emoji in allEmojis"
-              :key="emoji.shortcode"
+              v-for="category in categoryList"
+              :key="category"
               type="button"
-              @click="addEmojiTag(emoji)"
-              class="w-8 h-8 flex items-center justify-center text-lg bg-white dark:bg-gray-800 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:scale-110 transition-transform"
-              :title="emoji.shortcode"
+              @click="selectedCategory = category"
+              :class="[
+                'px-2 py-1 text-xs rounded-md transition-colors',
+                selectedCategory === category
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900/30'
+              ]"
             >
-              {{ emoji.emoji }}
+              {{ getCategoryEmoji(category) }} {{ category }}
             </button>
+          </div>
+
+          <!-- Emoji Grid -->
+          <div class="p-3 max-h-48 overflow-y-auto">
+            <div v-if="filteredEmojis.length === 0" class="text-center text-gray-500 dark:text-gray-400 py-4">
+              No emojis found
+            </div>
+            <div v-else class="flex flex-wrap gap-1">
+              <button
+                v-for="emoji in filteredEmojis"
+                :key="emoji.shortcode"
+                type="button"
+                @click="addEmojiTag(emoji)"
+                class="w-8 h-8 flex items-center justify-center text-lg bg-white dark:bg-gray-800 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:scale-110 transition-transform"
+                :title="emoji.shortcode"
+              >
+                {{ emoji.emoji }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -325,6 +478,8 @@ import {
   TrashIcon,
   ChevronDownIcon,
   FaceSmileIcon,
+  LinkIcon,
+  ListBulletIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -357,6 +512,9 @@ const showAdvanced = ref(false)
 const sending = ref(false)
 const resultMessage = ref('')
 const resultSuccess = ref(false)
+const messageTextarea = ref(null)
+const emojiSearch = ref('')
+const selectedCategory = ref('Smileys')
 
 // Priority options
 const priorities = [
@@ -367,23 +525,85 @@ const priorities = [
   { value: 5, label: 'Urgent', activeClass: 'bg-red-500 text-white' },
 ]
 
-// All emojis as a flat list
-const allEmojis = computed(() => {
-  // Backend now returns a flat array of {shortcode, emoji} objects
-  if (Array.isArray(props.emojiCategories)) {
-    return props.emojiCategories
-  }
-  // Fallback: if it's still an object (old format), flatten it
-  if (props.emojiCategories && typeof props.emojiCategories === 'object') {
-    const flat = []
-    for (const emojis of Object.values(props.emojiCategories)) {
-      for (const e of emojis) {
-        flat.push(typeof e === 'string' ? { shortcode: e, emoji: e } : e)
-      }
-    }
-    return flat
+// Category list from emoji data
+const categoryList = computed(() => {
+  if (props.emojiCategories && typeof props.emojiCategories === 'object' && !Array.isArray(props.emojiCategories)) {
+    return Object.keys(props.emojiCategories)
   }
   return []
+})
+
+// Get representative emoji for category tab
+function getCategoryEmoji(category) {
+  const categoryEmojis = {
+    'Smileys': '😀',
+    'Gestures': '👋',
+    'Hearts': '❤️',
+    'Animals': '🐱',
+    'Nature': '🌸',
+    'Food': '🍕',
+    'Drinks': '☕',
+    'Activities': '🎮',
+    'Travel': '🌍',
+    'Vehicles': '🚗',
+    'Time': '⏰',
+    'Weather': '☀️',
+    'Objects': '👓',
+    'Sound': '🔊',
+    'Tech': '💻',
+    'Office': '📋',
+    'Security': '🔒',
+    'Tools': '🔧',
+    'Medical': '💊',
+    'Household': '🏠',
+    'Symbols': '✅',
+    'Flags': '🏁',
+  }
+  return categoryEmojis[category] || '📌'
+}
+
+// Build emoji lookup map for quick access
+const emojiMap = computed(() => {
+  const map = {}
+  if (props.emojiCategories && typeof props.emojiCategories === 'object') {
+    for (const emojis of Object.values(props.emojiCategories)) {
+      if (Array.isArray(emojis)) {
+        for (const e of emojis) {
+          map[e.shortcode] = e.emoji
+        }
+      }
+    }
+  }
+  return map
+})
+
+// Get emoji character for a tag (shortcode)
+function getEmojiForTag(tag) {
+  return emojiMap.value[tag] || ''
+}
+
+// Filtered emojis based on search and selected category
+const filteredEmojis = computed(() => {
+  let emojis = []
+
+  // Get emojis from selected category or search all
+  if (emojiSearch.value) {
+    // Search across all categories
+    const query = emojiSearch.value.toLowerCase()
+    for (const categoryEmojis of Object.values(props.emojiCategories)) {
+      if (Array.isArray(categoryEmojis)) {
+        for (const e of categoryEmojis) {
+          if (e.shortcode.toLowerCase().includes(query)) {
+            emojis.push(e)
+          }
+        }
+      }
+    }
+  } else if (props.emojiCategories && props.emojiCategories[selectedCategory.value]) {
+    emojis = props.emojiCategories[selectedCategory.value] || []
+  }
+
+  return emojis.slice(0, 100) // Limit for performance
 })
 
 // Tag management
@@ -399,11 +619,100 @@ function removeTag(index) {
 }
 
 function addEmojiTag(emoji) {
-  // Use the actual emoji character for tags (NTFY displays the emoji in notifications)
-  const tag = emoji.emoji || emoji.shortcode
+  // Use the SHORTCODE for tags - NTFY expects shortcodes, it converts them to emojis
+  const tag = emoji.shortcode
   if (!form.value.tags.includes(tag)) {
     form.value.tags.push(tag)
   }
+}
+
+// Markdown toolbar functions
+function insertMarkdown(type) {
+  const textarea = messageTextarea.value
+  if (!textarea) return
+
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const text = form.value.message
+  const selectedText = text.substring(start, end)
+
+  let before = ''
+  let after = ''
+  let placeholder = ''
+
+  switch (type) {
+    case 'bold':
+      before = '**'
+      after = '**'
+      placeholder = 'bold text'
+      break
+    case 'italic':
+      before = '_'
+      after = '_'
+      placeholder = 'italic text'
+      break
+    case 'strikethrough':
+      before = '~~'
+      after = '~~'
+      placeholder = 'strikethrough text'
+      break
+    case 'h1':
+      before = '# '
+      placeholder = 'Heading 1'
+      break
+    case 'h2':
+      before = '## '
+      placeholder = 'Heading 2'
+      break
+    case 'h3':
+      before = '### '
+      placeholder = 'Heading 3'
+      break
+    case 'link':
+      if (selectedText) {
+        before = '['
+        after = '](url)'
+      } else {
+        before = '[link text](url)'
+      }
+      break
+    case 'code':
+      before = '`'
+      after = '`'
+      placeholder = 'code'
+      break
+    case 'codeblock':
+      before = '```\n'
+      after = '\n```'
+      placeholder = 'code block'
+      break
+    case 'bullet':
+      before = '- '
+      placeholder = 'list item'
+      break
+    case 'numbered':
+      before = '1. '
+      placeholder = 'list item'
+      break
+    case 'quote':
+      before = '> '
+      placeholder = 'quote'
+      break
+    case 'hr':
+      before = '\n---\n'
+      break
+  }
+
+  const insertText = selectedText || placeholder
+  const newText = text.substring(0, start) + before + insertText + after + text.substring(end)
+  form.value.message = newText
+
+  // Set cursor position after insert
+  setTimeout(() => {
+    textarea.focus()
+    const newCursorPos = start + before.length + insertText.length + after.length
+    textarea.setSelectionRange(newCursorPos, newCursorPos)
+  }, 0)
 }
 
 // Action management
@@ -515,5 +824,6 @@ function resetForm() {
   customTopic.value = ''
   newTag.value = ''
   showAdvanced.value = false
+  emojiSearch.value = ''
 }
 </script>
