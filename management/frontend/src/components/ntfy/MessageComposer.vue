@@ -137,32 +137,16 @@ https://github.com/rjsears
 
         <!-- Emoji Picker -->
         <div v-if="showEmojiPicker" class="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-400 dark:border-gray-600">
-          <div class="flex flex-wrap gap-2 mb-3">
+          <div class="flex flex-wrap gap-1 max-h-48 overflow-y-auto">
             <button
-              v-for="cat in Object.keys(emojiCategories)"
-              :key="cat"
-              type="button"
-              @click="selectedEmojiCategory = cat"
-              :class="[
-                'px-2 py-1 text-xs rounded',
-                selectedEmojiCategory === cat
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300'
-              ]"
-            >
-              {{ cat }}
-            </button>
-          </div>
-          <div class="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
-            <button
-              v-for="emoji in currentEmojis"
+              v-for="emoji in allEmojis"
               :key="emoji.shortcode"
               type="button"
-              @click="addEmojiTag(emoji.shortcode)"
-              class="px-2 py-1 text-sm bg-white dark:bg-gray-800 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+              @click="addEmojiTag(emoji)"
+              class="w-8 h-8 flex items-center justify-center text-lg bg-white dark:bg-gray-800 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:scale-110 transition-transform"
               :title="emoji.shortcode"
             >
-              {{ emoji.emoji || emoji.shortcode }}
+              {{ emoji.emoji }}
             </button>
           </div>
         </div>
@@ -333,7 +317,7 @@ https://github.com/rjsears
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import {
   PaperAirplaneIcon,
   BookmarkIcon,
@@ -369,7 +353,6 @@ const form = ref({
 const customTopic = ref('')
 const newTag = ref('')
 const showEmojiPicker = ref(false)
-const selectedEmojiCategory = ref('')
 const showAdvanced = ref(false)
 const sending = ref(false)
 const resultMessage = ref('')
@@ -384,22 +367,24 @@ const priorities = [
   { value: 5, label: 'Urgent', activeClass: 'bg-red-500 text-white' },
 ]
 
-// Current emoji list - normalize to handle both string arrays and object arrays
-const currentEmojis = computed(() => {
-  if (!selectedEmojiCategory.value || !props.emojiCategories[selectedEmojiCategory.value]) {
-    return []
+// All emojis as a flat list
+const allEmojis = computed(() => {
+  // Backend now returns a flat array of {shortcode, emoji} objects
+  if (Array.isArray(props.emojiCategories)) {
+    return props.emojiCategories
   }
-  const emojis = props.emojiCategories[selectedEmojiCategory.value]
-  // Normalize: backend may return string arrays or object arrays
-  return emojis.map(e => typeof e === 'string' ? { shortcode: e, emoji: null } : e)
+  // Fallback: if it's still an object (old format), flatten it
+  if (props.emojiCategories && typeof props.emojiCategories === 'object') {
+    const flat = []
+    for (const emojis of Object.values(props.emojiCategories)) {
+      for (const e of emojis) {
+        flat.push(typeof e === 'string' ? { shortcode: e, emoji: e } : e)
+      }
+    }
+    return flat
+  }
+  return []
 })
-
-// Watch for emoji categories to be loaded and set initial selection
-watch(() => props.emojiCategories, (categories) => {
-  if (categories && Object.keys(categories).length > 0 && !selectedEmojiCategory.value) {
-    selectedEmojiCategory.value = Object.keys(categories)[0]
-  }
-}, { immediate: true })
 
 // Tag management
 function addTag() {
@@ -413,9 +398,11 @@ function removeTag(index) {
   form.value.tags.splice(index, 1)
 }
 
-function addEmojiTag(shortcode) {
-  if (!form.value.tags.includes(shortcode)) {
-    form.value.tags.push(shortcode)
+function addEmojiTag(emoji) {
+  // Use the actual emoji character for tags (NTFY displays the emoji in notifications)
+  const tag = emoji.emoji || emoji.shortcode
+  if (!form.value.tags.includes(tag)) {
+    form.value.tags.push(tag)
   }
 }
 

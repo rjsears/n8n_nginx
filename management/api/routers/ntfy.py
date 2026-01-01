@@ -1260,7 +1260,7 @@ async def update_server_config(
 async def get_emoji_categories(
     _=Depends(get_current_user),
 ):
-    """Get available emoji categories with common shortcodes."""
+    """Get all available emojis as a flat list."""
     return COMMON_EMOJIS
 
 
@@ -1273,17 +1273,15 @@ async def search_emojis(
     query = q.lower()
     results = []
 
-    # Search through all categories
-    for category, emojis in COMMON_EMOJIS.items():
-        for emoji_entry in emojis:
-            shortcode = emoji_entry.get("shortcode", "")
-            emoji_char = emoji_entry.get("emoji", "")
-            if query in shortcode.lower():
-                results.append({
-                    "shortcode": shortcode,
-                    "emoji": emoji_char,
-                    "category": category
-                })
+    # Search through flat emoji list
+    for emoji_entry in COMMON_EMOJIS:
+        shortcode = emoji_entry.get("shortcode", "")
+        emoji_char = emoji_entry.get("emoji", "")
+        if query in shortcode.lower():
+            results.append({
+                "shortcode": shortcode,
+                "emoji": emoji_char,
+            })
 
     return EmojiSearchResponse(
         query=q,
