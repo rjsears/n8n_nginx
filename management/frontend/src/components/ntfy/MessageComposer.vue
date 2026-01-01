@@ -333,7 +333,7 @@ https://github.com/rjsears
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   PaperAirplaneIcon,
   BookmarkIcon,
@@ -384,18 +384,22 @@ const priorities = [
   { value: 5, label: 'Urgent', activeClass: 'bg-red-500 text-white' },
 ]
 
-// Current emoji list
+// Current emoji list - normalize to handle both string arrays and object arrays
 const currentEmojis = computed(() => {
   if (!selectedEmojiCategory.value || !props.emojiCategories[selectedEmojiCategory.value]) {
     return []
   }
-  return props.emojiCategories[selectedEmojiCategory.value]
+  const emojis = props.emojiCategories[selectedEmojiCategory.value]
+  // Normalize: backend may return string arrays or object arrays
+  return emojis.map(e => typeof e === 'string' ? { shortcode: e, emoji: null } : e)
 })
 
-// Initialize selected category
-if (Object.keys(props.emojiCategories).length > 0) {
-  selectedEmojiCategory.value = Object.keys(props.emojiCategories)[0]
-}
+// Watch for emoji categories to be loaded and set initial selection
+watch(() => props.emojiCategories, (categories) => {
+  if (categories && Object.keys(categories).length > 0 && !selectedEmojiCategory.value) {
+    selectedEmojiCategory.value = Object.keys(categories)[0]
+  }
+}, { immediate: true })
 
 // Tag management
 function addTag() {
