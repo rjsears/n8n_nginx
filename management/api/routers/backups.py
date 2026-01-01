@@ -523,6 +523,7 @@ class MountBackupResponse(BaseModel):
     backup_id: Opt[int] = None
     backup_info: Opt[Dict] = None
     workflows: Opt[List[Dict]] = None
+    credentials: Opt[List[Dict]] = None
     error: Opt[str] = None
 
 
@@ -714,6 +715,49 @@ async def download_workflow_from_backup(
             content=workflow,
             headers={
                 "Content-Disposition": f'attachment; filename="{workflow["name"]}.json"',
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/{backup_id}/credentials/{credential_id}/download")
+async def download_credential_from_backup(
+    backup_id: int,
+    credential_id: str,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Download a credential from a backup as a JSON file.
+
+    This extracts the credential from the backup and returns it as JSON.
+    NOTE: The credential data is encrypted and you may need to reconfigure
+    the actual values after import.
+    """
+    service = RestoreService(db)
+
+    try:
+        credential = await service.download_credential_as_json(backup_id, credential_id)
+
+        if not credential:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Credential not found in backup",
+            )
+
+        # Return as JSON with download headers
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            content=credential,
+            headers={
+                "Content-Disposition": f'attachment; filename="{credential["name"]}.json"',
             },
         )
 
