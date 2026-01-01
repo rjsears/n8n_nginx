@@ -39,31 +39,95 @@ PRIORITY_VALUES = {
 }
 
 # Common emoji shortcodes for quick reference
+# Each entry is {shortcode: emoji_char} for display
 COMMON_EMOJIS = {
     # Status
-    "success": ["white_check_mark", "heavy_check_mark", "tada", "+1", "thumbsup"],
-    "warning": ["warning", "exclamation", "bangbang"],
-    "error": ["x", "no_entry", "skull", "rotating_light", "sos"],
-    "info": ["information_source", "bulb", "memo"],
+    "success": [
+        {"shortcode": "white_check_mark", "emoji": "✅"},
+        {"shortcode": "heavy_check_mark", "emoji": "✔️"},
+        {"shortcode": "tada", "emoji": "🎉"},
+        {"shortcode": "+1", "emoji": "👍"},
+        {"shortcode": "thumbsup", "emoji": "👍"},
+    ],
+    "warning": [
+        {"shortcode": "warning", "emoji": "⚠️"},
+        {"shortcode": "exclamation", "emoji": "❗"},
+        {"shortcode": "bangbang", "emoji": "‼️"},
+    ],
+    "error": [
+        {"shortcode": "x", "emoji": "❌"},
+        {"shortcode": "no_entry", "emoji": "⛔"},
+        {"shortcode": "skull", "emoji": "💀"},
+        {"shortcode": "rotating_light", "emoji": "🚨"},
+        {"shortcode": "sos", "emoji": "🆘"},
+    ],
+    "info": [
+        {"shortcode": "information_source", "emoji": "ℹ️"},
+        {"shortcode": "bulb", "emoji": "💡"},
+        {"shortcode": "memo", "emoji": "📝"},
+    ],
 
     # Actions
-    "start": ["rocket", "arrow_forward", "play_or_pause_button"],
-    "stop": ["stop_sign", "octagonal_sign", "hand"],
-    "restart": ["arrows_counterclockwise", "recycle"],
+    "start": [
+        {"shortcode": "rocket", "emoji": "🚀"},
+        {"shortcode": "arrow_forward", "emoji": "▶️"},
+        {"shortcode": "play_or_pause_button", "emoji": "⏯️"},
+    ],
+    "stop": [
+        {"shortcode": "stop_sign", "emoji": "🛑"},
+        {"shortcode": "octagonal_sign", "emoji": "🛑"},
+        {"shortcode": "hand", "emoji": "✋"},
+    ],
+    "restart": [
+        {"shortcode": "arrows_counterclockwise", "emoji": "🔄"},
+        {"shortcode": "recycle", "emoji": "♻️"},
+    ],
 
     # System
-    "server": ["computer", "desktop_computer", "server"],
-    "database": ["floppy_disk", "cd", "dvd"],
-    "network": ["globe_with_meridians", "satellite", "signal_strength"],
-    "security": ["lock", "key", "shield"],
+    "server": [
+        {"shortcode": "computer", "emoji": "💻"},
+        {"shortcode": "desktop_computer", "emoji": "🖥️"},
+        {"shortcode": "server", "emoji": "🖥️"},
+    ],
+    "database": [
+        {"shortcode": "floppy_disk", "emoji": "💾"},
+        {"shortcode": "cd", "emoji": "💿"},
+        {"shortcode": "dvd", "emoji": "📀"},
+    ],
+    "network": [
+        {"shortcode": "globe_with_meridians", "emoji": "🌐"},
+        {"shortcode": "satellite", "emoji": "📡"},
+        {"shortcode": "signal_strength", "emoji": "📶"},
+    ],
+    "security": [
+        {"shortcode": "lock", "emoji": "🔒"},
+        {"shortcode": "key", "emoji": "🔑"},
+        {"shortcode": "shield", "emoji": "🛡️"},
+    ],
 
     # Backup
-    "backup": ["package", "file_folder", "inbox_tray"],
-    "restore": ["outbox_tray", "arrow_up", "arrow_heading_up"],
+    "backup": [
+        {"shortcode": "package", "emoji": "📦"},
+        {"shortcode": "file_folder", "emoji": "📁"},
+        {"shortcode": "inbox_tray", "emoji": "📥"},
+    ],
+    "restore": [
+        {"shortcode": "outbox_tray", "emoji": "📤"},
+        {"shortcode": "arrow_up", "emoji": "⬆️"},
+        {"shortcode": "arrow_heading_up", "emoji": "⤴️"},
+    ],
 
     # Time
-    "scheduled": ["clock", "alarm_clock", "timer_clock", "hourglass"],
-    "expired": ["hourglass_flowing_sand", "stopwatch"],
+    "scheduled": [
+        {"shortcode": "clock", "emoji": "🕐"},
+        {"shortcode": "alarm_clock", "emoji": "⏰"},
+        {"shortcode": "timer_clock", "emoji": "⏲️"},
+        {"shortcode": "hourglass", "emoji": "⌛"},
+    ],
+    "expired": [
+        {"shortcode": "hourglass_flowing_sand", "emoji": "⏳"},
+        {"shortcode": "stopwatch", "emoji": "⏱️"},
+    ],
 }
 
 
@@ -514,14 +578,19 @@ class NtfyService:
 
         Returns dict with formatted preview components.
         """
-        # Convert tags to emojis where possible (simplified)
+        # Build a set of known emoji shortcodes from COMMON_EMOJIS
+        known_shortcodes = set()
+        for category_emojis in COMMON_EMOJIS.values():
+            for emoji_entry in category_emojis:
+                known_shortcodes.add(emoji_entry.get("shortcode", ""))
+
+        # Convert tags to emojis where possible
         emoji_tags = []
         text_tags = []
 
         if tags:
             for tag in tags:
-                # This is simplified - real implementation would use full emoji list
-                if tag in ["warning", "x", "white_check_mark", "tada", "skull", "rocket"]:
+                if tag in known_shortcodes:
                     emoji_tags.append(tag)
                 else:
                     text_tags.append(tag)
