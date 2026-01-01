@@ -45,6 +45,7 @@ _mounted_backup_info: Optional[Dict[str, Any]] = None
 
 # File path for caching mounted workflow data
 MOUNTED_WORKFLOWS_CACHE = "/tmp/n8n_mounted_workflows.json"
+MOUNTED_CREDENTIALS_CACHE = "/tmp/n8n_mounted_credentials.json"
 
 
 def get_mounted_backup_status() -> Dict[str, Any]:
@@ -112,6 +113,60 @@ def _clear_workflow_cache() -> None:
             logger.info("Cleared workflow cache")
     except Exception as e:
         logger.warning(f"Failed to clear workflow cache: {e}")
+
+
+def _save_credentials_to_cache(credentials: List[Dict[str, Any]], backup_id: int) -> bool:
+    """Save credential data to cache file for later extraction."""
+    try:
+        cache_data = {
+            "backup_id": backup_id,
+            "credentials": {c["id"]: c for c in credentials},  # Index by ID for fast lookup
+            "cached_at": datetime.now(UTC).isoformat(),
+        }
+        with open(MOUNTED_CREDENTIALS_CACHE, 'w') as f:
+            json.dump(cache_data, f)
+        logger.info(f"Cached {len(credentials)} credentials for backup {backup_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save credential cache: {e}")
+        return False
+
+
+def _load_credential_from_cache(credential_id: str, backup_id: int) -> Optional[Dict[str, Any]]:
+    """Load a specific credential from the cache file."""
+    try:
+        if not os.path.exists(MOUNTED_CREDENTIALS_CACHE):
+            logger.error("Credential cache file not found")
+            return None
+
+        with open(MOUNTED_CREDENTIALS_CACHE, 'r') as f:
+            cache_data = json.load(f)
+
+        # Verify it's for the right backup
+        if cache_data.get("backup_id") != backup_id:
+            logger.warning(f"Cache is for backup {cache_data.get('backup_id')}, not {backup_id}")
+
+        credential = cache_data.get("credentials", {}).get(credential_id)
+        if credential:
+            logger.info(f"Found credential {credential_id} in cache")
+            return credential
+        else:
+            available = list(cache_data.get("credentials", {}).keys())
+            logger.error(f"Credential {credential_id} not in cache. Available: {available}")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to load credential from cache: {e}")
+        return None
+
+
+def _clear_credential_cache() -> None:
+    """Clear the credential cache file."""
+    try:
+        if os.path.exists(MOUNTED_CREDENTIALS_CACHE):
+            os.remove(MOUNTED_CREDENTIALS_CACHE)
+            logger.info("Cleared credential cache")
+    except Exception as e:
+        logger.warning(f"Failed to clear credential cache: {e}")
 
 
 class RestoreService:
@@ -353,6 +408,14 @@ class RestoreService:
             else:
                 logger.warning("No workflows found or failed to load workflow data")
 
+            # Load FULL credential data and save to cache
+            full_credentials = await self.load_all_credentials_full_data()
+            if full_credentials:
+                _save_credentials_to_cache(full_credentials, backup_id)
+                logger.info(f"Cached {len(full_credentials)} credentials for backup {backup_id}")
+            else:
+                logger.warning("No credentials found or failed to load credential data")
+
             # Prepare workflow metadata for UI (don't include nodes/connections)
             workflows_for_ui = [
                 {
@@ -366,6 +429,18 @@ class RestoreService:
                 for w in full_workflows
             ]
 
+            # Prepare credential metadata for UI (no sensitive data field)
+            credentials_for_ui = [
+                {
+                    "id": c["id"],
+                    "name": c["name"],
+                    "type": c["type"],
+                    "created_at": c.get("created_at"),
+                    "updated_at": c.get("updated_at"),
+                }
+                for c in full_credentials
+            ]
+
             # Store mounted state
             _mounted_backup_id = backup_id
             _mounted_backup_info = {
@@ -374,17 +449,19 @@ class RestoreService:
                 "created_at": backup.created_at.isoformat() if backup.created_at else None,
                 "backup_type": backup.backup_type,
                 "workflow_count": len(full_workflows),
+                "credential_count": len(full_credentials),
                 "mounted_at": datetime.now(UTC).isoformat(),
             }
 
-            logger.info(f"Backup {backup_id} mounted successfully with {len(full_workflows)} workflows")
+            logger.info(f"Backup {backup_id} mounted successfully with {len(full_workflows)} workflows and {len(full_credentials)} credentials")
 
             return {
                 "status": "success",
-                "message": f"Backup mounted with {len(full_workflows)} workflows",
+                "message": f"Backup mounted with {len(full_workflows)} workflows and {len(full_credentials)} credentials",
                 "backup_id": backup_id,
                 "backup_info": _mounted_backup_info,
                 "workflows": workflows_for_ui,
+                "credentials": credentials_for_ui,
             }
 
         except Exception as e:
@@ -421,8 +498,9 @@ class RestoreService:
             _mounted_backup_id = None
             _mounted_backup_info = None
 
-            # Clear workflow cache
+            # Clear workflow and credential caches
             _clear_workflow_cache()
+            _clear_credential_cache()
 
             logger.info(f"Backup {backup_id or 'unknown'} unmounted successfully")
             return {"status": "success", "message": f"Backup unmounted and container stopped"}
@@ -431,6 +509,7 @@ class RestoreService:
             logger.error(f"Failed to unmount backup: {e}")
             # Clear state and cache anyway
             _clear_workflow_cache()
+            _clear_credential_cache()
             _mounted_backup_id = None
             _mounted_backup_info = None
             return {"status": "failed", "error": str(e)}
@@ -806,6 +885,194 @@ class RestoreService:
 
         except Exception as e:
             logger.error(f"Failed to extract workflow {workflow_id}: {e}")
+            return None
+
+    # ============================================================================
+    # Credential Extraction
+    # ============================================================================
+
+    async def list_credentials_in_restore_db(self) -> List[Dict[str, Any]]:
+        """
+        List all credentials in the restore database.
+        Returns list of credential metadata (no sensitive data field).
+        """
+        if not await self.is_container_running():
+            logger.error("Restore container not running")
+            return []
+
+        try:
+            query_cmd = [
+                "docker", "exec", RESTORE_CONTAINER_NAME,
+                "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                "-t", "-A", "-c",
+                'SELECT id, name, type, "createdAt", "updatedAt" FROM credentials_entity ORDER BY name'
+            ]
+            result = subprocess.run(query_cmd, capture_output=True, text=True)
+
+            credentials = []
+            for line in result.stdout.strip().split('\n'):
+                if '|' in line:
+                    parts = line.split('|')
+                    credentials.append({
+                        "id": parts[0],
+                        "name": parts[1],
+                        "type": parts[2] if len(parts) > 2 else None,
+                        "created_at": parts[3] if len(parts) > 3 else None,
+                        "updated_at": parts[4] if len(parts) > 4 else None,
+                    })
+
+            return credentials
+
+        except Exception as e:
+            logger.error(f"Failed to list credentials: {e}")
+            return []
+
+    async def load_all_credentials_full_data(self) -> List[Dict[str, Any]]:
+        """
+        Load ALL credentials with FULL data from restore database.
+        Used during mount to cache all credential data.
+        NOTE: The 'data' field contains encrypted credential values.
+        """
+        if not await self.is_container_running():
+            logger.error("Restore container not running")
+            return []
+
+        try:
+            # Use row_to_json to output each row as JSON
+            query_cmd = [
+                "docker", "exec", RESTORE_CONTAINER_NAME,
+                "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                "-t", "-A", "-c",
+                '''SELECT row_to_json(t) FROM (
+                    SELECT id, name, type, data, "createdAt", "updatedAt"
+                    FROM credentials_entity ORDER BY name
+                ) t'''
+            ]
+            result = subprocess.run(query_cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                logger.error(f"Failed to query credentials: {result.stderr}")
+                return []
+
+            credentials = []
+            for line in result.stdout.strip().split('\n'):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                    credentials.append({
+                        "id": row.get("id"),
+                        "name": row.get("name"),
+                        "type": row.get("type"),
+                        "data": row.get("data"),  # Encrypted credential data
+                        "created_at": row.get("createdAt"),
+                        "updated_at": row.get("updatedAt"),
+                    })
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse credential JSON: {e}, line: {line[:100]}...")
+                    continue
+
+            logger.info(f"Loaded full data for {len(credentials)} credentials")
+            return credentials
+
+        except Exception as e:
+            logger.error(f"Failed to load credentials: {e}")
+            return []
+
+    async def extract_credential_from_restore_db(self, credential_id: str, backup_id: int = None) -> Optional[Dict[str, Any]]:
+        """
+        Extract a specific credential from the mounted backup.
+        First tries cache (populated during mount), falls back to database query.
+        """
+        # Try to load from cache first (most reliable)
+        if backup_id:
+            cached = _load_credential_from_cache(credential_id, backup_id)
+            if cached:
+                logger.info(f"Loaded credential {credential_id} from cache")
+                return cached
+
+        # Fallback: try to load from database if container is running
+        if not await self.is_container_running():
+            logger.error("Restore container not running and no cache available")
+            return None
+
+        logger.info(f"Cache miss for credential {credential_id}, querying database...")
+
+        try:
+            # Use row_to_json to output as JSON
+            query_cmd = [
+                "docker", "exec", RESTORE_CONTAINER_NAME,
+                "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                "-t", "-A", "-c",
+                f'''SELECT row_to_json(t) FROM (
+                    SELECT id, name, type, data, "createdAt", "updatedAt"
+                    FROM credentials_entity WHERE id = '{credential_id}'
+                ) t'''
+            ]
+            result = subprocess.run(query_cmd, capture_output=True, text=True)
+
+            if not result.stdout.strip():
+                logger.error(f"Credential {credential_id} not found in database")
+                return None
+
+            # Parse JSON output
+            row = json.loads(result.stdout.strip())
+            credential = {
+                "id": row.get("id"),
+                "name": row.get("name"),
+                "type": row.get("type"),
+                "data": row.get("data"),
+                "created_at": row.get("createdAt"),
+                "updated_at": row.get("updatedAt"),
+            }
+
+            return credential
+
+        except Exception as e:
+            logger.error(f"Failed to extract credential {credential_id}: {e}")
+            return None
+
+    async def download_credential_as_json(
+        self,
+        backup_id: int,
+        credential_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Extract a credential from backup and return it as JSON for download.
+        Requires the backup to be mounted first.
+
+        NOTE: The returned data contains encrypted credential values.
+        To use this credential, you may need to re-enter the actual values in n8n.
+        """
+        try:
+            # Check if the correct backup is mounted
+            if not self.is_backup_mounted(backup_id):
+                logger.error(f"Backup {backup_id} is not mounted")
+                return None
+
+            # Verify container is running
+            if not await self.is_container_running():
+                logger.error("Restore container is not running")
+                return None
+
+            # Extract credential (uses cache from mount)
+            credential = await self.extract_credential_from_restore_db(credential_id, backup_id)
+            if not credential:
+                return None
+
+            # Prepare for export
+            # Note: 'data' field is encrypted - user will need to reconfigure in n8n
+            export_credential = {
+                "name": credential["name"],
+                "type": credential["type"],
+                "data": credential.get("data", {}),
+                "_note": "The 'data' field contains encrypted values from the backup. You may need to reconfigure these credentials after import.",
+            }
+
+            return export_credential
+
+        except Exception as e:
+            logger.error(f"Failed to download credential: {e}")
             return None
 
     # ============================================================================

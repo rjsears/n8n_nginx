@@ -108,6 +108,10 @@ const expandedRestoreItem = ref({})
 const backupWorkflows = ref({})
 const loadingWorkflows = ref(new Set())
 
+// Credentials loaded for each backup
+const backupCredentials = ref({})
+const loadingCredentials = ref(new Set())
+
 // Config files loaded for each backup
 const backupConfigFiles = ref({})
 const loadingConfigFiles = ref(new Set())
@@ -330,11 +334,15 @@ async function mountBackup(backupId) {
       mountedBackup.value = {
         backup_id: backupId,
         backup_info: response.data.backup_info,
-        workflows: response.data.workflows || []
+        workflows: response.data.workflows || [],
+        credentials: response.data.credentials || []
       }
-      // Store workflows for this backup
+      // Store workflows and credentials for this backup
       backupWorkflows.value[backupId] = response.data.workflows || []
-      notificationStore.success(`Backup mounted with ${response.data.workflows?.length || 0} workflows`)
+      backupCredentials.value[backupId] = response.data.credentials || []
+      const workflowCount = response.data.workflows?.length || 0
+      const credentialCount = response.data.credentials?.length || 0
+      notificationStore.success(`Backup mounted with ${workflowCount} workflows and ${credentialCount} credentials`)
       // Also load config files
       await loadConfigFilesForBackup(backupId)
     } else {
@@ -359,6 +367,7 @@ async function unmountBackup() {
     mountedBackup.value = null
     // Clear the loaded data
     delete backupWorkflows.value[backupId]
+    delete backupCredentials.value[backupId]
     delete backupConfigFiles.value[backupId]
     notificationStore.success('Backup unmounted')
   } catch (error) {
@@ -745,6 +754,25 @@ async function downloadWorkflow(backup, workflow) {
   }
 }
 
+// Download Credential JSON
+async function downloadCredential(backup, credential) {
+  try {
+    const response = await api.get(`/backups/${backup.id}/credentials/${credential.id}/download`)
+    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${credential.name || 'credential'}_${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    notificationStore.success(`Downloaded credential: ${credential.name}`)
+  } catch (error) {
+    notificationStore.error('Failed to download credential')
+  }
+}
+
 // Restore Workflow to n8n via API
 async function restoreWorkflowToN8n(backup, workflow) {
   restoringWorkflow.value = `${backup.id}-${workflow.id}`
@@ -882,11 +910,15 @@ async function loadData() {
         mountedBackup.value = {
           backup_id: mountStatus.data.backup_id,
           backup_info: mountStatus.data.backup_info,
-          workflows: mountStatus.data.workflows || []
+          workflows: mountStatus.data.workflows || [],
+          credentials: mountStatus.data.credentials || []
         }
-        // Store workflows for the mounted backup
+        // Store workflows and credentials for the mounted backup
         if (mountStatus.data.workflows) {
           backupWorkflows.value[mountStatus.data.backup_id] = mountStatus.data.workflows
+        }
+        if (mountStatus.data.credentials) {
+          backupCredentials.value[mountStatus.data.backup_id] = mountStatus.data.credentials
         }
       }
     } catch (err) {
@@ -1866,6 +1898,89 @@ onUnmounted(stopPolling)
                           </div>
                         </div>
                       </div>
+
+                    <!-- Credentials Section (Collapsible) -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-700 overflow-hidden">
+                      <!-- Section Header (Clickable) -->
+                      <button
+                        @click="toggleRestoreSection(backup.id, 'credentials')"
+                        class="w-full p-4 flex items-center justify-between hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                      >
+                        <div class="flex items-center gap-2">
+                          <KeyIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                          <span class="font-semibold text-primary">Credentials</span>
+                          <span v-if="backupCredentials[backup.id]" class="text-xs text-secondary bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">
+                            {{ backupCredentials[backup.id].length }}
+                          </span>
+                        </div>
+                        <ChevronDownIcon
+                          :class="[
+                            'h-5 w-5 text-gray-400 transition-transform duration-200',
+                            expandedRestoreSection[backup.id] === 'credentials' ? 'rotate-180' : ''
+                          ]"
+                        />
+                      </button>
+
+                      <!-- Section Content -->
+                      <div v-if="expandedRestoreSection[backup.id] === 'credentials'" class="border-t border-amber-100 dark:border-amber-800">
+                        <p class="text-sm text-secondary px-4 py-2 bg-amber-50/50 dark:bg-amber-900/10">
+                          Click a credential to download. <span class="text-amber-600 dark:text-amber-400 font-medium">Note: Credential data is encrypted and may need reconfiguration after import.</span>
+                        </p>
+
+                        <!-- Credentials List -->
+                        <div v-if="!backupCredentials[backup.id] || backupCredentials[backup.id].length === 0" class="py-4 text-center text-secondary">
+                          No credentials found in this backup
+                        </div>
+                        <div v-else class="max-h-64 overflow-y-auto">
+                          <div
+                            v-for="credential in backupCredentials[backup.id]"
+                            :key="credential.id"
+                            class="border-b border-gray-100 dark:border-gray-700 last:border-b-0"
+                          >
+                            <!-- Credential Item (Clickable) -->
+                            <button
+                              @click="toggleRestoreItem(backup.id, `cred-${credential.id}`)"
+                              class="w-full p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                            >
+                              <div class="flex items-center gap-3">
+                                <KeyIcon class="h-5 w-5 text-amber-500" />
+                                <div class="text-left">
+                                  <p class="font-medium text-primary">{{ credential.name }}</p>
+                                  <p class="text-xs text-secondary">
+                                    {{ credential.type }}
+                                    <span v-if="credential.updated_at"> • {{ new Date(credential.updated_at).toLocaleDateString() }}</span>
+                                  </p>
+                                </div>
+                              </div>
+                              <ChevronDownIcon
+                                :class="[
+                                  'h-4 w-4 text-gray-400 transition-transform duration-200',
+                                  isRestoreItemExpanded(backup.id, `cred-${credential.id}`) ? 'rotate-180' : ''
+                                ]"
+                              />
+                            </button>
+
+                            <!-- Credential Actions (Expanded) -->
+                            <div
+                              v-if="isRestoreItemExpanded(backup.id, `cred-${credential.id}`)"
+                              class="px-4 py-3 bg-amber-50 dark:bg-amber-900/20 flex items-center gap-3"
+                            >
+                              <button
+                                @click.stop="downloadCredential(backup, credential)"
+                                class="btn-secondary px-4 py-2 text-sm flex items-center gap-2 border border-blue-300 dark:border-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                title="Download as JSON file"
+                              >
+                                <DocumentArrowDownIcon class="h-4 w-4 text-blue-600" />
+                                <span>Download JSON</span>
+                              </button>
+                              <span class="text-xs text-secondary italic">
+                                Import manually via n8n CLI or reconfigure after restore
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
                     <!-- Config Files Section (Collapsible) -->
                     <div class="bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-700 overflow-hidden">
