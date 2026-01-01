@@ -1275,9 +1275,15 @@ async def search_emojis(
 
     # Search through all categories
     for category, emojis in COMMON_EMOJIS.items():
-        for emoji in emojis:
-            if query in emoji.lower():
-                results.append({"shortcode": emoji, "category": category})
+        for emoji_entry in emojis:
+            shortcode = emoji_entry.get("shortcode", "")
+            emoji_char = emoji_entry.get("emoji", "")
+            if query in shortcode.lower():
+                results.append({
+                    "shortcode": shortcode,
+                    "emoji": emoji_char,
+                    "category": category
+                })
 
     return EmojiSearchResponse(
         query=q,
