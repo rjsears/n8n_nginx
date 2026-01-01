@@ -65,6 +65,8 @@ const notificationStore = useNotificationStore()
 const loading = ref(true)
 const runningBackup = ref(false)
 const deleteDialog = ref({ open: false, backup: null, loading: false })
+const protectedDeleteDialog = ref({ open: false, backup: null, loading: false })
+const unprotectDialog = ref({ open: false, backup: null, loading: false })
 const backupConfirmDialog = ref({ open: false, verifyAfterBackup: false })
 
 // Progress Modal State
@@ -640,7 +642,12 @@ async function pollForProgress() {
 
 // Delete Backup
 function openDeleteDialog(backup) {
-  deleteDialog.value = { open: true, backup, loading: false }
+  // If backup is protected, show the protected delete warning instead
+  if (backup.is_protected) {
+    protectedDeleteDialog.value = { open: true, backup, loading: false }
+  } else {
+    deleteDialog.value = { open: true, backup, loading: false }
+  }
 }
 
 async function confirmDelete() {
@@ -660,18 +667,62 @@ async function confirmDelete() {
   }
 }
 
+// Unprotect and Delete - for protected backups
+async function unprotectAndDelete() {
+  if (!protectedDeleteDialog.value.backup) return
+
+  protectedDeleteDialog.value.loading = true
+  try {
+    // First unprotect the backup
+    await backupStore.protectBackup(protectedDeleteDialog.value.backup.id, false, null)
+    // Close the protected dialog
+    protectedDeleteDialog.value.open = false
+    // Now open the normal delete dialog
+    deleteDialog.value = { open: true, backup: protectedDeleteDialog.value.backup, loading: false }
+  } catch (error) {
+    notificationStore.error('Failed to unprotect backup')
+  } finally {
+    protectedDeleteDialog.value.loading = false
+  }
+}
+
 // Protect Backup
-async function toggleProtection(backup) {
+async function protectBackup(backup) {
   protectingBackup.value = backup.id
   try {
-    const newProtected = !backup.is_protected
-    await backupStore.protectBackup(backup.id, newProtected, newProtected ? 'Protected via UI' : null)
-    notificationStore.success(newProtected ? 'Backup protected' : 'Backup unprotected')
+    await backupStore.protectBackup(backup.id, true, 'Protected via UI')
+    notificationStore.success('Backup protected')
     await loadData()
+    // Close the action panel
+    expandedAction.value[backup.id] = null
   } catch (error) {
-    notificationStore.error('Failed to update backup protection')
+    notificationStore.error('Failed to protect backup')
   } finally {
     protectingBackup.value = null
+  }
+}
+
+// Open unprotect confirmation dialog
+function openUnprotectDialog(backup) {
+  unprotectDialog.value = { open: true, backup, loading: false }
+}
+
+// Confirm unprotect
+async function confirmUnprotect() {
+  if (!unprotectDialog.value.backup) return
+
+  unprotectDialog.value.loading = true
+  try {
+    await backupStore.protectBackup(unprotectDialog.value.backup.id, false, null)
+    notificationStore.success('Backup unprotected - now eligible for automatic pruning')
+    unprotectDialog.value.open = false
+    await loadData()
+    // Close the action panel
+    expandedAction.value[unprotectDialog.value.backup.id] = null
+  } catch (error) {
+    notificationStore.error('Failed to unprotect backup')
+  } finally {
+    unprotectDialog.value.loading = false
   }
 }
 
@@ -1346,10 +1397,8 @@ onUnmounted(stopPolling)
                   <!-- Delete Button - Always visible -->
                   <button
                     @click="toggleAction(backup.id, 'delete')"
-                    :disabled="backup.is_protected"
                     :class="[
                       'flex items-center gap-2 px-4 py-2 rounded-lg border transition-all',
-                      backup.is_protected ? 'opacity-50 cursor-not-allowed' :
                       expandedAction[backup.id] === 'delete'
                         ? 'bg-red-100 dark:bg-red-500/20 border-red-400 dark:border-red-500 text-red-700 dark:text-red-300'
                         : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-red-300 dark:hover:border-red-500 hover:bg-red-50 dark:hover:bg-red-500/10'
@@ -1414,26 +1463,44 @@ onUnmounted(stopPolling)
                     <div class="bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-700 p-4">
                       <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
                         <ShieldCheckIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                        {{ backup.is_protected ? 'Backup Protection' : 'Protect Backup' }}
+                        {{ backup.is_protected ? 'Remove Backup Protection' : 'Protect Backup' }}
                       </h4>
-                      <p class="text-sm text-secondary mb-4">
-                        {{ backup.is_protected
-                          ? 'This backup is protected from automatic pruning and cannot be deleted until unprotected.'
-                          : 'Protected backups are never automatically deleted by retention policies or pruning.'
-                        }}
-                      </p>
-                      <button
-                        @click="toggleProtection(backup)"
-                        :disabled="protectingBackup === backup.id"
-                        :class="[
-                          'flex items-center gap-2',
-                          backup.is_protected ? 'btn-secondary' : 'btn-primary bg-amber-600 hover:bg-amber-700'
-                        ]"
-                      >
-                        <LoadingSpinner v-if="protectingBackup === backup.id" size="sm" />
-                        <ShieldCheckIcon v-else class="h-4 w-4" />
-                        {{ protectingBackup === backup.id ? 'Processing...' : (backup.is_protected ? 'Remove Protection' : 'Protect This Backup') }}
-                      </button>
+                      <!-- Protect Mode -->
+                      <template v-if="!backup.is_protected">
+                        <p class="text-sm text-secondary mb-4">
+                          Protected backups are never automatically deleted by retention policies or pruning.
+                          They also cannot be manually deleted until protection is removed.
+                        </p>
+                        <button
+                          @click="protectBackup(backup)"
+                          :disabled="protectingBackup === backup.id"
+                          class="btn-primary bg-amber-600 hover:bg-amber-700 flex items-center gap-2"
+                        >
+                          <LoadingSpinner v-if="protectingBackup === backup.id" size="sm" />
+                          <ShieldCheckIcon v-else class="h-4 w-4" />
+                          {{ protectingBackup === backup.id ? 'Protecting...' : 'Protect This Backup' }}
+                        </button>
+                      </template>
+                      <!-- Unprotect Mode -->
+                      <template v-else>
+                        <div class="p-3 mb-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+                          <div class="flex gap-2">
+                            <ExclamationTriangleIcon class="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                            <div class="text-sm text-amber-700 dark:text-amber-400">
+                              <p class="font-medium">Warning: Removing protection</p>
+                              <p class="mt-1">This backup will become eligible for automatic pruning based on your retention policy settings.</p>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          @click="openUnprotectDialog(backup)"
+                          :disabled="protectingBackup === backup.id"
+                          class="btn-secondary text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 flex items-center gap-2"
+                        >
+                          <ShieldCheckIcon class="h-4 w-4" />
+                          Remove Protection
+                        </button>
+                      </template>
                     </div>
                   </div>
 
@@ -1926,27 +1993,49 @@ onUnmounted(stopPolling)
                   <!-- Delete Panel -->
                   <div v-if="expandedAction[backup.id] === 'delete'" class="p-4">
                     <div class="bg-white dark:bg-gray-800 rounded-lg border border-red-200 dark:border-red-700 p-4">
-                      <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
-                        <TrashIcon class="h-5 w-5 text-red-600 dark:text-red-400" />
-                        {{ backup.status === 'running' ? 'Cancel & Delete Backup' : 'Delete Backup' }}
-                      </h4>
-                      <p class="text-sm text-secondary mb-4">
-                        {{ backup.status === 'running'
-                          ? 'This backup appears to be stuck. Deleting will cancel the backup operation and remove the record.'
-                          : 'This action cannot be undone. The backup file and all associated data will be permanently deleted.'
-                        }}
-                      </p>
-                      <button
-                        @click="openDeleteDialog(backup)"
-                        :disabled="backup.is_protected"
-                        class="btn-danger flex items-center gap-2"
-                      >
-                        <TrashIcon class="h-4 w-4" />
-                        {{ backup.is_protected ? 'Unprotect First' : 'Delete Permanently' }}
-                      </button>
-                      <p v-if="backup.is_protected" class="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                        This backup is protected. Remove protection before deleting.
-                      </p>
+                      <!-- Protected Backup Warning -->
+                      <template v-if="backup.is_protected">
+                        <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
+                          <ShieldCheckIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                          Protected Backup
+                        </h4>
+                        <div class="p-3 mb-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+                          <div class="flex gap-2">
+                            <ExclamationTriangleIcon class="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                            <div class="text-sm text-amber-700 dark:text-amber-400">
+                              <p class="font-medium">This backup is protected</p>
+                              <p class="mt-1">Protected backups cannot be deleted. You must first remove protection before this backup can be deleted.</p>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          @click="openDeleteDialog(backup)"
+                          class="btn-danger flex items-center gap-2"
+                        >
+                          <TrashIcon class="h-4 w-4" />
+                          Delete Protected Backup...
+                        </button>
+                      </template>
+                      <!-- Normal Delete -->
+                      <template v-else>
+                        <h4 class="font-semibold text-primary flex items-center gap-2 mb-2">
+                          <TrashIcon class="h-5 w-5 text-red-600 dark:text-red-400" />
+                          {{ backup.status === 'running' ? 'Cancel & Delete Backup' : 'Delete Backup' }}
+                        </h4>
+                        <p class="text-sm text-secondary mb-4">
+                          {{ backup.status === 'running'
+                            ? 'This backup appears to be stuck. Deleting will cancel the backup operation and remove the record.'
+                            : 'This action cannot be undone. The backup file and all associated data will be permanently deleted.'
+                          }}
+                        </p>
+                        <button
+                          @click="openDeleteDialog(backup)"
+                          class="btn-danger flex items-center gap-2"
+                        >
+                          <TrashIcon class="h-4 w-4" />
+                          Delete Permanently
+                        </button>
+                      </template>
                     </div>
                   </div>
                 </div>
@@ -1968,6 +2057,142 @@ onUnmounted(stopPolling)
       @confirm="confirmDelete"
       @cancel="deleteDialog.open = false"
     />
+
+    <!-- Protected Backup Delete Warning Dialog (Skull and Crossbones) -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="protectedDeleteDialog.open"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/50" @click="protectedDeleteDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border-2 border-red-500 dark:border-red-600">
+            <!-- Header with skull icon -->
+            <div class="px-6 py-5 bg-red-50 dark:bg-red-900/30 rounded-t-lg border-b border-red-200 dark:border-red-700">
+              <div class="flex items-center justify-center mb-3">
+                <div class="p-4 rounded-full bg-red-100 dark:bg-red-800/50">
+                  <!-- Skull and Crossbones SVG -->
+                  <svg class="h-12 w-12 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h1v1c0 .55.45 1 1 1h2c.55 0 1-.45 1-1v-1h1c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zM9 11c-.83 0-1.5-.67-1.5-1.5S8.17 8 9 8s1.5.67 1.5 1.5S9.83 11 9 11zm6 0c-.83 0-1.5-.67-1.5-1.5S14.17 8 15 8s1.5.67 1.5 1.5S15.83 11 15 11z"/>
+                    <path d="M4 21l2-2M20 21l-2-2M4 21l-1 1M20 21l1 1M6 19l-2-2M18 19l2-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                </div>
+              </div>
+              <h3 class="text-xl font-bold text-red-800 dark:text-red-300 text-center">
+                Delete Protected Backup
+              </h3>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 bg-white dark:bg-gray-800">
+              <div class="p-4 mb-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700">
+                <div class="flex gap-3">
+                  <ExclamationTriangleIcon class="h-6 w-6 text-red-600 flex-shrink-0" />
+                  <div class="text-sm text-red-700 dark:text-red-400">
+                    <p class="font-bold">Warning: Protected Backup</p>
+                    <p class="mt-2">You are attempting to delete a <span class="font-semibold">protected backup</span>. This backup was marked as protected to prevent accidental deletion.</p>
+                  </div>
+                </div>
+              </div>
+
+              <p class="text-gray-600 dark:text-gray-400 text-sm">
+                To delete this backup, you must first remove its protection. This action will:
+              </p>
+              <ul class="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                <li class="flex items-center gap-2">
+                  <span class="text-red-500">•</span>
+                  Remove protection from this backup
+                </li>
+                <li class="flex items-center gap-2">
+                  <span class="text-red-500">•</span>
+                  Proceed to the delete confirmation
+                </li>
+              </ul>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 rounded-b-lg flex justify-end gap-3">
+              <button
+                @click="protectedDeleteDialog.open = false"
+                class="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="unprotectAndDelete"
+                :disabled="protectedDeleteDialog.loading"
+                class="btn-danger flex items-center gap-2"
+              >
+                <LoadingSpinner v-if="protectedDeleteDialog.loading" size="sm" />
+                <TrashIcon v-else class="h-4 w-4" />
+                {{ protectedDeleteDialog.loading ? 'Processing...' : 'Unprotect and Delete' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Unprotect Confirmation Dialog -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="unprotectDialog.open"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/50" @click="unprotectDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border border-amber-400 dark:border-amber-500">
+            <!-- Header -->
+            <div class="px-6 py-5 bg-amber-50 dark:bg-amber-900/30 rounded-t-lg border-b border-amber-200 dark:border-amber-700">
+              <div class="flex items-center justify-center mb-3">
+                <div class="p-4 rounded-full bg-amber-100 dark:bg-amber-800/50">
+                  <ShieldCheckIcon class="h-10 w-10 text-amber-600 dark:text-amber-400" />
+                </div>
+              </div>
+              <h3 class="text-xl font-bold text-amber-800 dark:text-amber-300 text-center">
+                Remove Backup Protection
+              </h3>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 bg-white dark:bg-gray-800">
+              <div class="p-4 mb-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+                <div class="flex gap-3">
+                  <ExclamationTriangleIcon class="h-6 w-6 text-amber-600 flex-shrink-0" />
+                  <div class="text-sm text-amber-700 dark:text-amber-400">
+                    <p class="font-bold">Warning: Removing Protection</p>
+                    <p class="mt-2">Once protection is removed, this backup will become eligible for automatic pruning based on your retention policy settings.</p>
+                  </div>
+                </div>
+              </div>
+
+              <p class="text-gray-600 dark:text-gray-400 text-sm text-center">
+                Are you sure you want to remove protection from this backup?
+              </p>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 rounded-b-lg flex justify-end gap-3">
+              <button
+                @click="unprotectDialog.open = false"
+                class="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="confirmUnprotect"
+                :disabled="unprotectDialog.loading"
+                class="px-4 py-2 rounded-lg font-medium bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-2 transition-colors"
+              >
+                <LoadingSpinner v-if="unprotectDialog.loading" size="sm" />
+                <ShieldCheckIcon v-else class="h-4 w-4" />
+                {{ unprotectDialog.loading ? 'Processing...' : 'Remove Protection' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Backup Confirmation Dialog -->
     <Teleport to="body">
