@@ -418,18 +418,13 @@ You'll also need:
 
 | Event | Description | Default Priority |
 |-------|-------------|------------------|
-| `backup.started` | Backup job started | low |
+| `backup.started` | Backup job started | normal |
 | `backup.success` | Backup completed successfully | normal |
-| `backup.failed` | Backup job failed | high |
-| `backup.warning` | Backup completed with warnings | normal |
-
-### Verification Events
-
-| Event | Description | Default Priority |
-|-------|-------------|------------------|
-| `verification.started` | Verification job started | low |
-| `verification.passed` | Backup verified successfully | normal |
-| `verification.failed` | Backup verification failed | high |
+| `backup.failed` | Backup job failed | critical |
+| `backup.warning` | Backup completed with warnings | high |
+| `verification.started` | Backup verification started | normal |
+| `verification.passed` | Backup verification passed | normal |
+| `verification.failed` | Backup verification failed | critical |
 
 ### Container Events
 
