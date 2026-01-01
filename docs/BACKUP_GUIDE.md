@@ -17,8 +17,9 @@ The n8n Management System provides comprehensive backup capabilities for:
 3. [Manual Backups](#manual-backups)
 4. [Backup Storage](#backup-storage)
 5. [Restore Procedures](#restore-procedures)
-6. [Backup Verification](#backup-verification)
-7. [Best Practices](#best-practices)
+6. [Selective Restore](#selective-restore)
+7. [Backup Verification](#backup-verification)
+8. [Best Practices](#best-practices)
 
 ### Other Documentation
 
@@ -305,7 +306,141 @@ curl https://your-domain.com/healthz
 4. Confirm the restore operation
 5. Wait for restore to complete
 
-### Restore Individual Workflow
+---
+
+## Selective Restore
+
+The Management UI supports selective restore, allowing you to restore individual items from a backup without performing a full database restore. This is useful for recovering specific workflows, credentials, or configuration files.
+
+### How Selective Restore Works
+
+1. **Mount** the backup - spins up a temporary PostgreSQL container and loads the backup
+2. **Browse** the contents - view workflows, credentials, and config files
+3. **Restore** individual items - download or restore specific items
+4. **Unmount** when done - clean up the temporary container
+
+### Mounting a Backup
+
+**Via Management UI:**
+1. Go to **Backups** → **History**
+2. Find the backup you want to browse
+3. Expand the backup and click **Mount Backup**
+4. Wait for the backup to be mounted (may take 1-2 minutes)
+5. Once mounted, three collapsible sections appear: **Workflows**, **Credentials**, and **Configuration Files**
+
+**Via API:**
+```bash
+# Mount a backup
+curl -X POST https://your-domain.com/management/api/backups/123/mount \
+  -H "Authorization: Bearer $TOKEN"
+
+# Check mount status
+curl https://your-domain.com/management/api/backups/mount/status \
+  -H "Authorization: Bearer $TOKEN"
+
+# Unmount when done
+curl -X POST https://your-domain.com/management/api/backups/123/unmount \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Restoring Workflows
+
+Once a backup is mounted, you can restore individual workflows:
+
+**Via Management UI:**
+1. Expand the **Workflows** section
+2. Click on a workflow to expand it
+3. Choose an action:
+   - **Download JSON** - Downloads the workflow as a JSON file for manual import
+   - **Restore to n8n** - Restores directly to n8n with a new name (appends `_backup_YYYYMMDD`)
+
+**Via API:**
+```bash
+# Restore a workflow to n8n
+curl -X POST https://your-domain.com/management/api/backups/123/restore/workflow \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow_id": "abc123",
+    "rename_format": "{name}_backup_{date}"
+  }'
+
+# Download workflow as JSON
+curl -O -J https://your-domain.com/management/api/backups/123/workflows/abc123/download \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Restoring Credentials
+
+Credentials can also be selectively restored from backups:
+
+**Via Management UI:**
+1. Expand the **Credentials** section
+2. Click on a credential to expand it
+3. Click **Download JSON** to download the credential
+
+**Important Notes on Credentials:**
+- Credential data is **encrypted** in the backup using n8n's encryption key
+- If restoring to a different n8n instance, you may need to **reconfigure the credential values** after import
+- Use the downloaded JSON as a reference for which credentials existed and their types
+- For same-instance restores where the encryption key hasn't changed, the data may work directly
+
+**Via API:**
+```bash
+# Download credential as JSON
+curl -O -J https://your-domain.com/management/api/backups/123/credentials/456/download \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Restoring Configuration Files
+
+Configuration files (`.env`, `nginx.conf`, SSL certificates, etc.) can be selectively restored:
+
+**Via Management UI:**
+1. Expand the **Configuration Files** section
+2. Click on a file to expand it
+3. Choose an action:
+   - **Download** - Download the file for review or manual placement
+   - **Restore File** - Restore directly to the system (existing file is backed up first)
+
+**Via API:**
+```bash
+# List config files in backup
+curl https://your-domain.com/management/api/backups/123/restore/config-files \
+  -H "Authorization: Bearer $TOKEN"
+
+# Download a config file
+curl -O -J https://your-domain.com/management/api/backups/123/config-files/config/.env/download \
+  -H "Authorization: Bearer $TOKEN"
+
+# Restore a config file (backs up existing first)
+curl -X POST https://your-domain.com/management/api/backups/123/restore/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config_path": "config/.env",
+    "create_backup": true
+  }'
+```
+
+### Unmounting a Backup
+
+Always unmount when you're done to free up resources:
+
+**Via Management UI:**
+- Click **Unmount Backup** button
+
+**Via API:**
+```bash
+curl -X POST https://your-domain.com/management/api/backups/123/unmount \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Note:** The restore container is automatically cleaned up after unmounting. If you navigate away without unmounting, you can clean up manually via **Settings** → **Cleanup Restore Container**.
+
+---
+
+### Restore Individual Workflow (Legacy)
 
 Use the management interface for safe workflow restoration:
 

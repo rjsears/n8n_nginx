@@ -495,6 +495,222 @@ PUT /api/backups/settings
 Authorization: Bearer <token>
 ```
 
+#### Mount Backup for Selective Restore
+
+Mount a backup to browse and selectively restore items.
+
+```http
+POST /api/backups/{backup_id}/mount
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "status": "success",
+  "message": "Backup mounted with 15 workflows and 8 credentials",
+  "backup_id": 123,
+  "backup_info": {
+    "backup_id": 123,
+    "filename": "n8n_backup_20241220.tar.gz",
+    "workflow_count": 15,
+    "credential_count": 8,
+    "mounted_at": "2024-12-20T12:00:00Z"
+  },
+  "workflows": [
+    {"id": "abc123", "name": "My Workflow", "active": true}
+  ],
+  "credentials": [
+    {"id": "def456", "name": "API Key", "type": "httpHeaderAuth"}
+  ]
+}
+```
+
+#### Unmount Backup
+
+Unmount a mounted backup and clean up resources.
+
+```http
+POST /api/backups/{backup_id}/unmount
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "status": "success",
+  "message": "Backup unmounted and container stopped"
+}
+```
+
+#### Get Mount Status
+
+Check if a backup is currently mounted.
+
+```http
+GET /api/backups/mount/status
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "mounted": true,
+  "backup_id": 123,
+  "backup_info": {
+    "backup_id": 123,
+    "filename": "n8n_backup_20241220.tar.gz",
+    "mounted_at": "2024-12-20T12:00:00Z"
+  }
+}
+```
+
+#### Download Workflow from Backup
+
+Download a specific workflow as JSON from a mounted backup.
+
+```http
+GET /api/backups/{backup_id}/workflows/{workflow_id}/download
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK` (JSON file download)
+```json
+{
+  "name": "My Workflow",
+  "nodes": [...],
+  "connections": {...},
+  "settings": {...}
+}
+```
+
+#### Restore Workflow to n8n
+
+Restore a workflow from a mounted backup directly to n8n.
+
+```http
+POST /api/backups/{backup_id}/restore/workflow
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `workflow_id` | string | Yes | ID of workflow to restore |
+| `rename_format` | string | No | Format for new name (default: `{name}_backup_{date}`) |
+
+**Response:** `200 OK`
+```json
+{
+  "status": "success",
+  "new_name": "My Workflow_backup_20241220",
+  "new_id": "xyz789",
+  "message": "Workflow restored successfully"
+}
+```
+
+#### Download Credential from Backup
+
+Download a specific credential as JSON from a mounted backup.
+
+```http
+GET /api/backups/{backup_id}/credentials/{credential_id}/download
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK` (JSON file download)
+```json
+{
+  "name": "API Key",
+  "type": "httpHeaderAuth",
+  "data": {...},
+  "_note": "The 'data' field contains encrypted values from the backup. You may need to reconfigure these credentials after import."
+}
+```
+
+**Note:** Credential data is encrypted. If restoring to a different n8n instance, you may need to reconfigure the values manually.
+
+#### List Config Files in Backup
+
+List configuration files available in a mounted backup.
+
+```http
+GET /api/backups/{backup_id}/restore/config-files
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "config_files": [
+    {
+      "path": "config/.env",
+      "name": ".env",
+      "size": 1024,
+      "is_ssl": false
+    },
+    {
+      "path": "ssl/cert.pem",
+      "name": "cert.pem",
+      "size": 2048,
+      "is_ssl": true
+    }
+  ]
+}
+```
+
+#### Download Config File from Backup
+
+Download a specific config file from a mounted backup.
+
+```http
+GET /api/backups/{backup_id}/config-files/{config_path}/download
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK` (file download)
+
+#### Restore Config File
+
+Restore a config file from backup to the system.
+
+```http
+POST /api/backups/{backup_id}/restore/config
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `config_path` | string | Yes | Path of config file in backup |
+| `create_backup` | boolean | No | Backup existing file first (default: true) |
+
+**Response:** `200 OK`
+```json
+{
+  "status": "success",
+  "message": "Config file restored",
+  "backup_created": "/path/to/backup.bak"
+}
+```
+
+#### Cleanup Restore Container
+
+Manually clean up the restore container if it wasn't properly unmounted.
+
+```http
+POST /api/backups/restore/cleanup
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "message": "Restore container cleaned up"
+}
+```
+
 ---
 
 ### Notification Endpoints
