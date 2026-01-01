@@ -29,6 +29,7 @@ const props = defineProps({
 const emit = defineEmits(['save', 'cancel', 'update:open'])
 
 const loading = ref(false)
+const slugManuallyEdited = ref(false)
 
 // Form data
 const form = ref({
@@ -47,17 +48,23 @@ function generateSlug(name) {
     .replace(/_+/g, '_')
 }
 
-// Auto-generate slug when name changes (only for new groups)
+// Auto-generate slug when name changes (only for new groups and if not manually edited)
 function onNameChange() {
-  if (!props.group && !form.value.slug) {
+  if (!props.group && !slugManuallyEdited.value) {
     form.value.slug = generateSlug(form.value.name)
   }
+}
+
+// Track when user manually edits the slug
+function onSlugInput() {
+  slugManuallyEdited.value = true
 }
 
 // Reset form when dialog opens/closes
 watch(() => props.open, (isOpen) => {
   if (isOpen) {
     loading.value = false
+    slugManuallyEdited.value = false
 
     if (props.group) {
       // Editing existing group
@@ -68,6 +75,8 @@ watch(() => props.open, (isOpen) => {
         enabled: props.group.enabled ?? true,
         channel_ids: props.group.channels?.map(c => c.id) || [],
       }
+      // Mark as manually edited when editing existing group (to preserve the slug)
+      slugManuallyEdited.value = true
     } else {
       // New group
       form.value = {
@@ -181,6 +190,7 @@ function save() {
                   <span class="text-sm text-gray-500 dark:text-gray-400 font-mono">group:</span>
                   <input
                     v-model="form.slug"
+                    @input="onSlugInput"
                     type="text"
                     class="flex-1 px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     placeholder="dev_ops"
