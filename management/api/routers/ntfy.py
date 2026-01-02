@@ -53,7 +53,8 @@ from api.schemas.ntfy import (
     IntegrationExample,
     WebhookUrlResponse,
 )
-from api.services.ntfy_service import ntfy_service, COMMON_EMOJIS
+from api.services.ntfy_service import ntfy_service
+from api.data.ntfy_emojis import EMOJI_CATEGORIES, get_all_emojis, get_categories, search_emojis as search_emojis_func
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -1257,11 +1258,26 @@ async def update_server_config(
 # =============================================================================
 
 @router.get("/emojis/categories")
-async def get_emoji_categories(
+async def get_emoji_categories_endpoint(
     _=Depends(get_current_user),
 ):
-    """Get available emoji categories with common shortcodes."""
-    return COMMON_EMOJIS
+    """Get all available emojis organized by category."""
+    # Return categorized emoji data with expanded format for frontend
+    result = {}
+    for category, emojis in EMOJI_CATEGORIES.items():
+        result[category] = [
+            {"shortcode": e["s"], "emoji": e["e"]}
+            for e in emojis
+        ]
+    return result
+
+
+@router.get("/emojis/list")
+async def get_all_emojis_flat(
+    _=Depends(get_current_user),
+):
+    """Get all emojis as a flat list (for backward compatibility)."""
+    return get_all_emojis()
 
 
 @router.get("/emojis/search", response_model=EmojiSearchResponse)
@@ -1270,24 +1286,11 @@ async def search_emojis(
     _=Depends(get_current_user),
 ):
     """Search emojis by shortcode."""
-    query = q.lower()
-    results = []
-
-    # Search through all categories
-    for category, emojis in COMMON_EMOJIS.items():
-        for emoji_entry in emojis:
-            shortcode = emoji_entry.get("shortcode", "")
-            emoji_char = emoji_entry.get("emoji", "")
-            if query in shortcode.lower():
-                results.append({
-                    "shortcode": shortcode,
-                    "emoji": emoji_char,
-                    "category": category
-                })
+    results = search_emojis_func(q)
 
     return EmojiSearchResponse(
         query=q,
-        results=results[:50],  # Limit results
+        results=[{"shortcode": r["shortcode"], "emoji": r["emoji"]} for r in results[:50]],
         total=len(results),
     )
 
