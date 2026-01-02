@@ -414,11 +414,51 @@ class BackupService:
         try:
             if await self._should_auto_verify(backup.id):
                 logger.info(f"Auto-verifying backup {backup.id}")
+
+                # Send verification started notification
+                await dispatch_notification("verification_started", {
+                    "backup_id": backup.id,
+                    "filename": backup.filename,
+                    "backup_type": backup.backup_type,
+                    "source": "auto",
+                })
+
                 result = await self.verify_backup(backup.id)
-                logger.info(f"Auto-verification result for backup {backup.id}: {result.get('status', 'unknown')}")
+                status = result.get('status', 'unknown')
+                logger.info(f"Auto-verification result for backup {backup.id}: {status}")
+
+                # Send verification result notification
+                if status == "passed":
+                    await dispatch_notification("verification_passed", {
+                        "backup_id": backup.id,
+                        "filename": backup.filename,
+                        "backup_type": backup.backup_type,
+                        "checksum_verified": result.get("checksum_verified", False),
+                        "source": "auto",
+                    })
+                elif status == "failed":
+                    await dispatch_notification("verification_failed", {
+                        "backup_id": backup.id,
+                        "filename": backup.filename,
+                        "backup_type": backup.backup_type,
+                        "error": result.get("error", "Unknown error"),
+                        "source": "auto",
+                    })
+                # Note: "skipped" status doesn't need a notification
         except Exception as e:
             # Don't fail the backup if verification fails - just log it
             logger.error(f"Auto-verification failed for backup {backup.id}: {e}")
+            # Still send a failure notification so users know verification failed
+            try:
+                await dispatch_notification("verification_failed", {
+                    "backup_id": backup.id,
+                    "filename": backup.filename if backup else "unknown",
+                    "backup_type": backup.backup_type if backup else "unknown",
+                    "error": str(e),
+                    "source": "auto",
+                })
+            except Exception:
+                pass  # Don't let notification failure cause more issues
 
     async def _get_storage_location(self) -> str:
         """Get backup storage location based on configuration."""
