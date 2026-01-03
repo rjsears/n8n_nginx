@@ -658,13 +658,34 @@ const isManagementContainer = computed(() => {
   return notifyDialog.value.container?.name === 'n8n_management'
 })
 
-// Check if option is available for current container (some options don't work for management container)
+// Check if current container has a health check configured
+const containerHasHealthCheck = computed(() => {
+  const health = notifyDialog.value.container?.health
+  return health && health !== 'none'
+})
+
+// Check if option is available for current container (some options don't work for certain containers)
 function isOptionAvailableForContainer(optionField) {
   // Management container can't notify about its own stop/restart events
   if (isManagementContainer.value && (optionField === 'monitor_stopped' || optionField === 'monitor_restart')) {
     return false
   }
+  // Containers without health checks can't be monitored for unhealthy status
+  if (optionField === 'monitor_unhealthy' && !containerHasHealthCheck.value) {
+    return false
+  }
   return true
+}
+
+// Get the reason why an option is unavailable (for display)
+function getOptionUnavailableReason(optionField) {
+  if (isManagementContainer.value && (optionField === 'monitor_stopped' || optionField === 'monitor_restart')) {
+    return 'Not available for management container (handles all notifications)'
+  }
+  if (optionField === 'monitor_unhealthy' && !containerHasHealthCheck.value) {
+    return 'This container does not have a health check configured'
+  }
+  return ''
 }
 
 async function fetchStats() {
@@ -1409,16 +1430,17 @@ onUnmounted(() => {
                     </div>
                   </div>
 
-                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_unhealthy') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
+                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_unhealthy') && isOptionAvailableForContainer('monitor_unhealthy') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
                     <input
                       type="checkbox"
                       v-model="notifyDialog.config.monitor_unhealthy"
-                      :disabled="!canEnableContainerOption('monitor_unhealthy')"
+                      :disabled="!canEnableContainerOption('monitor_unhealthy') || !isOptionAvailableForContainer('monitor_unhealthy')"
                       class="form-checkbox h-4 w-4 text-blue-600 rounded disabled:opacity-50"
                     >
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Health Check Failed</p>
-                      <p v-if="canEnableContainerOption('monitor_unhealthy')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container becomes unhealthy</p>
+                      <p v-if="!isOptionAvailableForContainer('monitor_unhealthy')" class="text-xs text-amber-600 dark:text-amber-400">This container does not have a health check configured</p>
+                      <p v-else-if="canEnableContainerOption('monitor_unhealthy')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container becomes unhealthy</p>
                       <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
                     </div>
                   </div>
