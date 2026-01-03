@@ -653,6 +653,20 @@ function canEnableContainerOption(optionField) {
   return isContainerEventEnabled(eventType)
 }
 
+// Check if current container is the management container (can't monitor itself for stop/restart)
+const isManagementContainer = computed(() => {
+  return notifyDialog.value.container?.name === 'n8n_management'
+})
+
+// Check if option is available for current container (some options don't work for management container)
+function isOptionAvailableForContainer(optionField) {
+  // Management container can't notify about its own stop/restart events
+  if (isManagementContainer.value && (optionField === 'monitor_stopped' || optionField === 'monitor_restart')) {
+    return false
+  }
+  return true
+}
+
 async function fetchStats() {
   try {
     const response = await api.get('/containers/stats')
@@ -1380,16 +1394,17 @@ onUnmounted(() => {
                 <div :class="['space-y-3', (!notifyDialog.config.enabled || !anyContainerEventsEnabled) && 'opacity-50 pointer-events-none']">
                   <h4 class="font-medium text-gray-900 dark:text-white text-sm">Status Events</h4>
 
-                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_stopped') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
+                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_stopped') && isOptionAvailableForContainer('monitor_stopped') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
                     <input
                       type="checkbox"
                       v-model="notifyDialog.config.monitor_stopped"
-                      :disabled="!canEnableContainerOption('monitor_stopped')"
+                      :disabled="!canEnableContainerOption('monitor_stopped') || !isOptionAvailableForContainer('monitor_stopped')"
                       class="form-checkbox h-4 w-4 text-blue-600 rounded disabled:opacity-50"
                     >
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Container Stopped</p>
-                      <p v-if="canEnableContainerOption('monitor_stopped')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container stops unexpectedly</p>
+                      <p v-if="!isOptionAvailableForContainer('monitor_stopped')" class="text-xs text-amber-600 dark:text-amber-400">Not available for management container (handles all notifications)</p>
+                      <p v-else-if="canEnableContainerOption('monitor_stopped')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container stops unexpectedly</p>
                       <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
                     </div>
                   </div>
@@ -1408,16 +1423,17 @@ onUnmounted(() => {
                     </div>
                   </div>
 
-                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_restart') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
+                  <div :class="['flex items-center gap-3 p-3 rounded-lg', canEnableContainerOption('monitor_restart') && isOptionAvailableForContainer('monitor_restart') ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : 'opacity-60']">
                     <input
                       type="checkbox"
                       v-model="notifyDialog.config.monitor_restart"
-                      :disabled="!canEnableContainerOption('monitor_restart')"
+                      :disabled="!canEnableContainerOption('monitor_restart') || !isOptionAvailableForContainer('monitor_restart')"
                       class="form-checkbox h-4 w-4 text-blue-600 rounded disabled:opacity-50"
                     >
                     <div>
                       <p class="text-sm font-medium text-gray-900 dark:text-white">Container Restarted</p>
-                      <p v-if="canEnableContainerOption('monitor_restart')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container restarts automatically</p>
+                      <p v-if="!isOptionAvailableForContainer('monitor_restart')" class="text-xs text-amber-600 dark:text-amber-400">Not available for management container (handles all notifications)</p>
+                      <p v-else-if="canEnableContainerOption('monitor_restart')" class="text-xs text-gray-500 dark:text-gray-400">Alert when container restarts automatically</p>
                       <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
                     </div>
                   </div>
