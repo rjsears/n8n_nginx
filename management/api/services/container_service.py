@@ -175,10 +175,14 @@ class ContainerService:
         """Get resource usage stats for all running containers."""
         containers = await asyncio.to_thread(self.client.containers.list)
 
-        stats = []
-        for c in containers:
+        async def get_container_stats(c):
+            """Get stats for a single container with timeout."""
             try:
-                s = await asyncio.to_thread(c.stats, stream=False)
+                # Use asyncio.wait_for with a 5-second timeout per container
+                s = await asyncio.wait_for(
+                    asyncio.to_thread(c.stats, stream=False),
+                    timeout=5.0
+                )
 
                 # Calculate CPU percentage
                 cpu_delta = s["cpu_stats"]["cpu_usage"]["total_usage"] - \
@@ -201,7 +205,7 @@ class ContainerService:
                     for net in s.get("networks", {}).values()
                 )
 
-                stats.append({
+                return {
                     "name": c.name,
                     "cpu_percent": round(cpu_percent, 2),
                     "memory_usage": memory_usage,
@@ -210,11 +214,19 @@ class ContainerService:
                     "network_rx": network_rx,
                     "network_tx": network_tx,
                     "is_project": self._is_project_container(c.name),
-                })
+                }
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout getting stats for {c.name}")
+                return None
             except Exception as e:
                 logger.warning(f"Failed to get stats for {c.name}: {e}")
+                return None
 
-        return stats
+        # Run all stats fetches in parallel
+        results = await asyncio.gather(*[get_container_stats(c) for c in containers])
+
+        # Filter out None results (failed/timed out containers)
+        return [r for r in results if r is not None]
 
     async def start_container(self, name: str) -> bool:
         """Start a container."""
