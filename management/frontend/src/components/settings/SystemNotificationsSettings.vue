@@ -149,7 +149,7 @@ const getRateLimitSeverityClass = (value) => {
 const categoryInfo = {
   backup: { label: 'Backup Events', icon: CircleStackIcon, color: 'emerald', description: 'Notifications for backup operations' },
   container: { label: 'Container Events', icon: CubeIcon, color: 'blue', description: 'Docker container health and status alerts' },
-  system: { label: 'System Events', icon: CpuChipIcon, color: 'purple', description: 'Host system resource monitoring' },
+  system: { label: 'Docker Host System Events', icon: CpuChipIcon, color: 'purple', description: 'Docker host system resource monitoring' },
   ssl: { label: 'SSL Certificate Events', icon: ShieldCheckIcon, color: 'amber', description: 'SSL/TLS certificate expiration monitoring' },
   security: { label: 'Security Events', icon: ShieldExclamationIcon, color: 'red', description: 'Security and access notifications' },
 }
@@ -1242,6 +1242,102 @@ onMounted(() => {
                                     </div>
                                   </div>
                                   <p class="text-xs text-secondary mt-2">How many days before expiration to start sending notifications.</p>
+                                </div>
+
+                                <!-- Disk Space Threshold (disk_space_low event only) -->
+                                <div v-if="event.event_type === 'disk_space_low'">
+                                  <label class="block text-sm font-semibold text-primary mb-2">Disk Usage Threshold</label>
+                                  <div class="bg-purple-50 dark:bg-purple-500/10 rounded-xl p-4 border border-purple-200 dark:border-purple-500/20">
+                                    <div class="flex items-center justify-between mb-3">
+                                      <span class="text-sm text-purple-700 dark:text-purple-300">Alert when disk usage exceeds:</span>
+                                      <span class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{ event.thresholds?.percent || 90 }}%</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      :value="event.thresholds?.percent || 90"
+                                      @input="updateEventThreshold(event, 'percent', parseInt($event.target.value))"
+                                      min="50"
+                                      max="99"
+                                      step="1"
+                                      class="w-full h-2 bg-purple-200 dark:bg-purple-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                    />
+                                    <div class="flex justify-between mt-2 text-xs text-purple-600 dark:text-purple-400">
+                                      <span>50%</span>
+                                      <span>99%</span>
+                                    </div>
+                                  </div>
+                                  <p class="text-xs text-secondary mt-2">Percentage of disk space used that triggers an alert.</p>
+                                </div>
+
+                                <!-- Memory Usage Threshold (high_memory event only) -->
+                                <div v-if="event.event_type === 'high_memory'">
+                                  <label class="block text-sm font-semibold text-primary mb-2">Memory Usage Threshold</label>
+                                  <div class="bg-purple-50 dark:bg-purple-500/10 rounded-xl p-4 border border-purple-200 dark:border-purple-500/20">
+                                    <div class="flex items-center justify-between mb-3">
+                                      <span class="text-sm text-purple-700 dark:text-purple-300">Alert when memory usage exceeds:</span>
+                                      <span class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{ event.thresholds?.percent || 90 }}%</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      :value="event.thresholds?.percent || 90"
+                                      @input="updateEventThreshold(event, 'percent', parseInt($event.target.value))"
+                                      min="50"
+                                      max="99"
+                                      step="1"
+                                      class="w-full h-2 bg-purple-200 dark:bg-purple-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                    />
+                                    <div class="flex justify-between mt-2 text-xs text-purple-600 dark:text-purple-400">
+                                      <span>50%</span>
+                                      <span>99%</span>
+                                    </div>
+                                  </div>
+                                  <p class="text-xs text-secondary mt-2">Percentage of system memory used that triggers an alert.</p>
+                                </div>
+
+                                <!-- CPU Usage Threshold (high_cpu event only) -->
+                                <div v-if="event.event_type === 'high_cpu'">
+                                  <label class="block text-sm font-semibold text-primary mb-2">CPU Usage Threshold</label>
+                                  <div class="bg-purple-50 dark:bg-purple-500/10 rounded-xl p-4 border border-purple-200 dark:border-purple-500/20 space-y-4">
+                                    <div>
+                                      <div class="flex items-center justify-between mb-3">
+                                        <span class="text-sm text-purple-700 dark:text-purple-300">Alert when CPU usage exceeds:</span>
+                                        <span class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{ event.thresholds?.percent || 90 }}%</span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        :value="event.thresholds?.percent || 90"
+                                        @input="updateEventThreshold(event, 'percent', parseInt($event.target.value))"
+                                        min="50"
+                                        max="99"
+                                        step="1"
+                                        class="w-full h-2 bg-purple-200 dark:bg-purple-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                      />
+                                      <div class="flex justify-between mt-2 text-xs text-purple-600 dark:text-purple-400">
+                                        <span>50%</span>
+                                        <span>99%</span>
+                                      </div>
+                                    </div>
+                                    <div class="border-t border-purple-200 dark:border-purple-500/30 pt-4">
+                                      <div class="flex items-center justify-between mb-3">
+                                        <span class="text-sm text-purple-700 dark:text-purple-300">For at least:</span>
+                                        <span class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{ event.thresholds?.duration_minutes || 5 }} min</span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        :value="event.thresholds?.duration_minutes || 5"
+                                        @input="updateEventThreshold(event, 'duration_minutes', parseInt($event.target.value))"
+                                        min="1"
+                                        max="30"
+                                        step="1"
+                                        class="w-full h-2 bg-purple-200 dark:bg-purple-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                      />
+                                      <div class="flex justify-between mt-2 text-xs text-purple-600 dark:text-purple-400">
+                                        <span>1 min</span>
+                                        <span>30 min</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <p class="text-xs text-secondary mt-2">CPU must stay above threshold for the specified duration before alerting (prevents false alarms from brief spikes).</p>
                                 </div>
                               </div>
 
