@@ -2379,19 +2379,23 @@ L1/L2 escalation ensures critical events are not missed.
 
 ### 9.4 Global Settings
 
-System-wide notification controls are located at the bottom of the **Global Event Settings** tab, below the event categories.
+System-wide notification controls are located at the top of the **System Notifications** page in the status bar and in the collapsible settings cards below the event categories.
 
-> **Note**: Global Settings (Rate Limiting, Daily Digest) have been consolidated into the Global Event Settings tab for easier access. You'll find them after scrolling past the event categories.
+The page includes:
+- **Status Bar** (top): Quick access to Maintenance Mode and Quiet Hours toggles, plus Events Enabled and Rate Limit counters
+- **Event Categories**: All event types organized by category
+- **Rate Limiting**: Collapsible card below the event categories
+- **Daily Digest**: Collapsible card below the event categories
 
 <!-- SCREENSHOT: Global notification settings -->
-*[Screenshot placeholder: Global settings panel]*
+*[Screenshot placeholder: System Notifications page]*
 
 #### Maintenance Mode
 
 Temporarily silence all notifications:
 
 1. Go to **Settings** > **System Notifications**
-2. Enable **Maintenance Mode**
+2. Click the **Maintenance** button in the status bar
 3. Optionally set an end time
 4. Add a reason note
 
@@ -2431,47 +2435,33 @@ Prevent notification storms:
 
 ### 9.5 Per-Container Configuration
 
-Configure monitoring for individual containers:
+Container-specific notification settings are managed directly from the **Containers** view:
 
-1. Go to **Settings** > **System Notifications** > **Container Config**
-2. Click **Add Container**
-3. Select the container
+1. Go to **Containers** (main menu)
+2. Click on the container you want to configure
+3. Go to the **Alerts** tab
 4. Configure:
-   - **Enable Monitoring**: Master on/off
+   - **Enable Notifications**: Master on/off for this container
+   - **Monitor Stopped**: Stop events
    - **Monitor Unhealthy**: Health check failures
    - **Monitor Restart**: Restart events
-   - **Monitor Stopped**: Stop events
-   - **CPU Threshold**: Custom CPU limit (%)
-   - **Memory Threshold**: Custom memory limit (%)
-   - **Custom Targets**: Override default notification targets
-
-#### Container Config Status Indicators
-
-Each container configuration displays a status badge:
-
-| Status | Badge Color | Meaning |
-|--------|-------------|---------|
-| **Monitoring** | Green | Enabled and has notification targets configured |
-| **No Targets** | Amber | Enabled but no notification targets configured in Container Events |
-| **No Global Events** | Red | No container event types are enabled globally |
-| **Disabled** | Gray | Notifications disabled for this container |
+   - **CPU Threshold**: Custom CPU limit (%) with slider
+   - **Memory Threshold**: Custom memory limit (%) with slider
 
 #### Prerequisite Enforcement
 
 The notification system enforces a proper setup order to prevent misconfiguration:
 
-1. **Global events must be enabled first** - Before you can configure per-container notifications, you must enable at least one container event type in **Global Event Settings** > **Container Events**.
+1. **Global events must be enabled first** - Before per-container alerts will work, you must enable the corresponding container event types in **Settings** > **System Notifications** > **Container Events**.
 
-2. **Individual toggles reflect global state** - Each per-container toggle (Stopped, Unhealthy, High CPU, etc.) is disabled if the corresponding global event is not enabled. A message "Enable in Global Event Settings" indicates which events need to be enabled globally.
+2. **Individual toggles reflect global state** - Each per-container toggle (Stopped, Unhealthy, High CPU, etc.) is disabled if the corresponding global event is not enabled. A message indicates which events need to be enabled globally.
 
 3. **Warning when disabling global events** - If you try to disable a global container event that has per-container configurations, a confirmation dialog shows which containers will be affected.
 
-> **Important**: A container showing "No Targets" status will not send any notifications even though it appears configured. You must add notification targets in **Global Event Settings** > **Container Events** for alerts to be delivered.
-
-When enabling a container without targets, a warning toast reminds you to configure notification targets.
+> **Important**: Even with per-container settings configured, notifications won't be sent unless you have notification targets configured in the global Container Events settings.
 
 <!-- SCREENSHOT: Per-container configuration -->
-*[Screenshot placeholder: Container-specific notification settings]*
+*[Screenshot placeholder: Container Alerts tab]*
 
 ### 9.6 Flapping Detection
 
