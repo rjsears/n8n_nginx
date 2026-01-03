@@ -11,7 +11,7 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useNotificationStore } from '@/stores/notifications'
 import { useThemeStore } from '@/stores/theme'
 import api from '@/services/api'
@@ -62,23 +62,19 @@ const saving = ref(false)
 const events = ref([])
 const globalSettings = ref(null)
 const containerConfigs = ref([])
-const history = ref([])
 const channels = ref([])
 const groups = ref([])
 
 // UI State
-const activeSection = ref('events') // 'events', 'containers', 'history', 'global'
 const expandedCategories = ref(new Set())
 const expandedEvents = ref(new Set())
 const expandedContainers = ref(new Set())
-const expandedContainerConfigs = ref(new Set())
 const showMaintenanceModal = ref(false)
 const showQuietHoursModal = ref(false)
 const showAddTargetModal = ref(false)
 const selectedEventForTarget = ref(null)
 const expandedRateLimiting = ref(false)
 const expandedDailyDigest = ref(false)
-const expandedHistoryItems = ref(new Set())
 
 // Maintenance mode form state
 const maintenanceDuration = ref('1h')
@@ -193,67 +189,13 @@ const hasNoTargets = computed(() => {
   return (event) => !eventHasTargets(event)
 })
 
-// Check if any container events have targets configured
-const containerEventsHaveTargets = computed(() => {
-  const containerEvents = events.value.filter(e => e.category === 'container')
-  return containerEvents.some(e => eventHasTargets(e))
-})
-
 // Check if a specific category has any events with targets
 function categoryHasTargets(category) {
   const categoryEvents = events.value.filter(e => e.category === category)
   return categoryEvents.some(e => eventHasTargets(e))
 }
 
-// Get container config status - returns 'monitoring', 'no_targets', 'no_global_events', or 'disabled'
-function getContainerConfigStatus(config) {
-  if (!config.enabled) return 'disabled'
-  if (!anyContainerEventsEnabled.value) return 'no_global_events'
-  if (!containerEventsHaveTargets.value) return 'no_targets'
-  return 'monitoring'
-}
-
-// Check if a specific global event type is enabled
-function isGlobalEventEnabled(eventType) {
-  const event = events.value.find(e => e.event_type === eventType)
-  return event?.enabled || false
-}
-
-// Check if any container events are enabled globally
-const anyContainerEventsEnabled = computed(() => {
-  const containerEvents = events.value.filter(e => e.category === 'container')
-  return containerEvents.some(e => e.enabled)
-})
-
-// Get which container event types are enabled globally
-const enabledContainerEventTypes = computed(() => {
-  const containerEvents = events.value.filter(e => e.category === 'container' && e.enabled)
-  return containerEvents.map(e => e.event_type)
-})
-
-// Map container config fields to event types
-const containerConfigEventMap = {
-  monitor_stopped: 'container_stopped',
-  monitor_unhealthy: 'container_unhealthy',
-  monitor_restart: 'container_restart',
-  monitor_high_cpu: 'container_high_cpu',
-  monitor_high_memory: 'container_high_memory',
-}
-
-// Check if a specific container config option can be enabled
-function canEnableContainerOption(optionField) {
-  const eventType = containerConfigEventMap[optionField]
-  return isGlobalEventEnabled(eventType)
-}
-
-// Get the display name for a container event type
-function getContainerEventDisplayName(optionField) {
-  const eventType = containerConfigEventMap[optionField]
-  const event = events.value.find(e => e.event_type === eventType)
-  return event?.display_name || eventType
-}
-
-// Reverse map: event_type -> config field
+// Map event_type -> container config field (for finding affected configs)
 const eventTypeToConfigField = {
   container_stopped: 'monitor_stopped',
   container_unhealthy: 'monitor_unhealthy',
@@ -433,76 +375,6 @@ async function loadGlobalSettings() {
   }
 }
 
-async function loadContainerConfigs() {
-  try {
-    const response = await api.get('/system-notifications/container-configs')
-    containerConfigs.value = response.data
-  } catch (error) {
-    console.error('Failed to load container configs:', error)
-    containerConfigs.value = []
-  }
-}
-
-function toggleContainerConfig(configId) {
-  if (expandedContainerConfigs.value.has(configId)) {
-    expandedContainerConfigs.value.delete(configId)
-  } else {
-    expandedContainerConfigs.value.add(configId)
-  }
-  expandedContainerConfigs.value = new Set(expandedContainerConfigs.value)
-}
-
-function getContainerConfigSummary(config) {
-  const monitors = []
-  if (config.monitor_stopped) monitors.push('Stopped')
-  if (config.monitor_unhealthy) monitors.push('Unhealthy')
-  if (config.monitor_restart) monitors.push('Restarts')
-  if (config.monitor_high_cpu) monitors.push(`CPU >${config.cpu_threshold}%`)
-  if (config.monitor_high_memory) monitors.push(`Memory >${config.memory_threshold}%`)
-
-  if (monitors.length === 0) return 'No events monitored'
-  return monitors.join(' • ')
-}
-
-async function updateContainerConfig(config, updates) {
-  // Warn if enabling without targets configured
-  if (updates.enabled === true && !containerEventsHaveTargets.value) {
-    notificationStore.warning('No notification targets configured for container events. Go to Notification Events → Container Events to add targets.')
-  }
-
-  try {
-    const response = await api.put(`/system-notifications/container-configs/${config.container_name}`, {
-      ...config,
-      ...updates
-    })
-    // Update local state
-    const index = containerConfigs.value.findIndex(c => c.id === config.id)
-    if (index !== -1) {
-      containerConfigs.value[index] = response.data
-    }
-    notificationStore.success('Container config updated')
-  } catch (error) {
-    console.error('Failed to update container config:', error)
-    notificationStore.error('Failed to update config')
-  }
-}
-
-async function deleteContainerConfig(config) {
-  if (!confirm(`Remove custom notification settings for ${config.container_name}? This will revert to default settings.`)) {
-    return
-  }
-
-  try {
-    await api.delete(`/system-notifications/container-configs/${config.container_name}`)
-    containerConfigs.value = containerConfigs.value.filter(c => c.id !== config.id)
-    expandedContainerConfigs.value.delete(config.id)
-    notificationStore.success('Container config removed')
-  } catch (error) {
-    console.error('Failed to delete container config:', error)
-    notificationStore.error('Failed to remove config')
-  }
-}
-
 async function loadChannelsAndGroups() {
   try {
     const [channelsRes, groupsRes] = await Promise.all([
@@ -518,15 +390,13 @@ async function loadChannelsAndGroups() {
   }
 }
 
-async function loadHistory() {
+async function loadContainerConfigs() {
   try {
-    const response = await api.get('/system-notifications/history', {
-      params: { limit: 100 }
-    })
-    history.value = response.data.items || []
+    const response = await api.get('/system-notifications/container-configs')
+    containerConfigs.value = response.data
   } catch (error) {
-    console.error('Failed to load history:', error)
-    history.value = []
+    console.error('Failed to load container configs:', error)
+    containerConfigs.value = []
   }
 }
 
@@ -546,15 +416,6 @@ function toggleEvent(eventId) {
     expandedEvents.value.add(eventId)
   }
   expandedEvents.value = new Set(expandedEvents.value)
-}
-
-function toggleHistoryItem(entryId) {
-  if (expandedHistoryItems.value.has(entryId)) {
-    expandedHistoryItems.value.delete(entryId)
-  } else {
-    expandedHistoryItems.value.add(entryId)
-  }
-  expandedHistoryItems.value = new Set(expandedHistoryItems.value)
 }
 
 async function updateEvent(event, field, value) {
@@ -860,13 +721,6 @@ function getCategoryEventCounts(category) {
   return { enabled, total: categoryEvents.length }
 }
 
-// Watch for section changes to load data
-watch(activeSection, (newSection) => {
-  if (newSection === 'history' && history.value.length === 0) {
-    loadHistory()
-  }
-})
-
 onMounted(() => {
   loadData()
 })
@@ -971,29 +825,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Section Tabs - Lighter, more translucent with colored icons when inactive -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-400 dark:border-gray-700 p-1.5 flex gap-1.5 overflow-x-auto">
-      <button
-        v-for="(section, idx) in [
-          { id: 'events', label: 'Global Event Settings', icon: BellAlertIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
-          { id: 'containers', label: 'Container Config', icon: CubeIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
-          { id: 'history', label: 'History', icon: DocumentTextIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
-        ]"
-        :key="section.id"
-        @click="activeSection = section.id"
-        :class="[
-          'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap border',
-          activeSection === section.id
-            ? `${section.bgActive} ${section.textActive} ${section.borderActive}`
-            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-transparent'
-        ]"
-      >
-        <component :is="section.icon" :class="['h-5 w-5', activeSection === section.id ? '' : section.iconColor]" />
-        {{ section.label }}
-      </button>
-    </div>
-
-    <!-- Skeleton Loader for Events Section -->
+    <!-- Skeleton Loader -->
     <div v-if="loading" class="space-y-4">
       <!-- Skeleton for Category Cards -->
       <div v-for="i in 4" :key="i" class="rounded-2xl shadow-lg overflow-hidden bg-white dark:bg-gray-800">
@@ -1017,8 +849,8 @@ onMounted(() => {
     </div>
 
     <template v-else>
-      <!-- Events Section -->
-      <div v-if="activeSection === 'events'" class="space-y-4">
+      <!-- Event Categories -->
+      <div class="space-y-4">
         <!-- Maintenance Mode Banner -->
         <div v-if="globalSettings?.maintenance_mode" class="bg-green-50 dark:bg-green-500/10 border-2 border-green-400 dark:border-green-500/50 rounded-xl p-4 flex items-center gap-4">
           <div class="p-3 rounded-xl bg-green-200 dark:bg-green-500/30">
@@ -1702,443 +1534,6 @@ onMounted(() => {
               </div>
             </div>
           </Transition>
-        </div>
-      </div>
-
-      <!-- Container Config Section -->
-      <div v-if="activeSection === 'containers'" class="space-y-4">
-        <!-- Warning: No Global Container Events Enabled -->
-        <div v-if="!anyContainerEventsEnabled" class="p-4 rounded-xl bg-red-50 dark:bg-red-500/10 border-2 border-red-300 dark:border-red-500/50">
-          <div class="flex gap-3">
-            <div class="p-2 rounded-lg bg-red-100 dark:bg-red-500/20">
-              <ExclamationTriangleIcon class="h-6 w-6 text-red-600 dark:text-red-400" />
-            </div>
-            <div class="flex-1">
-              <p class="font-semibold text-red-800 dark:text-red-300">No Global Container Events Enabled</p>
-              <p class="mt-1 text-sm text-red-700 dark:text-red-400">
-                Container notifications are disabled because no container event types are enabled in Global Event Settings.
-                Enable at least one container event type to configure per-container alerts.
-              </p>
-              <button
-                @click="activeSection = 'events'; expandedCategories.add('container')"
-                class="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                <BellAlertIcon class="h-4 w-4" />
-                Configure Container Events
-                <ChevronRightIcon class="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Info Banner -->
-        <div v-else class="p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border border-blue-200 dark:border-blue-500/30">
-          <div class="flex gap-3">
-            <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
-              <CubeIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div class="text-sm">
-              <p class="font-semibold text-blue-800 dark:text-blue-300">Per-Container Notification Settings</p>
-              <p class="mt-1 text-blue-700 dark:text-blue-400">Customize monitoring and alert thresholds for individual containers. Changes here sync with the container's Alerts settings. Only events enabled in Global Event Settings can be configured here.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Empty State -->
-        <div v-if="containerConfigs.length === 0" class="text-center py-12">
-          <div class="inline-flex p-4 rounded-full bg-gray-100 dark:bg-gray-800 mb-4">
-            <CubeIcon class="h-12 w-12 text-gray-400" />
-          </div>
-          <p class="text-lg font-medium text-primary">No Container Configurations</p>
-          <p class="text-sm text-secondary mt-1 max-w-md mx-auto">
-            Container configs will appear here when you customize notification settings from the Containers view.
-          </p>
-          <router-link to="/containers" class="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors">
-            <CubeIcon class="h-4 w-4" />
-            Go to Containers
-          </router-link>
-        </div>
-
-        <!-- Container Cards -->
-        <div v-else class="space-y-3">
-          <div v-for="config in containerConfigs" :key="config.id"
-            class="bg-surface rounded-2xl border border-[var(--color-border)] overflow-hidden shadow-sm hover:shadow-md transition-shadow"
-          >
-            <!-- Card Header - Clickable -->
-            <button
-              @click="toggleContainerConfig(config.id)"
-              class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-            >
-              <div class="flex items-center gap-4">
-                <div :class="[
-                  'p-3 rounded-xl',
-                  config.enabled ? 'bg-blue-100 dark:bg-blue-500/20' : 'bg-gray-100 dark:bg-gray-700'
-                ]">
-                  <CubeIcon :class="[
-                    'h-6 w-6',
-                    config.enabled ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'
-                  ]" />
-                </div>
-                <div class="text-left">
-                  <h3 class="font-semibold text-primary">{{ config.container_name }}</h3>
-                  <p class="text-sm text-secondary">
-                    {{ getContainerConfigSummary(config) }}
-                  </p>
-                </div>
-              </div>
-              <div class="flex items-center gap-3">
-                <!-- Status Badge -->
-                <span :class="[
-                  'px-3 py-1 rounded-full text-xs font-semibold',
-                  getContainerConfigStatus(config) === 'monitoring'
-                    ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                    : getContainerConfigStatus(config) === 'no_targets'
-                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
-                      : getContainerConfigStatus(config) === 'no_global_events'
-                        ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
-                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                ]">
-                  {{ getContainerConfigStatus(config) === 'monitoring' ? 'Monitoring'
-                    : getContainerConfigStatus(config) === 'no_targets' ? 'No Targets'
-                    : getContainerConfigStatus(config) === 'no_global_events' ? 'No Global Events'
-                    : 'Disabled' }}
-                </span>
-                <ChevronDownIcon
-                  :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedContainerConfigs.has(config.id) ? 'rotate-180' : '']"
-                />
-              </div>
-            </button>
-
-            <!-- Expanded Content -->
-            <Transition name="collapse">
-              <div v-if="expandedContainerConfigs.has(config.id)" class="border-t border-[var(--color-border)]">
-                <div class="p-5 bg-gray-50/50 dark:bg-gray-800/30 space-y-6">
-                  <!-- Master Toggle -->
-                  <div class="flex items-center justify-between p-4 rounded-xl bg-white dark:bg-gray-800 border border-[var(--color-border)]">
-                    <div class="flex items-center gap-3">
-                      <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
-                        <BellIcon class="h-5 w-5 text-green-600 dark:text-green-400" />
-                      </div>
-                      <div>
-                        <p class="font-medium text-primary">Enable Notifications</p>
-                        <p class="text-sm text-secondary">Master switch for all alerts on this container</p>
-                      </div>
-                    </div>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        :checked="config.enabled"
-                        @change="updateContainerConfig(config, { enabled: $event.target.checked })"
-                        class="sr-only peer"
-                      />
-                      <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-500"></div>
-                    </label>
-                  </div>
-
-                  <!-- Warning: No Targets Configured -->
-                  <div v-if="!containerEventsHaveTargets" class="p-4 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-                    <div class="flex items-start gap-3">
-                      <ExclamationTriangleIcon class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p class="font-medium text-amber-800 dark:text-amber-300">No Notification Targets Configured</p>
-                        <p class="text-sm text-amber-700 dark:text-amber-400 mt-1">
-                          Notifications are enabled but won't be sent because no targets are configured for container events.
-                        </p>
-                        <button
-                          @click="activeSection = 'events'; expandedCategories.add('container')"
-                          class="mt-2 text-sm font-medium text-amber-700 dark:text-amber-300 hover:underline flex items-center gap-1"
-                        >
-                          Configure targets in Container Events
-                          <ChevronRightIcon class="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Status Events Section -->
-                  <div :class="[!config.enabled && 'opacity-50 pointer-events-none']">
-                    <h4 class="text-sm font-semibold text-primary mb-3 flex items-center gap-2">
-                      <HeartIcon class="h-4 w-4 text-rose-500" />
-                      Status Events
-                    </h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <!-- Stopped -->
-                      <div :class="[
-                        'flex items-center gap-3 p-3 rounded-xl border transition-colors',
-                        canEnableContainerOption('monitor_stopped')
-                          ? 'bg-white dark:bg-gray-800 border-[var(--color-border)] cursor-pointer hover:border-blue-300 dark:hover:border-blue-500'
-                          : 'bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-60'
-                      ]">
-                        <input
-                          type="checkbox"
-                          :checked="config.monitor_stopped"
-                          :disabled="!canEnableContainerOption('monitor_stopped')"
-                          @change="updateContainerConfig(config, { monitor_stopped: $event.target.checked })"
-                          class="w-4 h-4 rounded border-gray-400 text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                        />
-                        <div class="flex-1">
-                          <p class="text-sm font-medium text-primary">Stopped</p>
-                          <p v-if="canEnableContainerOption('monitor_stopped')" class="text-xs text-secondary">Container exits</p>
-                          <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
-                        </div>
-                      </div>
-
-                      <!-- Unhealthy -->
-                      <div :class="[
-                        'flex items-center gap-3 p-3 rounded-xl border transition-colors',
-                        canEnableContainerOption('monitor_unhealthy')
-                          ? 'bg-white dark:bg-gray-800 border-[var(--color-border)] cursor-pointer hover:border-blue-300 dark:hover:border-blue-500'
-                          : 'bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-60'
-                      ]">
-                        <input
-                          type="checkbox"
-                          :checked="config.monitor_unhealthy"
-                          :disabled="!canEnableContainerOption('monitor_unhealthy')"
-                          @change="updateContainerConfig(config, { monitor_unhealthy: $event.target.checked })"
-                          class="w-4 h-4 rounded border-gray-400 text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                        />
-                        <div class="flex-1">
-                          <p class="text-sm font-medium text-primary">Unhealthy</p>
-                          <p v-if="canEnableContainerOption('monitor_unhealthy')" class="text-xs text-secondary">Health check fails</p>
-                          <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
-                        </div>
-                      </div>
-
-                      <!-- Restart -->
-                      <div :class="[
-                        'flex items-center gap-3 p-3 rounded-xl border transition-colors',
-                        canEnableContainerOption('monitor_restart')
-                          ? 'bg-white dark:bg-gray-800 border-[var(--color-border)] cursor-pointer hover:border-blue-300 dark:hover:border-blue-500'
-                          : 'bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-60'
-                      ]">
-                        <input
-                          type="checkbox"
-                          :checked="config.monitor_restart"
-                          :disabled="!canEnableContainerOption('monitor_restart')"
-                          @change="updateContainerConfig(config, { monitor_restart: $event.target.checked })"
-                          class="w-4 h-4 rounded border-gray-400 text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                        />
-                        <div class="flex-1">
-                          <p class="text-sm font-medium text-primary">Restarts</p>
-                          <p v-if="canEnableContainerOption('monitor_restart')" class="text-xs text-secondary">Auto-restarts</p>
-                          <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Resource Thresholds Section -->
-                  <div :class="[!config.enabled && 'opacity-50 pointer-events-none']">
-                    <h4 class="text-sm font-semibold text-primary mb-3 flex items-center gap-2">
-                      <CpuChipIcon class="h-4 w-4 text-purple-500" />
-                      Resource Thresholds
-                    </h4>
-                    <div class="space-y-4">
-                      <!-- CPU Threshold -->
-                      <div :class="[
-                        'p-4 rounded-xl border',
-                        canEnableContainerOption('monitor_high_cpu')
-                          ? 'bg-white dark:bg-gray-800 border-[var(--color-border)]'
-                          : 'bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-60'
-                      ]">
-                        <div class="flex items-center justify-between mb-3">
-                          <div class="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              :checked="config.monitor_high_cpu"
-                              :disabled="!canEnableContainerOption('monitor_high_cpu')"
-                              @change="updateContainerConfig(config, { monitor_high_cpu: $event.target.checked })"
-                              class="w-4 h-4 rounded border-gray-400 text-purple-500 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            />
-                            <div>
-                              <p class="text-sm font-medium text-primary">High CPU Usage</p>
-                              <p v-if="canEnableContainerOption('monitor_high_cpu')" class="text-xs text-secondary">Alert when CPU exceeds threshold</p>
-                              <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
-                            </div>
-                          </div>
-                          <span v-if="canEnableContainerOption('monitor_high_cpu')" class="text-lg font-bold text-purple-600 dark:text-purple-400">
-                            {{ config.cpu_threshold }}%
-                          </span>
-                        </div>
-                        <div v-if="config.monitor_high_cpu && canEnableContainerOption('monitor_high_cpu')" class="mt-2">
-                          <input
-                            type="range"
-                            :value="config.cpu_threshold"
-                            @input="updateContainerConfig(config, { cpu_threshold: parseInt($event.target.value) })"
-                            min="50"
-                            max="100"
-                            step="5"
-                            class="w-full h-2 rounded-full appearance-none cursor-pointer bg-gradient-to-r from-green-400 via-yellow-400 to-red-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-purple-400 [&::-webkit-slider-thumb]:cursor-pointer"
-                          />
-                          <div class="flex justify-between text-xs text-secondary mt-1">
-                            <span>50%</span>
-                            <span>75%</span>
-                            <span>100%</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Memory Threshold -->
-                      <div :class="[
-                        'p-4 rounded-xl border',
-                        canEnableContainerOption('monitor_high_memory')
-                          ? 'bg-white dark:bg-gray-800 border-[var(--color-border)]'
-                          : 'bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-60'
-                      ]">
-                        <div class="flex items-center justify-between mb-3">
-                          <div class="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              :checked="config.monitor_high_memory"
-                              :disabled="!canEnableContainerOption('monitor_high_memory')"
-                              @change="updateContainerConfig(config, { monitor_high_memory: $event.target.checked })"
-                              class="w-4 h-4 rounded border-gray-400 text-amber-500 focus:ring-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            />
-                            <div>
-                              <p class="text-sm font-medium text-primary">High Memory Usage</p>
-                              <p v-if="canEnableContainerOption('monitor_high_memory')" class="text-xs text-secondary">Alert when memory exceeds threshold</p>
-                              <p v-else class="text-xs text-red-500 dark:text-red-400">Enable in Global Event Settings</p>
-                            </div>
-                          </div>
-                          <span v-if="canEnableContainerOption('monitor_high_memory')" class="text-lg font-bold text-amber-600 dark:text-amber-400">
-                            {{ config.memory_threshold }}%
-                          </span>
-                        </div>
-                        <div v-if="config.monitor_high_memory && canEnableContainerOption('monitor_high_memory')" class="mt-2">
-                          <input
-                            type="range"
-                            :value="config.memory_threshold"
-                            @input="updateContainerConfig(config, { memory_threshold: parseInt($event.target.value) })"
-                            min="50"
-                            max="100"
-                            step="5"
-                            class="w-full h-2 rounded-full appearance-none cursor-pointer bg-gradient-to-r from-green-400 via-yellow-400 to-red-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-400 [&::-webkit-slider-thumb]:cursor-pointer"
-                          />
-                          <div class="flex justify-between text-xs text-secondary mt-1">
-                            <span>50%</span>
-                            <span>75%</span>
-                            <span>100%</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Delete Config Button -->
-                  <div class="pt-4 border-t border-[var(--color-border)] flex justify-end">
-                    <button
-                      @click="deleteContainerConfig(config)"
-                      class="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-                    >
-                      <TrashIcon class="h-4 w-4" />
-                      Remove Custom Config
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </Transition>
-          </div>
-        </div>
-      </div>
-
-      <!-- History Section -->
-      <div v-if="activeSection === 'history'" class="space-y-4">
-        <div v-if="history.length === 0" class="text-center py-8 text-secondary">
-          <DocumentTextIcon class="h-12 w-12 mx-auto mb-3 text-gray-300" />
-          <p>No notification history yet.</p>
-        </div>
-
-        <div v-else class="space-y-2">
-          <div v-for="entry in history" :key="entry.id"
-            class="bg-surface rounded-xl border border-[var(--color-border)] overflow-hidden"
-          >
-            <!-- Collapsed header row - clickable -->
-            <button
-              @click="toggleHistoryItem(entry.id)"
-              class="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-            >
-              <div class="flex items-center gap-3">
-                <div :class="[
-                  'p-1.5 rounded-lg',
-                  entry.status === 'sent' ? 'bg-green-100 dark:bg-green-500/20' :
-                  entry.status === 'suppressed' ? 'bg-amber-100 dark:bg-amber-500/20' :
-                  entry.status === 'failed' ? 'bg-red-100 dark:bg-red-500/20' : 'bg-gray-100 dark:bg-gray-700'
-                ]">
-                  <component
-                    :is="getEventIcon(entry.event_type)"
-                    :class="[
-                      'h-4 w-4',
-                      entry.status === 'sent' ? 'text-green-600 dark:text-green-400' :
-                      entry.status === 'suppressed' ? 'text-amber-600 dark:text-amber-400' :
-                      entry.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'
-                    ]"
-                  />
-                </div>
-                <div class="text-left">
-                  <span class="font-medium text-primary">{{ formatEventType(entry.event_type) }}</span>
-                  <span v-if="entry.container_name" class="text-sm text-secondary ml-2">
-                    <CubeIcon class="h-3 w-3 inline" /> {{ entry.container_name }}
-                  </span>
-                </div>
-              </div>
-              <div class="flex items-center gap-3">
-                <span class="text-xs text-secondary hidden sm:inline">{{ entry.target_label }}</span>
-                <span :class="[
-                  'px-2 py-0.5 rounded-full text-xs font-medium',
-                  entry.status === 'sent' ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400' :
-                  entry.status === 'suppressed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
-                  entry.status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
-                  'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-400'
-                ]">
-                  {{ entry.status }}
-                </span>
-                <span class="text-xs text-secondary">{{ formatRelativeTime(entry.triggered_at) }}</span>
-                <ChevronDownIcon
-                  :class="['h-4 w-4 text-gray-400 transition-transform duration-200', expandedHistoryItems.has(entry.id) ? 'rotate-180' : '']"
-                />
-              </div>
-            </button>
-
-            <!-- Expanded details -->
-            <Transition name="collapse">
-              <div v-if="expandedHistoryItems.has(entry.id)" class="border-t border-[var(--color-border)]">
-                <div class="p-4 space-y-3 bg-gray-50/50 dark:bg-gray-800/30">
-                  <!-- Target and Time -->
-                  <div class="flex items-center justify-between text-sm">
-                    <div v-if="entry.target_label" class="flex items-center gap-2 text-secondary">
-                      <BellIcon class="h-4 w-4" />
-                      <span>Sent to: {{ entry.target_label }}</span>
-                    </div>
-                    <div class="flex items-center gap-1 text-secondary">
-                      <ClockIcon class="h-4 w-4" />
-                      <span>{{ formatDate(entry.triggered_at) }}</span>
-                    </div>
-                  </div>
-
-                  <!-- Event details -->
-                  <div v-if="entry.details" class="text-sm text-primary bg-white dark:bg-gray-800 rounded-lg p-3 border border-[var(--color-border)]">
-                    {{ entry.details }}
-                  </div>
-
-                  <!-- Suppression reason -->
-                  <div v-if="entry.suppression_reason" class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-                    <ExclamationTriangleIcon class="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                    <div class="text-sm text-amber-700 dark:text-amber-400">
-                      <span class="font-medium">Suppressed:</span> {{ entry.suppression_reason }}
-                    </div>
-                  </div>
-
-                  <!-- Error message -->
-                  <div v-if="entry.error_message" class="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30">
-                    <XCircleIcon class="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <div class="text-sm text-red-700 dark:text-red-400">
-                      <span class="font-medium">Error:</span> {{ entry.error_message }}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Transition>
-          </div>
         </div>
       </div>
     </template>
