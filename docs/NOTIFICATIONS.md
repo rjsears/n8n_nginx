@@ -56,7 +56,7 @@ Group channels together for easier management:
 
 **This is critical** - Global events must be enabled before per-container settings work:
 
-1. Go to **Settings** > **System Notifications** > **Global Event Settings**
+1. Go to **Settings** > **System Notifications**
 2. Expand each category (Backup, Container, Security, SSL, System)
 3. Enable the event types you want to monitor
 4. Add notification targets using **Quick Setup** > **Apply to All Events**
@@ -65,9 +65,11 @@ Group channels together for easier management:
 
 After global events are enabled, customize individual containers:
 
-1. Go to **Settings** > **System Notifications** > **Container Config**
-2. Add containers you want custom settings for
-3. Toggle which events to monitor per container
+1. Go to **Containers** (main menu)
+2. Click on the container you want to configure
+3. Go to the **Alerts** tab
+4. Toggle which events to monitor for this container
+5. Optionally set custom CPU/memory thresholds
 
 ### Status Indicators
 
@@ -501,24 +503,25 @@ Groups allow you to send to multiple channels at once:
 ### Configuring Global Events
 
 1. Go to **Settings** > **System Notifications**
-2. Select the **Global Event Settings** tab
-3. Expand each event category
-4. For each event type:
+2. Expand each event category (Backup, Container, System, SSL, Security)
+3. For each event type:
    - Toggle to enable/disable
    - Add notification targets (channels or groups)
-5. Save changes
+   - Configure frequency, severity, and cooldowns
+4. Changes are saved automatically
 
 ### Per-Container Configuration
 
-1. Go to **Settings** > **System Notifications**
-2. Select the **Container Config** tab
-3. Click **Add Container**
-4. Select the container
-5. Configure:
-   - Which events to monitor
+Container-specific notification settings are managed directly from the Containers view:
+
+1. Go to **Containers** (main menu)
+2. Click on the container you want to configure
+3. Go to the **Alerts** tab
+4. Configure:
+   - Enable/disable notifications for this container
+   - Which events to monitor (Stopped, Unhealthy, Restarts)
    - Custom CPU/memory thresholds
-   - Override notification targets
-6. Save
+5. Save changes
 
 ### Testing Notifications
 
@@ -531,7 +534,7 @@ Always test before relying on notifications:
 
 ### Viewing Notification History
 
-1. Go to **Settings** > **Notifications** > **History**
+1. Go to **Notifications** (main menu) > **History** tab
 2. Filter by:
    - Event type
    - Channel
@@ -690,15 +693,15 @@ Prevent alert fatigue by setting cooldown periods in event configuration:
    - Verify the toggle is on
 
 2. **Check event is enabled:**
-   - Go to **System Notifications** > **Global Event Settings**
-   - Verify the event type is enabled
+   - Go to **Settings** > **System Notifications**
+   - Expand the relevant category and verify the event type is enabled
 
 3. **Test the channel:**
    - Click **Test** on the channel
    - Check for error messages
 
 4. **Check notification history:**
-   - Go to **Notifications** > **History**
+   - Go to **Notifications** (main menu) > **History** tab
    - Look for failed notifications with error details
 
 ### NTFY Not Working
@@ -775,12 +778,15 @@ Prevent alert fatigue by setting cooldown periods in event configuration:
 
 | Task | Location |
 |------|----------|
-| Add notification channel | Settings > Notifications > Add Channel |
-| Create channel group | Settings > Notifications > Groups |
-| Enable global events | Settings > System Notifications > Global Event Settings |
-| Per-container config | Settings > System Notifications > Container Config |
-| View history | Settings > Notifications > History |
+| Add notification channel | Notifications > Channels > Add Channel |
+| Create channel group | Notifications > Groups |
+| Enable global events | Settings > System Notifications |
+| Per-container alerts | Containers > [Container Name] > Alerts |
+| View notification history | Notifications > History |
 | Configure email | Settings > Email |
+| Maintenance mode | Settings > System Notifications (top status bar) |
+| Quiet hours | Settings > System Notifications (top status bar) |
+| Rate limiting | Settings > System Notifications (Rate Limiting card) |
 
 ### Environment Variables (for Self-Hosted NTFY)
 
