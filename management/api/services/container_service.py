@@ -360,6 +360,10 @@ class ContainerService:
         stopped = []
 
         for c in containers:
+            # Only check project containers, skip temp/external containers
+            if not c.get("is_project", False):
+                continue
+
             if c["status"] != "running":
                 stopped.append(c["name"])
             elif c["health"] == "unhealthy":
@@ -367,8 +371,11 @@ class ContainerService:
             else:
                 healthy.append(c["name"])
 
+        # Total should only count project containers
+        project_total = len(healthy) + len(unhealthy) + len(stopped)
+
         return {
-            "total": len(containers),
+            "total": project_total,
             "healthy": healthy,
             "unhealthy": unhealthy,
             "stopped": stopped,
