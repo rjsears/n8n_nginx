@@ -25,7 +25,7 @@ from datetime import datetime, UTC
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from api.auth import get_current_user
+from api.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 

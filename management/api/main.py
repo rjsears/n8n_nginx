@@ -118,7 +118,7 @@ app.add_middleware(
 )
 
 # Include routers
-from api.routers import auth, settings, notifications, backups, containers, system, email, flows, terminal, ntfy, system_notifications
+from api.routers import auth, settings, notifications, backups, containers, system, email, flows, terminal, ntfy, system_notifications, env_config
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
@@ -131,9 +131,7 @@ app.include_router(flows.router, prefix="/api/flows", tags=["Flows"])
 app.include_router(terminal.router, prefix="/api", tags=["Terminal"])
 app.include_router(ntfy.router, prefix="/api/ntfy", tags=["NTFY"])
 app.include_router(system_notifications.router, prefix="/api/system-notifications", tags=["System Notifications"])
-# TODO: Fix env_config router - temporarily disabled due to startup issues
-# from api.routers import env_config
-# app.include_router(env_config.router, prefix="/api/env-config", tags=["Environment Configuration"])
+app.include_router(env_config.router, prefix="/api/env-config", tags=["Environment Configuration"])
 
 
 @app.get("/api/health")
