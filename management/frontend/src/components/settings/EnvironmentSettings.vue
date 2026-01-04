@@ -3,7 +3,7 @@
 /management/frontend/src/components/settings/EnvironmentSettings.vue
 
 Environment Configuration Settings Component
-Manages .env file variables with health checks and warnings
+Manages .env file variables with health checks, backups, and warnings
 
 Part of the "n8n_nginx/n8n_management" suite
 Version 3.0.0 - January 2026
@@ -46,6 +46,9 @@ import {
   ChevronRightIcon,
   PlusIcon,
   BeakerIcon,
+  ArchiveBoxIcon,
+  ArrowUturnLeftIcon,
+  ClockIcon,
 } from '@heroicons/vue/24/outline'
 
 const notificationStore = useNotificationStore()
@@ -65,6 +68,13 @@ const healthCheckLoading = ref(false)
 
 // Confirmation gate - user must acknowledge warning before seeing settings
 const hasAcknowledgedRisk = ref(false)
+const acknowledgeLoading = ref(false)
+
+// Backups
+const backups = ref([])
+const showRestoreDialog = ref(false)
+const selectedBackup = ref(null)
+const restoring = ref(false)
 
 // Add variable dialog
 const showAddDialog = ref(false)
@@ -77,6 +87,13 @@ const variableToDelete = ref(null)
 
 // Reload confirmation
 const showReloadConfirm = ref(false)
+
+// Container restart after save
+const showRestartDialog = ref(false)
+const affectedContainers = ref([])
+const selectedContainersToRestart = ref([])
+const restartingContainers = ref(false)
+const lastSavedVariable = ref(null)
 
 // Icon mapping
 const iconMap = {
@@ -176,6 +193,7 @@ const colorClasses = {
 
 // Computed
 const hasPendingChanges = computed(() => Object.keys(pendingChanges.value).length > 0)
+const hasBackups = computed(() => backups.value.length > 0)
 
 // Methods
 async function loadEnvConfig() {
@@ -189,6 +207,15 @@ async function loadEnvConfig() {
     notificationStore.error('Failed to load environment configuration')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadBackups() {
+  try {
+    const response = await api.get('/env-config/backups')
+    backups.value = response.data.backups || []
+  } catch (error) {
+    console.error('Failed to load backups:', error)
   }
 }
 
@@ -233,12 +260,69 @@ async function saveVariable(variable) {
     notificationStore.success(`${variable.label} updated successfully`)
     editingVariable.value = null
     editValue.value = ''
+    lastSavedVariable.value = variable.key
+
+    // Check which containers are affected
+    await checkAffectedContainers(variable.key)
+
     await loadEnvConfig()
   } catch (error) {
     console.error('Failed to save variable:', error)
     notificationStore.error(error.response?.data?.detail || 'Failed to save variable')
   } finally {
     saving.value = false
+  }
+}
+
+async function checkAffectedContainers(variableKey) {
+  try {
+    const response = await api.get(`/env-config/affected-containers/${variableKey}`)
+    if (response.data.affected_containers && response.data.affected_containers.length > 0) {
+      affectedContainers.value = response.data.affected_containers.map(name => ({
+        name,
+        displayName: response.data.container_display_names[name] || name,
+      }))
+      selectedContainersToRestart.value = [...response.data.affected_containers]
+      showRestartDialog.value = true
+    }
+  } catch (error) {
+    console.error('Failed to check affected containers:', error)
+  }
+}
+
+async function restartSelectedContainers() {
+  if (selectedContainersToRestart.value.length === 0) {
+    showRestartDialog.value = false
+    return
+  }
+
+  restartingContainers.value = true
+  try {
+    const response = await api.post('/env-config/restart-containers', {
+      containers: selectedContainersToRestart.value,
+    })
+
+    if (response.data.status === 'success') {
+      notificationStore.success(response.data.message)
+    } else {
+      notificationStore.warning(response.data.message)
+    }
+
+    showRestartDialog.value = false
+  } catch (error) {
+    console.error('Failed to restart containers:', error)
+    notificationStore.error('Failed to restart containers')
+  } finally {
+    restartingContainers.value = false
+  }
+}
+
+function toggleContainerSelection(containerName) {
+  const idx = selectedContainersToRestart.value.indexOf(containerName)
+  if (idx >= 0) {
+    selectedContainersToRestart.value.splice(idx, 1)
+  } else {
+    selectedContainersToRestart.value.push(containerName)
   }
 }
 
@@ -253,7 +337,6 @@ function togglePasswordVisibility(key) {
 function getDisplayValue(variable) {
   if (variable.sensitive) {
     if (showPassword.value.has(variable.key)) {
-      // We don't have the actual value, show placeholder
       return variable.value || '********'
     }
     return '********'
@@ -292,7 +375,6 @@ async function addVariable() {
     return
   }
 
-  // Validate key format
   if (!/^[A-Z][A-Z0-9_]*$/.test(newVarKey.value)) {
     notificationStore.error('Variable name must be uppercase and start with a letter (e.g., MY_VARIABLE)')
     return
@@ -360,12 +442,69 @@ function formatDate(isoString) {
   return new Date(isoString).toLocaleString()
 }
 
-function acknowledgeRisk() {
-  hasAcknowledgedRisk.value = true
+function formatBackupDate(isoString) {
+  if (!isoString) return 'Unknown'
+  const date = new Date(isoString)
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
+async function acknowledgeRisk() {
+  acknowledgeLoading.value = true
+  try {
+    // Create a backup before allowing access
+    await api.post('/env-config/backup')
+    notificationStore.success('Backup created before entering Environment settings')
+    hasAcknowledgedRisk.value = true
+    await loadBackups()
+  } catch (error) {
+    console.error('Failed to create backup:', error)
+    // Still allow access even if backup fails
+    hasAcknowledgedRisk.value = true
+    notificationStore.warning('Could not create backup, but you may proceed')
+  } finally {
+    acknowledgeLoading.value = false
+  }
+}
+
+function openRestoreDialog() {
+  selectedBackup.value = null
+  showRestoreDialog.value = true
+}
+
+async function restoreBackup() {
+  if (!selectedBackup.value) {
+    notificationStore.error('Please select a backup to restore')
+    return
+  }
+
+  restoring.value = true
+  try {
+    const response = await api.post('/env-config/restore', {
+      filename: selectedBackup.value,
+    })
+    notificationStore.success(response.data.message)
+    showRestoreDialog.value = false
+    selectedBackup.value = null
+    await loadEnvConfig()
+    await loadBackups()
+  } catch (error) {
+    console.error('Failed to restore backup:', error)
+    notificationStore.error(error.response?.data?.detail || 'Failed to restore backup')
+  } finally {
+    restoring.value = false
+  }
 }
 
 onMounted(() => {
   loadEnvConfig()
+  loadBackups()
 })
 </script>
 
@@ -402,9 +541,11 @@ onMounted(() => {
     <div v-if="!hasAcknowledgedRisk" class="flex justify-center py-12">
       <button
         @click="acknowledgeRisk"
-        class="flex items-center gap-3 px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold text-lg transition-colors shadow-lg hover:shadow-xl"
+        :disabled="acknowledgeLoading"
+        class="flex items-center gap-3 px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold text-lg transition-colors shadow-lg hover:shadow-xl disabled:opacity-50"
       >
-        <ShieldExclamationIcon class="h-6 w-6" />
+        <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
+        <ShieldExclamationIcon v-else class="h-6 w-6" />
         I understand the risks, Continue...
       </button>
     </div>
@@ -429,6 +570,14 @@ onMounted(() => {
           >
             <ArrowPathIcon class="h-5 w-5" />
             Reload Variables
+          </button>
+          <button
+            v-if="hasBackups"
+            @click="openRestoreDialog"
+            class="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium transition-colors"
+          >
+            <ArrowUturnLeftIcon class="h-5 w-5" />
+            Restore Previous .env
           </button>
         </div>
         <div class="flex items-center gap-4">
@@ -666,15 +815,8 @@ onMounted(() => {
           v-if="showAddDialog"
           class="fixed inset-0 z-[100] flex items-center justify-center p-4"
         >
-          <!-- Backdrop -->
-          <div
-            class="absolute inset-0 bg-black/50"
-            @click="showAddDialog = false"
-          />
-
-          <!-- Dialog -->
+          <div class="absolute inset-0 bg-black/50" @click="showAddDialog = false" />
           <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full border border-gray-400 dark:border-gray-700">
-            <!-- Header -->
             <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700">
               <div class="flex items-center gap-3">
                 <div class="p-2 rounded-full bg-purple-100 dark:bg-purple-500/20">
@@ -682,15 +824,10 @@ onMounted(() => {
                 </div>
                 <h3 class="text-lg font-semibold text-primary">Add Custom Variable</h3>
               </div>
-              <button
-                @click="showAddDialog = false"
-                class="p-1 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover"
-              >
+              <button @click="showAddDialog = false" class="p-1 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover">
                 <XCircleIcon class="h-5 w-5" />
               </button>
             </div>
-
-            <!-- Content -->
             <div class="px-6 py-4 space-y-4">
               <div>
                 <label class="block text-sm font-medium text-primary mb-1">Variable Name</label>
@@ -712,20 +849,9 @@ onMounted(() => {
                 />
               </div>
             </div>
-
-            <!-- Footer -->
             <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-400 dark:border-gray-700">
-              <button
-                @click="showAddDialog = false"
-                class="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                @click="addVariable"
-                :disabled="saving"
-                class="btn-primary"
-              >
+              <button @click="showAddDialog = false" class="btn-secondary">Cancel</button>
+              <button @click="addVariable" :disabled="saving" class="btn-primary">
                 <span v-if="saving" class="flex items-center gap-2">
                   <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
@@ -734,6 +860,169 @@ onMounted(() => {
                   Adding...
                 </span>
                 <span v-else>Add Variable</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Restore Backup Dialog -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showRestoreDialog"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/50" @click="showRestoreDialog = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full border border-gray-400 dark:border-gray-700">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-full bg-amber-100 dark:bg-amber-500/20">
+                  <ArrowUturnLeftIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <h3 class="text-lg font-semibold text-primary">Restore Previous .env File</h3>
+              </div>
+              <button @click="showRestoreDialog = false" class="p-1 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover">
+                <XCircleIcon class="h-5 w-5" />
+              </button>
+            </div>
+
+            <!-- Warning -->
+            <div class="px-6 py-4 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/30">
+              <div class="flex items-start gap-3">
+                <ExclamationTriangleIcon class="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div class="text-sm text-amber-700 dark:text-amber-400">
+                  <p class="font-medium mb-1">Restoring a backup may cause problems!</p>
+                  <p>Restoring will replace the current .env file. A backup of the current file will be made automatically. You may need to restart containers for changes to take effect.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="px-6 py-4">
+              <label class="block text-sm font-medium text-primary mb-3">Select a backup to restore:</label>
+              <div class="space-y-2 max-h-64 overflow-y-auto">
+                <label
+                  v-for="backup in backups"
+                  :key="backup.filename"
+                  :class="[
+                    'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                    selectedBackup === backup.filename
+                      ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10'
+                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                  ]"
+                >
+                  <input
+                    type="radio"
+                    :value="backup.filename"
+                    v-model="selectedBackup"
+                    class="text-amber-500 focus:ring-amber-500"
+                  />
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <ArchiveBoxIcon class="h-4 w-4 text-secondary" />
+                      <span class="font-mono text-sm text-primary">{{ backup.filename }}</span>
+                    </div>
+                    <div class="flex items-center gap-2 mt-1 text-xs text-secondary">
+                      <ClockIcon class="h-3 w-3" />
+                      {{ formatBackupDate(backup.created_at) }}
+                      <span class="text-gray-400">•</span>
+                      {{ (backup.size / 1024).toFixed(1) }} KB
+                    </div>
+                  </div>
+                </label>
+              </div>
+              <p v-if="backups.length === 0" class="text-center text-secondary py-4">No backups available</p>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-400 dark:border-gray-700">
+              <button @click="showRestoreDialog = false" class="btn-secondary">Cancel</button>
+              <button
+                @click="restoreBackup"
+                :disabled="!selectedBackup || restoring"
+                class="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                <LoadingSpinner v-if="restoring" size="sm" />
+                <ArrowUturnLeftIcon v-else class="h-4 w-4" />
+                {{ restoring ? 'Restoring...' : 'Restore' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Container Restart Dialog -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showRestartDialog"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/50" @click="showRestartDialog = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full border border-gray-400 dark:border-gray-700">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-400 dark:border-gray-700">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-full bg-blue-100 dark:bg-blue-500/20">
+                  <ArrowPathIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <h3 class="text-lg font-semibold text-primary">Restart Affected Containers</h3>
+              </div>
+              <button @click="showRestartDialog = false" class="p-1 rounded-lg text-secondary hover:text-primary hover:bg-surface-hover">
+                <XCircleIcon class="h-5 w-5" />
+              </button>
+            </div>
+
+            <div class="px-6 py-4">
+              <div class="flex items-start gap-3 mb-4 p-3 bg-blue-50 dark:bg-blue-500/10 rounded-lg">
+                <InformationCircleIcon class="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div class="text-sm text-blue-700 dark:text-blue-400">
+                  <p>The following containers use the <strong>{{ lastSavedVariable }}</strong> variable and need to be restarted for changes to take effect.</p>
+                </div>
+              </div>
+
+              <label class="block text-sm font-medium text-primary mb-3">Select containers to restart:</label>
+              <div class="space-y-2">
+                <label
+                  v-for="container in affectedContainers"
+                  :key="container.name"
+                  :class="[
+                    'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                    selectedContainersToRestart.includes(container.name)
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
+                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                  ]"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="selectedContainersToRestart.includes(container.name)"
+                    @change="toggleContainerSelection(container.name)"
+                    class="text-blue-500 focus:ring-blue-500 rounded"
+                  />
+                  <div class="flex items-center gap-2">
+                    <CubeIcon class="h-4 w-4 text-secondary" />
+                    <span class="font-medium text-primary">{{ container.displayName }}</span>
+                    <span class="text-xs text-secondary font-mono">({{ container.name }})</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between px-6 py-4 border-t border-gray-400 dark:border-gray-700">
+              <button
+                @click="showRestartDialog = false"
+                class="text-secondary hover:text-primary text-sm"
+              >
+                Skip for now
+              </button>
+              <button
+                @click="restartSelectedContainers"
+                :disabled="selectedContainersToRestart.length === 0 || restartingContainers"
+                class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                <LoadingSpinner v-if="restartingContainers" size="sm" />
+                <ArrowPathIcon v-else class="h-4 w-4" />
+                {{ restartingContainers ? 'Restarting...' : `Restart ${selectedContainersToRestart.length} Container${selectedContainersToRestart.length !== 1 ? 's' : ''}` }}
               </button>
             </div>
           </div>
