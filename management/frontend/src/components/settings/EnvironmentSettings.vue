@@ -16,10 +16,12 @@ https://github.com/rjsears
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useNotificationStore } from '@/stores/notifications'
+import { useBackupStore } from '@/stores/backups'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ProgressModal from '@/components/backups/ProgressModal.vue'
 import {
   ExclamationCircleIcon,
   CircleStackIcon,
@@ -56,6 +58,22 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const notificationStore = useNotificationStore()
+const backupStore = useBackupStore()
+
+// Progress Modal State for backup operations
+const progressModal = ref({
+  show: false,
+  type: 'backup', // 'backup' or 'verify'
+  backupId: null,
+  status: 'running' // 'running', 'success', 'failed'
+})
+
+// Get progress data for the active operation from backup store
+const activeBackupProgress = computed(() => {
+  if (!progressModal.value.backupId) return { progress: 0, progress_message: '' }
+  const backup = backupStore.backups.find(b => b.id === progressModal.value.backupId)
+  return backup || { progress: 0, progress_message: '' }
+})
 
 // State
 const loading = ref(true)
@@ -562,6 +580,15 @@ function getContainerStatusTextColor(container) {
 
 async function downloadFullBackup() {
   downloadingFullBackup.value = true
+
+  // Show progress modal
+  progressModal.value = {
+    show: true,
+    type: 'backup',
+    backupId: null,
+    status: 'running'
+  }
+
   try {
     // First, trigger a new full backup
     const backupResponse = await api.post('/backups/run', {
@@ -571,40 +598,71 @@ async function downloadFullBackup() {
 
     if (backupResponse.data.backup_id) {
       const backupId = backupResponse.data.backup_id
+      progressModal.value.backupId = backupId
+
+      // Start polling for progress updates
+      pollForProgress()
 
       // Poll for backup completion (max 90 seconds)
       const maxAttempts = 45
       const pollInterval = 2000 // 2 seconds
-      let backup = null
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, pollInterval))
 
-        try {
-          // Use the correct endpoint: /backups/history/{id}
-          const statusResponse = await api.get(`/backups/history/${backupId}`)
-          backup = statusResponse.data
+        // Fetch latest backup status from store
+        await backupStore.fetchBackups()
+        const backup = backupStore.backups.find(b => b.id === backupId)
 
-          if (backup.status === 'success' && backup.filepath) {
-            break
-          } else if (backup.status === 'failed') {
-            throw new Error('Backup failed')
-          }
-          // Still running, continue polling
-        } catch (pollError) {
-          // If it's a 404, backup might not be ready yet
-          if (pollError.response?.status !== 404) {
-            console.error('Poll error:', pollError)
-          }
+        if (!backup) continue
+
+        if (backup.status === 'success' && backup.filepath) {
+          progressModal.value.status = 'success'
+          return // Success - user will click Done to download
+        } else if (backup.status === 'failed') {
+          progressModal.value.status = 'failed'
+          notificationStore.error('Backup failed: ' + (backup.error_message || 'Unknown error'))
+          return
         }
+        // Still running, continue polling
       }
 
-      if (!backup || backup.status !== 'success') {
-        throw new Error('Backup did not complete in time')
-      }
+      // Timeout
+      progressModal.value.status = 'failed'
+      notificationStore.error('Backup did not complete in time')
+    }
+  } catch (error) {
+    progressModal.value.status = 'failed'
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to create backup: ${errorMsg}`)
+  } finally {
+    downloadingFullBackup.value = false
+  }
+}
+
+// Poll for progress updates during backup operations
+async function pollForProgress() {
+  while (progressModal.value.status === 'running' && progressModal.value.show) {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    try {
+      await backupStore.fetchBackups()
+    } catch (e) {
+      console.error('Poll error:', e)
+    }
+  }
+}
+
+// Close progress modal and download backup if successful
+async function closeProgressModal() {
+  const backupId = progressModal.value.backupId
+  const wasSuccess = progressModal.value.status === 'success'
+
+  // If backup was successful, download the file
+  if (wasSuccess && backupId) {
+    try {
+      const backup = backupStore.backups.find(b => b.id === backupId)
 
       // Download the complete backup (with restore.sh for bare metal recovery)
-      // Use longer timeout for download (5 minutes) as full backups can be large
       const downloadResponse = await api.get(`/backups/download/${backupId}`, {
         responseType: 'blob',
         timeout: 300000 // 5 minutes
@@ -615,8 +673,7 @@ async function downloadFullBackup() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      // Use the actual backup filename if available
-      const filename = backup.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
+      const filename = backup?.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
       a.download = filename
       document.body.appendChild(a)
       a.click()
@@ -625,13 +682,15 @@ async function downloadFullBackup() {
 
       fullBackupDownloaded.value = true
       notificationStore.success('Full backup downloaded successfully. You can now safely proceed.')
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+      notificationStore.error(`Failed to download backup: ${errorMsg}`)
     }
-  } catch (error) {
-    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-    notificationStore.error(`Failed to create/download backup: ${errorMsg}`)
-  } finally {
-    downloadingFullBackup.value = false
   }
+
+  // Close the modal
+  progressModal.value.show = false
+  progressModal.value.backupId = null
 }
 
 function downloadRecoveryInstructions() {
@@ -1713,6 +1772,16 @@ onMounted(() => {
         </div>
       </div>
     </Transition>
+
+    <!-- Backup Progress Modal -->
+    <ProgressModal
+      :show="progressModal.show"
+      :type="progressModal.type"
+      :progress="activeBackupProgress.progress || 0"
+      :progress-message="activeBackupProgress.progress_message || ''"
+      :status="progressModal.status"
+      @close="closeProgressModal"
+    />
   </div>
 </template>
 
