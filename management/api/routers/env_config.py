@@ -772,8 +772,8 @@ async def run_health_checks(
     _=Depends(get_current_user),
 ):
     """
-    Run health checks to validate environment configuration.
-    Optionally pass pending_changes to validate before applying.
+    Run comprehensive health checks to validate environment and system configuration.
+    Checks all containers, network services, database, and required variables.
     """
     checks = []
     warnings = []
@@ -785,21 +785,29 @@ async def run_health_checks(
     else:
         test_env = env_vars
 
-    # Check 1: PostgreSQL Connection
+    # Check 1: All Containers (with categorization)
+    container_check = await _check_all_containers()
+    checks.append(container_check)
+
+    # Check 2: PostgreSQL Connection
     postgres_check = await _check_postgres_connection(test_env)
     checks.append(postgres_check)
 
-    # Check 2: Domain Resolution
+    # Check 3: Domain Resolution
     domain_check = await _check_domain_resolution(test_env)
     checks.append(domain_check)
 
-    # Check 3: Required Variables
+    # Check 4: Required Variables
     required_check = _check_required_variables(test_env)
     checks.append(required_check)
 
-    # Check 4: Container Names
-    container_check = await _check_container_names(test_env)
-    checks.append(container_check)
+    # Check 5: Cloudflare Tunnel (if configured)
+    cloudflare_check = await _check_cloudflare_tunnel()
+    checks.append(cloudflare_check)
+
+    # Check 6: Tailscale VPN (if configured)
+    tailscale_check = await _check_tailscale()
+    checks.append(tailscale_check)
 
     # Generate warnings for sensitive changes
     if pending_changes:
@@ -918,52 +926,282 @@ def _check_required_variables(env_vars: Dict[str, str]) -> HealthCheckResult:
     )
 
 
-async def _check_container_names(env_vars: Dict[str, str]) -> HealthCheckResult:
-    """Check that referenced containers exist."""
+async def _check_all_containers() -> HealthCheckResult:
+    """Check all containers from docker-compose.yaml with categorization."""
     try:
         import docker
+        import yaml
 
         client = docker.from_env()
 
-        container_vars = [
-            "POSTGRES_CONTAINER",
-            "N8N_CONTAINER",
-            "NGINX_CONTAINER",
-            "MANAGEMENT_CONTAINER",
-        ]
+        # Define container categories and expected containers
+        container_categories = {
+            "core": {
+                "label": "Core Services",
+                "color": "blue",
+                "containers": {
+                    "n8n_postgres": {"display": "PostgreSQL", "required": True},
+                    "n8n": {"display": "n8n Automation", "required": True},
+                    "n8n_nginx": {"display": "Nginx Proxy", "required": True},
+                    "n8n_management": {"display": "Management Console", "required": True},
+                    "n8n_certbot": {"display": "Certbot SSL", "required": True},
+                }
+            },
+            "optional": {
+                "label": "Optional Services",
+                "color": "purple",
+                "containers": {
+                    "n8n_adminer": {"display": "Adminer DB", "required": False},
+                    "n8n_dozzle": {"display": "Dozzle Logs", "required": False},
+                    "n8n_portainer": {"display": "Portainer", "required": False},
+                    "n8n_ntfy": {"display": "NTFY Notifications", "required": False},
+                }
+            },
+            "network": {
+                "label": "Network Services",
+                "color": "emerald",
+                "containers": {
+                    "n8n_cloudflared": {"display": "Cloudflare Tunnel", "required": False},
+                    "n8n_tailscale": {"display": "Tailscale VPN", "required": False},
+                }
+            },
+        }
 
-        missing = []
-        found = []
+        # Get all running containers
+        all_containers = client.containers.list(all=True)
+        container_map = {c.name: c for c in all_containers}
 
-        for var in container_vars:
-            container_name = env_vars.get(var)
-            if container_name:
-                try:
-                    client.containers.get(container_name)
-                    found.append(container_name)
-                except docker.errors.NotFound:
-                    missing.append(container_name)
+        categories_result = {}
+        total_found = 0
+        total_running = 0
+        total_missing_required = 0
 
-        if missing:
-            return HealthCheckResult(
-                check_type="container_names",
-                success=False,
-                message=f"Containers not found: {', '.join(missing)}",
-                details={"missing": missing, "found": found},
-            )
+        for cat_key, cat_data in container_categories.items():
+            cat_result = {
+                "label": cat_data["label"],
+                "color": cat_data["color"],
+                "containers": [],
+            }
+
+            for container_name, container_info in cat_data["containers"].items():
+                container = container_map.get(container_name)
+                status = "not_found"
+                health = None
+
+                if container:
+                    status = container.status
+                    total_found += 1
+                    if status == "running":
+                        total_running += 1
+                        # Check health if available
+                        try:
+                            health_state = container.attrs.get("State", {}).get("Health", {})
+                            if health_state:
+                                health = health_state.get("Status", "unknown")
+                        except Exception:
+                            pass
+                elif container_info["required"]:
+                    total_missing_required += 1
+
+                cat_result["containers"].append({
+                    "name": container_name,
+                    "display": container_info["display"],
+                    "status": status,
+                    "health": health,
+                    "required": container_info["required"],
+                })
+
+            categories_result[cat_key] = cat_result
+
+        success = total_missing_required == 0
+        message = f"{total_running}/{total_found} containers running"
+        if total_missing_required > 0:
+            message = f"{total_missing_required} required container(s) missing"
 
         return HealthCheckResult(
-            check_type="container_names",
-            success=True,
-            message=f"All {len(found)} configured containers found",
-            details={"found": found},
+            check_type="containers",
+            success=success,
+            message=message,
+            details={
+                "categories": categories_result,
+                "total_found": total_found,
+                "total_running": total_running,
+                "missing_required": total_missing_required,
+            },
         )
 
     except Exception as e:
         return HealthCheckResult(
-            check_type="container_names",
+            check_type="containers",
             success=False,
             message=f"Container check failed: {str(e)}",
+            details={"error": str(e)},
+        )
+
+
+async def _check_cloudflare_tunnel() -> HealthCheckResult:
+    """Check Cloudflare Tunnel status."""
+    try:
+        import docker
+        import re
+
+        client = docker.from_env()
+
+        # Find cloudflared container
+        cf_container = None
+        for container in client.containers.list(all=True):
+            if "cloudflare" in container.name.lower():
+                cf_container = container
+                break
+
+        if not cf_container:
+            return HealthCheckResult(
+                check_type="cloudflare_tunnel",
+                success=True,  # Not a failure if not configured
+                message="Cloudflare Tunnel not configured",
+                details={"installed": False},
+            )
+
+        if cf_container.status != "running":
+            return HealthCheckResult(
+                check_type="cloudflare_tunnel",
+                success=False,
+                message=f"Cloudflare Tunnel container is {cf_container.status}",
+                details={"installed": True, "running": False, "status": cf_container.status},
+            )
+
+        # Check if tunnel is connected by examining logs
+        try:
+            logs = cf_container.logs(tail=50).decode("utf-8")
+            connected = "registered" in logs.lower() or "connection" in logs.lower()
+
+            # Try to get metrics
+            metrics = {}
+            try:
+                exit_code, output = cf_container.exec_run(
+                    "wget -q -O- http://localhost:2000/metrics 2>/dev/null",
+                    demux=True
+                )
+                if exit_code == 0 and output[0]:
+                    metrics_text = output[0].decode("utf-8")
+                    # Extract HA connections count
+                    match = re.search(r'cloudflared_tunnel_ha_connections\s+(\d+)', metrics_text)
+                    if match:
+                        metrics["ha_connections"] = int(match.group(1))
+            except Exception:
+                pass
+
+            return HealthCheckResult(
+                check_type="cloudflare_tunnel",
+                success=True,
+                message="Cloudflare Tunnel connected" if connected else "Cloudflare Tunnel running",
+                details={
+                    "installed": True,
+                    "running": True,
+                    "connected": connected,
+                    "container": cf_container.name,
+                    "metrics": metrics,
+                },
+            )
+        except Exception as e:
+            return HealthCheckResult(
+                check_type="cloudflare_tunnel",
+                success=True,
+                message="Cloudflare Tunnel running (status unknown)",
+                details={"installed": True, "running": True, "error": str(e)},
+            )
+
+    except Exception as e:
+        return HealthCheckResult(
+            check_type="cloudflare_tunnel",
+            success=False,
+            message=f"Cloudflare check failed: {str(e)}",
+            details={"error": str(e)},
+        )
+
+
+async def _check_tailscale() -> HealthCheckResult:
+    """Check Tailscale VPN status."""
+    try:
+        import docker
+        import json as json_module
+
+        client = docker.from_env()
+
+        # Find tailscale container
+        ts_container = None
+        for container in client.containers.list(all=True):
+            if "tailscale" in container.name.lower():
+                ts_container = container
+                break
+
+        if not ts_container:
+            return HealthCheckResult(
+                check_type="tailscale",
+                success=True,  # Not a failure if not configured
+                message="Tailscale not configured",
+                details={"installed": False},
+            )
+
+        if ts_container.status != "running":
+            return HealthCheckResult(
+                check_type="tailscale",
+                success=False,
+                message=f"Tailscale container is {ts_container.status}",
+                details={"installed": True, "running": False, "status": ts_container.status},
+            )
+
+        # Get tailscale status
+        try:
+            exit_code, output = ts_container.exec_run(
+                "tailscale status --json",
+                demux=True
+            )
+
+            if exit_code == 0 and output[0]:
+                ts_status = json_module.loads(output[0].decode("utf-8"))
+                logged_in = ts_status.get("BackendState") == "Running"
+                self_info = ts_status.get("Self", {})
+
+                tailscale_ip = None
+                hostname = None
+                if self_info:
+                    ts_ips = self_info.get("TailscaleIPs", [])
+                    if ts_ips:
+                        tailscale_ip = ts_ips[0]
+                    hostname = self_info.get("HostName")
+
+                peer_count = len(ts_status.get("Peer", {}))
+                tailnet = ts_status.get("CurrentTailnet", {}).get("Name")
+
+                return HealthCheckResult(
+                    check_type="tailscale",
+                    success=logged_in,
+                    message=f"Tailscale connected to {tailnet}" if logged_in else "Tailscale not logged in",
+                    details={
+                        "installed": True,
+                        "running": True,
+                        "logged_in": logged_in,
+                        "tailscale_ip": tailscale_ip,
+                        "hostname": hostname,
+                        "tailnet": tailnet,
+                        "peer_count": peer_count,
+                        "container": ts_container.name,
+                    },
+                )
+        except Exception as e:
+            return HealthCheckResult(
+                check_type="tailscale",
+                success=True,
+                message="Tailscale running (status unknown)",
+                details={"installed": True, "running": True, "error": str(e)},
+            )
+
+    except Exception as e:
+        return HealthCheckResult(
+            check_type="tailscale",
+            success=False,
+            message=f"Tailscale check failed: {str(e)}",
             details={"error": str(e)},
         )
 

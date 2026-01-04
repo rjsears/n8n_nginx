@@ -40,6 +40,7 @@ def _run_alpine_container_sync(docker_client, command: list, **kwargs) -> bytes:
     even if remove=True fails due to exceptions or timeouts.
     """
     container = None
+    container_id = None
     try:
         # Don't use remove=True - we'll handle cleanup manually
         kwargs.pop("remove", None)
@@ -50,6 +51,7 @@ def _run_alpine_container_sync(docker_client, command: list, **kwargs) -> bytes:
             detach=True,
             **kwargs
         )
+        container_id = container.id
 
         # Wait for container to complete (timeout after 30 seconds)
         result = container.wait(timeout=30)
@@ -64,12 +66,38 @@ def _run_alpine_container_sync(docker_client, command: list, **kwargs) -> bytes:
         raise
 
     finally:
-        # Always try to clean up the container
+        # Always try to clean up the container - use multiple methods to ensure cleanup
+        cleanup_success = False
+
+        # Method 1: Try using the container object
         if container:
             try:
+                container.stop(timeout=1)
+            except Exception:
+                pass
+            try:
                 container.remove(force=True)
+                cleanup_success = True
             except Exception as cleanup_err:
-                logger.debug(f"Failed to remove container: {cleanup_err}")
+                logger.debug(f"Failed to remove container via object: {cleanup_err}")
+
+        # Method 2: If we have the ID and first method failed, try direct API call
+        if not cleanup_success and container_id:
+            try:
+                # Refresh container reference and force remove
+                stale_container = docker_client.containers.get(container_id)
+                stale_container.remove(force=True)
+                cleanup_success = True
+            except Exception as e:
+                logger.debug(f"Failed to remove container via ID lookup: {e}")
+
+        # Method 3: Last resort - use low-level API
+        if not cleanup_success and container_id:
+            try:
+                docker_client.api.remove_container(container_id, force=True, v=True)
+                logger.debug(f"Removed container {container_id[:12]} via low-level API")
+            except Exception as e:
+                logger.warning(f"All cleanup methods failed for container {container_id[:12]}: {e}")
 
 
 @router.get("/health", response_model=HealthResponse)
