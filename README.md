@@ -3231,11 +3231,14 @@ docker exec n8n_nginx nginx -s reload
 
 ## 23. Environment Variables Reference
 
+> **Tip**: Environment variables can be managed through the management console at **Settings > Environment**. This provides a user-friendly interface with health checks and validation.
+
 ### Core Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DOMAIN` | Your domain name | Required |
+| `DOMAIN` | Your domain name (used for SSL, URLs, etc.) | Required |
+| `N8N_MANAGEMENT_HOST_IP` | Local IP of Docker host (for backup/restore) | Auto-detected |
 | `MGMT_PORT` | Management console port | `3333` |
 | `TIMEZONE` | System timezone | Auto-detected |
 
@@ -3269,8 +3272,12 @@ docker exec n8n_nginx nginx -s reload
 |----------|-------------|
 | `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare tunnel authentication |
 | `TAILSCALE_AUTH_KEY` | Tailscale pre-auth key |
+| `TAILSCALE_ROUTES` | CIDR routes to advertise (e.g., `192.168.1.0/24`) |
 | `NFS_SERVER` | NFS server address |
 | `NFS_PATH` | NFS export path |
+| `NFS_LOCAL_MOUNT` | Local mount point for NFS share |
+| `N8N_API_KEY` | n8n API key for workflow management |
+| `NTFY_BASE_URL` | NTFY server URL for push notifications |
 
 ### n8n Variables
 
