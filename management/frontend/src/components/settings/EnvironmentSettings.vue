@@ -829,20 +829,21 @@ onMounted(() => {
     <!-- Confirmation Gate - Show warning card if not acknowledged -->
     <div v-if="!hasAcknowledgedRisk" class="flex justify-center">
       <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden max-w-md w-full">
-        <!-- Icon and Title -->
-        <div class="flex flex-col items-center pt-8 pb-4">
-          <div class="w-16 h-16 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center mb-4">
-            <!-- Lightbulb Warning Icon -->
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
+        <!-- Danger Zone Header -->
+        <div class="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/30">
+          <!-- Icon Container -->
+          <div class="flex-shrink-0 w-12 h-12 rounded-lg bg-red-100 dark:bg-red-500/20 border border-red-200 dark:border-red-500/30 flex items-center justify-center">
+            <ExclamationTriangleIcon class="h-6 w-6 text-red-600 dark:text-red-400" />
           </div>
-          <h2 class="text-xl font-bold text-red-600 dark:text-red-400">Danger Zone</h2>
-          <p class="text-sm text-red-500 dark:text-red-400">Advanced Configuration - Proceed with Caution</p>
+          <!-- Title Area -->
+          <div>
+            <h2 class="text-lg font-bold text-red-600 dark:text-red-400">DANGER ZONE</h2>
+            <p class="text-sm text-red-500 dark:text-red-400/80">Advanced Configuration - Proceed with Caution</p>
+          </div>
         </div>
 
         <!-- Main Text -->
-        <div class="px-6 pb-4 text-center">
+        <div class="px-6 pt-4 pb-4 text-center">
           <p class="text-gray-700 dark:text-gray-200 text-sm">
             This is an <strong>ADVANCED</strong> configuration area. Changes to these variables are not typically required.
           </p>
@@ -1602,12 +1603,24 @@ onMounted(() => {
             <div class="p-6 overflow-y-auto max-h-[60vh]">
               <!-- Important Notice -->
               <div class="mb-6 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/20">
-                <p class="text-red-700 dark:text-red-300 text-sm font-semibold">
-                  Save these instructions NOW before making changes!
-                </p>
-                <p class="text-red-600/80 dark:text-red-400/70 text-sm mt-1">
-                  If the Management Console becomes inaccessible, you won't be able to view this page.
-                </p>
+                <div class="flex items-start gap-3">
+                  <!-- Warning Triangle Icon -->
+                  <div class="flex-shrink-0 mt-0.5">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 2L1 21h22L12 2z" fill="#FBBF24" stroke="#DC2626" stroke-width="1.5" stroke-linejoin="round"/>
+                      <path d="M12 9v5" stroke="#DC2626" stroke-width="2" stroke-linecap="round"/>
+                      <circle cx="12" cy="17" r="1" fill="#DC2626"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <p class="text-red-700 dark:text-red-300 text-sm font-semibold">
+                      Save these instructions NOW before making changes!
+                    </p>
+                    <p class="text-red-600/80 dark:text-red-400/70 text-sm mt-1">
+                      If the Management Console becomes inaccessible, you won't be able to view this page.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <!-- Steps -->
@@ -1683,11 +1696,11 @@ onMounted(() => {
                 class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
               >
                 <DocumentTextIcon class="h-4 w-4" />
-                Download Instructions
+                Download These Instructions
               </button>
               <button
                 @click="showRecoveryInstructions = false"
-                class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg font-medium transition-colors"
+                class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-lg font-medium transition-colors"
               >
                 Close
               </button>
