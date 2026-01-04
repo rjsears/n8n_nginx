@@ -109,6 +109,8 @@ export const useContainerStore = defineStore('containers', () => {
   async function removeContainer(name) {
     try {
       await api.delete(`/containers/${name}`)
+      // Small delay to ensure Docker has fully removed the container
+      await new Promise(resolve => setTimeout(resolve, 500))
       await fetchContainers()
       return true
     } catch (err) {

@@ -218,20 +218,26 @@ async def download_backup(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download a backup file."""
+    """Download a backup file (complete archive with restore scripts)."""
     service = BackupService(db)
     backup = await service.get_backup(backup_id)
 
     if not backup:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Backup not found",
+            detail="Backup not found in database",
+        )
+
+    if not backup.filepath:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Backup file path not recorded",
         )
 
     if not os.path.exists(backup.filepath):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Backup file not found on disk",
+            detail=f"Backup file not found on disk: {backup.filepath}",
         )
 
     return FileResponse(
@@ -239,6 +245,89 @@ async def download_backup(
         filename=backup.filename,
         media_type="application/octet-stream",
     )
+
+
+@router.get("/download/{backup_id}/data-only")
+async def download_backup_data_only(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Download backup data only (databases and config) without restore scripts.
+
+    This creates a clean archive suitable for manual restoration or archival,
+    containing only the essential data without the restore.sh script.
+    """
+    import tarfile
+    import tempfile
+    import io
+
+    service = BackupService(db)
+    backup = await service.get_backup(backup_id)
+
+    if not backup:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Backup not found in database",
+        )
+
+    if not backup.filepath:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Backup file path not recorded",
+        )
+
+    if not os.path.exists(backup.filepath):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Backup file not found on disk: {backup.filepath}",
+        )
+
+    # Check if this is a tar.gz archive
+    if not backup.filename.endswith('.tar.gz'):
+        # Not an archive, just return the raw file
+        return FileResponse(
+            path=backup.filepath,
+            filename=backup.filename,
+            media_type="application/octet-stream",
+        )
+
+    # Create a new archive without restore.sh
+    try:
+        output = io.BytesIO()
+
+        with tarfile.open(backup.filepath, 'r:gz') as src_tar:
+            with tarfile.open(fileobj=output, mode='w:gz') as dst_tar:
+                for member in src_tar.getmembers():
+                    # Skip restore.sh
+                    if member.name == 'restore.sh' or member.name.endswith('/restore.sh'):
+                        continue
+                    # Extract and add the member
+                    if member.isfile():
+                        f = src_tar.extractfile(member)
+                        if f:
+                            dst_tar.addfile(member, f)
+                    else:
+                        dst_tar.addfile(member)
+
+        output.seek(0)
+
+        # Generate new filename
+        new_filename = backup.filename.replace('.n8n_backup.tar.gz', '.data.tar.gz')
+        if new_filename == backup.filename:
+            new_filename = backup.filename.replace('.tar.gz', '.data.tar.gz')
+
+        return StreamingResponse(
+            output,
+            media_type="application/gzip",
+            headers={"Content-Disposition": f'attachment; filename="{new_filename}"'}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create data-only archive: {str(e)}",
+        )
 
 
 @router.delete("/{backup_id}", response_model=SuccessResponse)

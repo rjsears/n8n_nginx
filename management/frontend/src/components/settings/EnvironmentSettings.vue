@@ -49,6 +49,10 @@ import {
   ArchiveBoxIcon,
   ArrowUturnLeftIcon,
   ClockIcon,
+  ArrowDownTrayIcon,
+  QuestionMarkCircleIcon,
+  DocumentTextIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 const notificationStore = useNotificationStore()
@@ -69,6 +73,9 @@ const healthCheckLoading = ref(false)
 // Confirmation gate - user must acknowledge warning before seeing settings
 const hasAcknowledgedRisk = ref(false)
 const acknowledgeLoading = ref(false)
+const downloadingFullBackup = ref(false)
+const fullBackupDownloaded = ref(false)
+const showRecoveryInstructions = ref(false)
 
 // Backups
 const backups = ref([])
@@ -465,6 +472,275 @@ function formatContainerName(name) {
     .join(' ')
 }
 
+function formatContainerStatus(status) {
+  const statusMap = {
+    running: 'Running',
+    exited: 'Stopped',
+    paused: 'Paused',
+    restarting: 'Restarting',
+    not_found: 'Not Installed',
+    created: 'Created',
+  }
+  return statusMap[status] || status
+}
+
+function getCheckTitle(checkType) {
+  const titles = {
+    containers: 'Container Status',
+    postgres_connection: 'Database Connection',
+    domain_resolution: 'Domain Resolution',
+    required_variables: 'Required Variables',
+    cloudflare_tunnel: 'Cloudflare Tunnel',
+    tailscale: 'Tailscale VPN',
+  }
+  return titles[checkType] || checkType
+}
+
+function getCheckBgClass(check) {
+  if (check.success) {
+    return 'bg-emerald-50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20'
+  }
+  return 'bg-red-50 dark:bg-red-500/5 border-red-200 dark:border-red-500/20'
+}
+
+function getCheckHeaderClass(check) {
+  if (check.success) {
+    return 'bg-emerald-100 dark:bg-emerald-500/10'
+  }
+  return 'bg-red-100 dark:bg-red-500/10'
+}
+
+function getCategoryTextColor(color) {
+  const colors = {
+    blue: 'text-blue-600 dark:text-blue-400',
+    purple: 'text-purple-600 dark:text-purple-400',
+    emerald: 'text-emerald-600 dark:text-emerald-400',
+    amber: 'text-amber-600 dark:text-amber-400',
+    red: 'text-red-600 dark:text-red-400',
+  }
+  return colors[color] || 'text-gray-600 dark:text-gray-400'
+}
+
+function getContainerStatusClass(container) {
+  if (container.status === 'running') {
+    return 'bg-white dark:bg-gray-700 border-emerald-200 dark:border-emerald-500/30'
+  }
+  if (container.status === 'not_found' && !container.required) {
+    return 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600'
+  }
+  if (container.status === 'not_found' && container.required) {
+    return 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
+  }
+  return 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30'
+}
+
+function getContainerIconColor(container) {
+  if (container.status === 'running') {
+    return 'text-emerald-500'
+  }
+  if (container.status === 'not_found' && !container.required) {
+    return 'text-gray-400'
+  }
+  if (container.status === 'not_found' && container.required) {
+    return 'text-red-500'
+  }
+  return 'text-amber-500'
+}
+
+function getContainerStatusTextColor(container) {
+  if (container.status === 'running') {
+    return 'text-emerald-600 dark:text-emerald-400'
+  }
+  if (container.status === 'not_found' && !container.required) {
+    return 'text-gray-500 dark:text-gray-400'
+  }
+  if (container.status === 'not_found' && container.required) {
+    return 'text-red-600 dark:text-red-400'
+  }
+  return 'text-amber-600 dark:text-amber-400'
+}
+
+async function downloadFullBackup() {
+  downloadingFullBackup.value = true
+  try {
+    // First, trigger a new full backup
+    const backupResponse = await api.post('/backups/run', {
+      backup_type: 'postgres_full',
+      compression: 'gzip'
+    })
+
+    if (backupResponse.data.backup_id) {
+      // Wait a moment for the backup to finalize
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Download the complete backup (with restore.sh for bare metal recovery)
+      const downloadResponse = await api.get(`/backups/${backupResponse.data.backup_id}/download`, {
+        responseType: 'blob'
+      })
+
+      // Create download link
+      const blob = new Blob([downloadResponse.data], { type: 'application/gzip' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      a.download = `n8n_full_backup_${timestamp}.tar.gz`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      fullBackupDownloaded.value = true
+      notificationStore.success('Full backup downloaded successfully. You can now safely proceed.')
+    }
+  } catch (error) {
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to create/download backup: ${errorMsg}`)
+  } finally {
+    downloadingFullBackup.value = false
+  }
+}
+
+function downloadRecoveryInstructions() {
+  const instructions = `================================================================================
+n8n Management Console - Environment File Recovery Instructions
+================================================================================
+
+If you have made changes to environment variables that have caused the system
+to become unusable and you cannot access the Management Console, follow these
+steps to restore your .env file from a backup.
+
+IMPORTANT: These instructions assume you have SSH access to the Docker host.
+
+================================================================================
+RECOVERY STEPS
+================================================================================
+
+1. SSH to the Docker host that runs your n8n system:
+
+   ssh user@your-docker-host
+
+2. Navigate to the n8n installation directory:
+
+   cd /root/n8n_nginx
+   (or wherever you installed n8n_nginx)
+
+3. List available .env backups:
+
+   ls -la env_backups/
+
+   You will see files like:
+   .env_backup_20260104123456
+   .env_backup_20260104120000
+   ...
+
+4. View the current (broken) .env file to understand what changed:
+
+   cat .env
+
+5. View a backup to compare:
+
+   cat env_backups/.env_backup_YYYYMMDDHHMMSS
+
+6. Copy the backup file to restore your .env:
+
+   cp env_backups/.env_backup_YYYYMMDDHHMMSS .env
+
+   Replace YYYYMMDDHHMMSS with the timestamp of the backup you want to restore.
+   Usually you want the most recent backup before you made changes.
+
+7. Stop all containers:
+
+   docker compose down
+
+8. Start all containers with the restored configuration:
+
+   docker compose up -d
+
+9. Verify the system is working:
+
+   docker compose ps
+
+   All containers should show as "Up" or "healthy".
+
+10. Access the Management Console to verify everything works:
+
+    https://your-domain.com/management
+
+================================================================================
+BARE METAL RECOVERY (Complete System Failure)
+================================================================================
+
+If you have downloaded a Bare Metal backup archive, you can use it to restore
+the entire system:
+
+1. Transfer the backup archive to the server:
+
+   scp backup_file.tar.gz user@your-docker-host:/tmp/
+
+2. Extract the archive:
+
+   cd /tmp
+   tar -xzf backup_file.tar.gz
+
+3. Run the restore script:
+
+   cd backup_*/
+   chmod +x restore.sh
+   ./restore.sh
+
+4. Follow the on-screen prompts to restore databases and configuration.
+
+================================================================================
+GETTING HELP
+================================================================================
+
+If you continue to have issues:
+
+1. Check container logs:
+   docker compose logs -f
+
+2. Check individual container:
+   docker logs n8n_management --tail 100
+
+3. Review the .env file for syntax errors:
+   - No spaces around = signs
+   - Quotes around values with special characters
+   - No trailing whitespace
+
+4. Verify Docker is running:
+   docker info
+
+================================================================================
+PREVENTION
+================================================================================
+
+To avoid this situation in the future:
+
+1. Always download a Full Backup before making environment changes
+2. Test changes one at a time
+3. Keep the backup archive in a safe location (not on the same server)
+4. Document any changes you make
+
+================================================================================
+Generated by n8n Management Console
+================================================================================
+`
+
+  // Create and download the text file
+  const blob = new Blob([instructions], { type: 'text/plain' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'how_to_restore_broken_env_file.txt'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+
+  notificationStore.success('Recovery instructions downloaded')
+}
+
 async function acknowledgeRisk() {
   acknowledgeLoading.value = true
   try {
@@ -521,60 +797,117 @@ onMounted(() => {
 <template>
   <div class="space-y-6">
     <!-- Confirmation Gate - Show warning card if not acknowledged -->
-    <div v-if="!hasAcknowledgedRisk" class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <!-- Icon and Title -->
-      <div class="flex flex-col items-center pt-8 pb-4">
-        <div class="w-16 h-16 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center mb-4">
-          <!-- Lightbulb/Warning Icon -->
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2a7 7 0 00-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 001 1h6a1 1 0 001-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 00-7-7zM9 21a1 1 0 001 1h4a1 1 0 001-1v-1H9v1z"/>
-          </svg>
+    <div v-if="!hasAcknowledgedRisk" class="flex justify-center">
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden max-w-md w-full">
+        <!-- Icon and Title -->
+        <div class="flex flex-col items-center pt-8 pb-4">
+          <div class="w-16 h-16 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center mb-4">
+            <!-- Lightbulb/Warning Icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-400" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2a7 7 0 00-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 001 1h6a1 1 0 001-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 00-7-7zM9 21a1 1 0 001 1h4a1 1 0 001-1v-1H9v1z"/>
+            </svg>
+          </div>
+          <h2 class="text-xl font-bold text-red-400">Danger Zone</h2>
+          <p class="text-sm text-red-300">Advanced Configuration - Proceed with Caution</p>
         </div>
-        <h2 class="text-xl font-bold text-red-500">Danger Zone</h2>
-        <p class="text-sm text-red-400">Advanced Configuration - Proceed with Caution</p>
-      </div>
 
-      <!-- Main Text -->
-      <div class="px-6 pb-4 text-center">
-        <p class="text-gray-700 dark:text-gray-300 text-sm">
-          This is an <strong>ADVANCED</strong> configuration area. Changes to these variables are not typically required.
-        </p>
-      </div>
+        <!-- Main Text -->
+        <div class="px-6 pb-4 text-center">
+          <p class="text-gray-600 dark:text-gray-300 text-sm">
+            This is an <strong>ADVANCED</strong> configuration area. Changes to these variables are not typically required.
+          </p>
+        </div>
 
-      <!-- Warning Box -->
-      <div class="mx-6 mb-4 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/30">
-        <p class="text-red-600 dark:text-red-400 text-sm font-semibold text-center mb-2">
-          Changes to these variables could cause system failure, loss of access, or data corruption and loss!
-        </p>
-        <p class="text-red-500/80 dark:text-red-400/80 text-sm text-center">
-          These settings control the core functionality of the n8n management system, its supporting containers, and local and remote access. Incorrect values here can lead to partial or complete system failure.
-        </p>
-      </div>
+        <!-- Warning Box -->
+        <div class="mx-6 mb-4 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/20">
+          <p class="text-red-500 dark:text-red-400 text-sm font-semibold text-center mb-2">
+            Changes to these variables could cause system failure, loss of access, or data corruption and loss!
+          </p>
+          <p class="text-red-400/80 dark:text-red-400/70 text-sm text-center">
+            These settings control the core functionality of the n8n management system, its supporting containers, and local and remote access. Incorrect values here can lead to partial or complete system failure.
+          </p>
+        </div>
 
-      <!-- Question -->
-      <div class="px-6 pb-4 text-center">
-        <p class="text-gray-500 dark:text-gray-400 text-sm">Continue to Environment Settings?</p>
-      </div>
+        <!-- Question -->
+        <div class="px-6 pb-4 text-center">
+          <p class="text-gray-500 dark:text-gray-400 text-sm">Continue to Environment Settings?</p>
+        </div>
 
-      <!-- Buttons -->
-      <div class="flex border-t border-gray-200 dark:border-gray-700">
-        <button
-          v-if="hasBackups"
-          @click="openRestoreDialog"
-          class="flex-1 flex items-center justify-center gap-2 px-4 py-4 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 font-medium transition-colors border-r border-gray-200 dark:border-gray-700"
-        >
-          <ArrowUturnLeftIcon class="h-4 w-4" />
-          Restore Previous .env file
-        </button>
-        <button
-          @click="acknowledgeRisk"
-          :disabled="acknowledgeLoading"
-          class="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-red-500 hover:bg-red-600 text-white font-medium transition-colors disabled:opacity-50"
-        >
-          <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
-          <ShieldExclamationIcon v-else class="h-4 w-4" />
-          I understand the risks, Continue
-        </button>
+        <!-- Recommended Action - Download Full Backup -->
+        <div class="mx-6 mb-4 p-4 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-200 dark:border-blue-500/20">
+          <div class="flex items-start gap-3">
+            <ArrowDownTrayIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+            <div class="flex-1">
+              <p class="text-blue-700 dark:text-blue-300 text-sm font-semibold mb-1">
+                Recommended: Download a Full Backup First
+              </p>
+              <p class="text-blue-600/80 dark:text-blue-400/70 text-xs mb-3">
+                Create and download a complete backup archive before making any changes. This backup includes all databases, configuration files, and a restore script for disaster recovery.
+              </p>
+              <button
+                @click="downloadFullBackup"
+                :disabled="downloadingFullBackup"
+                :class="[
+                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                  fullBackupDownloaded
+                    ? 'bg-emerald-500 text-white cursor-default'
+                    : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50'
+                ]"
+              >
+                <LoadingSpinner v-if="downloadingFullBackup" size="sm" />
+                <CheckCircleIcon v-else-if="fullBackupDownloaded" class="h-4 w-4" />
+                <ArrowDownTrayIcon v-else class="h-4 w-4" />
+                {{ downloadingFullBackup ? 'Creating Backup...' : fullBackupDownloaded ? 'Backup Downloaded!' : 'Download Full Backup' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recovery Help Section -->
+        <div class="mx-6 mb-4 p-4 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-200 dark:border-amber-500/20">
+          <div class="flex items-start gap-3">
+            <QuestionMarkCircleIcon class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div class="flex-1">
+              <p class="text-amber-700 dark:text-amber-300 text-sm font-semibold mb-1">
+                What if I break the system?
+              </p>
+              <p class="text-amber-600/80 dark:text-amber-400/70 text-xs mb-3">
+                If changes cause the Management Console to become inaccessible, you can recover via SSH. Download these instructions now so you have them if needed.
+              </p>
+              <button
+                @click="showRecoveryInstructions = true"
+                class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-amber-500 hover:bg-amber-600 text-white"
+              >
+                <QuestionMarkCircleIcon class="h-4 w-4" />
+                How to Recover
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex border-t border-gray-200 dark:border-gray-700">
+          <button
+            @click="$router.back()"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 font-medium transition-colors border-r border-gray-200 dark:border-gray-700"
+          >
+            Back to Safety
+          </button>
+          <button
+            @click="acknowledgeRisk"
+            :disabled="acknowledgeLoading"
+            :class="[
+              'flex-1 flex items-center justify-center gap-2 px-4 py-4 font-medium transition-colors disabled:opacity-50',
+              fullBackupDownloaded
+                ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                : 'bg-red-400 hover:bg-red-500 text-white'
+            ]"
+          >
+            <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
+            <ShieldExclamationIcon v-else class="h-4 w-4" />
+            {{ fullBackupDownloaded ? 'Continue with Backup' : 'I understand the risks, Continue' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -635,7 +968,7 @@ onMounted(() => {
                 ]"
               />
               <h3 class="font-semibold text-primary">
-                Health Check Results - {{ healthCheckResults.overall_success ? 'All Passed' : 'Issues Found' }}
+                System Health Check - {{ healthCheckResults.overall_success ? 'All Passed' : 'Issues Found' }}
               </h3>
             </div>
             <button
@@ -645,54 +978,60 @@ onMounted(() => {
               <XCircleIcon class="h-5 w-5" />
             </button>
           </div>
-          <div class="p-4 space-y-3">
+          <div class="p-4 space-y-4">
             <div
               v-for="check in healthCheckResults.checks"
               :key="check.check_type"
               :class="[
-                'p-3 rounded-lg',
-                check.success ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-red-50 dark:bg-red-500/10'
+                'rounded-lg overflow-hidden border',
+                getCheckBgClass(check)
               ]"
             >
-              <div class="flex items-center gap-3">
+              <!-- Check Header -->
+              <div :class="['px-4 py-3 flex items-center gap-3', getCheckHeaderClass(check)]">
                 <component
                   :is="check.success ? CheckCircleIcon : XCircleIcon"
-                  :class="['h-5 w-5 flex-shrink-0', check.success ? 'text-emerald-500' : 'text-red-500']"
+                  :class="['h-5 w-5 flex-shrink-0', check.success ? 'text-emerald-600' : 'text-red-600']"
                 />
-                <p :class="['font-medium', check.success ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400']">
-                  {{ check.message }}
-                </p>
+                <div class="flex-1">
+                  <p class="font-medium text-gray-900 dark:text-white">{{ getCheckTitle(check.check_type) }}</p>
+                  <p class="text-sm text-gray-600 dark:text-gray-300">{{ check.message }}</p>
+                </div>
               </div>
 
-              <!-- Container Names - Special display -->
-              <div v-if="check.check_type === 'container_names' && check.details?.found" class="mt-3 ml-8">
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                  <div
-                    v-for="container in check.details.found"
-                    :key="container"
-                    class="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-700 rounded-lg border border-emerald-200 dark:border-emerald-500/30"
-                  >
-                    <CubeIcon class="h-4 w-4 text-emerald-500" />
-                    <span class="text-sm font-medium text-primary truncate">{{ formatContainerName(container) }}</span>
-                  </div>
-                </div>
-                <div v-if="check.details.missing?.length > 0" class="mt-2">
-                  <p class="text-xs text-red-600 dark:text-red-400 mb-1">Missing:</p>
-                  <div class="flex flex-wrap gap-2">
+              <!-- Containers - Categorized display -->
+              <div v-if="check.check_type === 'containers' && check.details?.categories" class="p-4 space-y-4">
+                <div
+                  v-for="(category, catKey) in check.details.categories"
+                  :key="catKey"
+                  class="space-y-2"
+                >
+                  <h4 :class="['text-sm font-semibold', getCategoryTextColor(category.color)]">
+                    {{ category.label }}
+                  </h4>
+                  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                     <div
-                      v-for="container in check.details.missing"
-                      :key="container"
-                      class="flex items-center gap-2 px-3 py-2 bg-red-100 dark:bg-red-500/20 rounded-lg border border-red-200 dark:border-red-500/30"
+                      v-for="container in category.containers"
+                      :key="container.name"
+                      :class="[
+                        'flex items-center gap-2 px-3 py-2 rounded-lg border',
+                        getContainerStatusClass(container)
+                      ]"
                     >
-                      <XCircleIcon class="h-4 w-4 text-red-500" />
-                      <span class="text-sm font-medium text-red-700 dark:text-red-400">{{ formatContainerName(container) }}</span>
+                      <CubeIcon :class="['h-4 w-4', getContainerIconColor(container)]" />
+                      <div class="flex-1 min-w-0">
+                        <span class="text-sm font-medium text-primary truncate block">{{ container.display }}</span>
+                        <span :class="['text-xs', getContainerStatusTextColor(container)]">
+                          {{ formatContainerStatus(container.status) }}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
               <!-- PostgreSQL Connection Details -->
-              <div v-else-if="check.check_type === 'postgres_connection' && check.details" class="mt-3 ml-8">
+              <div v-else-if="check.check_type === 'postgres_connection' && check.details" class="px-4 pb-3">
                 <div class="flex flex-wrap gap-4 text-sm">
                   <div v-if="check.details.host" class="flex items-center gap-2">
                     <ServerIcon class="h-4 w-4 text-secondary" />
@@ -715,7 +1054,7 @@ onMounted(() => {
               </div>
 
               <!-- Domain Resolution Details -->
-              <div v-else-if="check.check_type === 'domain_resolution' && check.details" class="mt-3 ml-8">
+              <div v-else-if="check.check_type === 'domain_resolution' && check.details" class="px-4 pb-3">
                 <div class="flex flex-wrap gap-4 text-sm">
                   <div v-if="check.details.domain" class="flex items-center gap-2">
                     <GlobeAltIcon class="h-4 w-4 text-secondary" />
@@ -733,7 +1072,7 @@ onMounted(() => {
               </div>
 
               <!-- Required Variables - Missing list -->
-              <div v-else-if="check.check_type === 'required_variables' && check.details?.missing" class="mt-3 ml-8">
+              <div v-else-if="check.check_type === 'required_variables' && check.details?.missing" class="px-4 pb-3">
                 <div class="flex flex-wrap gap-2">
                   <span
                     v-for="varName in check.details.missing"
@@ -745,14 +1084,49 @@ onMounted(() => {
                 </div>
               </div>
 
-              <!-- Generic details fallback -->
-              <div v-else-if="check.details && !['container_names', 'postgres_connection', 'domain_resolution', 'required_variables'].includes(check.check_type)" class="mt-2 ml-8">
-                <p class="text-xs text-secondary font-mono">
-                  {{ JSON.stringify(check.details) }}
-                </p>
+              <!-- Cloudflare Tunnel Details -->
+              <div v-else-if="check.check_type === 'cloudflare_tunnel' && check.details?.installed" class="px-4 pb-3">
+                <div class="flex flex-wrap gap-4 text-sm">
+                  <div class="flex items-center gap-2">
+                    <CloudIcon class="h-4 w-4 text-orange-500" />
+                    <span class="text-secondary">Container:</span>
+                    <span class="font-mono text-primary">{{ check.details.container }}</span>
+                  </div>
+                  <div v-if="check.details.connected !== undefined" class="flex items-center gap-2">
+                    <span class="text-secondary">Connected:</span>
+                    <span :class="check.details.connected ? 'text-emerald-600' : 'text-amber-600'">
+                      {{ check.details.connected ? 'Yes' : 'Checking...' }}
+                    </span>
+                  </div>
+                  <div v-if="check.details.metrics?.ha_connections" class="flex items-center gap-2">
+                    <span class="text-secondary">HA Connections:</span>
+                    <span class="font-mono text-primary">{{ check.details.metrics.ha_connections }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tailscale Details -->
+              <div v-else-if="check.check_type === 'tailscale' && check.details?.installed" class="px-4 pb-3">
+                <div class="flex flex-wrap gap-4 text-sm">
+                  <div v-if="check.details.tailscale_ip" class="flex items-center gap-2">
+                    <ServerIcon class="h-4 w-4 text-blue-500" />
+                    <span class="text-secondary">Tailscale IP:</span>
+                    <span class="font-mono text-primary">{{ check.details.tailscale_ip }}</span>
+                  </div>
+                  <div v-if="check.details.tailnet" class="flex items-center gap-2">
+                    <span class="text-secondary">Tailnet:</span>
+                    <span class="font-mono text-primary">{{ check.details.tailnet }}</span>
+                  </div>
+                  <div v-if="check.details.peer_count !== undefined" class="flex items-center gap-2">
+                    <span class="text-secondary">Peers:</span>
+                    <span class="font-mono text-primary">{{ check.details.peer_count }}</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div v-if="healthCheckResults.warnings?.length > 0" class="mt-4">
+
+            <!-- Warnings -->
+            <div v-if="healthCheckResults.warnings?.length > 0" class="mt-4 p-3 bg-amber-50 dark:bg-amber-500/10 rounded-lg border border-amber-200 dark:border-amber-500/30">
               <h4 class="font-medium text-amber-700 dark:text-amber-400 mb-2">Warnings</h4>
               <ul class="space-y-2">
                 <li
@@ -1165,6 +1539,133 @@ onMounted(() => {
       @confirm="reloadEnvVariables"
       @cancel="showReloadConfirm = false"
     />
+
+    <!-- Recovery Instructions Modal -->
+    <Transition name="modal">
+      <div v-if="showRecoveryInstructions" class="fixed inset-0 z-50 overflow-y-auto">
+        <div class="flex min-h-full items-center justify-center p-4">
+          <!-- Backdrop -->
+          <div class="fixed inset-0 bg-black/50" @click="showRecoveryInstructions = false"></div>
+
+          <!-- Modal Content -->
+          <div class="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-amber-50 dark:bg-amber-500/10">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
+                  <QuestionMarkCircleIcon class="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div>
+                  <h3 class="text-lg font-bold text-gray-900 dark:text-white">How to Recover from a Broken Configuration</h3>
+                  <p class="text-sm text-amber-600 dark:text-amber-400">Emergency recovery instructions for SSH access</p>
+                </div>
+              </div>
+              <button
+                @click="showRecoveryInstructions = false"
+                class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <XMarkIcon class="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+
+            <!-- Instructions Content -->
+            <div class="p-6 overflow-y-auto max-h-[60vh]">
+              <!-- Important Notice -->
+              <div class="mb-6 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/20">
+                <p class="text-red-700 dark:text-red-300 text-sm font-semibold">
+                  Save these instructions NOW before making changes!
+                </p>
+                <p class="text-red-600/80 dark:text-red-400/70 text-sm mt-1">
+                  If the Management Console becomes inaccessible, you won't be able to view this page.
+                </p>
+              </div>
+
+              <!-- Steps -->
+              <div class="space-y-4">
+                <h4 class="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold">1</span>
+                  SSH to your Docker host
+                </h4>
+                <div class="ml-8 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg font-mono text-sm text-gray-800 dark:text-gray-200">
+                  ssh user@your-docker-host
+                </div>
+
+                <h4 class="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold">2</span>
+                  Navigate to the n8n installation directory
+                </h4>
+                <div class="ml-8 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg font-mono text-sm text-gray-800 dark:text-gray-200">
+                  cd /root/n8n_nginx
+                </div>
+
+                <h4 class="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold">3</span>
+                  List available backups and find the most recent one
+                </h4>
+                <div class="ml-8 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg font-mono text-sm text-gray-800 dark:text-gray-200">
+                  ls -la env_backups/
+                </div>
+
+                <h4 class="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold">4</span>
+                  Restore the backup (replace timestamp with actual backup filename)
+                </h4>
+                <div class="ml-8 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg font-mono text-sm text-gray-800 dark:text-gray-200">
+                  cp env_backups/.env_backup_YYYYMMDDHHMMSS .env
+                </div>
+
+                <h4 class="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold">5</span>
+                  Restart all containers
+                </h4>
+                <div class="ml-8 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg font-mono text-sm text-gray-800 dark:text-gray-200">
+                  docker compose down && docker compose up -d
+                </div>
+
+                <h4 class="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <span class="w-6 h-6 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center font-bold">✓</span>
+                  Verify containers are running
+                </h4>
+                <div class="ml-8 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg font-mono text-sm text-gray-800 dark:text-gray-200">
+                  docker compose ps
+                </div>
+              </div>
+
+              <!-- Bare Metal Section -->
+              <div class="mt-6 p-4 bg-purple-50 dark:bg-purple-500/10 rounded-xl border border-purple-200 dark:border-purple-500/20">
+                <h4 class="font-semibold text-purple-700 dark:text-purple-300 mb-2">Complete System Failure?</h4>
+                <p class="text-purple-600/80 dark:text-purple-400/70 text-sm mb-2">
+                  If you downloaded a Bare Metal backup archive, you can restore the entire system:
+                </p>
+                <div class="p-3 bg-gray-100 dark:bg-gray-900 rounded-lg font-mono text-sm text-gray-800 dark:text-gray-200">
+                  <div>tar -xzf backup_file.tar.gz</div>
+                  <div>cd backup_*/</div>
+                  <div>chmod +x restore.sh</div>
+                  <div>./restore.sh</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+              <button
+                @click="downloadRecoveryInstructions"
+                class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
+              >
+                <DocumentTextIcon class="h-4 w-4" />
+                Download Instructions
+              </button>
+              <button
+                @click="showRecoveryInstructions = false"
+                class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg font-medium transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 

@@ -120,6 +120,7 @@ const loadingConfigFiles = ref(new Set())
 const verifyingBackup = ref(null)
 const protectingBackup = ref(null)
 const creatingBareMetal = ref(null)
+const downloadingBackup = ref(null)
 const restoringWorkflow = ref(null)
 const restoringConfig = ref(null)
 
@@ -859,7 +860,7 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
-// Bare Metal Recovery - Create tar.gz
+// Bare Metal Recovery - Download complete archive with restore.sh
 async function createBareMetalRecovery(backup) {
   creatingBareMetal.value = backup.id
   try {
@@ -881,9 +882,43 @@ async function createBareMetalRecovery(backup) {
 
     notificationStore.success('Bare metal recovery archive downloaded. Extract and run ./restore.sh on target server.')
   } catch (error) {
-    notificationStore.error('Failed to download bare metal recovery archive')
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to download recovery archive: ${errorMsg}`)
   } finally {
     creatingBareMetal.value = null
+  }
+}
+
+// Download Backup Data Only (without restore scripts)
+async function downloadBackupData(backup) {
+  downloadingBackup.value = backup.id
+  try {
+    // Download data-only archive (excludes restore.sh)
+    const response = await api.get(`/backups/${backup.id}/download/data-only`, {
+      responseType: 'blob'
+    })
+
+    // Create download link
+    const blob = new Blob([response.data], { type: 'application/gzip' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    // Generate filename without restore script indicator
+    const filename = backup.filename?.replace('.n8n_backup.tar.gz', '.data.tar.gz') ||
+                     backup.filename?.replace('.tar.gz', '.data.tar.gz') ||
+                     `backup_${backup.id}.data.tar.gz`
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    notificationStore.success('Backup data downloaded successfully.')
+  } catch (error) {
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to download backup: ${errorMsg}`)
+  } finally {
+    downloadingBackup.value = null
   }
 }
 
@@ -1409,6 +1444,18 @@ onUnmounted(stopPolling)
                   >
                     <ArrowPathIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                     <span class="font-medium">Selective Restore</span>
+                  </button>
+
+                  <!-- Download Backup Button (data only, no restore scripts) -->
+                  <button
+                    v-if="backup.status === 'success'"
+                    @click="downloadBackupData(backup)"
+                    :disabled="downloadingBackup === backup.id"
+                    class="flex items-center gap-2 px-4 py-2 rounded-lg border transition-all bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-sky-300 dark:hover:border-sky-500 hover:bg-sky-50 dark:hover:bg-sky-500/10"
+                  >
+                    <LoadingSpinner v-if="downloadingBackup === backup.id" size="sm" />
+                    <ArrowDownTrayIcon v-else class="h-5 w-5 text-sky-600 dark:text-sky-400" />
+                    <span class="font-medium">{{ downloadingBackup === backup.id ? 'Downloading...' : 'Download Backup' }}</span>
                   </button>
 
                   <!-- Bare Metal Button -->
