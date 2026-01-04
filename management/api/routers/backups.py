@@ -245,10 +245,16 @@ async def download_backup(
             detail=f"Backup file not found on disk: {backup.filepath}",
         )
 
-    return FileResponse(
-        path=backup.filepath,
-        filename=backup.filename,
-        media_type="application/octet-stream",
+    # Use StreamingResponse for large files (same pattern as data-only endpoint)
+    def file_iterator():
+        with open(backup.filepath, 'rb') as f:
+            while chunk := f.read(8192):
+                yield chunk
+
+    return StreamingResponse(
+        file_iterator(),
+        media_type="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="{backup.filename}"'}
     )
 
 
