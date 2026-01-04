@@ -157,6 +157,7 @@ async def run_backup(
             backup_type=data.backup_type.value,
             compression=data.compression.value,
             n8n_db=n8n_db,
+            skip_auto_verify=data.skip_auto_verify,
         )
 
         return BackupRunResponse(
@@ -509,6 +510,7 @@ async def run_full_backup(
             backup_type=data.backup_type.value,
             compression=data.compression.value,
             n8n_db=n8n_db,
+            skip_auto_verify=data.skip_auto_verify,
         )
 
         return BackupRunResponse(

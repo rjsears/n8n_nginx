@@ -152,6 +152,7 @@ class BackupRunRequest(BaseModel):
     """Manual backup run request."""
     backup_type: BackupType
     compression: BackupCompression = BackupCompression.GZIP
+    skip_auto_verify: bool = False  # If True, skip auto-verification even if system-wide enabled
 
 
 class BackupRunResponse(BaseModel):

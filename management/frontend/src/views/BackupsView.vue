@@ -467,7 +467,8 @@ async function runBackupNow() {
   }
 
   try {
-    const result = await backupStore.triggerBackup()
+    // If user didn't select verify, skip auto-verification even if system-wide setting is enabled
+    const result = await backupStore.triggerBackup(!shouldVerify)
     // Set the backup ID so we can track progress
     if (result && result.backup_id) {
       progressModal.value.backupId = result.backup_id
