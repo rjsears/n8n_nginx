@@ -1315,7 +1315,11 @@ class AffectedContainersResponse(BaseModel):
 
 def get_backup_dir() -> Path:
     """Get the directory where .env backups are stored."""
-    return ENV_FILE_PATH.parent
+    # Use the config volume for persistent backups
+    # The /app/host_env/ is a file mount, not a directory, so backups won't persist there
+    backup_dir = Path("/app/config/env_backups")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    return backup_dir
 
 
 def create_env_backup() -> str:
