@@ -802,46 +802,46 @@ onMounted(() => {
         <!-- Icon and Title -->
         <div class="flex flex-col items-center pt-8 pb-4">
           <div class="w-16 h-16 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center mb-4">
-            <!-- Lightbulb/Warning Icon -->
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-400" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2a7 7 0 00-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 001 1h6a1 1 0 001-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 00-7-7zM9 21a1 1 0 001 1h4a1 1 0 001-1v-1H9v1z"/>
+            <!-- Lightbulb Warning Icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
           </div>
-          <h2 class="text-xl font-bold text-red-400">Danger Zone</h2>
-          <p class="text-sm text-red-300">Advanced Configuration - Proceed with Caution</p>
+          <h2 class="text-xl font-bold text-red-600 dark:text-red-400">Danger Zone</h2>
+          <p class="text-sm text-red-500 dark:text-red-400">Advanced Configuration - Proceed with Caution</p>
         </div>
 
         <!-- Main Text -->
         <div class="px-6 pb-4 text-center">
-          <p class="text-gray-600 dark:text-gray-300 text-sm">
+          <p class="text-gray-700 dark:text-gray-200 text-sm">
             This is an <strong>ADVANCED</strong> configuration area. Changes to these variables are not typically required.
           </p>
         </div>
 
         <!-- Warning Box -->
         <div class="mx-6 mb-4 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/20">
-          <p class="text-red-500 dark:text-red-400 text-sm font-semibold text-center mb-2">
+          <p class="text-red-600 dark:text-red-400 text-sm font-semibold text-center mb-2">
             Changes to these variables could cause system failure, loss of access, or data corruption and loss!
           </p>
-          <p class="text-red-400/80 dark:text-red-400/70 text-sm text-center">
+          <p class="text-red-600 dark:text-red-400 text-sm text-center">
             These settings control the core functionality of the n8n management system, its supporting containers, and local and remote access. Incorrect values here can lead to partial or complete system failure.
           </p>
         </div>
 
         <!-- Question -->
         <div class="px-6 pb-4 text-center">
-          <p class="text-gray-500 dark:text-gray-400 text-sm">Continue to Environment Settings?</p>
+          <p class="text-gray-700 dark:text-gray-300 text-sm font-medium">Continue to Environment Settings?</p>
         </div>
 
         <!-- Recommended Action - Download Full Backup -->
         <div class="mx-6 mb-4 p-4 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-200 dark:border-blue-500/20">
           <div class="flex items-start gap-3">
-            <ArrowDownTrayIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+            <ArrowDownTrayIcon class="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
             <div class="flex-1">
-              <p class="text-blue-700 dark:text-blue-300 text-sm font-semibold mb-1">
+              <p class="text-blue-800 dark:text-blue-300 text-sm font-semibold mb-1">
                 Recommended: Download a Full Backup First
               </p>
-              <p class="text-blue-600/80 dark:text-blue-400/70 text-xs mb-3">
+              <p class="text-blue-700 dark:text-blue-400 text-xs mb-3">
                 Create and download a complete backup archive before making any changes. This backup includes all databases, configuration files, and a restore script for disaster recovery.
               </p>
               <button
@@ -866,12 +866,12 @@ onMounted(() => {
         <!-- Recovery Help Section -->
         <div class="mx-6 mb-4 p-4 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-200 dark:border-amber-500/20">
           <div class="flex items-start gap-3">
-            <QuestionMarkCircleIcon class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <QuestionMarkCircleIcon class="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div class="flex-1">
-              <p class="text-amber-700 dark:text-amber-300 text-sm font-semibold mb-1">
+              <p class="text-amber-800 dark:text-amber-300 text-sm font-semibold mb-1">
                 What if I break the system?
               </p>
-              <p class="text-amber-600/80 dark:text-amber-400/70 text-xs mb-3">
+              <p class="text-amber-700 dark:text-amber-400 text-xs mb-3">
                 If changes cause the Management Console to become inaccessible, you can recover via SSH. Download these instructions now so you have them if needed.
               </p>
               <button
@@ -889,7 +889,7 @@ onMounted(() => {
         <div class="flex border-t border-gray-200 dark:border-gray-700">
           <button
             @click="$router.back()"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 font-medium transition-colors border-r border-gray-200 dark:border-gray-700"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-blue-500 hover:bg-blue-600 text-white font-medium transition-colors"
           >
             Back to Safety
           </button>
