@@ -467,7 +467,9 @@ async function runBackupNow() {
   }
 
   try {
-    const result = await backupStore.triggerBackup()
+    // Always skip backend auto-verification for manual backups
+    // Frontend handles verification separately when user selects "Verify after backup"
+    const result = await backupStore.triggerBackup(true)
     // Set the backup ID so we can track progress
     if (result && result.backup_id) {
       progressModal.value.backupId = result.backup_id

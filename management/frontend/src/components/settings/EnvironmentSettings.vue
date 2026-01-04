@@ -16,10 +16,12 @@ https://github.com/rjsears
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useNotificationStore } from '@/stores/notifications'
+import { useBackupStore } from '@/stores/backups'
 import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ProgressModal from '@/components/backups/ProgressModal.vue'
 import {
   ExclamationCircleIcon,
   CircleStackIcon,
@@ -53,9 +55,29 @@ import {
   QuestionMarkCircleIcon,
   DocumentTextIcon,
   XMarkIcon,
+  PlayIcon,
 } from '@heroicons/vue/24/outline'
 
 const notificationStore = useNotificationStore()
+const backupStore = useBackupStore()
+
+// Backup Confirm Dialog - same as BackupsView
+const backupConfirmDialog = ref({ open: false, verifyAfterBackup: false })
+
+// Progress Modal State for backup operations
+const progressModal = ref({
+  show: false,
+  type: 'backup', // 'backup' or 'verify'
+  backupId: null,
+  status: 'running' // 'running', 'success', 'failed'
+})
+
+// Get progress data for the active operation from backup store
+const activeBackupProgress = computed(() => {
+  if (!progressModal.value.backupId) return { progress: 0, progress_message: '' }
+  const backup = backupStore.backups.find(b => b.id === progressModal.value.backupId)
+  return backup || { progress: 0, progress_message: '' }
+})
 
 // State
 const loading = ref(true)
@@ -560,51 +582,140 @@ function getContainerStatusTextColor(container) {
   return 'text-amber-600 dark:text-amber-400'
 }
 
-async function downloadFullBackup() {
+// Open the backup confirm dialog (same flow as BackupsView)
+function promptFullBackup() {
+  backupConfirmDialog.value.open = true
+}
+
+// Run backup with optional verification (same as BackupsView.runBackupNow)
+async function runFullBackup() {
+  const shouldVerify = backupConfirmDialog.value.verifyAfterBackup
+  backupConfirmDialog.value.open = false
   downloadingFullBackup.value = true
+
+  // Show progress modal
+  progressModal.value = {
+    show: true,
+    type: 'backup',
+    backupId: null,
+    status: 'running'
+  }
+
   try {
-    // First, trigger a new full backup
+    // Trigger a new full backup
+    // Always skip backend auto-verification for manual backups
+    // Frontend handles verification separately when user selects "Verify after backup"
     const backupResponse = await api.post('/backups/run', {
       backup_type: 'postgres_full',
-      compression: 'gzip'
+      compression: 'gzip',
+      skip_auto_verify: true
     })
 
     if (backupResponse.data.backup_id) {
       const backupId = backupResponse.data.backup_id
+      progressModal.value.backupId = backupId
+
+      // Start polling for progress updates
+      pollForProgress()
 
       // Poll for backup completion (max 90 seconds)
       const maxAttempts = 45
       const pollInterval = 2000 // 2 seconds
-      let backup = null
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, pollInterval))
 
-        try {
-          // Use the correct endpoint: /backups/history/{id}
-          const statusResponse = await api.get(`/backups/history/${backupId}`)
-          backup = statusResponse.data
+        // Fetch latest backup status from store
+        await backupStore.fetchBackups()
+        const backup = backupStore.backups.find(b => b.id === backupId)
 
-          if (backup.status === 'success' && backup.filepath) {
-            break
-          } else if (backup.status === 'failed') {
-            throw new Error('Backup failed')
+        if (!backup) continue
+
+        if (backup.status === 'success' && backup.filepath) {
+          progressModal.value.status = 'success'
+
+          // If verify option was selected, run verification
+          if (shouldVerify) {
+            notificationStore.success('Backup completed. Starting verification...')
+
+            // Brief pause to show backup success before switching to verify
+            await new Promise(resolve => setTimeout(resolve, 1000))
+
+            // Switch to verify mode
+            progressModal.value.type = 'verify'
+            progressModal.value.status = 'running'
+
+            // Start polling for progress updates
+            pollForProgress()
+
+            // Call the verification API
+            const verifyResult = await backupStore.verifyBackup(backupId)
+
+            // Update modal status based on result
+            if (verifyResult.overall_status === 'passed') {
+              progressModal.value.status = 'success'
+              notificationStore.success('Backup and verification completed successfully')
+            } else if (verifyResult.overall_status === 'failed' || verifyResult.error || verifyResult.errors?.length > 0) {
+              progressModal.value.status = 'failed'
+              const errorMsg = verifyResult.error || verifyResult.errors?.join(', ') || 'Verification failed'
+              notificationStore.error(`Verification failed: ${errorMsg}`)
+            } else if (verifyResult.warnings?.length > 0) {
+              progressModal.value.status = 'success'
+              const warnMsg = verifyResult.warnings.join(', ')
+              notificationStore.warning(`Verification completed with warnings: ${warnMsg}`)
+            } else {
+              progressModal.value.status = 'failed'
+              notificationStore.error('Verification failed: Unknown status')
+            }
+
+            // Final refresh
+            await backupStore.fetchBackups()
           }
-          // Still running, continue polling
-        } catch (pollError) {
-          // If it's a 404, backup might not be ready yet
-          if (pollError.response?.status !== 404) {
-            console.error('Poll error:', pollError)
-          }
+          return // Done - user will click Done to download
+        } else if (backup.status === 'failed') {
+          progressModal.value.status = 'failed'
+          notificationStore.error('Backup failed: ' + (backup.error_message || 'Unknown error'))
+          return
         }
+        // Still running, continue polling
       }
 
-      if (!backup || backup.status !== 'success') {
-        throw new Error('Backup did not complete in time')
-      }
+      // Timeout
+      progressModal.value.status = 'failed'
+      notificationStore.error('Backup did not complete in time')
+    }
+  } catch (error) {
+    progressModal.value.status = 'failed'
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to create backup: ${errorMsg}`)
+  } finally {
+    downloadingFullBackup.value = false
+  }
+}
+
+// Poll for progress updates during backup operations
+async function pollForProgress() {
+  while (progressModal.value.status === 'running' && progressModal.value.show) {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    try {
+      await backupStore.fetchBackups()
+    } catch (e) {
+      console.error('Poll error:', e)
+    }
+  }
+}
+
+// Close progress modal and download backup if successful
+async function closeProgressModal() {
+  const backupId = progressModal.value.backupId
+  const wasSuccess = progressModal.value.status === 'success'
+
+  // If backup was successful, download the file
+  if (wasSuccess && backupId) {
+    try {
+      const backup = backupStore.backups.find(b => b.id === backupId)
 
       // Download the complete backup (with restore.sh for bare metal recovery)
-      // Use longer timeout for download (5 minutes) as full backups can be large
       const downloadResponse = await api.get(`/backups/download/${backupId}`, {
         responseType: 'blob',
         timeout: 300000 // 5 minutes
@@ -615,8 +726,7 @@ async function downloadFullBackup() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      // Use the actual backup filename if available
-      const filename = backup.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
+      const filename = backup?.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
       a.download = filename
       document.body.appendChild(a)
       a.click()
@@ -625,13 +735,15 @@ async function downloadFullBackup() {
 
       fullBackupDownloaded.value = true
       notificationStore.success('Full backup downloaded successfully. You can now safely proceed.')
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+      notificationStore.error(`Failed to download backup: ${errorMsg}`)
     }
-  } catch (error) {
-    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-    notificationStore.error(`Failed to create/download backup: ${errorMsg}`)
-  } finally {
-    downloadingFullBackup.value = false
   }
+
+  // Close the modal
+  progressModal.value.show = false
+  progressModal.value.backupId = null
 }
 
 function downloadRecoveryInstructions() {
@@ -884,7 +996,7 @@ onMounted(() => {
               Create and download a complete backup archive before making any changes. This backup includes all databases, configuration files, and a restore script for disaster recovery.
             </p>
             <button
-              @click="downloadFullBackup"
+              @click="promptFullBackup"
               :class="[
                 'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
                 fullBackupDownloaded
@@ -892,15 +1004,9 @@ onMounted(() => {
                   : 'bg-blue-500 hover:bg-blue-600 text-white'
               ]"
             >
-              <!-- Animated dots loader while downloading -->
-              <span v-if="downloadingFullBackup" class="flex items-center gap-1">
-                <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 0ms;"></span>
-                <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 150ms;"></span>
-                <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 300ms;"></span>
-              </span>
-              <CheckCircleIcon v-else-if="fullBackupDownloaded" class="h-4 w-4" />
+              <CheckCircleIcon v-if="fullBackupDownloaded" class="h-4 w-4" />
               <ArrowDownTrayIcon v-else class="h-4 w-4" />
-              {{ downloadingFullBackup ? 'Creating Backup...' : fullBackupDownloaded ? 'Backup Downloaded!' : 'Download Full Backup' }}
+              {{ fullBackupDownloaded ? 'Backup Downloaded!' : 'Download Full Backup' }}
             </button>
           </div>
         </div>
@@ -1713,6 +1819,104 @@ onMounted(() => {
         </div>
       </div>
     </Transition>
+
+    <!-- Backup Confirm Dialog - same as BackupsView -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="backupConfirmDialog.open"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div class="absolute inset-0 bg-black/50" @click="backupConfirmDialog.open = false" />
+          <div class="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full border border-amber-400 dark:border-amber-500">
+            <!-- Header with warning icon -->
+            <div class="px-6 py-5 bg-amber-50 dark:bg-amber-900/30 rounded-t-lg border-b border-amber-200 dark:border-amber-700">
+              <div class="flex items-center justify-center mb-3">
+                <div class="p-4 rounded-full bg-amber-100 dark:bg-amber-800/50">
+                  <!-- Warning Triangle with Exclamation -->
+                  <svg class="h-12 w-12" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L1 21h22L12 2z" fill="#FCD34D" stroke="#F59E0B" stroke-width="1.5"/>
+                    <path d="M12 9v5" stroke="#DC2626" stroke-width="2.5" stroke-linecap="round"/>
+                    <circle cx="12" cy="17" r="1.25" fill="#DC2626"/>
+                  </svg>
+                </div>
+              </div>
+              <h3 class="text-xl font-bold text-amber-800 dark:text-amber-300 text-center">
+                Backup Notice
+              </h3>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 bg-white dark:bg-gray-800">
+              <p class="text-gray-700 dark:text-gray-300 text-center">
+                This backup system only backs up:
+              </p>
+              <ul class="mt-3 space-y-2 text-sm">
+                <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Workflows</span> and credentials</span>
+                </li>
+                <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Management</span> configuration files</span>
+                </li>
+              </ul>
+              <div class="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700">
+                <p class="text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
+                  <XCircleIcon class="h-5 w-5 flex-shrink-0 mt-0.5" />
+                  <span>Does <span class="font-bold">NOT</span> backup other data, additional containers, or custom configuration files you may have added.</span>
+                </p>
+              </div>
+
+              <!-- Verify After Backup Toggle -->
+              <div class="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700">
+                <label class="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="backupConfirmDialog.verifyAfterBackup"
+                    class="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:bg-gray-700"
+                  />
+                  <div class="flex-1">
+                    <span class="text-sm font-medium text-blue-800 dark:text-blue-300">Verify after backup</span>
+                    <p class="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                      Automatically run verification to ensure backup integrity
+                    </p>
+                  </div>
+                  <ShieldCheckIcon class="h-5 w-5 text-blue-500 flex-shrink-0" />
+                </label>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 rounded-b-lg flex gap-3">
+              <button
+                @click="backupConfirmDialog.open = false"
+                class="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                @click="runFullBackup"
+                class="flex-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <PlayIcon class="h-4 w-4" />
+                {{ backupConfirmDialog.verifyAfterBackup ? 'Backup & Verify' : 'Start Backup' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Backup Progress Modal -->
+    <ProgressModal
+      :show="progressModal.show"
+      :type="progressModal.type"
+      :progress="activeBackupProgress.progress || 0"
+      :progress-message="activeBackupProgress.progress_message || ''"
+      :status="progressModal.status"
+      @close="closeProgressModal"
+    />
   </div>
 </template>
 

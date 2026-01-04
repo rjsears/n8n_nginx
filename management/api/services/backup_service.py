@@ -1598,6 +1598,7 @@ exit 0
         schedule_id: Optional[int] = None,
         compression: str = "gzip",
         n8n_db: Optional[AsyncSession] = None,
+        skip_auto_verify: bool = False,
     ) -> BackupHistory:
         """
         Execute a backup with full metadata capture.
@@ -1710,14 +1711,18 @@ exit 0
                 "size_mb": round(file_size / 1024 / 1024, 2),
                 "duration_seconds": history.duration_seconds,
                 "workflow_count": metadata.get("workflow_count", 0),
+                "credential_count": metadata.get("credential_count", 0),
                 "config_file_count": metadata.get("config_file_count", 0),
                 "completed_at": history.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
             })
 
             logger.info(f"Backup completed: {filename} ({file_size} bytes)")
 
-            # Run auto-verification if enabled
-            await self._run_auto_verification(history)
+            # Run auto-verification if enabled and not explicitly skipped
+            if not skip_auto_verify:
+                await self._run_auto_verification(history)
+            else:
+                logger.info(f"Skipping auto-verification for backup {history.id} (skip_auto_verify=True)")
 
             return history
 

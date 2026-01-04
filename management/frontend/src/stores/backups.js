@@ -114,11 +114,12 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
-  async function runBackup(backupType, compression = 'gzip') {
+  async function runBackup(backupType, compression = 'gzip', skipAutoVerify = false) {
     try {
       const response = await api.post('/backups/run', {
         backup_type: backupType,
         compression,
+        skip_auto_verify: skipAutoVerify,
       }, { timeout: 600000 }) // 10 minute timeout for backup creation
       return response.data
     } catch (err) {
@@ -127,9 +128,9 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
-  async function triggerBackup() {
+  async function triggerBackup(skipAutoVerify = false) {
     // Trigger a full backup with default settings
-    return await runBackup('postgres_full', 'gzip')
+    return await runBackup('postgres_full', 'gzip', skipAutoVerify)
   }
 
   async function deleteBackup(id) {
