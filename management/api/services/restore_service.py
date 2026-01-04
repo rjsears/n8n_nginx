@@ -1450,8 +1450,9 @@ class RestoreService:
                 }
                 target_path = path_mappings.get(config_path)
 
-                # Handle SSL paths
+                # Handle SSL paths - map to /etc/letsencrypt/live/
                 if config_path.startswith("ssl/"):
+                    # ssl/domain/file.pem -> /etc/letsencrypt/live/domain/file.pem
                     ssl_relative = config_path[4:]  # Remove "ssl/" prefix
                     target_path = f"/etc/letsencrypt/live/{ssl_relative}"
 

@@ -202,8 +202,8 @@ services:
       - ./cloudflare.ini:/app/host_config/cloudflare.ini:rw
       # .env backup directory for environment variable backups
       - ./env_backups:/app/host_config/env_backups:rw
-      # SSL certificates for backup/restore (read-only - restore requires host access)
-      - letsencrypt:/etc/letsencrypt:ro
+      # SSL certificates for backup/restore (read-write for selective restore)
+      - letsencrypt:/etc/letsencrypt:rw
       # NFS backup mount (set NFS_LOCAL_MOUNT in .env)
       - ${NFS_LOCAL_MOUNT}:/mnt/backups
     expose:
