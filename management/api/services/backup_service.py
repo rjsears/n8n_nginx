@@ -861,8 +861,11 @@ class BackupService:
                         "checksum": checksum,
                         "modified_at": modified_at.isoformat(),
                     })
+                    logger.info(f"Config file found: {config['name']} at {host_path}")
                 except Exception as e:
                     logger.warning(f"Failed to capture config file {config['name']}: {e}")
+            else:
+                logger.warning(f"Config file NOT found: {config['name']} at {host_path}")
 
         # Check for SSL certificates
         if os.path.exists(SSL_CERT_PATH):
@@ -1045,6 +1048,9 @@ class BackupService:
                     dest_path = os.path.join(temp_dir, config["archive_path"])
                     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                     shutil.copy2(config["host_path"], dest_path)
+                    logger.info(f"Copied config file: {config['name']} -> {config['archive_path']}")
+                else:
+                    logger.warning(f"Config file missing, skipping: {config['name']} (expected at {config['host_path']})")
 
             # 3. Copy SSL certificates if they exist (50-55%)
             await update_progress(50, "Copying SSL certificates")

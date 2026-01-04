@@ -865,7 +865,7 @@ async function createBareMetalRecovery(backup) {
   creatingBareMetal.value = backup.id
   try {
     // Download the backup file (which already includes restore.sh)
-    const response = await api.get(`/backups/${backup.id}/download`, {
+    const response = await api.get(`/backups/download/${backup.id}`, {
       responseType: 'blob'
     })
 
@@ -894,7 +894,7 @@ async function downloadBackupData(backup) {
   downloadingBackup.value = backup.id
   try {
     // Download data-only archive (excludes restore.sh)
-    const response = await api.get(`/backups/${backup.id}/download/data-only`, {
+    const response = await api.get(`/backups/download/${backup.id}/data-only`, {
       responseType: 'blob'
     })
 
