@@ -49,6 +49,7 @@ import {
   ArchiveBoxIcon,
   ArrowUturnLeftIcon,
   ClockIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 
 const notificationStore = useNotificationStore()
@@ -69,6 +70,8 @@ const healthCheckLoading = ref(false)
 // Confirmation gate - user must acknowledge warning before seeing settings
 const hasAcknowledgedRisk = ref(false)
 const acknowledgeLoading = ref(false)
+const downloadingFullBackup = ref(false)
+const fullBackupDownloaded = ref(false)
 
 // Backups
 const backups = ref([])
@@ -553,6 +556,47 @@ function getContainerStatusTextColor(container) {
   return 'text-amber-600 dark:text-amber-400'
 }
 
+async function downloadFullBackup() {
+  downloadingFullBackup.value = true
+  try {
+    // First, trigger a new full backup
+    const backupResponse = await api.post('/backups/run', {
+      backup_type: 'postgres_full',
+      compression: 'gzip'
+    })
+
+    if (backupResponse.data.backup_id) {
+      // Wait a moment for the backup to finalize
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Download the complete backup (with restore.sh for bare metal recovery)
+      const downloadResponse = await api.get(`/backups/${backupResponse.data.backup_id}/download`, {
+        responseType: 'blob'
+      })
+
+      // Create download link
+      const blob = new Blob([downloadResponse.data], { type: 'application/gzip' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      a.download = `n8n_full_backup_${timestamp}.tar.gz`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      fullBackupDownloaded.value = true
+      notificationStore.success('Full backup downloaded successfully. You can now safely proceed.')
+    }
+  } catch (error) {
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    notificationStore.error(`Failed to create/download backup: ${errorMsg}`)
+  } finally {
+    downloadingFullBackup.value = false
+  }
+}
+
 async function acknowledgeRisk() {
   acknowledgeLoading.value = true
   try {
@@ -645,6 +689,36 @@ onMounted(() => {
           <p class="text-gray-500 dark:text-gray-400 text-sm">Continue to Environment Settings?</p>
         </div>
 
+        <!-- Recommended Action - Download Full Backup -->
+        <div class="mx-6 mb-4 p-4 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-200 dark:border-blue-500/20">
+          <div class="flex items-start gap-3">
+            <ArrowDownTrayIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+            <div class="flex-1">
+              <p class="text-blue-700 dark:text-blue-300 text-sm font-semibold mb-1">
+                Recommended: Download a Full Backup First
+              </p>
+              <p class="text-blue-600/80 dark:text-blue-400/70 text-xs mb-3">
+                Create and download a complete backup archive before making any changes. This backup includes all databases, configuration files, and a restore script for disaster recovery.
+              </p>
+              <button
+                @click="downloadFullBackup"
+                :disabled="downloadingFullBackup"
+                :class="[
+                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                  fullBackupDownloaded
+                    ? 'bg-emerald-500 text-white cursor-default'
+                    : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50'
+                ]"
+              >
+                <LoadingSpinner v-if="downloadingFullBackup" size="sm" />
+                <CheckCircleIcon v-else-if="fullBackupDownloaded" class="h-4 w-4" />
+                <ArrowDownTrayIcon v-else class="h-4 w-4" />
+                {{ downloadingFullBackup ? 'Creating Backup...' : fullBackupDownloaded ? 'Backup Downloaded!' : 'Download Full Backup' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Buttons -->
         <div class="flex border-t border-gray-200 dark:border-gray-700">
           <button
@@ -656,11 +730,16 @@ onMounted(() => {
           <button
             @click="acknowledgeRisk"
             :disabled="acknowledgeLoading"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-red-400 hover:bg-red-500 text-white font-medium transition-colors disabled:opacity-50"
+            :class="[
+              'flex-1 flex items-center justify-center gap-2 px-4 py-4 font-medium transition-colors disabled:opacity-50',
+              fullBackupDownloaded
+                ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                : 'bg-red-400 hover:bg-red-500 text-white'
+            ]"
           >
             <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
             <ShieldExclamationIcon v-else class="h-4 w-4" />
-            I understand the risks, Continue
+            {{ fullBackupDownloaded ? 'Continue with Backup' : 'I understand the risks, Continue' }}
           </button>
         </div>
       </div>

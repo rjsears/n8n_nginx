@@ -26,6 +26,7 @@ The n8n Management System provides comprehensive backup capabilities for:
 - [API Reference](./API.md) - REST API documentation
 - [Certbot Guide](./CERTBOT.md) - SSL certificate management
 - [Cloudflare Guide](./CLOUDFLARE.md) - Cloudflare Tunnel setup
+- [Environment Variables](./ENVIRONMENTAL_VARIABLES.md) - Complete .env configuration reference
 - [Migration Guide](./MIGRATION.md) - Upgrading from v2.0 to v3.0
 - [Notifications Guide](./NOTIFICATIONS.md) - Alert and notification setup
 - [Tailscale Guide](./TAILSCALE.md) - Tailscale VPN integration
@@ -506,17 +507,71 @@ docker exec n8n_postgres pg_dump -U n8n -d n8n -F c | gzip \
   > backup_$(date +%Y%m%d_%H%M%S).dump.gz
 ```
 
-### Download Backup
+### Download Options
+
+The Management UI provides two download options for each backup:
+
+#### Download Backup (Data Only)
+
+Downloads a complete backup archive containing all data but **without** the restore.sh script.
+
+**Best for:**
+- Archival storage
+- Manual restoration
+- Importing to different environments
+
+**Includes:**
+- All databases (pg_dump files)
+- Configuration files (.env, nginx.conf, docker-compose.yaml)
+- SSL certificates
+- Backup metadata
 
 **Via Management UI:**
 1. Go to **Backups** → **History**
 2. Find the backup
-3. Click **⋮** → **Download**
+3. Click **Download Backup**
+
+**Via API:**
+```bash
+curl -O -J https://your-domain.com/management/api/backups/download/123/data-only \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+#### Bare Metal (Full Recovery Archive)
+
+Downloads a complete recovery archive including an embedded `restore.sh` script.
+
+**Best for:**
+- Disaster recovery
+- Migration to new servers
+- Complete system restoration
+
+**Includes:**
+- All databases (pg_dump files)
+- Configuration files (.env, nginx.conf, docker-compose.yaml)
+- SSL certificates
+- Backup metadata
+- **restore.sh** - Self-contained restore script
+
+**Via Management UI:**
+1. Go to **Backups** → **History**
+2. Find the backup
+3. Click **Bare Metal** button
+4. Click **Download Recovery Archive**
 
 **Via API:**
 ```bash
 curl -O -J https://your-domain.com/management/api/backups/download/123 \
   -H "Authorization: Bearer $TOKEN"
+```
+
+**Using the Bare Metal Archive:**
+```bash
+# On the target server:
+tar -xzf backup_file.tar.gz
+cd backup_*/
+chmod +x restore.sh
+./restore.sh
 ```
 
 ---
