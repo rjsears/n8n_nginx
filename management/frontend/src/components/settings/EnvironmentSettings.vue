@@ -520,44 +520,64 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <!-- Warning Banner -->
-    <div class="bg-gradient-to-r from-red-600 to-red-700 rounded-xl p-6 shadow-lg border border-red-500">
-      <div class="flex items-start gap-4">
-        <div class="flex-shrink-0">
-          <div class="w-16 h-16 rounded-xl bg-white/10 flex items-center justify-center">
-            <!-- Skull and Crossbones SVG -->
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-white" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C9.243 2 7 4.243 7 7c0 1.602.771 3.022 1.958 3.936C7.786 11.878 7 13.362 7 15v2h2v-2c0-1.654 1.346-3 3-3s3 1.346 3 3v2h2v-2c0-1.638-.786-3.122-2.042-4.064C16.229 10.022 17 8.602 17 7c0-2.757-2.243-5-5-5zm-2 6c-.552 0-1-.448-1-1s.448-1 1-1 1 .448 1 1-.448 1-1 1zm4 0c-.552 0-1-.448-1-1s.448-1 1-1 1 .448 1 1-.448 1-1 1z"/>
-              <path d="M9 19h2v3H9zM13 19h2v3h-2z"/>
+    <!-- Confirmation Gate - Show warning dialog if not acknowledged -->
+    <div v-if="!hasAcknowledgedRisk" class="flex justify-center py-8">
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 max-w-md w-full overflow-hidden">
+        <!-- Icon and Title -->
+        <div class="flex flex-col items-center pt-8 pb-4">
+          <div class="w-16 h-16 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center mb-4">
+            <!-- Lightbulb/Warning Icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2a7 7 0 00-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 001 1h6a1 1 0 001-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 00-7-7zM9 21a1 1 0 001 1h4a1 1 0 001-1v-1H9v1z"/>
             </svg>
           </div>
+          <h2 class="text-xl font-bold text-red-500">Danger Zone</h2>
+          <p class="text-sm text-red-400">Advanced Configuration - Proceed with Caution</p>
         </div>
-        <div class="flex-1">
-          <h3 class="text-xl font-bold text-white mb-2">Advanced Configuration - Proceed with Caution</h3>
-          <p class="text-red-100 text-sm leading-relaxed">
-            Changing any of these environment variables could lead to <strong>system failure</strong>,
-            <strong>loss of access</strong>, or <strong>data corruption</strong>. These settings control
-            the core functionality of the n8n management system, supporting containers, and network access.
+
+        <!-- Main Text -->
+        <div class="px-6 pb-4 text-center">
+          <p class="text-gray-700 dark:text-gray-300 text-sm">
+            This is an <strong>ADVANCED</strong> configuration area. Changes to these variables are not typically required.
           </p>
-          <div class="mt-3 flex items-center gap-2 text-red-200 text-sm">
-            <ExclamationTriangleIcon class="h-5 w-5" />
-            <span>This is an <strong>ADVANCED</strong> configuration area. Changes are not typically required during normal operation.</span>
-          </div>
+        </div>
+
+        <!-- Warning Box -->
+        <div class="mx-6 mb-4 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/30">
+          <p class="text-red-600 dark:text-red-400 text-sm font-semibold text-center mb-2">
+            Changes to these variables could cause system failure, loss of access, or data corruption and loss!
+          </p>
+          <p class="text-red-500/80 dark:text-red-400/80 text-sm text-center">
+            These settings control the core functionality of the n8n management system, its supporting containers, and local and remote access. Incorrect values here can lead to partial or complete system failure.
+          </p>
+        </div>
+
+        <!-- Question -->
+        <div class="px-6 pb-4 text-center">
+          <p class="text-gray-500 dark:text-gray-400 text-sm">Continue to Environment Settings?</p>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex border-t border-gray-200 dark:border-gray-700">
+          <button
+            v-if="hasBackups"
+            @click="openRestoreDialog"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 font-medium transition-colors border-r border-gray-200 dark:border-gray-700"
+          >
+            <ArrowUturnLeftIcon class="h-4 w-4" />
+            Restore Previous .env file
+          </button>
+          <button
+            @click="acknowledgeRisk"
+            :disabled="acknowledgeLoading"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-red-500 hover:bg-red-600 text-white font-medium transition-colors disabled:opacity-50"
+          >
+            <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
+            <ShieldExclamationIcon v-else class="h-4 w-4" />
+            I understand the risks, Continue
+          </button>
         </div>
       </div>
-    </div>
-
-    <!-- Confirmation Gate - Show Continue Button if not acknowledged -->
-    <div v-if="!hasAcknowledgedRisk" class="flex justify-center py-12">
-      <button
-        @click="acknowledgeRisk"
-        :disabled="acknowledgeLoading"
-        class="flex items-center gap-3 px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold text-lg transition-colors shadow-lg hover:shadow-xl disabled:opacity-50"
-      >
-        <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
-        <ShieldExclamationIcon v-else class="h-6 w-6" />
-        I understand the risks, Continue...
-      </button>
     </div>
 
     <!-- Main Content - Only show after acknowledgement -->
