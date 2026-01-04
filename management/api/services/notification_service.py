@@ -1514,23 +1514,64 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         )
     elif event_type == "verification_passed":
         backup_filename = event_data.get("backup_filename", "unknown")
+        backup_type = event_data.get("backup_type", "unknown")
+        size_mb = event_data.get("size_mb", 0)
         duration = event_data.get("duration_seconds", 0)
         duration_str = f"{duration:.1f}s" if duration else "N/A"
+        workflow_count = event_data.get("workflow_count", 0)
+        config_count = event_data.get("config_file_count", 0)
+
+        # Format backup creation time
+        backup_created_utc = event_data.get("backup_created_at")
+        backup_created = _format_local_time(backup_created_utc) if backup_created_utc else "N/A"
+
+        # Format verification completion time
+        completed_at_utc = event_data.get("completed_at")
+        completed_at = _format_local_time(completed_at_utc) if completed_at_utc else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         return (
-            f"Host: {hostname}\n\n"
+            f"Host: {hostname}\n"
+            f"Completed: {completed_at}\n\n"
             f"✅ Backup verification passed!\n\n"
             f"Backup: {backup_filename}\n"
-            f"Duration: {duration_str}"
+            f"Backup Date: {backup_created}\n"
+            f"Type: {backup_type}\n"
+            f"Size: {size_mb} MB\n"
+            f"Verification Duration: {duration_str}\n"
+            f"Workflows: {workflow_count}\n"
+            f"Config Files: {config_count}"
         )
     elif event_type == "verification_failed":
         backup_filename = event_data.get("backup_filename", "unknown")
+        backup_type = event_data.get("backup_type", "unknown")
+        size_mb = event_data.get("size_mb", 0)
+        duration = event_data.get("duration_seconds", 0)
+        duration_str = f"{duration:.1f}s" if duration else "N/A"
+        workflow_count = event_data.get("workflow_count", 0)
+        config_count = event_data.get("config_file_count", 0)
         errors = event_data.get("errors", [])
         warnings = event_data.get("warnings", [])
         error_str = "\n".join(f"  • {e}" for e in errors) if errors else "  No specific errors"
+
+        # Format backup creation time
+        backup_created_utc = event_data.get("backup_created_at")
+        backup_created = _format_local_time(backup_created_utc) if backup_created_utc else "N/A"
+
+        # Format verification completion time
+        completed_at_utc = event_data.get("completed_at")
+        completed_at = _format_local_time(completed_at_utc) if completed_at_utc else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         return (
-            f"Host: {hostname}\n\n"
+            f"Host: {hostname}\n"
+            f"Completed: {completed_at}\n\n"
             f"❌ Backup verification failed!\n\n"
             f"Backup: {backup_filename}\n"
+            f"Backup Date: {backup_created}\n"
+            f"Type: {backup_type}\n"
+            f"Size: {size_mb} MB\n"
+            f"Verification Duration: {duration_str}\n"
+            f"Workflows: {workflow_count}\n"
+            f"Config Files: {config_count}\n\n"
             f"Errors:\n{error_str}"
         )
 
