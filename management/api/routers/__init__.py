@@ -21,8 +21,7 @@ from api.routers import email
 from api.routers import flows
 from api.routers import ntfy
 from api.routers import system_notifications
-# TODO: Fix env_config router - temporarily disabled
-# from api.routers import env_config
+from api.routers import env_config
 
 __all__ = [
     "auth",
@@ -35,5 +34,5 @@ __all__ = [
     "flows",
     "ntfy",
     "system_notifications",
-    # "env_config",
+    "env_config",
 ]
