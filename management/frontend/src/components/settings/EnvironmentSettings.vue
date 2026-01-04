@@ -520,63 +520,61 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <!-- Confirmation Gate - Show warning dialog if not acknowledged -->
-    <div v-if="!hasAcknowledgedRisk" class="flex justify-center py-8">
-      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 max-w-md w-full overflow-hidden">
-        <!-- Icon and Title -->
-        <div class="flex flex-col items-center pt-8 pb-4">
-          <div class="w-16 h-16 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center mb-4">
-            <!-- Lightbulb/Warning Icon -->
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2a7 7 0 00-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 001 1h6a1 1 0 001-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 00-7-7zM9 21a1 1 0 001 1h4a1 1 0 001-1v-1H9v1z"/>
-            </svg>
-          </div>
-          <h2 class="text-xl font-bold text-red-500">Danger Zone</h2>
-          <p class="text-sm text-red-400">Advanced Configuration - Proceed with Caution</p>
+    <!-- Confirmation Gate - Show warning card if not acknowledged -->
+    <div v-if="!hasAcknowledgedRisk" class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <!-- Icon and Title -->
+      <div class="flex flex-col items-center pt-8 pb-4">
+        <div class="w-16 h-16 rounded-full bg-red-100 dark:bg-red-500/20 flex items-center justify-center mb-4">
+          <!-- Lightbulb/Warning Icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2a7 7 0 00-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 001 1h6a1 1 0 001-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 00-7-7zM9 21a1 1 0 001 1h4a1 1 0 001-1v-1H9v1z"/>
+          </svg>
         </div>
+        <h2 class="text-xl font-bold text-red-500">Danger Zone</h2>
+        <p class="text-sm text-red-400">Advanced Configuration - Proceed with Caution</p>
+      </div>
 
-        <!-- Main Text -->
-        <div class="px-6 pb-4 text-center">
-          <p class="text-gray-700 dark:text-gray-300 text-sm">
-            This is an <strong>ADVANCED</strong> configuration area. Changes to these variables are not typically required.
-          </p>
-        </div>
+      <!-- Main Text -->
+      <div class="px-6 pb-4 text-center">
+        <p class="text-gray-700 dark:text-gray-300 text-sm">
+          This is an <strong>ADVANCED</strong> configuration area. Changes to these variables are not typically required.
+        </p>
+      </div>
 
-        <!-- Warning Box -->
-        <div class="mx-6 mb-4 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/30">
-          <p class="text-red-600 dark:text-red-400 text-sm font-semibold text-center mb-2">
-            Changes to these variables could cause system failure, loss of access, or data corruption and loss!
-          </p>
-          <p class="text-red-500/80 dark:text-red-400/80 text-sm text-center">
-            These settings control the core functionality of the n8n management system, its supporting containers, and local and remote access. Incorrect values here can lead to partial or complete system failure.
-          </p>
-        </div>
+      <!-- Warning Box -->
+      <div class="mx-6 mb-4 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/30">
+        <p class="text-red-600 dark:text-red-400 text-sm font-semibold text-center mb-2">
+          Changes to these variables could cause system failure, loss of access, or data corruption and loss!
+        </p>
+        <p class="text-red-500/80 dark:text-red-400/80 text-sm text-center">
+          These settings control the core functionality of the n8n management system, its supporting containers, and local and remote access. Incorrect values here can lead to partial or complete system failure.
+        </p>
+      </div>
 
-        <!-- Question -->
-        <div class="px-6 pb-4 text-center">
-          <p class="text-gray-500 dark:text-gray-400 text-sm">Continue to Environment Settings?</p>
-        </div>
+      <!-- Question -->
+      <div class="px-6 pb-4 text-center">
+        <p class="text-gray-500 dark:text-gray-400 text-sm">Continue to Environment Settings?</p>
+      </div>
 
-        <!-- Buttons -->
-        <div class="flex border-t border-gray-200 dark:border-gray-700">
-          <button
-            v-if="hasBackups"
-            @click="openRestoreDialog"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 font-medium transition-colors border-r border-gray-200 dark:border-gray-700"
-          >
-            <ArrowUturnLeftIcon class="h-4 w-4" />
-            Restore Previous .env file
-          </button>
-          <button
-            @click="acknowledgeRisk"
-            :disabled="acknowledgeLoading"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-red-500 hover:bg-red-600 text-white font-medium transition-colors disabled:opacity-50"
-          >
-            <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
-            <ShieldExclamationIcon v-else class="h-4 w-4" />
-            I understand the risks, Continue
-          </button>
-        </div>
+      <!-- Buttons -->
+      <div class="flex border-t border-gray-200 dark:border-gray-700">
+        <button
+          v-if="hasBackups"
+          @click="openRestoreDialog"
+          class="flex-1 flex items-center justify-center gap-2 px-4 py-4 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 font-medium transition-colors border-r border-gray-200 dark:border-gray-700"
+        >
+          <ArrowUturnLeftIcon class="h-4 w-4" />
+          Restore Previous .env file
+        </button>
+        <button
+          @click="acknowledgeRisk"
+          :disabled="acknowledgeLoading"
+          class="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-red-500 hover:bg-red-600 text-white font-medium transition-colors disabled:opacity-50"
+        >
+          <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
+          <ShieldExclamationIcon v-else class="h-4 w-4" />
+          I understand the risks, Continue
+        </button>
       </div>
     </div>
 
