@@ -455,6 +455,16 @@ function formatBackupDate(isoString) {
   })
 }
 
+function formatContainerName(name) {
+  // Remove n8n_ prefix and format nicely
+  return name
+    .replace(/^n8n_/, '')
+    .replace(/_/g, ' ')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
 async function acknowledgeRisk() {
   acknowledgeLoading.value = true
   try {
@@ -622,19 +632,104 @@ onMounted(() => {
               v-for="check in healthCheckResults.checks"
               :key="check.check_type"
               :class="[
-                'flex items-center gap-3 p-3 rounded-lg',
+                'p-3 rounded-lg',
                 check.success ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-red-50 dark:bg-red-500/10'
               ]"
             >
-              <component
-                :is="check.success ? CheckCircleIcon : XCircleIcon"
-                :class="['h-5 w-5', check.success ? 'text-emerald-500' : 'text-red-500']"
-              />
-              <div>
+              <div class="flex items-center gap-3">
+                <component
+                  :is="check.success ? CheckCircleIcon : XCircleIcon"
+                  :class="['h-5 w-5 flex-shrink-0', check.success ? 'text-emerald-500' : 'text-red-500']"
+                />
                 <p :class="['font-medium', check.success ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400']">
                   {{ check.message }}
                 </p>
-                <p v-if="check.details" class="text-xs text-secondary mt-1">
+              </div>
+
+              <!-- Container Names - Special display -->
+              <div v-if="check.check_type === 'container_names' && check.details?.found" class="mt-3 ml-8">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  <div
+                    v-for="container in check.details.found"
+                    :key="container"
+                    class="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-700 rounded-lg border border-emerald-200 dark:border-emerald-500/30"
+                  >
+                    <CubeIcon class="h-4 w-4 text-emerald-500" />
+                    <span class="text-sm font-medium text-primary truncate">{{ formatContainerName(container) }}</span>
+                  </div>
+                </div>
+                <div v-if="check.details.missing?.length > 0" class="mt-2">
+                  <p class="text-xs text-red-600 dark:text-red-400 mb-1">Missing:</p>
+                  <div class="flex flex-wrap gap-2">
+                    <div
+                      v-for="container in check.details.missing"
+                      :key="container"
+                      class="flex items-center gap-2 px-3 py-2 bg-red-100 dark:bg-red-500/20 rounded-lg border border-red-200 dark:border-red-500/30"
+                    >
+                      <XCircleIcon class="h-4 w-4 text-red-500" />
+                      <span class="text-sm font-medium text-red-700 dark:text-red-400">{{ formatContainerName(container) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- PostgreSQL Connection Details -->
+              <div v-else-if="check.check_type === 'postgres_connection' && check.details" class="mt-3 ml-8">
+                <div class="flex flex-wrap gap-4 text-sm">
+                  <div v-if="check.details.host" class="flex items-center gap-2">
+                    <ServerIcon class="h-4 w-4 text-secondary" />
+                    <span class="text-secondary">Host:</span>
+                    <span class="font-mono text-primary">{{ check.details.host }}</span>
+                  </div>
+                  <div v-if="check.details.user" class="flex items-center gap-2">
+                    <span class="text-secondary">User:</span>
+                    <span class="font-mono text-primary">{{ check.details.user }}</span>
+                  </div>
+                  <div v-if="check.details.database" class="flex items-center gap-2">
+                    <CircleStackIcon class="h-4 w-4 text-secondary" />
+                    <span class="text-secondary">Database:</span>
+                    <span class="font-mono text-primary">{{ check.details.database }}</span>
+                  </div>
+                </div>
+                <p v-if="check.details.error" class="text-xs text-red-600 dark:text-red-400 mt-2 font-mono">
+                  {{ check.details.error }}
+                </p>
+              </div>
+
+              <!-- Domain Resolution Details -->
+              <div v-else-if="check.check_type === 'domain_resolution' && check.details" class="mt-3 ml-8">
+                <div class="flex flex-wrap gap-4 text-sm">
+                  <div v-if="check.details.domain" class="flex items-center gap-2">
+                    <GlobeAltIcon class="h-4 w-4 text-secondary" />
+                    <span class="text-secondary">Domain:</span>
+                    <span class="font-mono text-primary">{{ check.details.domain }}</span>
+                  </div>
+                  <div v-if="check.details.ip" class="flex items-center gap-2">
+                    <span class="text-secondary">Resolves to:</span>
+                    <span class="font-mono text-primary">{{ check.details.ip }}</span>
+                  </div>
+                </div>
+                <p v-if="check.details.error" class="text-xs text-red-600 dark:text-red-400 mt-2">
+                  {{ check.details.error }}
+                </p>
+              </div>
+
+              <!-- Required Variables - Missing list -->
+              <div v-else-if="check.check_type === 'required_variables' && check.details?.missing" class="mt-3 ml-8">
+                <div class="flex flex-wrap gap-2">
+                  <span
+                    v-for="varName in check.details.missing"
+                    :key="varName"
+                    class="px-2 py-1 bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 rounded font-mono text-xs"
+                  >
+                    {{ varName }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Generic details fallback -->
+              <div v-else-if="check.details && !['container_names', 'postgres_connection', 'domain_resolution', 'required_variables'].includes(check.check_type)" class="mt-2 ml-8">
+                <p class="text-xs text-secondary font-mono">
                   {{ JSON.stringify(check.details) }}
                 </p>
               </div>
