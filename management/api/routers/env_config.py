@@ -53,7 +53,7 @@ ENV_VARIABLE_GROUPS = {
             },
             "N8N_MANAGEMENT_HOST_IP": {
                 "label": "Management Host IP",
-                "description": "Local IP address of the Docker host. Used for backup/restore operations.",
+                "description": "Internal IP Address of Docker Management Host. Critical for Cloudflare Tunnels and Tailscale to operate properly. This MUST internally resolve to the hostname entered above.",
                 "type": "string",
                 "required": False,
                 "sensitive": False,
@@ -252,7 +252,7 @@ ENV_VARIABLE_GROUPS = {
             },
             "TAILSCALE_ROUTES": {
                 "label": "Advertised Routes",
-                "description": "CIDR routes to advertise (e.g., 192.168.1.0/24)",
+                "description": "CIDR routes to advertise (see current value below for your configured route)",
                 "type": "string",
                 "required": False,
                 "sensitive": False,
@@ -966,3 +966,394 @@ async def _check_container_names(env_vars: Dict[str, str]) -> HealthCheckResult:
             message=f"Container check failed: {str(e)}",
             details={"error": str(e)},
         )
+
+
+# ============================================
+# BACKUP/RESTORE FUNCTIONALITY
+# ============================================
+
+DOCKER_COMPOSE_PATH = Path("/app/host_config/docker-compose.yaml")
+
+# Mapping of env variables to container services (parsed from docker-compose.yaml)
+# This maps each env var to the services that use it
+ENV_VAR_TO_CONTAINERS = {
+    # PostgreSQL container
+    "POSTGRES_USER": ["postgres", "n8n", "n8n_management"],
+    "POSTGRES_PASSWORD": ["postgres", "n8n", "n8n_management"],
+    "POSTGRES_DB": ["postgres", "n8n", "n8n_management"],
+    "POSTGRES_CONTAINER": ["postgres", "n8n_management", "adminer"],
+    # Domain/URL settings
+    "DOMAIN": ["n8n", "n8n_management", "ntfy"],
+    # Timezone
+    "TIMEZONE": ["n8n", "n8n_management", "ntfy"],
+    # n8n specific
+    "N8N_ENCRYPTION_KEY": ["n8n", "n8n_management"],
+    "N8N_CONTAINER": ["n8n"],
+    # Management console
+    "MGMT_PORT": ["nginx"],
+    "MGMT_SECRET_KEY": ["n8n_management"],
+    "MGMT_ENCRYPTION_KEY": ["n8n_management"],
+    "MGMT_DB_USER": ["n8n_management"],
+    "MGMT_DB_PASSWORD": ["n8n_management"],
+    "ADMIN_USER": ["n8n_management"],
+    "ADMIN_PASS": ["n8n_management"],
+    "ADMIN_EMAIL": ["n8n_management"],
+    "MANAGEMENT_CONTAINER": ["n8n_management"],
+    # NFS settings
+    "NFS_SERVER": ["n8n_management"],
+    "NFS_PATH": ["n8n_management"],
+    "NFS_LOCAL_MOUNT": ["n8n_management"],
+    # Cloudflare
+    "CLOUDFLARE_TUNNEL_TOKEN": ["cloudflared"],
+    # Tailscale
+    "TAILSCALE_AUTH_KEY": ["tailscale"],
+    "TAILSCALE_ROUTES": ["tailscale"],
+    # Nginx
+    "NGINX_CONTAINER": ["nginx", "certbot"],
+    # Certbot
+    "CERTBOT_CONTAINER": ["certbot"],
+    "DNS_CERTBOT_IMAGE": ["certbot"],
+    "DNS_CERTBOT_FLAGS": ["certbot"],
+    "DNS_CREDENTIALS_FILE": ["certbot"],
+    # NTFY
+    "NTFY_BASE_URL": ["ntfy"],
+    "NTFY_PUBLIC_URL": ["n8n_management"],
+    "NTFY_AUTH_DEFAULT_ACCESS": ["ntfy"],
+    "NTFY_ENABLE_LOGIN": ["ntfy"],
+    "NTFY_ENABLE_SIGNUP": ["ntfy"],
+    "NTFY_CACHE_DURATION": ["ntfy"],
+    "NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT": ["ntfy"],
+    "NTFY_ATTACHMENT_FILE_SIZE_LIMIT": ["ntfy"],
+    "NTFY_ATTACHMENT_EXPIRY_DURATION": ["ntfy"],
+    "NTFY_KEEPALIVE_INTERVAL": ["ntfy"],
+    "NTFY_SMTP_SENDER_ADDR": ["ntfy"],
+    "NTFY_SMTP_SENDER_USER": ["ntfy"],
+    "NTFY_SMTP_SENDER_PASS": ["ntfy"],
+    "NTFY_SMTP_SENDER_FROM": ["ntfy"],
+    # n8n API
+    "N8N_API_KEY": ["n8n_management"],
+    "N8N_EDITOR_BASE_URL": ["n8n_management"],
+}
+
+# Service name to container name mapping
+SERVICE_TO_CONTAINER = {
+    "postgres": "${POSTGRES_CONTAINER:-n8n_postgres}",
+    "n8n": "${N8N_CONTAINER:-n8n}",
+    "nginx": "${NGINX_CONTAINER:-n8n_nginx}",
+    "certbot": "${CERTBOT_CONTAINER:-n8n_certbot}",
+    "n8n_management": "${MANAGEMENT_CONTAINER:-n8n_management}",
+    "adminer": "n8n_adminer",
+    "dozzle": "n8n_dozzle",
+    "cloudflared": "n8n_cloudflared",
+    "tailscale": "n8n_tailscale",
+    "portainer": "n8n_portainer",
+    "ntfy": "n8n_ntfy",
+}
+
+
+class EnvBackup(BaseModel):
+    filename: str
+    created_at: str
+    size: int
+
+
+class EnvBackupListResponse(BaseModel):
+    backups: List[EnvBackup]
+
+
+class EnvRestoreRequest(BaseModel):
+    filename: str
+
+
+class ContainerRestartRequest(BaseModel):
+    containers: List[str]
+
+
+class AffectedContainersResponse(BaseModel):
+    variable: str
+    affected_containers: List[str]
+    container_display_names: Dict[str, str]
+
+
+def get_backup_dir() -> Path:
+    """Get the directory where .env backups are stored."""
+    return ENV_FILE_PATH.parent
+
+
+def create_env_backup() -> str:
+    """Create a backup of the current .env file."""
+    if not ENV_FILE_PATH.exists():
+        raise ValueError(".env file does not exist")
+
+    backup_dir = get_backup_dir()
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    backup_filename = f".env_backup_{timestamp}"
+    backup_path = backup_dir / backup_filename
+
+    # Copy the file
+    import shutil
+    shutil.copy2(ENV_FILE_PATH, backup_path)
+
+    logger.info(f"Created .env backup: {backup_filename}")
+    return backup_filename
+
+
+def list_env_backups() -> List[EnvBackup]:
+    """List all available .env backup files."""
+    backup_dir = get_backup_dir()
+    backups = []
+
+    for f in backup_dir.glob(".env_backup_*"):
+        if f.is_file():
+            stat = f.stat()
+            # Parse timestamp from filename
+            try:
+                timestamp_str = f.name.replace(".env_backup_", "")
+                created_dt = datetime.strptime(timestamp_str, "%Y%m%d%H%M%S")
+                created_at = created_dt.isoformat()
+            except ValueError:
+                created_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+            backups.append(EnvBackup(
+                filename=f.name,
+                created_at=created_at,
+                size=stat.st_size,
+            ))
+
+    # Sort by created_at descending (newest first)
+    backups.sort(key=lambda x: x.created_at, reverse=True)
+    return backups
+
+
+def get_container_name(service: str, env_vars: Dict[str, str]) -> str:
+    """Resolve a service name to its container name using env vars."""
+    template = SERVICE_TO_CONTAINER.get(service, service)
+
+    # Handle ${VAR:-default} pattern
+    import re
+    pattern = r'\$\{([A-Z_]+):-([^}]+)\}'
+    match = re.match(pattern, template)
+    if match:
+        var_name, default = match.groups()
+        return env_vars.get(var_name, default)
+
+    # Handle ${VAR} pattern
+    pattern = r'\$\{([A-Z_]+)\}'
+    match = re.match(pattern, template)
+    if match:
+        var_name = match.group(1)
+        return env_vars.get(var_name, service)
+
+    return template
+
+
+def get_affected_containers(variable: str, env_vars: Dict[str, str]) -> List[str]:
+    """Get list of container names that would be affected by changing a variable."""
+    services = ENV_VAR_TO_CONTAINERS.get(variable, [])
+
+    # Convert service names to container names
+    containers = []
+    for service in services:
+        container_name = get_container_name(service, env_vars)
+        if container_name not in containers:
+            containers.append(container_name)
+
+    return containers
+
+
+@router.post("/backup")
+async def create_backup(_=Depends(get_current_user)):
+    """Create a backup of the current .env file."""
+    try:
+        filename = create_env_backup()
+        return {
+            "status": "success",
+            "message": f"Backup created: {filename}",
+            "filename": filename,
+        }
+    except Exception as e:
+        logger.error(f"Failed to create backup: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create backup: {str(e)}",
+        )
+
+
+@router.get("/backups", response_model=EnvBackupListResponse)
+async def get_backups(_=Depends(get_current_user)):
+    """List all available .env backup files."""
+    try:
+        backups = list_env_backups()
+        return EnvBackupListResponse(backups=backups)
+    except Exception as e:
+        logger.error(f"Failed to list backups: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list backups: {str(e)}",
+        )
+
+
+@router.post("/restore")
+async def restore_backup(
+    data: EnvRestoreRequest,
+    _=Depends(get_current_user),
+):
+    """Restore a .env file from backup. Creates a backup of current .env first."""
+    backup_dir = get_backup_dir()
+    backup_path = backup_dir / data.filename
+
+    # Validate filename format for security
+    if not data.filename.startswith(".env_backup_") or "/" in data.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid backup filename",
+        )
+
+    if not backup_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Backup file not found: {data.filename}",
+        )
+
+    try:
+        # Create backup of current .env before restoring
+        current_backup = create_env_backup()
+        logger.info(f"Created backup of current .env before restore: {current_backup}")
+
+        # Restore from backup
+        import shutil
+        shutil.copy2(backup_path, ENV_FILE_PATH)
+
+        logger.info(f"Restored .env from backup: {data.filename}")
+
+        return {
+            "status": "success",
+            "message": f"Restored from {data.filename}. Previous .env backed up as {current_backup}",
+            "restored_from": data.filename,
+            "previous_backup": current_backup,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to restore backup: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to restore backup: {str(e)}",
+        )
+
+
+@router.delete("/backups/{filename}")
+async def delete_backup(
+    filename: str,
+    _=Depends(get_current_user),
+):
+    """Delete a specific .env backup file."""
+    backup_dir = get_backup_dir()
+    backup_path = backup_dir / filename
+
+    # Validate filename format for security
+    if not filename.startswith(".env_backup_") or "/" in filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid backup filename",
+        )
+
+    if not backup_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Backup file not found: {filename}",
+        )
+
+    try:
+        backup_path.unlink()
+        logger.info(f"Deleted .env backup: {filename}")
+
+        return {
+            "status": "success",
+            "message": f"Backup {filename} deleted",
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to delete backup: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete backup: {str(e)}",
+        )
+
+
+@router.get("/affected-containers/{variable}")
+async def get_variable_affected_containers(
+    variable: str,
+    _=Depends(get_current_user),
+) -> AffectedContainersResponse:
+    """Get list of containers that would be affected by changing a variable."""
+    env_vars = parse_env_file()
+    affected = get_affected_containers(variable, env_vars)
+
+    # Build display name mapping
+    display_names = {}
+    for container in affected:
+        # Create friendly display name
+        display_names[container] = container.replace("n8n_", "").replace("_", " ").title()
+
+    return AffectedContainersResponse(
+        variable=variable,
+        affected_containers=affected,
+        container_display_names=display_names,
+    )
+
+
+@router.post("/restart-containers")
+async def restart_containers(
+    data: ContainerRestartRequest,
+    _=Depends(get_current_user),
+):
+    """Restart specified containers to apply environment changes."""
+    try:
+        import docker
+        client = docker.from_env()
+
+        results = {}
+        errors = []
+
+        for container_name in data.containers:
+            try:
+                container = client.containers.get(container_name)
+                container.restart(timeout=30)
+                results[container_name] = "restarted"
+                logger.info(f"Restarted container: {container_name}")
+            except docker.errors.NotFound:
+                results[container_name] = "not_found"
+                errors.append(f"Container not found: {container_name}")
+            except Exception as e:
+                results[container_name] = f"error: {str(e)}"
+                errors.append(f"Failed to restart {container_name}: {str(e)}")
+
+        success_count = sum(1 for r in results.values() if r == "restarted")
+
+        return {
+            "status": "success" if not errors else "partial",
+            "message": f"Restarted {success_count} of {len(data.containers)} containers",
+            "results": results,
+            "errors": errors if errors else None,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to restart containers: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to restart containers: {str(e)}",
+        )
+
+
+@router.get("/all-affected-containers")
+async def get_all_affected_containers(_=Depends(get_current_user)):
+    """Get mapping of all variables to their affected containers."""
+    env_vars = parse_env_file()
+
+    result = {}
+    for var_name in ENV_VAR_TO_CONTAINERS.keys():
+        affected = get_affected_containers(var_name, env_vars)
+        if affected:
+            result[var_name] = affected
+
+    return {"mapping": result}
