@@ -807,13 +807,11 @@ class VerificationService:
                 backup.verification_details = results
                 await self.db.commit()
 
-                # Dispatch verification result notification with complete details
-                # Get workflow and config file counts from verification results
-                workflow_info = results.get("checks", {}).get("workflow_checksums", {})
-                config_info = results.get("checks", {}).get("config_file_checksums", {})
-
-                workflow_count = workflow_info.get("verified", 0) or workflow_info.get("total_available", 0) or 0
-                config_count = config_info.get("verified", 0) or config_info.get("total_checked", 0) or 0
+                # Get actual counts from backup contents metadata (more accurate than verification results)
+                contents = await self._get_backup_contents(backup_id)
+                workflow_count = contents.workflow_count if contents else 0
+                config_count = contents.config_file_count if contents else 0
+                credential_count = contents.credential_count if contents else 0
 
                 # Calculate size in MB
                 size_mb = round(backup.file_size / (1024 * 1024), 2) if backup.file_size else 0
@@ -828,6 +826,7 @@ class VerificationService:
                         "duration_seconds": results.get("duration_seconds"),
                         "completed_at": results.get("completed_at") or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
                         "workflow_count": workflow_count,
+                        "credential_count": credential_count,
                         "config_file_count": config_count,
                     })
                 else:
@@ -840,6 +839,7 @@ class VerificationService:
                         "duration_seconds": results.get("duration_seconds"),
                         "completed_at": results.get("completed_at") or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
                         "workflow_count": workflow_count,
+                        "credential_count": credential_count,
                         "config_file_count": config_count,
                         "errors": results.get("errors", []),
                         "warnings": results.get("warnings", []),

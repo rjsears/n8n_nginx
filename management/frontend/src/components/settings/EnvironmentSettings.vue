@@ -603,8 +603,10 @@ async function downloadFullBackup() {
       }
 
       // Download the complete backup (with restore.sh for bare metal recovery)
+      // Use longer timeout for download (5 minutes) as full backups can be large
       const downloadResponse = await api.get(`/backups/${backupId}/download`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        timeout: 300000 // 5 minutes
       })
 
       // Create download link
@@ -884,12 +886,19 @@ onMounted(() => {
                 :disabled="downloadingFullBackup"
                 :class="[
                   'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                  fullBackupDownloaded
-                    ? 'bg-emerald-500 text-white cursor-default'
-                    : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50'
+                  downloadingFullBackup
+                    ? 'bg-emerald-500 text-white cursor-wait'
+                    : fullBackupDownloaded
+                      ? 'bg-emerald-500 text-white cursor-default'
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
                 ]"
               >
-                <LoadingSpinner v-if="downloadingFullBackup" size="sm" />
+                <!-- Animated dots loader while downloading -->
+                <span v-if="downloadingFullBackup" class="flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 0ms;"></span>
+                  <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 150ms;"></span>
+                  <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 300ms;"></span>
+                </span>
                 <CheckCircleIcon v-else-if="fullBackupDownloaded" class="h-4 w-4" />
                 <ArrowDownTrayIcon v-else class="h-4 w-4" />
                 {{ downloadingFullBackup ? 'Creating Backup...' : fullBackupDownloaded ? 'Backup Downloaded!' : 'Download Full Backup' }}
