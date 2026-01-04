@@ -807,17 +807,40 @@ class VerificationService:
                 backup.verification_details = results
                 await self.db.commit()
 
-                # Dispatch verification result notification
+                # Dispatch verification result notification with complete details
+                # Get workflow and config file counts from verification results
+                workflow_info = results.get("checks", {}).get("workflow_checksums", {})
+                config_info = results.get("checks", {}).get("config_file_checksums", {})
+
+                workflow_count = workflow_info.get("verified", 0) or workflow_info.get("total_available", 0) or 0
+                config_count = config_info.get("verified", 0) or config_info.get("total_checked", 0) or 0
+
+                # Calculate size in MB
+                size_mb = round(backup.file_size / (1024 * 1024), 2) if backup.file_size else 0
+
                 if results["overall_status"] == "passed":
                     await dispatch_notification("verification_passed", {
                         "backup_id": backup_id,
                         "backup_filename": backup.filename,
+                        "backup_type": backup.backup_type,
+                        "backup_created_at": backup.created_at.strftime("%Y-%m-%d %H:%M:%S") if backup.created_at else None,
+                        "size_mb": size_mb,
                         "duration_seconds": results.get("duration_seconds"),
+                        "completed_at": results.get("completed_at") or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                        "workflow_count": workflow_count,
+                        "config_file_count": config_count,
                     })
                 else:
                     await dispatch_notification("verification_failed", {
                         "backup_id": backup_id,
                         "backup_filename": backup.filename,
+                        "backup_type": backup.backup_type,
+                        "backup_created_at": backup.created_at.strftime("%Y-%m-%d %H:%M:%S") if backup.created_at else None,
+                        "size_mb": size_mb,
+                        "duration_seconds": results.get("duration_seconds"),
+                        "completed_at": results.get("completed_at") or datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                        "workflow_count": workflow_count,
+                        "config_file_count": config_count,
                         "errors": results.get("errors", []),
                         "warnings": results.get("warnings", []),
                     })
