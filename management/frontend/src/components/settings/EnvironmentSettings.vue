@@ -924,7 +924,7 @@ onMounted(() => {
         <div class="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 flex gap-3">
           <button
             @click="$router.back()"
-            class="flex-1 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-medium transition-colors"
+            class="flex-1 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-medium transition-colors"
           >
             Back to Safety
           </button>
