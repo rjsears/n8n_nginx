@@ -150,6 +150,10 @@ async def run_backup(
     n8n_db: AsyncSession = Depends(get_n8n_db),
 ):
     """Trigger a manual backup with full metadata capture."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"run_backup called: backup_type={data.backup_type}, skip_auto_verify={data.skip_auto_verify}")
+
     service = BackupService(db)
 
     try:

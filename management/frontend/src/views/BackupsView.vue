@@ -575,7 +575,42 @@ async function pollForCompletion(type) {
   notificationStore.error('Operation timed out')
 }
 
-function closeProgressModal() {
+// Close progress modal and download backup if successful
+async function closeProgressModal() {
+  const backupId = progressModal.value.backupId
+  const wasSuccess = progressModal.value.status === 'success'
+
+  // If backup was successful, download the file
+  if (wasSuccess && backupId) {
+    try {
+      const backup = backups.value.find(b => b.id === backupId)
+
+      // Download the complete backup (with restore.sh for bare metal recovery)
+      const downloadResponse = await api.get(`/backups/download/${backupId}`, {
+        responseType: 'blob',
+        timeout: 300000 // 5 minutes
+      })
+
+      // Create download link
+      const blob = new Blob([downloadResponse.data], { type: 'application/gzip' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const filename = backup?.filename || `n8n_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      notificationStore.success('Backup downloaded successfully')
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+      notificationStore.error(`Failed to download backup: ${errorMsg}`)
+    }
+  }
+
+  // Close the modal
   progressModal.value.show = false
   progressModal.value.backupId = null
   loadData() // Refresh the list
@@ -872,9 +907,25 @@ async function createBareMetalRecovery(backup) {
   creatingBareMetal.value = backup.id
   try {
     // Download the backup file (which already includes restore.sh)
+    // Use 5-minute timeout for large backup files
     const response = await api.get(`/backups/download/${backup.id}`, {
-      responseType: 'blob'
+      responseType: 'blob',
+      timeout: 300000 // 5 minutes
     })
+
+    // Check if response is actually a blob/file (not an error response)
+    const contentType = response.headers['content-type'] || ''
+    if (contentType.includes('application/json')) {
+      // This is likely an error response
+      const text = await response.data.text()
+      const errorData = JSON.parse(text)
+      throw new Error(errorData.detail || 'Server returned an error')
+    }
+
+    // Verify we got actual data
+    if (!response.data || response.data.size < 100) {
+      throw new Error('Downloaded file is empty or too small')
+    }
 
     // Create download link
     const blob = new Blob([response.data], { type: 'application/gzip' })
@@ -889,6 +940,7 @@ async function createBareMetalRecovery(backup) {
 
     notificationStore.success('Bare metal recovery archive downloaded. Extract and run ./restore.sh on target server.')
   } catch (error) {
+    console.error('Download error:', error)
     const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
     notificationStore.error(`Failed to download recovery archive: ${errorMsg}`)
   } finally {
@@ -901,8 +953,10 @@ async function downloadBackupData(backup) {
   downloadingBackup.value = backup.id
   try {
     // Download data-only archive (excludes restore.sh)
+    // Use 5-minute timeout for large backup files
     const response = await api.get(`/backups/download/${backup.id}/data-only`, {
-      responseType: 'blob'
+      responseType: 'blob',
+      timeout: 300000 // 5 minutes
     })
 
     // Create download link

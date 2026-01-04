@@ -587,7 +587,7 @@ function promptFullBackup() {
   backupConfirmDialog.value.open = true
 }
 
-// Run backup with optional verification (same as BackupsView.runBackupNow)
+// Run backup with optional verification - IDENTICAL to BackupsView.runBackupNow
 async function runFullBackup() {
   const shouldVerify = backupConfirmDialog.value.verifyAfterBackup
   backupConfirmDialog.value.open = false
@@ -602,95 +602,93 @@ async function runFullBackup() {
   }
 
   try {
-    // Trigger a new full backup
+    // Use the backup store - same as BackupsView
     // Always skip backend auto-verification for manual backups
-    // Frontend handles verification separately when user selects "Verify after backup"
-    const backupResponse = await api.post('/backups/run', {
-      backup_type: 'postgres_full',
-      compression: 'gzip',
-      skip_auto_verify: true
-    })
+    const result = await backupStore.triggerBackup(true)
 
-    if (backupResponse.data.backup_id) {
-      const backupId = backupResponse.data.backup_id
-      progressModal.value.backupId = backupId
+    // Set the backup ID so we can track progress
+    if (result && result.backup_id) {
+      progressModal.value.backupId = result.backup_id
+    }
+
+    // Poll for completion - same as BackupsView
+    await pollForCompletion()
+
+    // If backup succeeded and verify option was selected, run verification
+    if (shouldVerify && progressModal.value.status === 'success' && progressModal.value.backupId) {
+      notificationStore.success('Backup completed. Starting verification...')
+
+      // Brief pause to show backup success before switching to verify
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Switch to verify mode
+      progressModal.value.type = 'verify'
+      progressModal.value.status = 'running'
 
       // Start polling for progress updates
       pollForProgress()
 
-      // Poll for backup completion (max 90 seconds)
-      const maxAttempts = 45
-      const pollInterval = 2000 // 2 seconds
+      // Call the verification API
+      const verifyResult = await backupStore.verifyBackup(progressModal.value.backupId)
 
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval))
-
-        // Fetch latest backup status from store
-        await backupStore.fetchBackups()
-        const backup = backupStore.backups.find(b => b.id === backupId)
-
-        if (!backup) continue
-
-        if (backup.status === 'success' && backup.filepath) {
-          progressModal.value.status = 'success'
-
-          // If verify option was selected, run verification
-          if (shouldVerify) {
-            notificationStore.success('Backup completed. Starting verification...')
-
-            // Brief pause to show backup success before switching to verify
-            await new Promise(resolve => setTimeout(resolve, 1000))
-
-            // Switch to verify mode
-            progressModal.value.type = 'verify'
-            progressModal.value.status = 'running'
-
-            // Start polling for progress updates
-            pollForProgress()
-
-            // Call the verification API
-            const verifyResult = await backupStore.verifyBackup(backupId)
-
-            // Update modal status based on result
-            if (verifyResult.overall_status === 'passed') {
-              progressModal.value.status = 'success'
-              notificationStore.success('Backup and verification completed successfully')
-            } else if (verifyResult.overall_status === 'failed' || verifyResult.error || verifyResult.errors?.length > 0) {
-              progressModal.value.status = 'failed'
-              const errorMsg = verifyResult.error || verifyResult.errors?.join(', ') || 'Verification failed'
-              notificationStore.error(`Verification failed: ${errorMsg}`)
-            } else if (verifyResult.warnings?.length > 0) {
-              progressModal.value.status = 'success'
-              const warnMsg = verifyResult.warnings.join(', ')
-              notificationStore.warning(`Verification completed with warnings: ${warnMsg}`)
-            } else {
-              progressModal.value.status = 'failed'
-              notificationStore.error('Verification failed: Unknown status')
-            }
-
-            // Final refresh
-            await backupStore.fetchBackups()
-          }
-          return // Done - user will click Done to download
-        } else if (backup.status === 'failed') {
-          progressModal.value.status = 'failed'
-          notificationStore.error('Backup failed: ' + (backup.error_message || 'Unknown error'))
-          return
-        }
-        // Still running, continue polling
+      // Update modal status based on result
+      if (verifyResult.overall_status === 'passed') {
+        progressModal.value.status = 'success'
+        notificationStore.success('Backup and verification completed successfully')
+      } else if (verifyResult.overall_status === 'failed' || verifyResult.error || verifyResult.errors?.length > 0) {
+        progressModal.value.status = 'failed'
+        const errorMsg = verifyResult.error || verifyResult.errors?.join(', ') || 'Verification failed'
+        notificationStore.error(`Verification failed: ${errorMsg}`)
+      } else if (verifyResult.warnings?.length > 0) {
+        progressModal.value.status = 'success'
+        const warnMsg = verifyResult.warnings.join(', ')
+        notificationStore.warning(`Verification completed with warnings: ${warnMsg}`)
+      } else {
+        progressModal.value.status = 'failed'
+        notificationStore.error('Verification failed: Unknown status')
       }
 
-      // Timeout
-      progressModal.value.status = 'failed'
-      notificationStore.error('Backup did not complete in time')
+      // Final refresh
+      await backupStore.fetchBackups()
     }
   } catch (error) {
     progressModal.value.status = 'failed'
-    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-    notificationStore.error(`Failed to create backup: ${errorMsg}`)
+    notificationStore.error('Failed to start backup: ' + (error.message || 'Unknown error'))
   } finally {
     downloadingFullBackup.value = false
   }
+}
+
+// Poll for backup completion - same as BackupsView
+async function pollForCompletion() {
+  const maxAttempts = 300 // 5 minutes max
+  let attempts = 0
+
+  while (attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+    await backupStore.fetchBackups()
+
+    const backup = backupStore.backups.find(b => b.id === progressModal.value.backupId)
+    if (!backup) {
+      attempts++
+      continue
+    }
+
+    if (backup.status === 'success') {
+      progressModal.value.status = 'success'
+      return
+    } else if (backup.status === 'failed') {
+      progressModal.value.status = 'failed'
+      notificationStore.error('Backup failed: ' + (backup.error_message || 'Unknown error'))
+      return
+    }
+    // Still running, continue polling
+    attempts++
+  }
+
+  // Timeout
+  progressModal.value.status = 'failed'
+  notificationStore.error('Backup timed out after 5 minutes')
 }
 
 // Poll for progress updates during backup operations

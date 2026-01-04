@@ -1044,6 +1044,11 @@ class BackupService:
             config_dir = os.path.join(temp_dir, "config")
             os.makedirs(config_dir)
 
+            # Log what we're looking for
+            logger.info(f"Looking for config files. Checking /app/host_project exists: {os.path.exists('/app/host_project')}")
+            if os.path.exists('/app/host_project'):
+                logger.info(f"Contents of /app/host_project: {os.listdir('/app/host_project')[:10]}...")
+
             for config in CONFIG_FILES:
                 if os.path.exists(config["host_path"]):
                     try:
@@ -1604,7 +1609,7 @@ exit 0
         Execute a backup with full metadata capture.
         This is the enhanced version that creates complete archives.
         """
-        logger.info(f"run_backup_with_metadata called: type={backup_type}, n8n_db={'present' if n8n_db else 'None'}")
+        logger.info(f"run_backup_with_metadata called: type={backup_type}, n8n_db={'present' if n8n_db else 'None'}, skip_auto_verify={skip_auto_verify}")
 
         # Create history record
         history = BackupHistory(
