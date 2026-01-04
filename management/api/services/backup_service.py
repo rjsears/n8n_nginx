@@ -1604,7 +1604,7 @@ exit 0
         Execute a backup with full metadata capture.
         This is the enhanced version that creates complete archives.
         """
-        logger.info(f"run_backup_with_metadata called: type={backup_type}, n8n_db={'present' if n8n_db else 'None'}")
+        logger.info(f"run_backup_with_metadata called: type={backup_type}, n8n_db={'present' if n8n_db else 'None'}, skip_auto_verify={skip_auto_verify}")
 
         # Create history record
         history = BackupHistory(
