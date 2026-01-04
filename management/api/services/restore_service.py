@@ -1442,11 +1442,12 @@ class RestoreService:
             # Determine target path
             if not target_path:
                 # Map backup paths to host paths
+                # Using /app/host_project/ which is a directory mount (more reliable than file mounts)
                 path_mappings = {
-                    "config/.env": "/app/host_env/.env",
-                    "config/docker-compose.yaml": "/app/host_config/docker-compose.yaml",
-                    "config/nginx.conf": "/app/host_config/nginx.conf",
-                    "config/cloudflare.ini": "/app/host_config/cloudflare.ini",
+                    "config/.env": "/app/host_project/.env",
+                    "config/docker-compose.yaml": "/app/host_project/docker-compose.yaml",
+                    "config/nginx.conf": "/app/host_project/nginx.conf",
+                    "config/cloudflare.ini": "/app/host_project/cloudflare.ini",
                 }
                 target_path = path_mappings.get(config_path)
 
@@ -1479,12 +1480,22 @@ class RestoreService:
                 backup_created = backup_path
                 logger.info(f"Created backup: {backup_created}")
 
-            # Ensure target directory exists
-            target_dir = os.path.dirname(target_path)
-            os.makedirs(target_dir, exist_ok=True)
+            # For SSL paths, ensure the target directory exists
+            # For bind-mounted config files, the parent directory should already exist
+            # Creating directories in the overlay can shadow bind mounts
+            if config_path.startswith("ssl/"):
+                target_dir = os.path.dirname(target_path)
+                os.makedirs(target_dir, exist_ok=True)
 
-            # Copy file
-            shutil.copy2(source_path, target_path)
+            # Copy file - for bind mounts, write directly to the mounted file
+            # Use open() with write mode to ensure we write to the bind mount
+            # instead of potentially creating a new file in the overlay
+            with open(source_path, 'rb') as src:
+                content = src.read()
+            with open(target_path, 'wb') as dst:
+                dst.write(content)
+            # Copy metadata (permissions, timestamps)
+            shutil.copystat(source_path, target_path)
 
             # Verify the file was written correctly
             if os.path.exists(target_path):

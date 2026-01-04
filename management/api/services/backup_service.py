@@ -43,12 +43,13 @@ from api.services.notification_service import dispatch_notification
 logger = logging.getLogger(__name__)
 
 
-# Config files to include in backups (relative to host mount points)
+# Config files to include in backups
+# Using /app/host_project/ which is a directory mount (more reliable than individual file mounts)
 CONFIG_FILES = [
-    {"name": ".env", "host_path": "/app/host_env/.env", "archive_path": "config/.env"},
-    {"name": "docker-compose.yaml", "host_path": "/app/host_config/docker-compose.yaml", "archive_path": "config/docker-compose.yaml"},
-    {"name": "nginx.conf", "host_path": "/app/host_config/nginx.conf", "archive_path": "config/nginx.conf"},
-    {"name": "cloudflare.ini", "host_path": "/app/host_config/cloudflare.ini", "archive_path": "config/cloudflare.ini"},
+    {"name": ".env", "host_path": "/app/host_project/.env", "archive_path": "config/.env"},
+    {"name": "docker-compose.yaml", "host_path": "/app/host_project/docker-compose.yaml", "archive_path": "config/docker-compose.yaml"},
+    {"name": "nginx.conf", "host_path": "/app/host_project/nginx.conf", "archive_path": "config/nginx.conf"},
+    {"name": "cloudflare.ini", "host_path": "/app/host_project/cloudflare.ini", "archive_path": "config/cloudflare.ini"},
 ]
 
 # SSL certificate paths
