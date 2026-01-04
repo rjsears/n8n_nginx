@@ -1519,6 +1519,7 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         duration = event_data.get("duration_seconds", 0)
         duration_str = f"{duration:.1f}s" if duration else "N/A"
         workflow_count = event_data.get("workflow_count", 0)
+        credential_count = event_data.get("credential_count", 0)
         config_count = event_data.get("config_file_count", 0)
 
         # Format backup creation time
@@ -1539,6 +1540,7 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
             f"Size: {size_mb} MB\n"
             f"Verification Duration: {duration_str}\n"
             f"Workflows: {workflow_count}\n"
+            f"Credentials: {credential_count}\n"
             f"Config Files: {config_count}"
         )
     elif event_type == "verification_failed":
@@ -1548,6 +1550,7 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         duration = event_data.get("duration_seconds", 0)
         duration_str = f"{duration:.1f}s" if duration else "N/A"
         workflow_count = event_data.get("workflow_count", 0)
+        credential_count = event_data.get("credential_count", 0)
         config_count = event_data.get("config_file_count", 0)
         errors = event_data.get("errors", [])
         warnings = event_data.get("warnings", [])
@@ -1571,6 +1574,7 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
             f"Size: {size_mb} MB\n"
             f"Verification Duration: {duration_str}\n"
             f"Workflows: {workflow_count}\n"
+            f"Credentials: {credential_count}\n"
             f"Config Files: {config_count}\n\n"
             f"Errors:\n{error_str}"
         )
