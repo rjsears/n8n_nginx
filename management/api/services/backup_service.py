@@ -418,7 +418,7 @@ class BackupService:
                 # Send verification started notification
                 await dispatch_notification("verification_started", {
                     "backup_id": backup.id,
-                    "filename": backup.filename,
+                    "backup_filename": backup.filename,
                     "backup_type": backup.backup_type,
                     "source": "auto",
                 })
@@ -427,19 +427,38 @@ class BackupService:
                 status = result.get('status', 'unknown')
                 logger.info(f"Auto-verification result for backup {backup.id}: {status}")
 
+                # Refresh backup to get updated verification details
+                await self.db.refresh(backup)
+
+                # Get workflow and config counts
+                workflow_count = 0
+                config_count = 0
+                if backup.contents:
+                    workflow_count = backup.contents.workflow_count or 0
+                    config_count = backup.contents.config_file_count or 0
+
+                # Calculate size in MB
+                size_mb = round(backup.file_size / (1024 * 1024), 2) if backup.file_size else 0
+
                 # Send verification result notification
                 if status == "passed":
                     await dispatch_notification("verification_passed", {
                         "backup_id": backup.id,
-                        "filename": backup.filename,
+                        "backup_filename": backup.filename,
                         "backup_type": backup.backup_type,
+                        "backup_created_at": backup.created_at.strftime("%Y-%m-%d %H:%M:%S") if backup.created_at else None,
+                        "size_mb": size_mb,
+                        "duration_seconds": backup.duration_seconds,
+                        "completed_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                        "workflow_count": workflow_count,
+                        "config_file_count": config_count,
                         "checksum_verified": result.get("checksum_verified", False),
                         "source": "auto",
                     })
                 elif status == "failed":
                     await dispatch_notification("verification_failed", {
                         "backup_id": backup.id,
-                        "filename": backup.filename,
+                        "backup_filename": backup.filename,
                         "backup_type": backup.backup_type,
                         "error": result.get("error", "Unknown error"),
                         "source": "auto",
@@ -452,7 +471,7 @@ class BackupService:
             try:
                 await dispatch_notification("verification_failed", {
                     "backup_id": backup.id,
-                    "filename": backup.filename if backup else "unknown",
+                    "backup_filename": backup.filename if backup else "unknown",
                     "backup_type": backup.backup_type if backup else "unknown",
                     "error": str(e),
                     "source": "auto",
