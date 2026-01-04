@@ -2717,9 +2717,11 @@ generate_env_file() {
 # Required Settings
 # ===========================================
 
-# Domain name (both variables for compatibility)
+# Domain name for n8n (used for URLs, SSL certificates, etc.)
 DOMAIN=${N8N_DOMAIN}
-N8N_DOMAIN=${N8N_DOMAIN}
+
+# Host IP address (local IP that matches the domain)
+N8N_MANAGEMENT_HOST_IP=${N8N_MANAGEMENT_HOST_IP:-}
 
 # PostgreSQL credentials
 POSTGRES_USER=${DB_USER}
@@ -3804,15 +3806,19 @@ validate_domain() {
 
         # Check if the resolved IP matches any local IP
         local ip_matches=false
+        local matched_local_ip=""
         for local_ip in $local_ips; do
             if [ "$local_ip" = "$domain_ip" ]; then
                 ip_matches=true
+                matched_local_ip="$local_ip"
                 break
             fi
         done
 
         if [ "$ip_matches" = true ]; then
             print_success "Domain IP matches this server"
+            # Capture the matched IP for N8N_MANAGEMENT_HOST_IP
+            N8N_MANAGEMENT_HOST_IP="$matched_local_ip"
         else
             print_warning "Domain IP ($domain_ip) does not match any local IP"
             echo ""
@@ -3869,6 +3875,14 @@ validate_domain() {
             2)
                 # Continue with risks
                 print_warning "Continuing with unvalidated domain configuration..."
+                # Try to set N8N_MANAGEMENT_HOST_IP to the first local IP as fallback
+                if [ -z "$N8N_MANAGEMENT_HOST_IP" ]; then
+                    local first_local_ip=$(echo "$local_ips" | head -1)
+                    if [ -n "$first_local_ip" ]; then
+                        N8N_MANAGEMENT_HOST_IP="$first_local_ip"
+                        print_info "Using $first_local_ip as management host IP"
+                    fi
+                fi
                 ;;
             3)
                 echo ""
@@ -3876,6 +3890,14 @@ validate_domain() {
                 exit 1
                 ;;
         esac
+    fi
+
+    # Ensure N8N_MANAGEMENT_HOST_IP is set (use first local IP as final fallback)
+    if [ -z "$N8N_MANAGEMENT_HOST_IP" ]; then
+        local first_local_ip=$(echo "$local_ips" | head -1)
+        if [ -n "$first_local_ip" ]; then
+            N8N_MANAGEMENT_HOST_IP="$first_local_ip"
+        fi
     fi
 
     # Set derived URL values
