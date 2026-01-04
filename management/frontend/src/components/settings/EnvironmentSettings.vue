@@ -572,8 +572,8 @@ async function downloadFullBackup() {
     if (backupResponse.data.backup_id) {
       const backupId = backupResponse.data.backup_id
 
-      // Poll for backup completion (max 60 seconds)
-      const maxAttempts = 30
+      // Poll for backup completion (max 90 seconds)
+      const maxAttempts = 45
       const pollInterval = 2000 // 2 seconds
       let backup = null
 
@@ -581,7 +581,8 @@ async function downloadFullBackup() {
         await new Promise(resolve => setTimeout(resolve, pollInterval))
 
         try {
-          const statusResponse = await api.get(`/backups/${backupId}`)
+          // Use the correct endpoint: /backups/history/{id}
+          const statusResponse = await api.get(`/backups/history/${backupId}`)
           backup = statusResponse.data
 
           if (backup.status === 'success' && backup.filepath) {
@@ -604,7 +605,7 @@ async function downloadFullBackup() {
 
       // Download the complete backup (with restore.sh for bare metal recovery)
       // Use longer timeout for download (5 minutes) as full backups can be large
-      const downloadResponse = await api.get(`/backups/${backupId}/download`, {
+      const downloadResponse = await api.get(`/backups/download/${backupId}`, {
         responseType: 'blob',
         timeout: 300000 // 5 minutes
       })
@@ -872,60 +873,57 @@ onMounted(() => {
 
         <!-- Recommended Action - Download Full Backup -->
         <div class="mx-6 mb-4 p-4 bg-blue-50 dark:bg-blue-500/10 rounded-lg border border-blue-200 dark:border-blue-500/20">
-          <div class="flex items-start gap-3">
-            <ArrowDownTrayIcon class="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div class="flex-1">
-              <p class="text-blue-800 dark:text-blue-300 text-sm font-semibold mb-1">
+          <div class="text-center">
+            <div class="flex items-center justify-center gap-2 mb-1">
+              <ArrowDownTrayIcon class="h-5 w-5 text-blue-600" />
+              <p class="text-blue-800 dark:text-blue-300 text-sm font-semibold">
                 Recommended: Download a Full Backup First
               </p>
-              <p class="text-blue-700 dark:text-blue-400 text-xs mb-3">
-                Create and download a complete backup archive before making any changes. This backup includes all databases, configuration files, and a restore script for disaster recovery.
-              </p>
-              <button
-                @click="downloadFullBackup"
-                :disabled="downloadingFullBackup"
-                :class="[
-                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                  downloadingFullBackup
-                    ? 'bg-emerald-500 text-white cursor-wait'
-                    : fullBackupDownloaded
-                      ? 'bg-emerald-500 text-white cursor-default'
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
-                ]"
-              >
-                <!-- Animated dots loader while downloading -->
-                <span v-if="downloadingFullBackup" class="flex items-center gap-1">
-                  <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 0ms;"></span>
-                  <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 150ms;"></span>
-                  <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 300ms;"></span>
-                </span>
-                <CheckCircleIcon v-else-if="fullBackupDownloaded" class="h-4 w-4" />
-                <ArrowDownTrayIcon v-else class="h-4 w-4" />
-                {{ downloadingFullBackup ? 'Creating Backup...' : fullBackupDownloaded ? 'Backup Downloaded!' : 'Download Full Backup' }}
-              </button>
             </div>
+            <p class="text-blue-700 dark:text-blue-400 text-xs mb-3">
+              Create and download a complete backup archive before making any changes. This backup includes all databases, configuration files, and a restore script for disaster recovery.
+            </p>
+            <button
+              @click="downloadFullBackup"
+              :class="[
+                'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                fullBackupDownloaded
+                  ? 'bg-emerald-500 text-white cursor-default'
+                  : 'bg-blue-500 hover:bg-blue-600 text-white'
+              ]"
+            >
+              <!-- Animated dots loader while downloading -->
+              <span v-if="downloadingFullBackup" class="flex items-center gap-1">
+                <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 0ms;"></span>
+                <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 150ms;"></span>
+                <span class="w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 300ms;"></span>
+              </span>
+              <CheckCircleIcon v-else-if="fullBackupDownloaded" class="h-4 w-4" />
+              <ArrowDownTrayIcon v-else class="h-4 w-4" />
+              {{ downloadingFullBackup ? 'Creating Backup...' : fullBackupDownloaded ? 'Backup Downloaded!' : 'Download Full Backup' }}
+            </button>
           </div>
         </div>
 
         <!-- Recovery Help Section -->
         <div class="mx-6 mb-4 p-4 bg-amber-50 dark:bg-amber-500/10 rounded-lg border border-amber-200 dark:border-amber-500/20">
-          <div class="flex items-start gap-3">
-            <QuestionMarkCircleIcon class="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div class="flex-1">
-              <p class="text-amber-800 dark:text-amber-300 text-sm font-semibold mb-1">
+          <div class="text-center">
+            <div class="flex items-center justify-center gap-2 mb-1">
+              <QuestionMarkCircleIcon class="h-5 w-5 text-amber-600" />
+              <p class="text-amber-800 dark:text-amber-300 text-sm font-semibold">
                 What if I break the system?
               </p>
-              <p class="text-amber-700 dark:text-amber-400 text-xs mb-3">
-                If changes cause the Management Console to become inaccessible, you can recover via SSH. Download these instructions now so you have them if needed.
-              </p>
-              <button
-                @click="showRecoveryInstructions = true"
-                class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-amber-500 hover:bg-amber-600 text-white"
-              >
-                <QuestionMarkCircleIcon class="h-4 w-4" />
-                How to Recover
-              </button>
             </div>
+            <p class="text-amber-700 dark:text-amber-400 text-xs mb-3">
+              If changes cause the Management Console to become inaccessible, you can recover via SSH. Download these instructions now so you have them if needed.
+            </p>
+            <button
+              @click="showRecoveryInstructions = true"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              <QuestionMarkCircleIcon class="h-4 w-4" />
+              How to Recover
+            </button>
           </div>
         </div>
 
@@ -939,17 +937,10 @@ onMounted(() => {
           </button>
           <button
             @click="acknowledgeRisk"
-            :disabled="acknowledgeLoading"
-            :class="[
-              'flex-1 px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50',
-              fullBackupDownloaded
-                ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                : 'bg-amber-500 hover:bg-amber-600 text-white'
-            ]"
+            class="flex-1 px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white"
           >
-            <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
-            <ShieldExclamationIcon v-else class="h-4 w-4" />
-            {{ fullBackupDownloaded ? 'Continue' : 'I understand the risks, Continue' }}
+            <ShieldExclamationIcon class="h-4 w-4" />
+            I understand the risks, Continue
           </button>
         </div>
       </div>

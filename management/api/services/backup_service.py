@@ -430,12 +430,11 @@ class BackupService:
                 # Refresh backup to get updated verification details
                 await self.db.refresh(backup)
 
-                # Get workflow and config counts
-                workflow_count = 0
-                config_count = 0
-                if backup.contents:
-                    workflow_count = backup.contents.workflow_count or 0
-                    config_count = backup.contents.config_file_count or 0
+                # Get workflow and config counts by explicitly querying (not lazy loading)
+                contents = await self.get_backup_contents(backup.id)
+                workflow_count = contents.workflow_count if contents else 0
+                credential_count = contents.credential_count if contents else 0
+                config_count = contents.config_file_count if contents else 0
 
                 # Calculate size in MB
                 size_mb = round(backup.file_size / (1024 * 1024), 2) if backup.file_size else 0
@@ -451,6 +450,7 @@ class BackupService:
                         "duration_seconds": backup.duration_seconds,
                         "completed_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
                         "workflow_count": workflow_count,
+                        "credential_count": credential_count,
                         "config_file_count": config_count,
                         "checksum_verified": result.get("checksum_verified", False),
                         "source": "auto",
@@ -460,6 +460,13 @@ class BackupService:
                         "backup_id": backup.id,
                         "backup_filename": backup.filename,
                         "backup_type": backup.backup_type,
+                        "backup_created_at": backup.created_at.strftime("%Y-%m-%d %H:%M:%S") if backup.created_at else None,
+                        "size_mb": size_mb,
+                        "duration_seconds": backup.duration_seconds,
+                        "completed_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+                        "workflow_count": workflow_count,
+                        "credential_count": credential_count,
+                        "config_file_count": config_count,
                         "error": result.get("error", "Unknown error"),
                         "source": "auto",
                     })
@@ -469,10 +476,25 @@ class BackupService:
             logger.error(f"Auto-verification failed for backup {backup.id}: {e}")
             # Still send a failure notification so users know verification failed
             try:
+                # Try to get backup contents for detailed notification
+                contents = None
+                size_mb = 0
+                if backup:
+                    try:
+                        contents = await self.get_backup_contents(backup.id)
+                        size_mb = round(backup.file_size / (1024 * 1024), 2) if backup.file_size else 0
+                    except Exception:
+                        pass
+
                 await dispatch_notification("verification_failed", {
-                    "backup_id": backup.id,
+                    "backup_id": backup.id if backup else 0,
                     "backup_filename": backup.filename if backup else "unknown",
                     "backup_type": backup.backup_type if backup else "unknown",
+                    "backup_created_at": backup.created_at.strftime("%Y-%m-%d %H:%M:%S") if backup and backup.created_at else None,
+                    "size_mb": size_mb,
+                    "workflow_count": contents.workflow_count if contents else 0,
+                    "credential_count": contents.credential_count if contents else 0,
+                    "config_file_count": contents.config_file_count if contents else 0,
                     "error": str(e),
                     "source": "auto",
                 })
