@@ -570,11 +570,40 @@ async function downloadFullBackup() {
     })
 
     if (backupResponse.data.backup_id) {
-      // Wait a moment for the backup to finalize
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      const backupId = backupResponse.data.backup_id
+
+      // Poll for backup completion (max 60 seconds)
+      const maxAttempts = 30
+      const pollInterval = 2000 // 2 seconds
+      let backup = null
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval))
+
+        try {
+          const statusResponse = await api.get(`/backups/${backupId}`)
+          backup = statusResponse.data
+
+          if (backup.status === 'success' && backup.filepath) {
+            break
+          } else if (backup.status === 'failed') {
+            throw new Error('Backup failed')
+          }
+          // Still running, continue polling
+        } catch (pollError) {
+          // If it's a 404, backup might not be ready yet
+          if (pollError.response?.status !== 404) {
+            console.error('Poll error:', pollError)
+          }
+        }
+      }
+
+      if (!backup || backup.status !== 'success') {
+        throw new Error('Backup did not complete in time')
+      }
 
       // Download the complete backup (with restore.sh for bare metal recovery)
-      const downloadResponse = await api.get(`/backups/${backupResponse.data.backup_id}/download`, {
+      const downloadResponse = await api.get(`/backups/${backupId}/download`, {
         responseType: 'blob'
       })
 
@@ -583,8 +612,9 @@ async function downloadFullBackup() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      a.download = `n8n_full_backup_${timestamp}.tar.gz`
+      // Use the actual backup filename if available
+      const filename = backup.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
+      a.download = filename
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
