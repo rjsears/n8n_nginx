@@ -29,7 +29,7 @@ from api.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/env-config", tags=["Environment Configuration"])
+router = APIRouter(tags=["Environment Configuration"])
 
 # Path to .env file (mounted from host)
 ENV_FILE_PATH = Path("/app/host_env/.env")

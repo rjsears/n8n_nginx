@@ -22,7 +22,8 @@ import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import SystemNotificationsSettings from '@/components/settings/SystemNotificationsSettings.vue'
-import EnvironmentSettings from '@/components/settings/EnvironmentSettings.vue'
+// TODO: Re-enable when env_config router is fixed
+// import EnvironmentSettings from '@/components/settings/EnvironmentSettings.vue'
 import {
   Cog6ToothIcon,
   PaintBrushIcon,
@@ -229,7 +230,6 @@ const tabs = [
   { id: 'notifications', name: 'System Notifications', icon: BellIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
   { id: 'security', name: 'Security', icon: ShieldCheckIcon, iconColor: 'text-red-500', bgActive: 'bg-red-500/15 dark:bg-red-500/20', textActive: 'text-red-700 dark:text-red-400', borderActive: 'border-red-500/30' },
   { id: 'access-control', name: 'Access Control', icon: GlobeAltIcon, iconColor: 'text-blue-500', bgActive: 'bg-blue-500/15 dark:bg-blue-500/20', textActive: 'text-blue-700 dark:text-blue-400', borderActive: 'border-blue-500/30' },
-  { id: 'environment', name: 'Environment', icon: CommandLineIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
   { id: 'account', name: 'Account', icon: UserIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
   { id: 'api-debug', name: 'n8n API / Debug', icon: BugAntIcon, iconColor: 'text-cyan-500', bgActive: 'bg-cyan-500/15 dark:bg-cyan-500/20', textActive: 'text-cyan-700 dark:text-cyan-400', borderActive: 'border-cyan-500/30' },
 ]
@@ -1652,11 +1652,6 @@ watch(activeTab, (newTab) => {
           :danger="true"
           @confirm="deleteExternalRoute"
         />
-      </div>
-
-      <!-- Environment Tab -->
-      <div v-if="activeTab === 'environment'">
-        <EnvironmentSettings />
       </div>
 
       <!-- Account Tab -->
