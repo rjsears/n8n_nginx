@@ -43,12 +43,13 @@ from api.services.notification_service import dispatch_notification
 logger = logging.getLogger(__name__)
 
 
-# Config files to include in backups (relative to host mount points)
+# Config files to include in backups
+# Using /app/host_project/ which is a directory mount (more reliable than individual file mounts)
 CONFIG_FILES = [
-    {"name": ".env", "host_path": "/app/host_env/.env", "archive_path": "config/.env"},
-    {"name": "docker-compose.yaml", "host_path": "/app/host_config/docker-compose.yaml", "archive_path": "config/docker-compose.yaml"},
-    {"name": "nginx.conf", "host_path": "/app/host_config/nginx.conf", "archive_path": "config/nginx.conf"},
-    {"name": "cloudflare.ini", "host_path": "/app/host_config/cloudflare.ini", "archive_path": "config/cloudflare.ini"},
+    {"name": ".env", "host_path": "/app/host_project/.env", "archive_path": "config/.env"},
+    {"name": "docker-compose.yaml", "host_path": "/app/host_project/docker-compose.yaml", "archive_path": "config/docker-compose.yaml"},
+    {"name": "nginx.conf", "host_path": "/app/host_project/nginx.conf", "archive_path": "config/nginx.conf"},
+    {"name": "cloudflare.ini", "host_path": "/app/host_project/cloudflare.ini", "archive_path": "config/cloudflare.ini"},
 ]
 
 # SSL certificate paths
@@ -1045,10 +1046,17 @@ class BackupService:
 
             for config in CONFIG_FILES:
                 if os.path.exists(config["host_path"]):
-                    dest_path = os.path.join(temp_dir, config["archive_path"])
-                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                    shutil.copy2(config["host_path"], dest_path)
-                    logger.info(f"Copied config file: {config['name']} -> {config['archive_path']}")
+                    try:
+                        dest_path = os.path.join(temp_dir, config["archive_path"])
+                        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                        shutil.copy2(config["host_path"], dest_path)
+                        # Verify the copy was successful
+                        if os.path.exists(dest_path):
+                            logger.info(f"Copied config file: {config['name']} -> {config['archive_path']} (size: {os.path.getsize(dest_path)} bytes)")
+                        else:
+                            logger.error(f"Copy verification failed: {config['name']} - dest file not found after copy")
+                    except Exception as e:
+                        logger.error(f"Failed to copy config file {config['name']}: {e}")
                 else:
                     logger.warning(f"Config file missing, skipping: {config['name']} (expected at {config['host_path']})")
 
@@ -1095,9 +1103,23 @@ class BackupService:
 
             # 7. Create tar.gz archive (85-95%)
             await update_progress(85, "Creating archive")
+
+            # Log what we're about to add to the archive
+            logger.info(f"Temp directory contents before archive creation:")
+            for root, dirs, files in os.walk(temp_dir):
+                level = root.replace(temp_dir, '').count(os.sep)
+                indent = ' ' * 2 * level
+                logger.info(f"{indent}{os.path.basename(root)}/")
+                sub_indent = ' ' * 2 * (level + 1)
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    logger.info(f"{sub_indent}{file} ({os.path.getsize(file_path)} bytes)")
+
             with tarfile.open(archive_path, "w:gz") as tar:
                 for item in os.listdir(temp_dir):
-                    tar.add(os.path.join(temp_dir, item), arcname=item)
+                    item_path = os.path.join(temp_dir, item)
+                    tar.add(item_path, arcname=item)
+                    logger.info(f"Added to archive: {item}")
 
             await update_progress(95, "Finalizing")
             logger.info(f"Created complete archive: {archive_path}")
@@ -1616,15 +1638,13 @@ exit 0
                 databases = []
 
             # Create complete archive with metadata
-            if n8n_db:
-                filepath, metadata = await self.create_complete_archive(
-                    backup_type, databases, n8n_db, compression, history
-                )
-            else:
-                # Fallback to simple backup if no n8n_db session
-                filepath, metadata = await self._simple_backup(
-                    backup_type, databases, compression
-                )
+            # n8n_db is required for complete backups - no fallback to simple backup
+            if not n8n_db:
+                raise Exception("n8n database session is required for complete backup. Cannot create partial backup.")
+
+            filepath, metadata = await self.create_complete_archive(
+                backup_type, databases, n8n_db, compression, history
+            )
 
             # Calculate checksum and file size
             await self._update_progress(history, 96, "Calculating checksum")

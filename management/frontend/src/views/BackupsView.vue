@@ -829,7 +829,12 @@ async function downloadConfigFile(backup, configFile) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = configFile.name
+    // Extract just the filename (handles SSL files like "domain.com/fullchain.pem")
+    // Browsers can't create files with "/" in the name
+    const filename = configFile.name.includes('/')
+      ? configFile.name.split('/').pop()
+      : configFile.name
+    a.download = filename
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
