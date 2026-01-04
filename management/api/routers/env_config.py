@@ -53,7 +53,7 @@ ENV_VARIABLE_GROUPS = {
             },
             "N8N_MANAGEMENT_HOST_IP": {
                 "label": "Management Host IP",
-                "description": "Local IP address of the Docker host. Used for backup/restore operations.",
+                "description": "Internal IP Address of Docker Management Host. Critical for Cloudflare Tunnels and Tailscale to operate properly. This MUST match the resolve to the hostname entered above.",
                 "type": "string",
                 "required": False,
                 "sensitive": False,
@@ -252,7 +252,7 @@ ENV_VARIABLE_GROUPS = {
             },
             "TAILSCALE_ROUTES": {
                 "label": "Advertised Routes",
-                "description": "CIDR routes to advertise (e.g., 192.168.1.0/24)",
+                "description": "CIDR routes to advertise (see current value below for your configured route)",
                 "type": "string",
                 "required": False,
                 "sensitive": False,
