@@ -2935,16 +2935,25 @@ EOF
 
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
+      # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Local backup staging area
       - mgmt_backup_staging:/app/backups
+      # Logs
       - mgmt_logs:/app/logs
+      # Configuration persistence
       - mgmt_config:/app/config
-      - ./.env:/app/host_env/.env:rw
+      # Mount the entire project directory for config file access
+      # This is more reliable than individual file mounts which can be shadowed
+      - ./:/app/host_project:rw
+      # SSL certificates for backup/restore (read-write for selective restore)
+      - letsencrypt:/etc/letsencrypt:rw
 EOF
 
     # Add NFS bind mount if configured (host-level NFS mount)
     if [ "$NFS_CONFIGURED" = "true" ] && [ -n "$NFS_LOCAL_MOUNT" ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+      # NFS backup mount
       - ${NFS_LOCAL_MOUNT}:/mnt/backups
 EOF
     fi
