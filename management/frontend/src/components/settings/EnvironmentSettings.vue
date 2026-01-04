@@ -828,44 +828,48 @@ onMounted(() => {
   <div class="space-y-6">
     <!-- Confirmation Gate - Show warning card if not acknowledged -->
     <div v-if="!hasAcknowledgedRisk" class="flex justify-center">
-      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden max-w-md w-full">
-        <!-- Danger Zone Header -->
-        <div class="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/30">
-          <!-- Icon Container -->
-          <div class="flex-shrink-0 w-12 h-12 rounded-lg bg-red-100 dark:bg-red-500/20 border border-red-200 dark:border-red-500/30 flex items-center justify-center">
-            <ExclamationTriangleIcon class="h-6 w-6 text-red-600 dark:text-red-400" />
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl border-2 border-red-500 dark:border-red-600 overflow-hidden max-w-md w-full">
+        <!-- Header with skull icon -->
+        <div class="px-6 py-5 bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800">
+          <div class="flex items-center justify-center mb-3">
+            <div class="p-4 rounded-full bg-red-100 dark:bg-red-900/50">
+              <!-- Skull and Crossbones SVG -->
+              <svg class="h-12 w-12 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm-2 15v-1h4v1h-4zm5.55-5.46l-.55.39V14h-6v-2.07l-.55-.39C7.51 10.85 7 9.47 7 8c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.47-.51 2.85-1.45 3.54zM9 9c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm6 0c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm-7 9h8l-1 3h-6l-1-3z"/>
+              </svg>
+            </div>
           </div>
-          <!-- Title Area -->
-          <div>
-            <h2 class="text-lg font-bold text-red-600 dark:text-red-400">DANGER ZONE</h2>
-            <p class="text-sm text-red-500 dark:text-red-400/80">Advanced Configuration - Proceed with Caution</p>
-          </div>
+          <h3 class="text-xl font-bold text-red-700 dark:text-red-400 text-center">
+            Danger Zone
+          </h3>
+          <p class="text-sm text-red-600 dark:text-red-500 text-center mt-1">
+            Advanced Configuration Warning
+          </p>
         </div>
 
-        <!-- Main Text -->
-        <div class="px-6 pt-4 pb-4 text-center">
-          <p class="text-gray-700 dark:text-gray-200 text-sm">
+        <!-- Content -->
+        <div class="px-6 py-5 bg-white dark:bg-gray-800">
+          <p class="text-gray-700 dark:text-gray-300 text-center">
             This is an <strong>ADVANCED</strong> configuration area. Changes to these variables are not typically required.
           </p>
-        </div>
 
-        <!-- Warning Box -->
-        <div class="mx-6 mb-4 p-4 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-200 dark:border-red-500/20">
-          <p class="text-red-600 dark:text-red-400 text-sm font-semibold text-center mb-2">
-            Changes to these variables could cause system failure, loss of access, or data corruption and loss!
-          </p>
-          <p class="text-red-600 dark:text-red-400 text-sm text-center">
-            These settings control the core functionality of the n8n management system, its supporting containers, and local and remote access. Incorrect values here can lead to partial or complete system failure.
-          </p>
-        </div>
+          <!-- Warning Box -->
+          <div class="mt-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+            <p class="text-red-700 dark:text-red-400 text-center font-bold mb-2">
+              Changes to these variables could cause system failure, loss of access, or data corruption and loss!
+            </p>
+            <p class="text-red-600 dark:text-red-300 text-center text-sm">
+              These settings control the core functionality of the n8n management system, its supporting containers, and local and remote access. Incorrect values here can lead to partial or complete system failure.
+            </p>
+          </div>
 
-        <!-- Question -->
-        <div class="px-6 pb-4 text-center">
-          <p class="text-gray-700 dark:text-gray-300 text-sm font-medium">Continue to Environment Settings?</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400 text-center mt-4 font-medium">
+            Continue to Environment Settings?
+          </p>
         </div>
 
         <!-- Recommended Action - Download Full Backup -->
-        <div class="mx-6 mb-4 p-4 bg-blue-50 dark:bg-blue-500/10 rounded-xl border border-blue-200 dark:border-blue-500/20">
+        <div class="mx-6 mb-4 p-4 bg-blue-50 dark:bg-blue-500/10 rounded-lg border border-blue-200 dark:border-blue-500/20">
           <div class="flex items-start gap-3">
             <ArrowDownTrayIcon class="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
             <div class="flex-1">
@@ -895,7 +899,7 @@ onMounted(() => {
         </div>
 
         <!-- Recovery Help Section -->
-        <div class="mx-6 mb-4 p-4 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-200 dark:border-amber-500/20">
+        <div class="mx-6 mb-4 p-4 bg-amber-50 dark:bg-amber-500/10 rounded-lg border border-amber-200 dark:border-amber-500/20">
           <div class="flex items-start gap-3">
             <QuestionMarkCircleIcon class="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div class="flex-1">
@@ -916,11 +920,11 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Buttons -->
-        <div class="flex border-t border-gray-200 dark:border-gray-700">
+        <!-- Action Buttons -->
+        <div class="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 flex gap-3">
           <button
             @click="$router.back()"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-blue-500 hover:bg-blue-600 text-white font-medium transition-colors"
+            class="flex-1 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-medium transition-colors"
           >
             Back to Safety
           </button>
@@ -928,15 +932,15 @@ onMounted(() => {
             @click="acknowledgeRisk"
             :disabled="acknowledgeLoading"
             :class="[
-              'flex-1 flex items-center justify-center gap-2 px-4 py-4 font-medium transition-colors disabled:opacity-50',
+              'flex-1 px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50',
               fullBackupDownloaded
                 ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                : 'bg-red-400 hover:bg-red-500 text-white'
+                : 'bg-amber-500 hover:bg-amber-600 text-white'
             ]"
           >
             <LoadingSpinner v-if="acknowledgeLoading" size="sm" />
             <ShieldExclamationIcon v-else class="h-4 w-4" />
-            {{ fullBackupDownloaded ? 'Continue with Backup' : 'I understand the risks, Continue' }}
+            {{ fullBackupDownloaded ? 'Continue' : 'I understand the risks, Continue' }}
           </button>
         </div>
       </div>
