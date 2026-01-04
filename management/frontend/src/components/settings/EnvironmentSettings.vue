@@ -603,11 +603,12 @@ async function runFullBackup() {
 
   try {
     // Trigger a new full backup
-    // If user didn't select verify, skip auto-verification even if system-wide setting is enabled
+    // Always skip backend auto-verification for manual backups
+    // Frontend handles verification separately when user selects "Verify after backup"
     const backupResponse = await api.post('/backups/run', {
       backup_type: 'postgres_full',
       compression: 'gzip',
-      skip_auto_verify: !shouldVerify
+      skip_auto_verify: true
     })
 
     if (backupResponse.data.backup_id) {
