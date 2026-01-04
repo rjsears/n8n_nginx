@@ -1485,14 +1485,22 @@ class RestoreService:
 
             # Copy file
             shutil.copy2(source_path, target_path)
-            logger.info(f"Restored config file: {config_path} -> {target_path}")
+
+            # Verify the file was written correctly
+            if os.path.exists(target_path):
+                stat_info = os.stat(target_path)
+                logger.info(f"Restored config file: {config_path} -> {target_path} "
+                           f"(size: {stat_info.st_size} bytes, inode: {stat_info.st_ino})")
+            else:
+                logger.error(f"File not found after restore: {target_path}")
+                return {"status": "failed", "error": f"File not found after restore: {target_path}"}
 
             return {
                 "status": "success",
                 "config_path": config_path,
                 "target_path": target_path,
                 "backup_created": backup_created,
-                "message": f"Restored {config_path}",
+                "message": f"Restored {os.path.basename(config_path)}",
             }
 
         except Exception as e:
