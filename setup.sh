@@ -2776,6 +2776,10 @@ EOF
     # Secure the .env file
     chmod 600 "${SCRIPT_DIR}/.env"
     print_success ".env file generated"
+
+    # Create env_backups directory for environment variable backups
+    mkdir -p "${SCRIPT_DIR}/env_backups"
+    print_info "env_backups directory created"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

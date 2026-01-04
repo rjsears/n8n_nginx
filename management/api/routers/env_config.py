@@ -1315,9 +1315,9 @@ class AffectedContainersResponse(BaseModel):
 
 def get_backup_dir() -> Path:
     """Get the directory where .env backups are stored."""
-    # Use the config volume for persistent backups
-    # The /app/host_env/ is a file mount, not a directory, so backups won't persist there
-    backup_dir = Path("/app/config/env_backups")
+    # Use the env_backups directory mounted from host
+    # This is mounted at /app/host_config/env_backups in docker-compose.yaml
+    backup_dir = Path("/app/host_config/env_backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
     return backup_dir
 
