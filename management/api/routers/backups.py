@@ -224,26 +224,39 @@ async def download_backup(
     db: AsyncSession = Depends(get_db),
 ):
     """Download a backup file (complete archive with restore scripts)."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"Download request for backup_id={backup_id}")
+
     service = BackupService(db)
     backup = await service.get_backup(backup_id)
 
     if not backup:
+        logger.error(f"Backup {backup_id} not found in database")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Backup not found in database",
         )
 
+    logger.info(f"Found backup: id={backup.id}, filename={backup.filename}, filepath={backup.filepath}, status={backup.status}")
+
     if not backup.filepath:
+        logger.error(f"Backup {backup_id} has no filepath recorded")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Backup file path not recorded",
         )
 
     if not os.path.exists(backup.filepath):
+        logger.error(f"Backup file not found on disk: {backup.filepath}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Backup file not found on disk: {backup.filepath}",
         )
+
+    file_size = os.path.getsize(backup.filepath)
+    logger.info(f"Serving backup file: {backup.filepath} ({file_size} bytes)")
 
     # Use StreamingResponse for large files (same pattern as data-only endpoint)
     def file_iterator():
@@ -254,7 +267,10 @@ async def download_backup(
     return StreamingResponse(
         file_iterator(),
         media_type="application/gzip",
-        headers={"Content-Disposition": f'attachment; filename="{backup.filename}"'}
+        headers={
+            "Content-Disposition": f'attachment; filename="{backup.filename}"',
+            "Content-Length": str(file_size),
+        }
     )
 
 
