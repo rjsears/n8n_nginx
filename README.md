@@ -1311,7 +1311,7 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
 ───────────────────────────────────────────────────────────────────────────────
 
   Thank you for using n8n Management Setup Script v3.0.0
-  Created by Richard J. Sears - richardjsears@gmail.com
+  Created by Richard J. Sears - richard@n8nmanagement.net
 ```
 
 

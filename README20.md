@@ -755,7 +755,7 @@ The script validates your domain and checks if it resolves to your server:
 ───────────────────────────────────────────────────────────────────────────────
 
   Thank you for using n8n HTTPS Setup Script v2.0.0
-  Created by Richard J. Sears - richardjsears@gmail.com
+  Created by Richard J. Sears - richard@n8nmanagement.net
 ```
 
 ---
