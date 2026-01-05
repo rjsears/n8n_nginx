@@ -63,21 +63,17 @@ const backupStore = useBackupStore()
 const notificationStore = useNotificationStore()
 
 // Robust download function that works around browser blocking of subsequent programmatic downloads
-// Uses window.open to create a new browsing context for the download
+// Uses a minimal popup window positioned off-screen that auto-closes immediately
 function triggerBlobDownload(blob, filename) {
   const url = URL.createObjectURL(blob)
 
-  // Method: Open blob URL in new window/tab
-  // For blob URLs with Content-Disposition, browsers typically download rather than display
-  // Create a temporary anchor in a new window context
-  const newWindow = window.open('', '_blank')
+  // Open a tiny popup window positioned off-screen - it will be nearly invisible
+  // The popup creates a fresh browser context that bypasses download blocking
+  const newWindow = window.open('', '_blank', 'width=1,height=1,left=-100,top=-100')
   if (newWindow) {
-    newWindow.document.write('<!DOCTYPE html><html><head><title>Downloading...</title></head><body>' +
-      '<p>Your download should start automatically. If not, <a id="dl" href="' + url + '" download="' + filename + '">click here</a>.</p>' +
-      '<scr' + 'ipt>' +
-      'document.getElementById("dl").click();' +
-      'setTimeout(function() { window.close(); }, 2000);' +
-      '</scr' + 'ipt>' +
+    newWindow.document.write('<!DOCTYPE html><html><body>' +
+      '<a id="dl" href="' + url + '" download="' + filename + '"></a>' +
+      '<scr' + 'ipt>document.getElementById("dl").click();window.close();</scr' + 'ipt>' +
       '</body></html>')
     newWindow.document.close()
   } else {
@@ -92,10 +88,8 @@ function triggerBlobDownload(blob, filename) {
     document.body.removeChild(a)
   }
 
-  // Cleanup after generous delay (don't revoke too early as new window needs it)
-  setTimeout(() => {
-    URL.revokeObjectURL(url)
-  }, 120000) // 2 minutes
+  // Cleanup blob URL after delay
+  setTimeout(() => URL.revokeObjectURL(url), 120000)
 
   return true
 }
