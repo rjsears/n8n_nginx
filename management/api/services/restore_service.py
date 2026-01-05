@@ -1444,11 +1444,20 @@ class RestoreService:
                 # Map backup paths to host paths
                 # Using /app/host_project/ which is a directory mount (more reliable than file mounts)
                 path_mappings = {
+                    # Core config files
                     "config/.env": "/app/host_project/.env",
                     "config/docker-compose.yaml": "/app/host_project/docker-compose.yaml",
                     "config/nginx.conf": "/app/host_project/nginx.conf",
+                    "config/init-db.sh": "/app/host_project/init-db.sh",
+                    # DNS credential files
                     "config/cloudflare.ini": "/app/host_project/cloudflare.ini",
+                    "config/route53.ini": "/app/host_project/route53.ini",
+                    "config/digitalocean.ini": "/app/host_project/digitalocean.ini",
+                    "config/google.json": "/app/host_project/google.json",
+                    # Optional service configs
                     "config/tailscale-serve.json": "/app/host_project/tailscale-serve.json",
+                    "config/dozzle/users.yml": "/app/host_project/dozzle/users.yml",
+                    "config/ntfy/server.yml": "/app/host_project/ntfy/server.yml",
                 }
                 target_path = path_mappings.get(config_path)
 
@@ -1481,12 +1490,9 @@ class RestoreService:
                 backup_created = backup_path
                 logger.info(f"Created backup: {backup_created}")
 
-            # For SSL paths, ensure the target directory exists
-            # For bind-mounted config files, the parent directory should already exist
-            # Creating directories in the overlay can shadow bind mounts
-            if config_path.startswith("ssl/"):
-                target_dir = os.path.dirname(target_path)
-                os.makedirs(target_dir, exist_ok=True)
+            # Ensure the target directory exists (for SSL, dozzle/, ntfy/, etc.)
+            target_dir = os.path.dirname(target_path)
+            os.makedirs(target_dir, exist_ok=True)
 
             # Copy file - for bind mounts, write directly to the mounted file
             # Use open() with write mode to ensure we write to the bind mount
