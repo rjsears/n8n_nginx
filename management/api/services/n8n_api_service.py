@@ -19,8 +19,8 @@ from api.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Path to the mounted .env file
-HOST_ENV_PATH = "/app/host_env/.env"
+# Path to the mounted .env file (via ./:/app/host_project:rw)
+HOST_ENV_PATH = "/app/host_project/.env"
 
 
 def _read_env_file_value(key: str) -> Optional[str]:

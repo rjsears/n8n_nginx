@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Environment Configuration"])
 
-# Path to .env file (mounted from host)
-ENV_FILE_PATH = Path("/app/host_env/.env")
+# Path to .env file (mounted from host via ./:/app/host_project:rw)
+ENV_FILE_PATH = Path("/app/host_project/.env")
 
 # Define variable groups and metadata
 ENV_VARIABLE_GROUPS = {
@@ -1210,7 +1210,7 @@ async def _check_tailscale() -> HealthCheckResult:
 # BACKUP/RESTORE FUNCTIONALITY
 # ============================================
 
-DOCKER_COMPOSE_PATH = Path("/app/host_config/docker-compose.yaml")
+DOCKER_COMPOSE_PATH = Path("/app/host_project/docker-compose.yaml")
 
 # Mapping of env variables to container services (parsed from docker-compose.yaml)
 # This maps each env var to the services that use it
@@ -1315,9 +1315,8 @@ class AffectedContainersResponse(BaseModel):
 
 def get_backup_dir() -> Path:
     """Get the directory where .env backups are stored."""
-    # Use the env_backups directory mounted from host
-    # This is mounted at /app/host_config/env_backups in docker-compose.yaml
-    backup_dir = Path("/app/host_config/env_backups")
+    # Use the env_backups directory in the host project mount
+    backup_dir = Path("/app/host_project/env_backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
     return backup_dir
 
