@@ -6,7 +6,7 @@ Part of the "n8n_nginx/n8n_management" suite
 Version 3.0.0 - January 1st, 2026
 
 Richard J. Sears
-richardjsears@gmail.com
+richard@n8nmanagement.net
 https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
@@ -28,7 +28,7 @@ const appInfo = {
   version: '3.0.0',
   versionDate: '2025-12-13',
   author: 'Richard J. Sears',
-  email: 'richardjsears@gmail.com',
+  email: 'richard@n8nmanagement.net',
   githubUrl: 'https://github.com/rjsears/n8n_nginx',
 }
 
