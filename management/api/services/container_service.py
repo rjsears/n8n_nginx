@@ -416,7 +416,7 @@ class ContainerService:
             Dict with success status and output
         """
         service_name = self._get_service_name_from_container(name)
-        compose_dir = "/app/host_config"  # Directory with docker-compose.yaml
+        compose_dir = "/app/host_project"  # Directory with docker-compose.yaml
 
         # Build the docker compose command
         if pull:
