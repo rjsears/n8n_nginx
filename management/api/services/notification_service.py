@@ -1464,6 +1464,7 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         size_mb = event_data.get("size_mb", 0)
         duration = event_data.get("duration_seconds", 0)
         workflow_count = event_data.get("workflow_count", 0)
+        credential_count = event_data.get("credential_count", 0)
         config_count = event_data.get("config_file_count", 0)
         # Convert UTC timestamp to local timezone
         completed_at_utc = event_data.get("completed_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1476,6 +1477,7 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
             f"Size: {size_mb} MB\n"
             f"Duration: {duration}s\n"
             f"Workflows: {workflow_count}\n"
+            f"Credentials: {credential_count}\n"
             f"Config Files: {config_count}"
         )
     elif event_type == "backup_failure":
