@@ -62,28 +62,18 @@ const themeStore = useThemeStore()
 const backupStore = useBackupStore()
 const notificationStore = useNotificationStore()
 
-// Trigger download from blob using minimal popup to bypass browser blocking
+// Simple blob download - creates anchor element and clicks it
 function triggerBlobDownload(blob, filename) {
   const blobUrl = URL.createObjectURL(blob)
-
-  // Use minimal popup to trigger download - bypasses browser's download blocking
-  const popup = window.open('', '_blank', 'width=1,height=1,left=-100,top=-100')
-  if (popup) {
-    popup.document.write('<html><body><a id="d" href="' + blobUrl + '" download="' + filename + '"></a>' +
-      '<scr' + 'ipt>document.getElementById("d").click();setTimeout(function(){window.close()},100);</scr' + 'ipt></body></html>')
-    popup.document.close()
-  } else {
-    // Fallback if popup blocked
-    const a = document.createElement('a')
-    a.href = blobUrl
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  }
-
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = filename
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
   // Cleanup blob URL after delay
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 120000)
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
 }
 
 // Download helper - fetches blob and triggers download
