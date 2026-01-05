@@ -45,12 +45,22 @@ logger = logging.getLogger(__name__)
 
 # Config files to include in backups
 # Using /app/host_project/ which is a directory mount (more reliable than individual file mounts)
+# Files that don't exist are skipped (e.g., dozzle/ntfy only if those services are installed)
 CONFIG_FILES = [
+    # Core config files
     {"name": ".env", "host_path": "/app/host_project/.env", "archive_path": "config/.env"},
     {"name": "docker-compose.yaml", "host_path": "/app/host_project/docker-compose.yaml", "archive_path": "config/docker-compose.yaml"},
     {"name": "nginx.conf", "host_path": "/app/host_project/nginx.conf", "archive_path": "config/nginx.conf"},
+    {"name": "init-db.sh", "host_path": "/app/host_project/init-db.sh", "archive_path": "config/init-db.sh"},
+    # DNS credential files (cloudflare is most common, others are optional)
     {"name": "cloudflare.ini", "host_path": "/app/host_project/cloudflare.ini", "archive_path": "config/cloudflare.ini"},
+    {"name": "route53.ini", "host_path": "/app/host_project/route53.ini", "archive_path": "config/route53.ini"},
+    {"name": "digitalocean.ini", "host_path": "/app/host_project/digitalocean.ini", "archive_path": "config/digitalocean.ini"},
+    {"name": "google.json", "host_path": "/app/host_project/google.json", "archive_path": "config/google.json"},
+    # Optional service configs (created by setup.sh if services are installed)
     {"name": "tailscale-serve.json", "host_path": "/app/host_project/tailscale-serve.json", "archive_path": "config/tailscale-serve.json"},
+    {"name": "dozzle/users.yml", "host_path": "/app/host_project/dozzle/users.yml", "archive_path": "config/dozzle/users.yml"},
+    {"name": "ntfy/server.yml", "host_path": "/app/host_project/ntfy/server.yml", "archive_path": "config/ntfy/server.yml"},
 ]
 
 # SSL certificate paths
