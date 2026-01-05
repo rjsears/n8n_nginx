@@ -76,14 +76,15 @@ function triggerBlobDownload(blob, filename) {
     const iframeDoc = iframe.contentWindow.document
     iframeDoc.open()
     // Write a minimal HTML document with a download link and auto-click script
-    iframeDoc.write(`<!DOCTYPE html><html><head></head><body>
-      <a id="downloadLink" href="${url}" download="${filename}"></a>
-      <script>
-        var link = document.getElementById('downloadLink');
-        var evt = new MouseEvent('click', {view: window, bubbles: true, cancelable: false});
-        link.dispatchEvent(evt);
-      </script>
-    </body></html>`)
+    // Note: </scr + ipt> is split to avoid Vue parser seeing it as end tag
+    iframeDoc.write('<!DOCTYPE html><html><head></head><body>' +
+      '<a id="downloadLink" href="' + url + '" download="' + filename + '"></a>' +
+      '<scr' + 'ipt>' +
+      'var link = document.getElementById("downloadLink");' +
+      'var evt = new MouseEvent("click", {view: window, bubbles: true, cancelable: false});' +
+      'link.dispatchEvent(evt);' +
+      '</scr' + 'ipt>' +
+      '</body></html>')
     iframeDoc.close()
   } catch (e) {
     console.error('Iframe download failed, trying fallback:', e)
