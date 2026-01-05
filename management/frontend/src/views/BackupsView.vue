@@ -200,32 +200,58 @@ const primarySchedule = computed(() => {
 // Filter and sort
 const filterStatus = ref('all')
 const sortBy = ref('date')
+const dateFrom = ref('')
+const dateTo = ref('')
+
+// Page size options
+const pageSizeOptions = [10, 20, 50, 100]
 
 const filteredBackups = computed(() => {
   let backups = [...backupStore.backups]
 
-  // Filter by status
-  if (filterStatus.value !== 'all') {
-    backups = backups.filter((b) => b.status === filterStatus.value)
-  }
-
-  // Sort
-  if (sortBy.value === 'date') {
-    backups.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-  } else if (sortBy.value === 'size') {
+  // Sort (server already sorts by date desc, but we can re-sort by size locally)
+  if (sortBy.value === 'size') {
     backups.sort((a, b) => (b.file_size || 0) - (a.file_size || 0))
   }
 
   return backups
 })
 
-// Stats
+// Stats - use totalBackups from store for accurate total count
 const stats = computed(() => ({
-  total: backupStore.backups.length,
+  total: backupStore.totalBackups,
   successful: backupStore.backups.filter((b) => b.status === 'success').length,
   failed: backupStore.backups.filter((b) => b.status === 'failed').length,
   totalSize: backupStore.backups.reduce((sum, b) => sum + (b.file_size || 0), 0),
 }))
+
+// Apply filters to server
+async function applyFilters() {
+  const filters = {}
+  if (filterStatus.value !== 'all') {
+    filters.status = filterStatus.value
+  }
+  if (dateFrom.value) {
+    filters.startDate = dateFrom.value
+  }
+  if (dateTo.value) {
+    filters.endDate = dateTo.value
+  }
+  await backupStore.setFilters(filters)
+}
+
+// Clear all filters
+async function clearAllFilters() {
+  filterStatus.value = 'all'
+  dateFrom.value = ''
+  dateTo.value = ''
+  await backupStore.clearFilters()
+}
+
+// Watch filter changes and apply them
+watch([filterStatus], async () => {
+  await applyFilters()
+})
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B'
@@ -1279,7 +1305,7 @@ onUnmounted(stopPolling)
             </div>
             <div class="text-left">
               <h3 class="font-semibold text-primary">Backup History</h3>
-              <p class="text-sm text-secondary">{{ filteredBackups.length }} backup(s) available</p>
+              <p class="text-sm text-secondary">{{ backupStore.totalBackups }} backup(s) available</p>
             </div>
           </div>
           <ChevronDownIcon
@@ -1293,7 +1319,8 @@ onUnmounted(stopPolling)
         <!-- Section Content -->
         <div v-show="sections.history" class="border-t border-gray-200 dark:border-gray-700">
           <!-- Filters (inside Backup History) -->
-          <div class="p-4 flex items-center gap-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+          <div class="p-4 flex flex-wrap items-center gap-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+            <!-- Status Filter -->
             <select v-model="filterStatus" class="select-field">
               <option value="all">All Statuses</option>
               <option value="success">Successful</option>
@@ -1301,6 +1328,52 @@ onUnmounted(stopPolling)
               <option value="running">Running</option>
               <option value="pending">Pending</option>
             </select>
+
+            <!-- Date Range Filter -->
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-secondary">From:</label>
+              <input
+                v-model="dateFrom"
+                type="date"
+                class="input-field text-sm py-1.5"
+                @change="applyFilters"
+              />
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-secondary">To:</label>
+              <input
+                v-model="dateTo"
+                type="date"
+                class="input-field text-sm py-1.5"
+                @change="applyFilters"
+              />
+            </div>
+
+            <!-- Clear Filters Button -->
+            <button
+              v-if="filterStatus !== 'all' || dateFrom || dateTo"
+              @click="clearAllFilters"
+              class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Clear filters
+            </button>
+
+            <!-- Spacer -->
+            <div class="flex-1"></div>
+
+            <!-- Page Size Selector -->
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-secondary">Show:</label>
+              <select
+                :value="backupStore.pagination.limit"
+                @change="backupStore.setPageSize(Number($event.target.value))"
+                class="select-field text-sm py-1.5"
+              >
+                <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option>
+              </select>
+            </div>
+
+            <!-- Sort -->
             <select v-model="sortBy" class="select-field">
               <option value="date">Sort by Date</option>
               <option value="size">Sort by Size</option>
@@ -2213,6 +2286,56 @@ onUnmounted(stopPolling)
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Pagination Controls -->
+          <div
+            v-if="backupStore.totalBackups > 0"
+            class="p-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+          >
+            <div class="text-sm text-secondary">
+              Showing {{ backupStore.pagination.offset + 1 }} - {{ Math.min(backupStore.pagination.offset + filteredBackups.length, backupStore.totalBackups) }} of {{ backupStore.totalBackups }} backups
+            </div>
+            <div class="flex items-center gap-2">
+              <!-- First Page -->
+              <button
+                @click="backupStore.goToPage(1)"
+                :disabled="!backupStore.hasPrevPage"
+                class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="First page"
+              >
+                ««
+              </button>
+              <!-- Previous Page -->
+              <button
+                @click="backupStore.prevPage"
+                :disabled="!backupStore.hasPrevPage"
+                class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                Previous
+              </button>
+              <!-- Page Info -->
+              <span class="px-3 py-1.5 text-sm text-secondary">
+                Page {{ backupStore.currentPage }} of {{ backupStore.totalPages }}
+              </span>
+              <!-- Next Page -->
+              <button
+                @click="backupStore.nextPage"
+                :disabled="!backupStore.hasNextPage"
+                class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                Next
+              </button>
+              <!-- Last Page -->
+              <button
+                @click="backupStore.goToPage(backupStore.totalPages)"
+                :disabled="!backupStore.hasNextPage"
+                class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="Last page"
+              >
+                »»
+              </button>
             </div>
           </div>
         </div>

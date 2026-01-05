@@ -560,26 +560,58 @@ class BackupService:
 
     # History management
 
+    def _build_history_query(
+        self,
+        backup_type: Optional[str] = None,
+        status: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ):
+        """Build the base query for history with filters."""
+        query = select(BackupHistory).where(
+            BackupHistory.deleted_at.is_(None)
+        )
+
+        if backup_type:
+            query = query.where(BackupHistory.backup_type == backup_type)
+        if status:
+            query = query.where(BackupHistory.status == status)
+        if start_date:
+            query = query.where(BackupHistory.created_at >= start_date)
+        if end_date:
+            # Add one day to include the end date fully
+            query = query.where(BackupHistory.created_at < end_date + timedelta(days=1))
+
+        return query
+
     async def get_history(
         self,
         limit: int = 50,
         offset: int = 0,
         backup_type: Optional[str] = None,
         status: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> List[BackupHistory]:
         """Get backup history (excludes soft-deleted backups)."""
-        query = select(BackupHistory).where(
-            BackupHistory.deleted_at.is_(None)
-        ).order_by(BackupHistory.created_at.desc())
-
-        if backup_type:
-            query = query.where(BackupHistory.backup_type == backup_type)
-        if status:
-            query = query.where(BackupHistory.status == status)
-
+        query = self._build_history_query(backup_type, status, start_date, end_date)
+        query = query.order_by(BackupHistory.created_at.desc())
         query = query.offset(offset).limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def get_history_count(
+        self,
+        backup_type: Optional[str] = None,
+        status: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> int:
+        """Get total count of backup history matching filters."""
+        base_query = self._build_history_query(backup_type, status, start_date, end_date)
+        count_query = select(func.count()).select_from(base_query.subquery())
+        result = await self.db.execute(count_query)
+        return result.scalar() or 0
 
     async def get_backup(self, backup_id: int) -> Optional[BackupHistory]:
         """Get backup by ID."""
