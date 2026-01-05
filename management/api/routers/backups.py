@@ -11,10 +11,10 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Dict, Optional
+from typing import List, Dict
 import os
 
 from api.database import get_db, get_n8n_db
@@ -220,55 +220,30 @@ async def get_backup_history(
 @router.get("/download/{backup_id}")
 async def download_backup(
     backup_id: int,
-    request: Request,
-    token: Optional[str] = None,
+    _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download a backup file (complete archive with restore scripts).
-
-    Supports authentication via:
-    - Authorization header (Bearer token)
-    - Session cookie
-    - Query parameter (?token=xxx) for direct URL downloads
-    """
-    from api.dependencies import get_session_for_download
-
-    # Authenticate using flexible method (header, cookie, or query param)
-    await get_session_for_download(request, token=token, db=db)
-
-    import logging
-    logger = logging.getLogger(__name__)
-
-    logger.info(f"Download request for backup_id={backup_id}")
-
+    """Download a backup file (complete archive with restore scripts)."""
     service = BackupService(db)
     backup = await service.get_backup(backup_id)
 
     if not backup:
-        logger.error(f"Backup {backup_id} not found in database")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Backup not found in database",
         )
 
-    logger.info(f"Found backup: id={backup.id}, filename={backup.filename}, filepath={backup.filepath}, status={backup.status}")
-
     if not backup.filepath:
-        logger.error(f"Backup {backup_id} has no filepath recorded")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Backup file path not recorded",
         )
 
     if not os.path.exists(backup.filepath):
-        logger.error(f"Backup file not found on disk: {backup.filepath}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Backup file not found on disk: {backup.filepath}",
         )
-
-    file_size = os.path.getsize(backup.filepath)
-    logger.info(f"Serving backup file: {backup.filepath} ({file_size} bytes)")
 
     # Use StreamingResponse for large files (same pattern as data-only endpoint)
     def file_iterator():
@@ -279,18 +254,14 @@ async def download_backup(
     return StreamingResponse(
         file_iterator(),
         media_type="application/gzip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{backup.filename}"',
-            "Content-Length": str(file_size),
-        }
+        headers={"Content-Disposition": f'attachment; filename="{backup.filename}"'}
     )
 
 
 @router.get("/download/{backup_id}/data-only")
 async def download_backup_data_only(
     backup_id: int,
-    request: Request,
-    token: Optional[str] = None,
+    _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -298,17 +269,7 @@ async def download_backup_data_only(
 
     This creates a clean archive suitable for manual restoration or archival,
     containing only the essential data without the restore.sh script.
-
-    Supports authentication via:
-    - Authorization header (Bearer token)
-    - Session cookie
-    - Query parameter (?token=xxx) for direct URL downloads
     """
-    from api.dependencies import get_session_for_download
-
-    # Authenticate using flexible method (header, cookie, or query param)
-    await get_session_for_download(request, token=token, db=db)
-
     import tarfile
     import tempfile
     import io
@@ -829,8 +790,7 @@ async def list_restorable_workflows(
 async def download_workflow_from_backup(
     backup_id: int,
     workflow_id: str,
-    request: Request,
-    token: Optional[str] = None,
+    _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -838,17 +798,7 @@ async def download_workflow_from_backup(
 
     This extracts the workflow from the backup and returns it as JSON
     suitable for importing into n8n.
-
-    Supports authentication via:
-    - Authorization header (Bearer token)
-    - Session cookie
-    - Query parameter (?token=xxx) for direct URL downloads
     """
-    from api.dependencies import get_session_for_download
-
-    # Authenticate using flexible method (header, cookie, or query param)
-    await get_session_for_download(request, token=token, db=db)
-
     service = RestoreService(db)
 
     try:
@@ -882,8 +832,7 @@ async def download_workflow_from_backup(
 async def download_credential_from_backup(
     backup_id: int,
     credential_id: str,
-    request: Request,
-    token: Optional[str] = None,
+    _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -892,17 +841,7 @@ async def download_credential_from_backup(
     This extracts the credential from the backup and returns it as JSON.
     NOTE: The credential data is encrypted and you may need to reconfigure
     the actual values after import.
-
-    Supports authentication via:
-    - Authorization header (Bearer token)
-    - Session cookie
-    - Query parameter (?token=xxx) for direct URL downloads
     """
-    from api.dependencies import get_session_for_download
-
-    # Authenticate using flexible method (header, cookie, or query param)
-    await get_session_for_download(request, token=token, db=db)
-
     service = RestoreService(db)
 
     try:
@@ -1039,8 +978,7 @@ async def list_config_files_in_backup(
 async def download_config_file_from_backup(
     backup_id: int,
     config_path: str,
-    request: Request,
-    token: Optional[str] = None,
+    _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1048,17 +986,7 @@ async def download_config_file_from_backup(
 
     The config_path should match the path returned by list_config_files_in_backup,
     e.g., "config/.env" or "ssl/domain.com/fullchain.pem"
-
-    Supports authentication via:
-    - Authorization header (Bearer token)
-    - Session cookie
-    - Query parameter (?token=xxx) for direct URL downloads
     """
-    from api.dependencies import get_session_for_download
-
-    # Authenticate using flexible method (header, cookie, or query param)
-    await get_session_for_download(request, token=token, db=db)
-
     service = RestoreService(db)
 
     try:

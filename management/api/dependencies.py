@@ -90,58 +90,6 @@ async def get_current_session(
     return session
 
 
-async def get_session_for_download(
-    request: Request,
-    authorization: Optional[str] = Header(None),
-    session_token: Optional[str] = Cookie(None, alias="session"),
-    token: Optional[str] = None,  # Query parameter - passed directly by endpoint
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get session for download endpoints.
-    Accepts token from: query parameter, Authorization header, or session cookie.
-    Query parameter is useful for direct URL downloads where headers can't be set.
-    """
-    from api.models.auth import Session
-
-    # Extract token - priority: query param > header > cookie
-    auth_token = None
-    if token:
-        auth_token = token
-    elif authorization:
-        if authorization.startswith("Bearer "):
-            auth_token = authorization[7:]
-        else:
-            auth_token = authorization
-    elif session_token:
-        auth_token = session_token
-
-    if not auth_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Look up session
-    result = await db.execute(
-        select(Session)
-        .where(Session.token == auth_token)
-        .where(Session.is_active == True)
-        .where(Session.expires_at > datetime.now(UTC))
-    )
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired session",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    return session
-
-
 async def get_current_user(
     session = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),

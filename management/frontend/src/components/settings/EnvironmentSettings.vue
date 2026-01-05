@@ -61,35 +61,6 @@ import {
 const notificationStore = useNotificationStore()
 const backupStore = useBackupStore()
 
-// Helper function to get the API base URL
-function getApiBaseUrl() {
-  const path = window.location.pathname
-  if (path.startsWith('/management')) {
-    return '/management/api'
-  }
-  return '/api'
-}
-
-// Helper function to trigger direct URL download with token auth
-// Uses direct URL navigation which is not blocked by browsers
-function triggerDirectDownload(endpoint) {
-  const token = localStorage.getItem('auth_token')
-  const baseUrl = getApiBaseUrl()
-  const separator = endpoint.includes('?') ? '&' : '?'
-  const downloadUrl = `${baseUrl}${endpoint}${separator}token=${encodeURIComponent(token)}`
-
-  // Use hidden iframe for download to avoid page navigation
-  const iframe = document.createElement('iframe')
-  iframe.style.display = 'none'
-  iframe.src = downloadUrl
-  document.body.appendChild(iframe)
-
-  // Clean up iframe after download starts
-  setTimeout(() => {
-    document.body.removeChild(iframe)
-  }, 60000) // Keep for 1 minute to allow large downloads
-}
-
 // Backup Confirm Dialog - same as BackupsView
 const backupConfirmDialog = ref({ open: false, verifyAfterBackup: false })
 
@@ -733,19 +704,38 @@ async function pollForProgress() {
 }
 
 // Close progress modal and download backup if successful
-function closeProgressModal() {
+async function closeProgressModal() {
   const backupId = progressModal.value.backupId
   const wasSuccess = progressModal.value.status === 'success'
 
-  // If backup was successful, download the file using direct URL download
-  // This avoids browser blocking of programmatic downloads after async operations
+  // If backup was successful, download the file
   if (wasSuccess && backupId) {
     try {
-      triggerDirectDownload(`/backups/download/${backupId}`)
+      const backup = backupStore.backups.find(b => b.id === backupId)
+
+      // Download the complete backup (with restore.sh for bare metal recovery)
+      const downloadResponse = await api.get(`/backups/download/${backupId}`, {
+        responseType: 'blob',
+        timeout: 300000 // 5 minutes
+      })
+
+      // Create download link
+      const blob = new Blob([downloadResponse.data], { type: 'application/gzip' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const filename = backup?.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
       fullBackupDownloaded.value = true
-      notificationStore.success('Full backup downloading. You can now safely proceed.')
+      notificationStore.success('Full backup downloaded successfully. You can now safely proceed.')
     } catch (error) {
-      notificationStore.error('Failed to download backup')
+      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+      notificationStore.error(`Failed to download backup: ${errorMsg}`)
     }
   }
 
