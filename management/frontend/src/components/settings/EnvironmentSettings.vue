@@ -71,23 +71,15 @@ function getApiBaseUrl() {
 }
 
 // Helper function to trigger direct URL download with token auth
-// Uses direct URL navigation which is not blocked by browsers
+// Opens URL in new tab which triggers browser's native download handling
 function triggerDirectDownload(endpoint) {
   const token = localStorage.getItem('auth_token')
   const baseUrl = getApiBaseUrl()
   const separator = endpoint.includes('?') ? '&' : '?'
   const downloadUrl = `${baseUrl}${endpoint}${separator}token=${encodeURIComponent(token)}`
 
-  // Use hidden iframe for download to avoid page navigation
-  const iframe = document.createElement('iframe')
-  iframe.style.display = 'none'
-  iframe.src = downloadUrl
-  document.body.appendChild(iframe)
-
-  // Clean up iframe after download starts
-  setTimeout(() => {
-    document.body.removeChild(iframe)
-  }, 60000) // Keep for 1 minute to allow large downloads
+  // Open in new tab - browser will download the file and close/keep the tab
+  window.open(downloadUrl, '_blank')
 }
 
 // Backup Confirm Dialog - same as BackupsView
