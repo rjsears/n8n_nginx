@@ -708,36 +708,28 @@ async function pollForProgress() {
   }
 }
 
-// Robust download function that works around browser blocking of subsequent programmatic downloads
-// Uses a minimal popup window positioned off-screen that auto-closes immediately
+// Download helper - uses minimal popup to bypass browser download blocking
 function triggerBlobDownload(blob, filename) {
-  const url = URL.createObjectURL(blob)
+  const blobUrl = URL.createObjectURL(blob)
 
-  // Open a tiny popup window positioned off-screen - it will be nearly invisible
-  // The popup creates a fresh browser context that bypasses download blocking
-  const newWindow = window.open('', '_blank', 'width=1,height=1,left=-100,top=-100')
-  if (newWindow) {
-    newWindow.document.write('<!DOCTYPE html><html><body>' +
-      '<a id="dl" href="' + url + '" download="' + filename + '"></a>' +
-      '<scr' + 'ipt>document.getElementById("dl").click();window.close();</scr' + 'ipt>' +
-      '</body></html>')
-    newWindow.document.close()
+  // Use minimal popup to trigger download - this bypasses browser's download blocking
+  const popup = window.open('', '_blank', 'width=1,height=1,left=-100,top=-100')
+  if (popup) {
+    popup.document.write('<html><body><a id="d" href="' + blobUrl + '" download="' + filename + '"></a>' +
+      '<scr' + 'ipt>document.getElementById("d").click();setTimeout(function(){window.close()},100);</scr' + 'ipt></body></html>')
+    popup.document.close()
   } else {
-    // Popup blocked - fall back to direct anchor click
-    console.warn('Popup blocked, trying direct download')
+    // Fallback if popup blocked
     const a = document.createElement('a')
-    a.href = url
+    a.href = blobUrl
     a.download = filename
-    a.style.display = 'none'
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
   }
 
   // Cleanup blob URL after delay
-  setTimeout(() => URL.revokeObjectURL(url), 120000)
-
-  return true
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 120000)
 }
 
 // Close progress modal and download backup if successful
