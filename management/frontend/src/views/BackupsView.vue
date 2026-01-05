@@ -62,6 +62,47 @@ const themeStore = useThemeStore()
 const backupStore = useBackupStore()
 const notificationStore = useNotificationStore()
 
+// Robust download function that works around browser blocking of subsequent programmatic downloads
+function triggerBlobDownload(blob, filename) {
+  // Create a unique URL for this download
+  const url = URL.createObjectURL(blob)
+
+  // Create anchor with explicit attributes
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  // Make element "visible" but off-screen - some browsers need this
+  a.style.position = 'fixed'
+  a.style.top = '-10000px'
+  a.style.left = '-10000px'
+  a.style.opacity = '0'
+  a.style.pointerEvents = 'none'
+
+  // Add to DOM
+  document.body.appendChild(a)
+
+  // Force a reflow to ensure element is in the DOM
+  void a.offsetHeight
+
+  // Create and dispatch a proper MouseEvent (more reliable than .click())
+  const clickEvent = new MouseEvent('click', {
+    view: window,
+    bubbles: true,
+    cancelable: false
+  })
+  a.dispatchEvent(clickEvent)
+
+  // Clean up with generous delay to ensure download starts
+  setTimeout(() => {
+    if (a.parentNode) {
+      a.parentNode.removeChild(a)
+    }
+    URL.revokeObjectURL(url)
+  }, 60000) // 1 minute cleanup delay
+
+  return true
+}
+
 const loading = ref(true)
 const runningBackup = ref(false)
 const deleteDialog = ref({ open: false, backup: null, loading: false })
@@ -743,14 +784,8 @@ async function downloadWorkflow(backup, workflow) {
   try {
     const response = await api.get(`/backups/${backup.id}/workflows/${workflow.id}/download`)
     const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${workflow.name || 'workflow'}_${new Date().toISOString().slice(0, 10)}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    const filename = `${workflow.name || 'workflow'}_${new Date().toISOString().slice(0, 10)}.json`
+    triggerBlobDownload(blob, filename)
     notificationStore.success(`Downloaded workflow: ${workflow.name}`)
   } catch (error) {
     notificationStore.error('Failed to download workflow')
@@ -762,14 +797,8 @@ async function downloadCredential(backup, credential) {
   try {
     const response = await api.get(`/backups/${backup.id}/credentials/${credential.id}/download`)
     const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${credential.name || 'credential'}_${new Date().toISOString().slice(0, 10)}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    const filename = `${credential.name || 'credential'}_${new Date().toISOString().slice(0, 10)}.json`
+    triggerBlobDownload(blob, filename)
     notificationStore.success(`Downloaded credential: ${credential.name}`)
   } catch (error) {
     notificationStore.error('Failed to download credential')
@@ -826,21 +855,14 @@ async function downloadConfigFile(backup, configFile) {
       responseType: 'blob'
     })
 
-    // Create download link
+    // Create blob and trigger download using robust method
     const blob = new Blob([response.data], { type: 'application/octet-stream' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
     // Extract just the filename (handles SSL files like "domain.com/fullchain.pem")
     // Browsers can't create files with "/" in the name
     const filename = configFile.name.includes('/')
       ? configFile.name.split('/').pop()
       : configFile.name
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    triggerBlobDownload(blob, filename)
 
     notificationStore.success(`Downloaded ${configFile.name}`)
   } catch (error) {
@@ -877,16 +899,10 @@ async function createBareMetalRecovery(backup) {
       timeout: 300000 // 5 minutes
     })
 
-    // Create download link - same method as EnvironmentSettings
+    // Create blob and trigger download using robust method
     const blob = new Blob([response.data], { type: 'application/gzip' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = backup.filename || `backup_${backup.id}.n8n_backup.tar.gz`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    const filename = backup.filename || `backup_${backup.id}.n8n_backup.tar.gz`
+    triggerBlobDownload(blob, filename)
 
     notificationStore.success('Bare metal recovery archive downloaded. Extract and run ./restore.sh on target server.')
   } catch (error) {
@@ -909,20 +925,13 @@ async function downloadBackupData(backup) {
       timeout: 300000 // 5 minutes
     })
 
-    // Create download link
+    // Create blob and trigger download using robust method
     const blob = new Blob([response.data], { type: 'application/gzip' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
     // Generate filename without restore script indicator
     const filename = backup.filename?.replace('.n8n_backup.tar.gz', '.data.tar.gz') ||
                      backup.filename?.replace('.tar.gz', '.data.tar.gz') ||
                      `backup_${backup.id}.data.tar.gz`
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    triggerBlobDownload(blob, filename)
 
     notificationStore.success('Backup data downloaded successfully.')
   } catch (error) {

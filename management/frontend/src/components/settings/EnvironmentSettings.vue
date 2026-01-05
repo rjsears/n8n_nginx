@@ -708,6 +708,64 @@ async function pollForProgress() {
   }
 }
 
+// Robust download function that works around browser blocking of subsequent programmatic downloads
+function triggerBlobDownload(blob, filename) {
+  // Create a unique URL for this download
+  const url = URL.createObjectURL(blob)
+
+  // Create an iframe to handle the download
+  // This approach is more reliable for subsequent downloads
+  const iframe = document.createElement('iframe')
+  iframe.style.display = 'none'
+  iframe.name = 'download-frame-' + Date.now()
+  document.body.appendChild(iframe)
+
+  // Create form to submit to iframe
+  const form = document.createElement('form')
+  form.style.display = 'none'
+  form.target = iframe.name
+  form.method = 'GET'
+
+  // For blob downloads, we still need the anchor approach but with better handling
+  // Remove the iframe approach and use a more robust anchor method
+  document.body.removeChild(iframe)
+
+  // Create anchor with explicit attributes
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  // Make element "visible" but off-screen - some browsers need this
+  a.style.position = 'fixed'
+  a.style.top = '-10000px'
+  a.style.left = '-10000px'
+  a.style.opacity = '0'
+  a.style.pointerEvents = 'none'
+
+  // Add to DOM
+  document.body.appendChild(a)
+
+  // Force a reflow to ensure element is in the DOM
+  void a.offsetHeight
+
+  // Create and dispatch a proper MouseEvent (more reliable than .click())
+  const clickEvent = new MouseEvent('click', {
+    view: window,
+    bubbles: true,
+    cancelable: false
+  })
+  a.dispatchEvent(clickEvent)
+
+  // Clean up with generous delay to ensure download starts
+  setTimeout(() => {
+    if (a.parentNode) {
+      a.parentNode.removeChild(a)
+    }
+    URL.revokeObjectURL(url)
+  }, 60000) // 1 minute cleanup delay
+
+  return true
+}
+
 // Close progress modal and download backup if successful
 async function closeProgressModal() {
   const backupId = progressModal.value.backupId
@@ -740,28 +798,14 @@ async function closeProgressModal() {
         throw new Error('Downloaded file is empty')
       }
 
-      // Create download link
+      // Create blob and trigger download
       const blob = new Blob([downloadResponse.data], { type: 'application/gzip' })
-      const url = URL.createObjectURL(blob)
       const filename = backup?.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
 
-      console.log('Creating download:', { url, filename, blobSize: blob.size })
+      console.log('Triggering download:', { filename, blobSize: blob.size })
 
-      // Method 1: Use anchor element (standard approach)
-      const a = document.createElement('a')
-      a.style.display = 'none'
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-
-      // Use setTimeout to ensure the click happens in a new event loop
-      setTimeout(() => {
-        a.click()
-        setTimeout(() => {
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-        }, 100)
-      }, 0)
+      // Use robust download function
+      triggerBlobDownload(blob, filename)
 
       fullBackupDownloaded.value = true
       notificationStore.success('Full backup downloaded successfully. You can now safely proceed.')
