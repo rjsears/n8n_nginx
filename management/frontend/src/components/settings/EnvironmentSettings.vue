@@ -709,59 +709,47 @@ async function pollForProgress() {
 }
 
 // Robust download function that works around browser blocking of subsequent programmatic downloads
+// Uses an iframe with its own JavaScript context to bypass main window download blocking
 function triggerBlobDownload(blob, filename) {
-  // Create a unique URL for this download
   const url = URL.createObjectURL(blob)
 
-  // Create an iframe to handle the download
-  // This approach is more reliable for subsequent downloads
+  // Create a hidden iframe with its own context
   const iframe = document.createElement('iframe')
-  iframe.style.display = 'none'
-  iframe.name = 'download-frame-' + Date.now()
+  iframe.style.cssText = 'position:fixed;top:-10000px;left:-10000px;width:1px;height:1px;'
   document.body.appendChild(iframe)
 
-  // Create form to submit to iframe
-  const form = document.createElement('form')
-  form.style.display = 'none'
-  form.target = iframe.name
-  form.method = 'GET'
+  try {
+    const iframeDoc = iframe.contentWindow.document
+    iframeDoc.open()
+    // Write a minimal HTML document with a download link and auto-click script
+    iframeDoc.write(`<!DOCTYPE html><html><head></head><body>
+      <a id="downloadLink" href="${url}" download="${filename}"></a>
+      <script>
+        var link = document.getElementById('downloadLink');
+        var evt = new MouseEvent('click', {view: window, bubbles: true, cancelable: false});
+        link.dispatchEvent(evt);
+      </script>
+    </body></html>`)
+    iframeDoc.close()
+  } catch (e) {
+    console.error('Iframe download failed, trying fallback:', e)
+    // Fallback: try window.location approach
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.target = '_blank'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
 
-  // For blob downloads, we still need the anchor approach but with better handling
-  // Remove the iframe approach and use a more robust anchor method
-  document.body.removeChild(iframe)
-
-  // Create anchor with explicit attributes
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  // Make element "visible" but off-screen - some browsers need this
-  a.style.position = 'fixed'
-  a.style.top = '-10000px'
-  a.style.left = '-10000px'
-  a.style.opacity = '0'
-  a.style.pointerEvents = 'none'
-
-  // Add to DOM
-  document.body.appendChild(a)
-
-  // Force a reflow to ensure element is in the DOM
-  void a.offsetHeight
-
-  // Create and dispatch a proper MouseEvent (more reliable than .click())
-  const clickEvent = new MouseEvent('click', {
-    view: window,
-    bubbles: true,
-    cancelable: false
-  })
-  a.dispatchEvent(clickEvent)
-
-  // Clean up with generous delay to ensure download starts
+  // Cleanup after generous delay
   setTimeout(() => {
-    if (a.parentNode) {
-      a.parentNode.removeChild(a)
+    if (iframe.parentNode) {
+      iframe.parentNode.removeChild(iframe)
     }
     URL.revokeObjectURL(url)
-  }, 60000) // 1 minute cleanup delay
+  }, 60000)
 
   return true
 }
