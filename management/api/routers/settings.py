@@ -222,9 +222,9 @@ DEFAULT_IP_RANGES = [
     {"cidr": "192.168.0.0/16", "description": "RFC1918 Class C (192.168.x.x)", "access_level": "internal", "protected": False},
 ]
 
-# Path to nginx config (mounted from host)
-NGINX_CONFIG_PATH = "/app/host_config/nginx.conf"
-HOST_ENV_PATH = "/app/host_env/.env"
+# Paths to host files (mounted from host via ./:/app/host_project:rw)
+NGINX_CONFIG_PATH = "/app/host_project/nginx.conf"
+HOST_ENV_PATH = "/app/host_project/.env"
 
 
 def parse_nginx_geo_block(config_content: str) -> List[Dict[str, Any]]:

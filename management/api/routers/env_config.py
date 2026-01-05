@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Environment Configuration"])
 
-# Path to .env file (mounted from host)
-ENV_FILE_PATH = Path("/app/host_env/.env")
+# Path to .env file (mounted from host via ./:/app/host_project:rw)
+ENV_FILE_PATH = Path("/app/host_project/.env")
 
 # Define variable groups and metadata
 ENV_VARIABLE_GROUPS = {
