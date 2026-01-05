@@ -1448,6 +1448,7 @@ class RestoreService:
                     "config/docker-compose.yaml": "/app/host_project/docker-compose.yaml",
                     "config/nginx.conf": "/app/host_project/nginx.conf",
                     "config/cloudflare.ini": "/app/host_project/cloudflare.ini",
+                    "config/tailscale-serve.json": "/app/host_project/tailscale-serve.json",
                 }
                 target_path = path_mappings.get(config_path)
 
