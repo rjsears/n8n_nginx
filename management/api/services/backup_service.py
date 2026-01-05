@@ -1187,7 +1187,7 @@ class BackupService:
 # /restore.sh
 #
 # Part of the "n8n_nginx/n8n_management" suite
-# Version 3.1.0 - January 2026
+# Version 3.0.0 - January 2026
 #
 # Richard J. Sears
 # richard@n8nmanagement.net
