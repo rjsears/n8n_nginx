@@ -1192,10 +1192,12 @@ class BackupService:
 # It can restore to a freshly installed Linux system with no prerequisites.
 #
 # What this script does:
+#   - Checks system requirements (disk space, memory, internet)
+#   - Installs required utilities (curl, git, openssl, jq)
 #   - Installs Docker and Docker Compose (if needed)
 #   - Installs PostgreSQL client tools (if needed)
 #   - Installs and configures NFS (if backup was using NFS storage)
-#   - Validates DNS configuration matches the backup
+#   - Validates DNS configuration matches this server
 #   - Restores all configuration files
 #   - Restores databases
 #   - Restores SSL certificates
@@ -1207,12 +1209,13 @@ class BackupService:
 #
 # Options:
 #   --target-dir DIR    Directory to restore to (default: /opt/n8n)
-#   --skip-docker       Skip Docker installation
+#   --skip-docker       Skip Docker installation check
 #   --skip-ssl          Skip SSL certificate restoration
 #   --skip-db           Skip database restoration
 #   --skip-config       Skip config file restoration
 #   --skip-nfs          Skip NFS setup even if configured in backup
 #   --skip-dns-check    Skip DNS validation (use with caution)
+#   --skip-system-check Skip system requirements check
 #   --dry-run           Show what would be done without making changes
 #   --force             Skip all confirmation prompts
 #   --auto              Fully automatic mode (implies --force)
@@ -1233,6 +1236,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 WHITE='\033[1;37m'
+MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Default values
@@ -1243,14 +1247,21 @@ SKIP_DB=false
 SKIP_CONFIG=false
 SKIP_NFS=false
 SKIP_DNS_CHECK=false
+SKIP_SYSTEM_CHECK=false
 DRY_RUN=false
 FORCE=false
 AUTO_MODE=false
+
+# Minimum requirements
+MIN_DISK_GB=5
+MIN_RAM_MB=2048
 
 # Detected values
 DISTRO=""
 DISTRO_FAMILY=""
 PKG_MANAGER=""
+PKG_UPDATE=""
+PKG_INSTALL=""
 
 # ============================================================================
 # Argument Parsing
@@ -1265,11 +1276,12 @@ while [[ $# -gt 0 ]]; do
         --skip-config) SKIP_CONFIG=true; shift ;;
         --skip-nfs) SKIP_NFS=true; shift ;;
         --skip-dns-check) SKIP_DNS_CHECK=true; shift ;;
+        --skip-system-check) SKIP_SYSTEM_CHECK=true; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
         --force) FORCE=true; shift ;;
         --auto) AUTO_MODE=true; FORCE=true; shift ;;
         -h|--help)
-            head -n 40 "$0" | tail -n 36
+            head -n 45 "$0" | tail -n 41
             exit 0
             ;;
         *) echo -e "${RED}Unknown option: $1${NC}"; exit 1 ;;
@@ -1287,7 +1299,7 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-log_step() { echo -e "\n${GREEN}━━━ $1 ━━━${NC}"; }
+log_step() { echo -e "\n${MAGENTA}═══ $1 ═══${NC}"; }
 
 run_cmd() {
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -1322,6 +1334,20 @@ command_exists() {
     command -v "$1" &>/dev/null
 }
 
+# Check if running in LXC container
+is_lxc_container() {
+    if command_exists systemd-detect-virt && [ "$(systemd-detect-virt 2>/dev/null)" = "lxc" ]; then
+        return 0
+    fi
+    if grep -qa 'container=lxc' /proc/1/environ 2>/dev/null; then
+        return 0
+    fi
+    if [ -f /run/host/container-manager ]; then
+        return 0
+    fi
+    return 1
+}
+
 # ============================================================================
 # OS Detection
 # ============================================================================
@@ -1330,43 +1356,158 @@ detect_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         DISTRO=$ID
+        DISTRO_VERSION=$VERSION_ID
         case $ID in
-            ubuntu|debian|linuxmint|pop)
+            ubuntu|debian|linuxmint|pop|raspbian)
                 DISTRO_FAMILY="debian"
                 PKG_MANAGER="apt-get"
+                PKG_UPDATE="apt-get update -qq"
+                PKG_INSTALL="apt-get install -y -qq"
                 ;;
             centos|rhel|fedora|rocky|almalinux)
                 DISTRO_FAMILY="rhel"
                 if command_exists dnf; then
                     PKG_MANAGER="dnf"
+                    PKG_UPDATE="dnf check-update || true"
+                    PKG_INSTALL="dnf install -y -q"
                 else
                     PKG_MANAGER="yum"
+                    PKG_UPDATE="yum check-update || true"
+                    PKG_INSTALL="yum install -y -q"
                 fi
                 ;;
             alpine)
                 DISTRO_FAMILY="alpine"
                 PKG_MANAGER="apk"
+                PKG_UPDATE="apk update -q"
+                PKG_INSTALL="apk add -q"
                 ;;
             *)
                 DISTRO_FAMILY="unknown"
+                # Try to detect package manager
+                if command_exists apt-get; then
+                    PKG_MANAGER="apt-get"
+                    PKG_UPDATE="apt-get update -qq"
+                    PKG_INSTALL="apt-get install -y -qq"
+                elif command_exists dnf; then
+                    PKG_MANAGER="dnf"
+                    PKG_UPDATE="dnf check-update || true"
+                    PKG_INSTALL="dnf install -y -q"
+                elif command_exists yum; then
+                    PKG_MANAGER="yum"
+                    PKG_UPDATE="yum check-update || true"
+                    PKG_INSTALL="yum install -y -q"
+                fi
                 ;;
         esac
     elif [ -f /etc/debian_version ]; then
         DISTRO="debian"
         DISTRO_FAMILY="debian"
         PKG_MANAGER="apt-get"
+        PKG_UPDATE="apt-get update -qq"
+        PKG_INSTALL="apt-get install -y -qq"
     elif [ -f /etc/redhat-release ]; then
         DISTRO="rhel"
         DISTRO_FAMILY="rhel"
         PKG_MANAGER="yum"
+        PKG_UPDATE="yum check-update || true"
+        PKG_INSTALL="yum install -y -q"
     fi
 
     log_info "Detected OS: $DISTRO (family: $DISTRO_FAMILY)"
 }
 
 # ============================================================================
+# System Requirement Checks
+# ============================================================================
+
+check_system_requirements() {
+    log_info "Checking system requirements..."
+    local all_passed=true
+
+    # Check disk space
+    local available_gb=$(df -BG "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2 {print $4}' | tr -d 'G')
+    if [[ -n "$available_gb" ]] && [[ "$available_gb" -ge "$MIN_DISK_GB" ]]; then
+        log_success "Disk space: ${available_gb}GB available (${MIN_DISK_GB}GB required)"
+    else
+        log_warning "Disk space: ${available_gb:-unknown}GB available (${MIN_DISK_GB}GB required)"
+        all_passed=false
+    fi
+
+    # Check memory
+    local total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
+    if [[ -n "$total_ram_mb" ]] && [[ "$total_ram_mb" -ge "$MIN_RAM_MB" ]]; then
+        log_success "Memory: ${total_ram_mb}MB available (${MIN_RAM_MB}MB required)"
+    else
+        log_warning "Memory: ${total_ram_mb:-unknown}MB available (${MIN_RAM_MB}MB required)"
+        all_passed=false
+    fi
+
+    # Check internet connectivity (needed for Docker image pulls)
+    log_info "Checking internet connectivity..."
+    if ping -c 1 -W 5 8.8.8.8 &>/dev/null || ping -c 1 -W 5 1.1.1.1 &>/dev/null; then
+        log_success "Internet connectivity available"
+    else
+        log_warning "Cannot reach internet - Docker image pulls may fail"
+        all_passed=false
+    fi
+
+    # Check for LXC container
+    if is_lxc_container; then
+        log_warning "Running inside LXC container - some features may require special configuration"
+    fi
+
+    if [[ "$all_passed" != "true" ]]; then
+        log_warning "Some system requirements not met"
+        if ! confirm "Continue anyway?"; then
+            exit 1
+        fi
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # Package Installation Functions
 # ============================================================================
+
+install_base_utilities() {
+    log_info "Checking base utilities..."
+
+    local missing=""
+    command_exists curl || missing="$missing curl"
+    command_exists git || missing="$missing git"
+    command_exists openssl || missing="$missing openssl"
+    command_exists jq || missing="$missing jq"
+
+    if [[ -z "$missing" ]]; then
+        log_success "All base utilities already installed"
+        return 0
+    fi
+
+    log_info "Installing missing utilities:$missing"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "${CYAN}  [DRY-RUN] Would install:$missing${NC}"
+        return 0
+    fi
+
+    run_privileged $PKG_UPDATE
+    run_privileged $PKG_INSTALL $missing
+
+    # Verify
+    local failed=""
+    command_exists curl || failed="$failed curl"
+    command_exists git || failed="$failed git"
+    command_exists openssl || failed="$failed openssl"
+    command_exists jq || failed="$failed jq"
+
+    if [[ -n "$failed" ]]; then
+        log_warning "Failed to install:$failed (may not be critical)"
+    else
+        log_success "Base utilities installed"
+    fi
+}
 
 install_docker() {
     log_info "Installing Docker..."
@@ -1425,7 +1566,13 @@ install_docker() {
         log_warning "Added $SUDO_USER to docker group. You may need to log out and back in."
     fi
 
-    log_success "Docker installed successfully"
+    # Verify installation
+    if docker --version &>/dev/null; then
+        log_success "Docker installed successfully: $(docker --version)"
+    else
+        log_error "Docker installation failed"
+        exit 1
+    fi
 }
 
 install_postgresql_client() {
@@ -1504,30 +1651,38 @@ validate_dns() {
         return 0
     fi
 
-    if [[ -z "$domain" ]] || [[ -z "$expected_ip" ]]; then
-        log_warning "Cannot validate DNS - domain or expected IP not set in backup"
+    if [[ -z "$domain" ]]; then
+        log_warning "Cannot validate DNS - domain not set in backup"
         return 0
     fi
 
-    log_info "Validating DNS: $domain should resolve to $expected_ip"
+    log_info "Validating DNS configuration for: $domain"
 
     # Get current server IPs
     local server_ips=$(hostname -I 2>/dev/null || ip addr show | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ')
+    log_info "This server's IP addresses: $server_ips"
 
     # Resolve domain
     local resolved_ip=""
     if command_exists dig; then
-        resolved_ip=$(dig +short "$domain" 2>/dev/null | head -1)
+        resolved_ip=$(dig +short "$domain" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
     elif command_exists nslookup; then
         resolved_ip=$(nslookup "$domain" 2>/dev/null | grep -A1 'Name:' | grep 'Address:' | awk '{print $2}' | head -1)
     elif command_exists host; then
         resolved_ip=$(host "$domain" 2>/dev/null | grep 'has address' | awk '{print $4}' | head -1)
+    elif command_exists getent; then
+        resolved_ip=$(getent hosts "$domain" 2>/dev/null | awk '{print $1}' | head -1)
     fi
 
     if [[ -z "$resolved_ip" ]]; then
         log_error "Cannot resolve domain: $domain"
-        log_info "Please ensure DNS is configured correctly before proceeding"
-        if ! confirm "Continue anyway? (NOT RECOMMENDED)"; then
+        echo ""
+        echo -e "  ${YELLOW}This could mean:${NC}"
+        echo -e "    - The DNS record hasn't been created yet"
+        echo -e "    - The DNS hasn't propagated yet"
+        echo -e "    - The domain name is incorrect"
+        echo ""
+        if ! confirm "Continue anyway? (NOT RECOMMENDED - services will likely fail)"; then
             exit 1
         fi
         return 1
@@ -1535,36 +1690,114 @@ validate_dns() {
 
     log_info "Domain $domain resolves to: $resolved_ip"
 
-    # Check if resolved IP matches expected or server IP
-    local ip_ok=false
+    # Check if resolved IP matches this server
+    local ip_matches=false
     for ip in $server_ips; do
         if [[ "$ip" == "$resolved_ip" ]]; then
-            ip_ok=true
+            ip_matches=true
             break
         fi
     done
 
-    if [[ "$ip_ok" == "true" ]]; then
+    if [[ "$ip_matches" == "true" ]]; then
         log_success "DNS validated: $domain -> $resolved_ip (matches this server)"
         return 0
-    elif [[ "$resolved_ip" == "$expected_ip" ]]; then
-        log_warning "DNS resolves to $resolved_ip which was the original server"
-        log_warning "This server's IPs: $server_ips"
-        log_info "You may need to update DNS to point to this server"
-        if ! confirm "Continue anyway?"; then
-            exit 1
-        fi
-        return 1
     else
-        log_error "DNS mismatch!"
-        log_error "  Domain resolves to: $resolved_ip"
-        log_error "  Expected (from backup): $expected_ip"
-        log_error "  This server's IPs: $server_ips"
-        if ! confirm "Continue anyway? (Services will likely fail)"; then
+        log_error "DNS MISMATCH DETECTED!"
+        echo ""
+        echo -e "  ${RED}╔═══════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "  ${RED}║                              WARNING                                      ║${NC}"
+        echo -e "  ${RED}║  The domain does NOT point to this server!                                ║${NC}"
+        echo -e "  ${RED}╚═══════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "  ${YELLOW}Domain $domain resolves to: ${WHITE}$resolved_ip${NC}"
+        echo -e "  ${YELLOW}This server's IPs are:      ${WHITE}$server_ips${NC}"
+        if [[ -n "$expected_ip" ]]; then
+            echo -e "  ${YELLOW}Original server IP was:     ${WHITE}$expected_ip${NC}"
+        fi
+        echo ""
+        echo -e "  ${YELLOW}This will cause the n8n stack to fail because:${NC}"
+        echo -e "    - SSL certificate validation will fail"
+        echo -e "    - Webhooks won't reach this server"
+        echo -e "    - The n8n UI won't be accessible"
+        echo ""
+        echo -e "  ${WHITE}To fix this, update your DNS records to point $domain to one of:${NC}"
+        for ip in $server_ips; do
+            echo -e "    ${CYAN}$ip${NC}"
+        done
+        echo ""
+        if ! confirm "Continue anyway? (Services will likely NOT work)"; then
             exit 1
         fi
         return 1
     fi
+}
+
+validate_backup_contents() {
+    log_info "Validating backup contents..."
+    local valid=true
+
+    # Check for metadata.json
+    if [[ ! -f "$SCRIPT_DIR/metadata.json" ]]; then
+        log_error "metadata.json not found - is this a valid backup?"
+        return 1
+    fi
+    log_success "metadata.json found"
+
+    # Check for config directory
+    if [[ ! -d "$SCRIPT_DIR/config" ]]; then
+        log_warning "config directory not found in backup"
+        valid=false
+    else
+        log_success "config directory found"
+    fi
+
+    # Check for docker-compose.yaml in config
+    if [[ -f "$SCRIPT_DIR/config/docker-compose.yaml" ]]; then
+        log_success "docker-compose.yaml found in backup"
+    elif [[ -f "$SCRIPT_DIR/config/docker-compose.yml" ]]; then
+        log_success "docker-compose.yml found in backup"
+    else
+        log_error "docker-compose.yaml NOT found in backup - cannot start services"
+        valid=false
+    fi
+
+    # Check for .env file
+    if [[ -f "$SCRIPT_DIR/config/.env" ]]; then
+        log_success ".env file found in backup"
+    else
+        log_warning ".env file not found in backup - services may not start correctly"
+        valid=false
+    fi
+
+    # Check for databases directory
+    if [[ -d "$SCRIPT_DIR/databases" ]]; then
+        local db_count=$(ls -1 "$SCRIPT_DIR/databases"/*.dump 2>/dev/null | wc -l)
+        if [[ "$db_count" -gt 0 ]]; then
+            log_success "Found $db_count database dump(s)"
+        else
+            log_warning "databases directory exists but no .dump files found"
+        fi
+    else
+        log_warning "databases directory not found in backup"
+    fi
+
+    # Check for SSL certificates
+    if [[ -d "$SCRIPT_DIR/ssl" ]]; then
+        local ssl_count=$(ls -1d "$SCRIPT_DIR/ssl"/*/ 2>/dev/null | wc -l)
+        if [[ "$ssl_count" -gt 0 ]]; then
+            log_success "Found SSL certificates for $ssl_count domain(s)"
+        fi
+    fi
+
+    if [[ "$valid" != "true" ]]; then
+        log_warning "Some backup components are missing"
+        if ! confirm "Continue anyway?"; then
+            exit 1
+        fi
+    fi
+
+    return 0
 }
 
 # ============================================================================
@@ -1601,13 +1834,15 @@ setup_nfs() {
     fi
 
     # Test NFS server connectivity
-    if ! ping -c 1 -W 3 "$nfs_server" &>/dev/null; then
+    log_info "Testing connectivity to NFS server: $nfs_server"
+    if ! ping -c 1 -W 5 "$nfs_server" &>/dev/null; then
         log_error "Cannot reach NFS server: $nfs_server"
         if ! confirm "Continue without NFS?"; then
             exit 1
         fi
         return 1
     fi
+    log_success "NFS server is reachable"
 
     if [[ "$DRY_RUN" == "true" ]]; then
         echo -e "${CYAN}  [DRY-RUN] Would create mount point: $nfs_local_mount${NC}"
@@ -1658,7 +1893,7 @@ setup_nfs() {
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║               n8n Bare Metal Recovery Script v3.0                    ║${NC}"
+echo -e "${GREEN}║               n8n Bare Metal Recovery Script v3.1                    ║${NC}"
 echo -e "${GREEN}║                   Complete System Restoration                        ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -1678,15 +1913,21 @@ if [[ $EUID -ne 0 ]]; then
     fi
 fi
 
-# Check for metadata
-if [[ ! -f "$SCRIPT_DIR/metadata.json" ]]; then
-    log_error "metadata.json not found. Is this a valid backup?"
-    exit 1
-fi
-log_success "Backup metadata found"
-
-# Detect OS
+# Detect OS first
 detect_os
+
+# Validate backup contents
+validate_backup_contents || exit 1
+
+# System requirements check
+if [[ "$SKIP_SYSTEM_CHECK" != "true" ]]; then
+    check_system_requirements
+else
+    log_warning "Skipping system requirements check (--skip-system-check)"
+fi
+
+# Install base utilities (curl, git, openssl, jq)
+install_base_utilities
 
 # Ensure python3 for metadata parsing
 if ! command_exists python3; then
