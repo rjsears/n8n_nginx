@@ -558,6 +558,21 @@ async def _check_container_health() -> None:
                     severity="warning",
                 )
 
+        # Alert for automatically restarted containers
+        for restart_info in health.get("restarted", []):
+            container_name = restart_info["name"]
+            restart_count = restart_info["restart_count"]
+            await dispatch_notification(
+                "container_restart",
+                {
+                    "container": container_name,
+                    "container_name": container_name,
+                    "restart_count": restart_count,
+                },
+                severity="warning",
+            )
+            logger.info(f"Sent restart notification for {container_name} (count: {restart_count})")
+
     except Exception as e:
         logger.error(f"Container health check failed: {e}")
 
