@@ -23,9 +23,31 @@ export const useBackupStore = defineStore('backups', () => {
   const loading = ref(false)
   const error = ref(null)
 
+  // Pagination state
+  const pagination = ref({
+    total: 0,
+    limit: 20,
+    offset: 0,
+    hasMore: false,
+  })
+
+  // Filter state
+  const filters = ref({
+    status: null,
+    type: null,
+    startDate: null,
+    endDate: null,
+  })
+
   // Getters
   // Alias for dashboard compatibility
   const backups = computed(() => Array.isArray(history.value) ? history.value : [])
+
+  const totalBackups = computed(() => pagination.value.total)
+  const currentPage = computed(() => Math.floor(pagination.value.offset / pagination.value.limit) + 1)
+  const totalPages = computed(() => Math.ceil(pagination.value.total / pagination.value.limit) || 1)
+  const hasNextPage = computed(() => pagination.value.hasMore)
+  const hasPrevPage = computed(() => pagination.value.offset > 0)
 
   const recentBackups = computed(() => backups.value.slice(0, 10))
 
@@ -59,14 +81,91 @@ export const useBackupStore = defineStore('backups', () => {
     error.value = null
 
     try {
-      const response = await api.get('/backups/history', { params })
-      history.value = Array.isArray(response.data) ? response.data : []
+      // Build query params with pagination and filters
+      const queryParams = {
+        limit: params.limit ?? pagination.value.limit,
+        offset: params.offset ?? pagination.value.offset,
+      }
+
+      // Add filters if provided or use current filter state
+      if (params.backup_status || filters.value.status) {
+        queryParams.backup_status = params.backup_status || filters.value.status
+      }
+      if (params.backup_type || filters.value.type) {
+        queryParams.backup_type = params.backup_type || filters.value.type
+      }
+      if (params.start_date || filters.value.startDate) {
+        queryParams.start_date = params.start_date || filters.value.startDate
+      }
+      if (params.end_date || filters.value.endDate) {
+        queryParams.end_date = params.end_date || filters.value.endDate
+      }
+
+      const response = await api.get('/backups/history', { params: queryParams })
+
+      // Handle paginated response
+      if (response.data && typeof response.data === 'object' && 'items' in response.data) {
+        history.value = response.data.items
+        pagination.value = {
+          total: response.data.total,
+          limit: response.data.limit,
+          offset: response.data.offset,
+          hasMore: response.data.has_more,
+        }
+      } else {
+        // Fallback for non-paginated response (backwards compatibility)
+        history.value = Array.isArray(response.data) ? response.data : []
+        pagination.value.total = history.value.length
+      }
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to fetch history'
       history.value = []
     } finally {
       loading.value = false
     }
+  }
+
+  // Pagination helpers
+  async function goToPage(page) {
+    const newOffset = (page - 1) * pagination.value.limit
+    pagination.value.offset = newOffset
+    await fetchHistory({ offset: newOffset })
+  }
+
+  async function nextPage() {
+    if (hasNextPage.value) {
+      await goToPage(currentPage.value + 1)
+    }
+  }
+
+  async function prevPage() {
+    if (hasPrevPage.value) {
+      await goToPage(currentPage.value - 1)
+    }
+  }
+
+  async function setPageSize(size) {
+    pagination.value.limit = size
+    pagination.value.offset = 0
+    await fetchHistory({ limit: size, offset: 0 })
+  }
+
+  // Filter helpers
+  async function setFilters(newFilters) {
+    filters.value = { ...filters.value, ...newFilters }
+    pagination.value.offset = 0 // Reset to first page when filters change
+    await fetchHistory()
+  }
+
+  async function clearFilters() {
+    filters.value = {
+      status: null,
+      type: null,
+      startDate: null,
+      endDate: null,
+    }
+    pagination.value.offset = 0
+    await fetchHistory()
   }
 
   async function fetchStats() {
@@ -537,12 +636,19 @@ export const useBackupStore = defineStore('backups', () => {
     stats,
     loading,
     error,
+    pagination,
+    filters,
     // Getters
     backups,
     lastBackup,
     recentBackups,
     successfulBackups,
     failedBackups,
+    totalBackups,
+    currentPage,
+    totalPages,
+    hasNextPage,
+    hasPrevPage,
     // Actions
     fetchSchedules,
     fetchHistory,
@@ -555,6 +661,13 @@ export const useBackupStore = defineStore('backups', () => {
     triggerBackup,
     deleteBackup,
     getDownloadUrl,
+    // Pagination
+    goToPage,
+    nextPage,
+    prevPage,
+    setPageSize,
+    setFilters,
+    clearFilters,
     // Phase 2: Backup Contents
     fetchBackupContents,
     fetchBackupWorkflows,

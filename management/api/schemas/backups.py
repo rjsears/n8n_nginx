@@ -340,6 +340,20 @@ class BackupHistoryExtendedResponse(BackupHistoryResponse):
         from_attributes = True
 
 
+class BackupHistoryPaginatedResponse(BaseModel):
+    """Paginated backup history response."""
+    items: List[BackupHistoryExtendedResponse]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class BackupHistoryCountResponse(BaseModel):
+    """Backup history count response."""
+    total: int
+
+
 # ============================================================================
 # Backup Configuration Schemas (Comprehensive Settings)
 # ============================================================================

@@ -11,10 +11,11 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Dict
+from typing import List, Dict, Optional
+from datetime import datetime, date
 import os
 
 from api.database import get_db, get_n8n_db
@@ -29,6 +30,8 @@ from api.schemas.backups import (
     RetentionPolicyResponse,
     BackupHistoryResponse,
     BackupHistoryExtendedResponse,
+    BackupHistoryPaginatedResponse,
+    BackupHistoryCountResponse,
     BackupRunRequest,
     BackupRunResponse,
     VerificationScheduleUpdate,
@@ -178,24 +181,75 @@ async def run_backup(
 
 # History
 
-@router.get("/history", response_model=List[BackupHistoryExtendedResponse])
+@router.get("/history", response_model=BackupHistoryPaginatedResponse)
 async def list_history(
-    backup_type: str = None,
-    backup_status: str = None,
-    limit: int = 50,
-    offset: int = 0,
+    backup_type: Optional[str] = None,
+    backup_status: Optional[str] = None,
+    start_date: Optional[date] = Query(None, description="Filter backups from this date (YYYY-MM-DD)"),
+    end_date: Optional[date] = Query(None, description="Filter backups until this date (YYYY-MM-DD)"),
+    limit: int = Query(20, ge=1, le=100, description="Number of backups per page"),
+    offset: int = Query(0, ge=0, description="Number of backups to skip"),
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get backup history."""
+    """Get paginated backup history with optional filters."""
     service = BackupService(db)
+
+    # Convert date to datetime for filtering
+    start_datetime = datetime.combine(start_date, datetime.min.time()) if start_date else None
+    end_datetime = datetime.combine(end_date, datetime.min.time()) if end_date else None
+
+    # Get history and total count
     history = await service.get_history(
         limit=limit,
         offset=offset,
         backup_type=backup_type,
         status=backup_status,
+        start_date=start_datetime,
+        end_date=end_datetime,
     )
-    return [BackupHistoryExtendedResponse.model_validate(h) for h in history]
+
+    total = await service.get_history_count(
+        backup_type=backup_type,
+        status=backup_status,
+        start_date=start_datetime,
+        end_date=end_datetime,
+    )
+
+    items = [BackupHistoryExtendedResponse.model_validate(h) for h in history]
+
+    return BackupHistoryPaginatedResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=(offset + len(items)) < total,
+    )
+
+
+@router.get("/history/count", response_model=BackupHistoryCountResponse)
+async def get_history_count(
+    backup_type: Optional[str] = None,
+    backup_status: Optional[str] = None,
+    start_date: Optional[date] = Query(None, description="Filter backups from this date (YYYY-MM-DD)"),
+    end_date: Optional[date] = Query(None, description="Filter backups until this date (YYYY-MM-DD)"),
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get total count of backups matching filters."""
+    service = BackupService(db)
+
+    start_datetime = datetime.combine(start_date, datetime.min.time()) if start_date else None
+    end_datetime = datetime.combine(end_date, datetime.min.time()) if end_date else None
+
+    total = await service.get_history_count(
+        backup_type=backup_type,
+        status=backup_status,
+        start_date=start_datetime,
+        end_date=end_datetime,
+    )
+
+    return BackupHistoryCountResponse(total=total)
 
 
 @router.get("/history/{backup_id}", response_model=BackupHistoryExtendedResponse)
