@@ -62,26 +62,11 @@ const themeStore = useThemeStore()
 const backupStore = useBackupStore()
 const notificationStore = useNotificationStore()
 
-// Download helper - fetches blob and triggers download via minimal popup
-// The popup is necessary because browsers block programmatic downloads after async operations
-async function fetchAndDownload(url, fallbackFilename) {
-  const response = await api.get(url, {
-    responseType: 'blob',
-    timeout: 300000
-  })
-
-  const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/octet-stream' })
+// Trigger download from blob using minimal popup to bypass browser blocking
+function triggerBlobDownload(blob, filename) {
   const blobUrl = URL.createObjectURL(blob)
 
-  // Get filename from Content-Disposition header if available
-  const disposition = response.headers['content-disposition']
-  let filename = fallbackFilename
-  if (disposition) {
-    const match = disposition.match(/filename="?([^";\n]+)"?/)
-    if (match) filename = match[1]
-  }
-
-  // Use minimal popup to trigger download - this bypasses browser's download blocking
+  // Use minimal popup to trigger download - bypasses browser's download blocking
   const popup = window.open('', '_blank', 'width=1,height=1,left=-100,top=-100')
   if (popup) {
     popup.document.write('<html><body><a id="d" href="' + blobUrl + '" download="' + filename + '"></a>' +
@@ -99,6 +84,26 @@ async function fetchAndDownload(url, fallbackFilename) {
 
   // Cleanup blob URL after delay
   setTimeout(() => URL.revokeObjectURL(blobUrl), 120000)
+}
+
+// Download helper - fetches blob and triggers download
+async function fetchAndDownload(url, fallbackFilename) {
+  const response = await api.get(url, {
+    responseType: 'blob',
+    timeout: 300000
+  })
+
+  const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/octet-stream' })
+
+  // Get filename from Content-Disposition header if available
+  const disposition = response.headers['content-disposition']
+  let filename = fallbackFilename
+  if (disposition) {
+    const match = disposition.match(/filename="?([^";\n]+)"?/)
+    if (match) filename = match[1]
+  }
+
+  triggerBlobDownload(blob, filename)
 }
 
 const loading = ref(true)
