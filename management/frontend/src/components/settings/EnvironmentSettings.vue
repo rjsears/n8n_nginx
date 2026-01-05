@@ -708,70 +708,40 @@ async function pollForProgress() {
   }
 }
 
-// Simple blob download - creates anchor element and clicks it
-function triggerBlobDownload(blob, filename) {
-  const blobUrl = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = blobUrl
-  a.download = filename
-  a.style.display = 'none'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  // Cleanup blob URL after delay
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
-}
-
 // Close progress modal and download backup if successful
 async function closeProgressModal() {
   const backupId = progressModal.value.backupId
   const wasSuccess = progressModal.value.status === 'success'
 
-  console.log('closeProgressModal called:', { backupId, wasSuccess, status: progressModal.value.status })
-
   // If backup was successful, download the file
   if (wasSuccess && backupId) {
     try {
       const backup = backupStore.backups.find(b => b.id === backupId)
-      console.log('Found backup:', backup)
 
       // Download the complete backup (with restore.sh for bare metal recovery)
-      notificationStore.info('Starting backup download...')
-
       const downloadResponse = await api.get(`/backups/download/${backupId}`, {
         responseType: 'blob',
         timeout: 300000 // 5 minutes
       })
 
-      console.log('Download response:', {
-        size: downloadResponse.data?.size,
-        type: downloadResponse.data?.type,
-        headers: downloadResponse.headers
-      })
-
-      // Verify we got actual data
-      if (!downloadResponse.data || downloadResponse.data.size === 0) {
-        throw new Error('Downloaded file is empty')
-      }
-
-      // Create blob and trigger download
+      // Create download link
       const blob = new Blob([downloadResponse.data], { type: 'application/gzip' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
       const filename = backup?.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
-
-      console.log('Triggering download:', { filename, blobSize: blob.size })
-
-      // Use robust download function
-      triggerBlobDownload(blob, filename)
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
 
       fullBackupDownloaded.value = true
       notificationStore.success('Full backup downloaded successfully. You can now safely proceed.')
     } catch (error) {
-      console.error('Download error:', error)
       const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
       notificationStore.error(`Failed to download backup: ${errorMsg}`)
     }
-  } else {
-    console.log('Not downloading:', { wasSuccess, backupId })
   }
 
   // Close the modal
