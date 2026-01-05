@@ -26,6 +26,9 @@ from api.services.notification_service import dispatch_notification
 
 logger = logging.getLogger(__name__)
 
+# Track previous restart counts to detect automatic restarts
+_previous_restart_counts: Dict[str, int] = {}
+
 
 class ContainerInfo:
     """Container information."""
@@ -124,6 +127,7 @@ class ContainerService:
 
             started_at = c.attrs.get("State", {}).get("StartedAt")
             uptime = self._format_uptime(started_at) if c.status == "running" else None
+            restart_count = c.attrs.get("RestartCount", 0)
 
             result.append({
                 "name": c.name,
@@ -134,6 +138,7 @@ class ContainerService:
                 "created": c.attrs.get("Created"),
                 "started_at": started_at,
                 "uptime": uptime,
+                "restart_count": restart_count,
                 "is_project": self._is_project_container(c.name),
             })
 
@@ -353,23 +358,42 @@ class ContainerService:
 
     async def check_health(self) -> Dict[str, Any]:
         """Check health of all project containers."""
+        global _previous_restart_counts
         containers = await self.list_containers()
 
         healthy = []
         unhealthy = []
         stopped = []
+        restarted = []  # Containers that have restarted since last check
 
         for c in containers:
             # Only check project containers, skip temp/external containers
             if not c.get("is_project", False):
                 continue
 
+            container_name = c["name"]
+            current_restart_count = c.get("restart_count", 0)
+
+            # Check if restart count increased (automatic restart detected)
+            previous_count = _previous_restart_counts.get(container_name, 0)
+            if current_restart_count > previous_count:
+                restarted.append({
+                    "name": container_name,
+                    "restart_count": current_restart_count,
+                    "previous_count": previous_count,
+                })
+                logger.warning(f"Container {container_name} restarted automatically "
+                             f"(restart count: {previous_count} -> {current_restart_count})")
+
+            # Update tracked restart count
+            _previous_restart_counts[container_name] = current_restart_count
+
             if c["status"] != "running":
-                stopped.append(c["name"])
+                stopped.append(container_name)
             elif c["health"] == "unhealthy":
-                unhealthy.append(c["name"])
+                unhealthy.append(container_name)
             else:
-                healthy.append(c["name"])
+                healthy.append(container_name)
 
         # Total should only count project containers
         project_total = len(healthy) + len(unhealthy) + len(stopped)
@@ -379,6 +403,7 @@ class ContainerService:
             "healthy": healthy,
             "unhealthy": unhealthy,
             "stopped": stopped,
+            "restarted": restarted,
             "all_healthy": len(unhealthy) == 0 and len(stopped) == 0,
         }
 
