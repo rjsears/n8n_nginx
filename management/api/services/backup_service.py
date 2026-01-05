@@ -1183,6 +1183,17 @@ class BackupService:
     def _generate_restore_script(self) -> str:
         """Generate the restore.sh script for bare metal recovery."""
         return r'''#!/bin/bash
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# /restore.sh
+#
+# Part of the "n8n_nginx/n8n_management" suite
+# Version 3.1.0 - January 2026
+#
+# Richard J. Sears
+# richard@n8nmanagement.net
+# https://github.com/rjsears
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
 # ============================================================================
 # n8n Bare Metal Recovery Script
 # ============================================================================
