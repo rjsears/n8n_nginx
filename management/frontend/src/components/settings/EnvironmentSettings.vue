@@ -651,6 +651,11 @@ async function runFullBackup() {
       // Final refresh
       await backupStore.fetchBackups()
     }
+
+    // Auto-download and close modal when backup completes successfully
+    if (progressModal.value.status === 'success') {
+      await closeProgressModal()
+    }
   } catch (error) {
     progressModal.value.status = 'failed'
     notificationStore.error('Failed to start backup: ' + (error.message || 'Unknown error'))
