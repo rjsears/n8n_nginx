@@ -651,6 +651,11 @@ async function runFullBackup() {
       // Final refresh
       await backupStore.fetchBackups()
     }
+
+    // Auto-download and close modal when backup completes successfully
+    if (progressModal.value.status === 'success') {
+      await closeProgressModal()
+    }
   } catch (error) {
     progressModal.value.status = 'failed'
     notificationStore.error('Failed to start backup: ' + (error.message || 'Unknown error'))
@@ -708,35 +713,65 @@ async function closeProgressModal() {
   const backupId = progressModal.value.backupId
   const wasSuccess = progressModal.value.status === 'success'
 
+  console.log('closeProgressModal called:', { backupId, wasSuccess, status: progressModal.value.status })
+
   // If backup was successful, download the file
   if (wasSuccess && backupId) {
     try {
       const backup = backupStore.backups.find(b => b.id === backupId)
+      console.log('Found backup:', backup)
 
       // Download the complete backup (with restore.sh for bare metal recovery)
+      notificationStore.info('Starting backup download...')
+
       const downloadResponse = await api.get(`/backups/download/${backupId}`, {
         responseType: 'blob',
         timeout: 300000 // 5 minutes
       })
 
+      console.log('Download response:', {
+        size: downloadResponse.data?.size,
+        type: downloadResponse.data?.type,
+        headers: downloadResponse.headers
+      })
+
+      // Verify we got actual data
+      if (!downloadResponse.data || downloadResponse.data.size === 0) {
+        throw new Error('Downloaded file is empty')
+      }
+
       // Create download link
       const blob = new Blob([downloadResponse.data], { type: 'application/gzip' })
       const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
       const filename = backup?.filename || `n8n_full_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.tar.gz`
+
+      console.log('Creating download:', { url, filename, blobSize: blob.size })
+
+      // Method 1: Use anchor element (standard approach)
+      const a = document.createElement('a')
+      a.style.display = 'none'
+      a.href = url
       a.download = filename
       document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+
+      // Use setTimeout to ensure the click happens in a new event loop
+      setTimeout(() => {
+        a.click()
+        setTimeout(() => {
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+        }, 100)
+      }, 0)
 
       fullBackupDownloaded.value = true
       notificationStore.success('Full backup downloaded successfully. You can now safely proceed.')
     } catch (error) {
+      console.error('Download error:', error)
       const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
       notificationStore.error(`Failed to download backup: ${errorMsg}`)
     }
+  } else {
+    console.log('Not downloading:', { wasSuccess, backupId })
   }
 
   // Close the modal

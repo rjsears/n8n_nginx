@@ -1182,72 +1182,94 @@ class BackupService:
 
     def _generate_restore_script(self) -> str:
         """Generate the restore.sh script for bare metal recovery."""
-        return '''#!/bin/bash
+        return r'''#!/bin/bash
 # ============================================================================
 # n8n Bare Metal Recovery Script
 # ============================================================================
 # Generated automatically by n8n Management Console
 #
-# This script restores a complete n8n installation from a backup archive.
-# It can be used for:
-#   - Disaster recovery
-#   - Migration to a new server
-#   - Restoring from a specific backup point
+# This script performs a COMPLETE bare metal restore of an n8n installation.
+# It can restore to a freshly installed Linux system with no prerequisites.
+#
+# What this script does:
+#   - Installs Docker and Docker Compose (if needed)
+#   - Installs PostgreSQL client tools (if needed)
+#   - Installs and configures NFS (if backup was using NFS storage)
+#   - Validates DNS configuration matches the backup
+#   - Restores all configuration files
+#   - Restores databases
+#   - Restores SSL certificates
+#   - Creates required Docker volumes
+#   - Starts all services
+#   - Performs health checks
 #
 # Usage: ./restore.sh [options]
 #
 # Options:
 #   --target-dir DIR    Directory to restore to (default: /opt/n8n)
-#   --db-host HOST      PostgreSQL host (default: localhost)
-#   --db-user USER      PostgreSQL user (default: n8n)
-#   --db-pass PASS      PostgreSQL password (prompted if not provided)
-#   --skip-docker       Skip Docker installation check
+#   --skip-docker       Skip Docker installation
 #   --skip-ssl          Skip SSL certificate restoration
 #   --skip-db           Skip database restoration
 #   --skip-config       Skip config file restoration
+#   --skip-nfs          Skip NFS setup even if configured in backup
+#   --skip-dns-check    Skip DNS validation (use with caution)
 #   --dry-run           Show what would be done without making changes
 #   --force             Skip all confirmation prompts
+#   --auto              Fully automatic mode (implies --force)
 #   -h, --help          Show this help message
 #
 # ============================================================================
 
 set -e
 
+# ============================================================================
+# Configuration
+# ============================================================================
+
 # Colors for output
-RED='\\033[0;31m'
-GREEN='\\033[0;32m'
-YELLOW='\\033[1;33m'
-BLUE='\\033[0;34m'
-CYAN='\\033[0;36m'
-NC='\\033[0m' # No Color
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+NC='\033[0m' # No Color
 
 # Default values
 TARGET_DIR="/opt/n8n"
-DB_HOST="localhost"
-DB_USER="n8n"
-DB_PASS=""
 SKIP_DOCKER=false
 SKIP_SSL=false
 SKIP_DB=false
 SKIP_CONFIG=false
+SKIP_NFS=false
+SKIP_DNS_CHECK=false
 DRY_RUN=false
 FORCE=false
+AUTO_MODE=false
 
-# Parse arguments
+# Detected values
+DISTRO=""
+DISTRO_FAMILY=""
+PKG_MANAGER=""
+
+# ============================================================================
+# Argument Parsing
+# ============================================================================
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --target-dir) TARGET_DIR="$2"; shift 2 ;;
-        --db-host) DB_HOST="$2"; shift 2 ;;
-        --db-user) DB_USER="$2"; shift 2 ;;
-        --db-pass) DB_PASS="$2"; shift 2 ;;
         --skip-docker) SKIP_DOCKER=true; shift ;;
         --skip-ssl) SKIP_SSL=true; shift ;;
         --skip-db) SKIP_DB=true; shift ;;
         --skip-config) SKIP_CONFIG=true; shift ;;
+        --skip-nfs) SKIP_NFS=true; shift ;;
+        --skip-dns-check) SKIP_DNS_CHECK=true; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
         --force) FORCE=true; shift ;;
+        --auto) AUTO_MODE=true; FORCE=true; shift ;;
         -h|--help)
-            head -n 30 "$0" | tail -n 26
+            head -n 40 "$0" | tail -n 36
             exit 0
             ;;
         *) echo -e "${RED}Unknown option: $1${NC}"; exit 1 ;;
@@ -1265,6 +1287,7 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step() { echo -e "\n${GREEN}━━━ $1 ━━━${NC}"; }
 
 run_cmd() {
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -1272,6 +1295,17 @@ run_cmd() {
         return 0
     else
         "$@"
+    fi
+}
+
+run_privileged() {
+    if [[ $EUID -eq 0 ]]; then
+        "$@"
+    elif command -v sudo &>/dev/null; then
+        sudo "$@"
+    else
+        log_error "Need root privileges but sudo not available"
+        exit 1
     fi
 }
 
@@ -1284,323 +1318,787 @@ confirm() {
     [[ "$response" =~ ^[Yy]$ ]]
 }
 
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        log_warning "This script should be run as root for full functionality"
+command_exists() {
+    command -v "$1" &>/dev/null
+}
+
+# ============================================================================
+# OS Detection
+# ============================================================================
+
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+        case $ID in
+            ubuntu|debian|linuxmint|pop)
+                DISTRO_FAMILY="debian"
+                PKG_MANAGER="apt-get"
+                ;;
+            centos|rhel|fedora|rocky|almalinux)
+                DISTRO_FAMILY="rhel"
+                if command_exists dnf; then
+                    PKG_MANAGER="dnf"
+                else
+                    PKG_MANAGER="yum"
+                fi
+                ;;
+            alpine)
+                DISTRO_FAMILY="alpine"
+                PKG_MANAGER="apk"
+                ;;
+            *)
+                DISTRO_FAMILY="unknown"
+                ;;
+        esac
+    elif [ -f /etc/debian_version ]; then
+        DISTRO="debian"
+        DISTRO_FAMILY="debian"
+        PKG_MANAGER="apt-get"
+    elif [ -f /etc/redhat-release ]; then
+        DISTRO="rhel"
+        DISTRO_FAMILY="rhel"
+        PKG_MANAGER="yum"
+    fi
+
+    log_info "Detected OS: $DISTRO (family: $DISTRO_FAMILY)"
+}
+
+# ============================================================================
+# Package Installation Functions
+# ============================================================================
+
+install_docker() {
+    log_info "Installing Docker..."
+
+    case $DISTRO_FAMILY in
+        debian)
+            # Remove old versions
+            run_privileged apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+
+            # Install prerequisites
+            run_privileged apt-get update
+            run_privileged apt-get install -y ca-certificates curl gnupg lsb-release
+
+            # Add Docker GPG key
+            run_privileged install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/$DISTRO/gpg | run_privileged gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null || true
+            run_privileged chmod a+r /etc/apt/keyrings/docker.gpg
+
+            # Add Docker repository
+            echo \
+                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$DISTRO \
+                $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+                run_privileged tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            # Install Docker with compose plugin
+            run_privileged apt-get update
+            run_privileged apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            ;;
+        rhel)
+            # Remove old versions
+            run_privileged $PKG_MANAGER remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
+
+            # Install prerequisites
+            run_privileged $PKG_MANAGER install -y yum-utils
+
+            # Add Docker repository
+            run_privileged yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+            # Install Docker with compose plugin
+            run_privileged $PKG_MANAGER install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            ;;
+        *)
+            log_error "Unsupported distribution for automatic Docker installation: $DISTRO"
+            log_info "Please install Docker manually: https://docs.docker.com/engine/install/"
+            exit 1
+            ;;
+    esac
+
+    # Start and enable Docker
+    run_privileged systemctl start docker
+    run_privileged systemctl enable docker
+
+    # Add current user to docker group
+    if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+        run_privileged usermod -aG docker "$SUDO_USER"
+        log_warning "Added $SUDO_USER to docker group. You may need to log out and back in."
+    fi
+
+    log_success "Docker installed successfully"
+}
+
+install_postgresql_client() {
+    log_info "Installing PostgreSQL client tools..."
+
+    case $DISTRO_FAMILY in
+        debian)
+            run_privileged apt-get update
+            run_privileged apt-get install -y postgresql-client
+            ;;
+        rhel)
+            run_privileged $PKG_MANAGER install -y postgresql
+            ;;
+        alpine)
+            run_privileged apk add postgresql-client
+            ;;
+        *)
+            log_error "Cannot install PostgreSQL client for this distribution"
+            return 1
+            ;;
+    esac
+
+    log_success "PostgreSQL client installed"
+}
+
+install_nfs_client() {
+    log_info "Installing NFS client..."
+
+    case $DISTRO_FAMILY in
+        debian)
+            run_privileged apt-get update
+            run_privileged apt-get install -y nfs-common
+            ;;
+        rhel)
+            run_privileged $PKG_MANAGER install -y nfs-utils
+            ;;
+        alpine)
+            run_privileged apk add nfs-utils
+            ;;
+        *)
+            log_error "Cannot install NFS client for this distribution"
+            return 1
+            ;;
+    esac
+
+    log_success "NFS client installed"
+}
+
+install_python3() {
+    log_info "Installing Python3..."
+
+    case $DISTRO_FAMILY in
+        debian)
+            run_privileged apt-get update
+            run_privileged apt-get install -y python3
+            ;;
+        rhel)
+            run_privileged $PKG_MANAGER install -y python3
+            ;;
+        alpine)
+            run_privileged apk add python3
+            ;;
+    esac
+}
+
+# ============================================================================
+# Validation Functions
+# ============================================================================
+
+validate_dns() {
+    local domain="$1"
+    local expected_ip="$2"
+
+    if [[ "$SKIP_DNS_CHECK" == "true" ]]; then
+        log_warning "Skipping DNS validation (--skip-dns-check)"
+        return 0
+    fi
+
+    if [[ -z "$domain" ]] || [[ -z "$expected_ip" ]]; then
+        log_warning "Cannot validate DNS - domain or expected IP not set in backup"
+        return 0
+    fi
+
+    log_info "Validating DNS: $domain should resolve to $expected_ip"
+
+    # Get current server IPs
+    local server_ips=$(hostname -I 2>/dev/null || ip addr show | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ')
+
+    # Resolve domain
+    local resolved_ip=""
+    if command_exists dig; then
+        resolved_ip=$(dig +short "$domain" 2>/dev/null | head -1)
+    elif command_exists nslookup; then
+        resolved_ip=$(nslookup "$domain" 2>/dev/null | grep -A1 'Name:' | grep 'Address:' | awk '{print $2}' | head -1)
+    elif command_exists host; then
+        resolved_ip=$(host "$domain" 2>/dev/null | grep 'has address' | awk '{print $4}' | head -1)
+    fi
+
+    if [[ -z "$resolved_ip" ]]; then
+        log_error "Cannot resolve domain: $domain"
+        log_info "Please ensure DNS is configured correctly before proceeding"
+        if ! confirm "Continue anyway? (NOT RECOMMENDED)"; then
+            exit 1
+        fi
+        return 1
+    fi
+
+    log_info "Domain $domain resolves to: $resolved_ip"
+
+    # Check if resolved IP matches expected or server IP
+    local ip_ok=false
+    for ip in $server_ips; do
+        if [[ "$ip" == "$resolved_ip" ]]; then
+            ip_ok=true
+            break
+        fi
+    done
+
+    if [[ "$ip_ok" == "true" ]]; then
+        log_success "DNS validated: $domain -> $resolved_ip (matches this server)"
+        return 0
+    elif [[ "$resolved_ip" == "$expected_ip" ]]; then
+        log_warning "DNS resolves to $resolved_ip which was the original server"
+        log_warning "This server's IPs: $server_ips"
+        log_info "You may need to update DNS to point to this server"
         if ! confirm "Continue anyway?"; then
             exit 1
         fi
+        return 1
+    else
+        log_error "DNS mismatch!"
+        log_error "  Domain resolves to: $resolved_ip"
+        log_error "  Expected (from backup): $expected_ip"
+        log_error "  This server's IPs: $server_ips"
+        if ! confirm "Continue anyway? (Services will likely fail)"; then
+            exit 1
+        fi
+        return 1
     fi
 }
 
 # ============================================================================
-# Pre-flight Checks
+# NFS Setup
+# ============================================================================
+
+setup_nfs() {
+    local nfs_server="$1"
+    local nfs_path="$2"
+    local nfs_local_mount="$3"
+
+    if [[ -z "$nfs_server" ]] || [[ -z "$nfs_path" ]]; then
+        log_info "NFS not configured in backup - skipping"
+        return 0
+    fi
+
+    if [[ "$SKIP_NFS" == "true" ]]; then
+        log_warning "Skipping NFS setup (--skip-nfs)"
+        return 0
+    fi
+
+    log_info "Setting up NFS: $nfs_server:$nfs_path -> $nfs_local_mount"
+
+    # Install NFS client if needed
+    if ! command_exists mount.nfs && ! command_exists mount.nfs4; then
+        if [[ "$DRY_RUN" != "true" ]]; then
+            install_nfs_client || {
+                log_error "Failed to install NFS client"
+                return 1
+            }
+        else
+            echo -e "${CYAN}  [DRY-RUN] Would install NFS client${NC}"
+        fi
+    fi
+
+    # Test NFS server connectivity
+    if ! ping -c 1 -W 3 "$nfs_server" &>/dev/null; then
+        log_error "Cannot reach NFS server: $nfs_server"
+        if ! confirm "Continue without NFS?"; then
+            exit 1
+        fi
+        return 1
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "${CYAN}  [DRY-RUN] Would create mount point: $nfs_local_mount${NC}"
+        echo -e "${CYAN}  [DRY-RUN] Would add to /etc/fstab: $nfs_server:$nfs_path $nfs_local_mount nfs defaults,_netdev 0 0${NC}"
+        echo -e "${CYAN}  [DRY-RUN] Would mount NFS share${NC}"
+        return 0
+    fi
+
+    # Create mount point
+    run_privileged mkdir -p "$nfs_local_mount"
+
+    # Check if already in fstab
+    if grep -q "${nfs_server}:${nfs_path}" /etc/fstab 2>/dev/null; then
+        log_info "NFS entry already exists in /etc/fstab"
+    else
+        # Add to fstab
+        echo "${nfs_server}:${nfs_path} ${nfs_local_mount} nfs defaults,_netdev 0 0" | run_privileged tee -a /etc/fstab > /dev/null
+        log_success "Added NFS mount to /etc/fstab"
+    fi
+
+    # Mount the NFS share
+    if mount | grep -q "$nfs_local_mount"; then
+        log_info "NFS already mounted at $nfs_local_mount"
+    else
+        if run_privileged mount "$nfs_local_mount" 2>/dev/null || \
+           run_privileged mount -t nfs -o rw,nolock,soft "$nfs_server:$nfs_path" "$nfs_local_mount" 2>/dev/null; then
+            log_success "NFS share mounted at $nfs_local_mount"
+        else
+            log_error "Failed to mount NFS share"
+            return 1
+        fi
+    fi
+
+    # Verify mount is writable
+    if touch "${nfs_local_mount}/.restore_test" 2>/dev/null; then
+        rm -f "${nfs_local_mount}/.restore_test"
+        log_success "NFS share is writable"
+    else
+        log_warning "NFS share may not be writable"
+    fi
+
+    return 0
+}
+
+# ============================================================================
+# Main Script
 # ============================================================================
 
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           n8n Bare Metal Recovery Script                     ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║               n8n Bare Metal Recovery Script v3.0                    ║${NC}"
+echo -e "${GREEN}║                   Complete System Restoration                        ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
+
+# ============================================================================
+# Step 0: Pre-flight Checks
+# ============================================================================
+
+log_step "Step 0: Pre-flight Checks"
+
+# Check for root
+if [[ $EUID -ne 0 ]]; then
+    log_warning "This script should be run as root for full functionality"
+    if ! confirm "Continue as non-root user?"; then
+        log_info "Please run with: sudo $0"
+        exit 1
+    fi
+fi
 
 # Check for metadata
 if [[ ! -f "$SCRIPT_DIR/metadata.json" ]]; then
     log_error "metadata.json not found. Is this a valid backup?"
     exit 1
 fi
+log_success "Backup metadata found"
 
-# Show backup info
-echo -e "${CYAN}Backup Information:${NC}"
-echo "──────────────────────────────────────────────────────────────"
-if command -v python3 &>/dev/null; then
-    cat "$SCRIPT_DIR/metadata.json" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(f'  Backup Type:    {data.get(\"backup_type\", \"unknown\")}')
-print(f'  Created:        {data.get(\"created_at\", \"unknown\")}')
-print(f'  n8n Version:    {data.get(\"n8n_version\", \"unknown\")}')
-print(f'  Workflows:      {data.get(\"workflow_count\", 0)}')
-print(f'  Credentials:    {data.get(\"credential_count\", 0)}')
-print(f'  Config Files:   {data.get(\"config_file_count\", 0)}')
-"
-else
-    log_warning "python3 not found, showing raw metadata"
-    cat "$SCRIPT_DIR/metadata.json"
+# Detect OS
+detect_os
+
+# Ensure python3 for metadata parsing
+if ! command_exists python3; then
+    log_warning "Python3 not found - installing for metadata parsing"
+    if [[ "$DRY_RUN" != "true" ]]; then
+        install_python3
+    fi
 fi
-echo "──────────────────────────────────────────────────────────────"
+
+# Parse metadata
+if command_exists python3; then
+    BACKUP_TYPE=$(python3 -c "import json; print(json.load(open('$SCRIPT_DIR/metadata.json')).get('backup_type', 'unknown'))" 2>/dev/null || echo "unknown")
+    BACKUP_DATE=$(python3 -c "import json; print(json.load(open('$SCRIPT_DIR/metadata.json')).get('created_at', 'unknown'))" 2>/dev/null || echo "unknown")
+    N8N_VERSION=$(python3 -c "import json; print(json.load(open('$SCRIPT_DIR/metadata.json')).get('n8n_version', 'unknown'))" 2>/dev/null || echo "unknown")
+    WORKFLOW_COUNT=$(python3 -c "import json; print(json.load(open('$SCRIPT_DIR/metadata.json')).get('workflow_count', 0))" 2>/dev/null || echo "0")
+    CREDENTIAL_COUNT=$(python3 -c "import json; print(json.load(open('$SCRIPT_DIR/metadata.json')).get('credential_count', 0))" 2>/dev/null || echo "0")
+    CONFIG_COUNT=$(python3 -c "import json; print(json.load(open('$SCRIPT_DIR/metadata.json')).get('config_file_count', 0))" 2>/dev/null || echo "0")
+fi
+
+echo ""
+echo -e "${CYAN}Backup Information:${NC}"
+echo "─────────────────────────────────────────────────────────────────────"
+echo "  Backup Type:      $BACKUP_TYPE"
+echo "  Created:          $BACKUP_DATE"
+echo "  n8n Version:      $N8N_VERSION"
+echo "  Workflows:        $WORKFLOW_COUNT"
+echo "  Credentials:      $CREDENTIAL_COUNT"
+echo "  Config Files:     $CONFIG_COUNT"
+echo "─────────────────────────────────────────────────────────────────────"
 echo ""
 
 echo -e "${CYAN}Restore Configuration:${NC}"
-echo "  Target Directory: $TARGET_DIR"
-echo "  Database Host:    $DB_HOST"
-echo "  Database User:    $DB_USER"
-echo "  Skip Docker:      $SKIP_DOCKER"
-echo "  Skip SSL:         $SKIP_SSL"
-echo "  Skip Database:    $SKIP_DB"
-echo "  Skip Config:      $SKIP_CONFIG"
-echo "  Dry Run:          $DRY_RUN"
+echo "  Target Directory:  $TARGET_DIR"
+echo "  Skip Docker:       $SKIP_DOCKER"
+echo "  Skip SSL:          $SKIP_SSL"
+echo "  Skip Database:     $SKIP_DB"
+echo "  Skip Config:       $SKIP_CONFIG"
+echo "  Skip NFS:          $SKIP_NFS"
+echo "  Skip DNS Check:    $SKIP_DNS_CHECK"
+echo "  Dry Run:           $DRY_RUN"
+echo "  Auto Mode:         $AUTO_MODE"
 echo ""
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}════════════════════════════════════════════════════════════════════════${NC}"
     echo -e "${YELLOW}  DRY RUN MODE - No changes will be made to the system${NC}"
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}════════════════════════════════════════════════════════════════════════${NC}"
     echo ""
 fi
 
-# Confirmation
 if ! confirm "Proceed with restore?"; then
     echo "Restore cancelled."
     exit 0
 fi
 
-echo ""
+# ============================================================================
+# Step 1: Install Docker
+# ============================================================================
 
-# ============================================================================
-# Step 1: Check and Install Docker (if needed)
-# ============================================================================
+log_step "Step 1: Docker Environment"
 
 if [[ "$SKIP_DOCKER" != "true" ]]; then
-    echo -e "${GREEN}Step 1: Checking Docker...${NC}"
-
-    if command -v docker &>/dev/null; then
+    if command_exists docker; then
         docker_version=$(docker --version 2>/dev/null || echo "unknown")
-        log_success "Docker is installed: $docker_version"
+        log_success "Docker installed: $docker_version"
     else
-        log_warning "Docker is not installed"
+        log_warning "Docker not installed"
         if confirm "Install Docker?"; then
-            log_info "Installing Docker..."
             if [[ "$DRY_RUN" != "true" ]]; then
-                curl -fsSL https://get.docker.com | sh
-                systemctl enable docker
-                systemctl start docker
-                log_success "Docker installed successfully"
+                install_docker
             else
                 echo -e "${CYAN}  [DRY-RUN] Would install Docker${NC}"
             fi
-        fi
-    fi
-
-    if command -v docker-compose &>/dev/null; then
-        compose_version=$(docker-compose --version 2>/dev/null || echo "unknown")
-        log_success "Docker Compose is available: $compose_version"
-    elif docker compose version &>/dev/null; then
-        log_success "Docker Compose plugin is available"
-    else
-        log_warning "Docker Compose not found"
-    fi
-    echo ""
-fi
-
-# ============================================================================
-# Step 2: Check PostgreSQL Tools
-# ============================================================================
-
-if [[ "$SKIP_DB" != "true" ]]; then
-    echo -e "${GREEN}Step 2: Checking PostgreSQL tools...${NC}"
-
-    if command -v pg_restore &>/dev/null; then
-        pg_version=$(pg_restore --version 2>/dev/null | head -1 || echo "unknown")
-        log_success "pg_restore is available: $pg_version"
-    else
-        log_error "pg_restore is not installed"
-        log_info "Install with: apt-get install postgresql-client"
-        if ! confirm "Continue without database restore?"; then
+        else
+            log_error "Docker is required for n8n"
             exit 1
         fi
-        SKIP_DB=true
     fi
-    echo ""
-fi
 
-# ============================================================================
-# Step 3: Prompt for Database Password
-# ============================================================================
-
-if [[ "$SKIP_DB" != "true" && -z "$DB_PASS" ]]; then
-    echo -e "${GREEN}Step 3: Database credentials...${NC}"
-    read -sp "Enter PostgreSQL password for user $DB_USER: " DB_PASS
-    echo ""
-    echo ""
-fi
-
-# ============================================================================
-# Step 4: Create Target Directory
-# ============================================================================
-
-echo -e "${GREEN}Step 4: Preparing target directory...${NC}"
-run_cmd mkdir -p "$TARGET_DIR"
-log_success "Target directory ready: $TARGET_DIR"
-echo ""
-
-# ============================================================================
-# Step 5: Restore Databases
-# ============================================================================
-
-if [[ "$SKIP_DB" != "true" && -d "$SCRIPT_DIR/databases" ]]; then
-    echo -e "${GREEN}Step 5: Restoring databases...${NC}"
-
-    db_count=0
-    for db_file in "$SCRIPT_DIR/databases"/*.dump; do
-        if [[ -f "$db_file" ]]; then
-            db_name=$(basename "$db_file" .dump)
-            log_info "Restoring database: $db_name"
-
-            if [[ "$DRY_RUN" != "true" ]]; then
-                # Check if database exists, create if not
-                PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d postgres -tc \\
-                    "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -q 1 || \\
-                    PGPASSWORD="$DB_PASS" createdb -h "$DB_HOST" -U "$DB_USER" "$db_name" 2>/dev/null || true
-
-                # Restore the database
-                PGPASSWORD="$DB_PASS" pg_restore -h "$DB_HOST" -U "$DB_USER" -d "$db_name" \\
-                    --clean --if-exists --no-owner --no-acl "$db_file" 2>/dev/null || true
-
-                log_success "Database $db_name restored"
-            else
-                echo -e "${CYAN}  [DRY-RUN] Would restore database: $db_name${NC}"
-            fi
-            ((db_count++))
-        fi
-    done
-
-    if [[ $db_count -eq 0 ]]; then
-        log_warning "No database dumps found"
+    # Check Docker Compose
+    if docker compose version &>/dev/null; then
+        compose_version=$(docker compose version 2>/dev/null || echo "unknown")
+        log_success "Docker Compose available: $compose_version"
+    elif command_exists docker-compose; then
+        compose_version=$(docker-compose --version 2>/dev/null || echo "unknown")
+        log_success "Docker Compose (standalone): $compose_version"
     else
-        log_success "Restored $db_count database(s)"
+        log_error "Docker Compose not found"
+        log_info "Please install docker-compose-plugin"
+        exit 1
     fi
-    echo ""
 else
-    echo -e "${YELLOW}Step 5: Skipping database restoration${NC}"
-    echo ""
+    log_info "Skipping Docker check (--skip-docker)"
 fi
 
 # ============================================================================
-# Step 6: Restore Config Files
+# Step 2: Install PostgreSQL Client
 # ============================================================================
 
-if [[ "$SKIP_CONFIG" != "true" && -d "$SCRIPT_DIR/config" ]]; then
-    echo -e "${GREEN}Step 6: Restoring config files...${NC}"
+log_step "Step 2: PostgreSQL Client"
+
+if [[ "$SKIP_DB" != "true" ]]; then
+    if command_exists pg_restore; then
+        pg_version=$(pg_restore --version 2>/dev/null | head -1 || echo "unknown")
+        log_success "pg_restore available: $pg_version"
+    else
+        log_warning "PostgreSQL client not installed"
+        if confirm "Install PostgreSQL client?"; then
+            if [[ "$DRY_RUN" != "true" ]]; then
+                install_postgresql_client
+            else
+                echo -e "${CYAN}  [DRY-RUN] Would install PostgreSQL client${NC}"
+            fi
+        else
+            log_warning "Skipping database restoration"
+            SKIP_DB=true
+        fi
+    fi
+else
+    log_info "Skipping PostgreSQL client check (--skip-db)"
+fi
+
+# ============================================================================
+# Step 3: Restore Config Files
+# ============================================================================
+
+log_step "Step 3: Restore Configuration Files"
+
+if [[ "$SKIP_CONFIG" != "true" ]] && [[ -d "$SCRIPT_DIR/config" ]]; then
+    # Create target directory
+    run_cmd mkdir -p "$TARGET_DIR"
 
     config_count=0
-    for config_file in "$SCRIPT_DIR/config"/*; do
-        if [[ -f "$config_file" ]]; then
-            filename=$(basename "$config_file")
-            target_path="$TARGET_DIR/$filename"
+    for config_item in "$SCRIPT_DIR/config"/*; do
+        if [[ -e "$config_item" ]]; then
+            item_name=$(basename "$config_item")
 
-            # Backup existing file if it exists
-            if [[ -f "$target_path" && "$DRY_RUN" != "true" ]]; then
-                backup_path="${target_path}.bak.$(date +%Y%m%d_%H%M%S)"
-                cp "$target_path" "$backup_path"
-                log_info "Backed up existing $filename to $backup_path"
+            if [[ -d "$config_item" ]]; then
+                # Handle subdirectories (dozzle/, ntfy/, etc.)
+                log_info "Restoring directory: $item_name/"
+                run_cmd mkdir -p "$TARGET_DIR/$item_name"
+                for subfile in "$config_item"/*; do
+                    if [[ -f "$subfile" ]]; then
+                        subname=$(basename "$subfile")
+                        run_cmd cp "$subfile" "$TARGET_DIR/$item_name/$subname"
+                        ((config_count++))
+                    fi
+                done
+            else
+                # Handle regular files
+                target_path="$TARGET_DIR/$item_name"
+
+                # Backup existing file
+                if [[ -f "$target_path" ]] && [[ "$DRY_RUN" != "true" ]]; then
+                    backup_path="${target_path}.bak.$(date +%Y%m%d_%H%M%S)"
+                    cp "$target_path" "$backup_path"
+                    log_info "Backed up existing $item_name"
+                fi
+
+                log_info "Restoring: $item_name"
+                run_cmd cp "$config_item" "$target_path"
+
+                # Set permissions for sensitive files
+                if [[ "$item_name" == ".env" ]] || [[ "$item_name" == "cloudflare.ini" ]] || \
+                   [[ "$item_name" == "*.ini" ]] || [[ "$item_name" == "*.json" && "$item_name" != "package.json" ]]; then
+                    [[ "$DRY_RUN" != "true" ]] && chmod 600 "$target_path" 2>/dev/null || true
+                fi
+
+                ((config_count++))
             fi
-
-            log_info "Restoring $filename"
-            run_cmd cp "$config_file" "$target_path"
-            ((config_count++))
         fi
     done
 
     log_success "Restored $config_count config file(s)"
-    echo ""
 else
-    echo -e "${YELLOW}Step 6: Skipping config file restoration${NC}"
-    echo ""
+    log_info "Skipping config file restoration"
 fi
 
 # ============================================================================
-# Step 7: Restore SSL Certificates
+# Step 4: Read Environment for DNS/NFS Validation
 # ============================================================================
 
-if [[ "$SKIP_SSL" != "true" && -d "$SCRIPT_DIR/ssl" ]]; then
-    echo -e "${GREEN}Step 7: Restoring SSL certificates...${NC}"
+log_step "Step 4: Environment Validation"
 
+# Source .env if it exists
+if [[ -f "$TARGET_DIR/.env" ]]; then
+    log_info "Reading environment from restored .env"
+    set -a
+    source "$TARGET_DIR/.env"
+    set +a
+
+    # DNS Validation
+    validate_dns "${DOMAIN:-}" "${N8N_MANAGEMENT_HOST_IP:-}"
+
+    # NFS Setup
+    if [[ -n "${NFS_SERVER:-}" ]] && [[ -n "${NFS_PATH:-}" ]]; then
+        setup_nfs "$NFS_SERVER" "$NFS_PATH" "${NFS_LOCAL_MOUNT:-/mnt/nfs_backups}"
+    fi
+else
+    log_warning "No .env file found - skipping environment validation"
+fi
+
+# ============================================================================
+# Step 5: Restore SSL Certificates
+# ============================================================================
+
+log_step "Step 5: SSL Certificates"
+
+if [[ "$SKIP_SSL" != "true" ]] && [[ -d "$SCRIPT_DIR/ssl" ]]; then
     run_cmd mkdir -p /etc/letsencrypt/live
     ssl_count=0
 
     for domain_dir in "$SCRIPT_DIR/ssl"/*; do
         if [[ -d "$domain_dir" ]]; then
             domain=$(basename "$domain_dir")
-            log_info "Restoring certificates for: $domain"
+            log_info "Restoring SSL for: $domain"
             run_cmd cp -r "$domain_dir" "/etc/letsencrypt/live/"
             ((ssl_count++))
         fi
     done
 
     log_success "Restored SSL certificates for $ssl_count domain(s)"
-    echo ""
 else
-    echo -e "${YELLOW}Step 7: Skipping SSL certificate restoration${NC}"
-    echo ""
+    log_info "Skipping SSL certificate restoration"
 fi
 
 # ============================================================================
-# Step 8: Post-Restore Validation
+# Step 6: Create Docker Volumes
 # ============================================================================
 
-echo -e "${GREEN}Step 8: Post-restore validation...${NC}"
+log_step "Step 6: Docker Volumes"
+
+if [[ "$DRY_RUN" != "true" ]] && command_exists docker; then
+    # Create letsencrypt volume if it doesn't exist
+    if ! docker volume inspect letsencrypt &>/dev/null; then
+        docker volume create letsencrypt
+        log_success "Created letsencrypt volume"
+    else
+        log_info "letsencrypt volume already exists"
+    fi
+
+    # Copy SSL certs to volume if they exist
+    if [[ -d "/etc/letsencrypt/live" ]] && [[ "$(ls -A /etc/letsencrypt/live 2>/dev/null)" ]]; then
+        log_info "Copying SSL certificates to Docker volume..."
+        docker run --rm -v letsencrypt:/etc/letsencrypt -v /etc/letsencrypt/live:/source alpine sh -c "cp -r /source/* /etc/letsencrypt/live/ 2>/dev/null || true"
+        log_success "SSL certificates copied to Docker volume"
+    fi
+else
+    echo -e "${CYAN}  [DRY-RUN] Would create Docker volumes${NC}"
+fi
+
+# ============================================================================
+# Step 7: Start Services
+# ============================================================================
+
+log_step "Step 7: Start Services"
+
+if [[ "$DRY_RUN" != "true" ]]; then
+    cd "$TARGET_DIR"
+
+    if [[ -f "docker-compose.yaml" ]] || [[ -f "docker-compose.yml" ]]; then
+        log_info "Starting services with docker compose..."
+
+        # Pull images first
+        if confirm "Pull latest Docker images?"; then
+            docker compose pull || log_warning "Some images failed to pull"
+        fi
+
+        # Start services
+        docker compose up -d
+
+        log_success "Services started"
+
+        # Wait for services to be ready
+        log_info "Waiting for services to be ready..."
+        sleep 10
+
+        # Show service status
+        echo ""
+        echo -e "${CYAN}Service Status:${NC}"
+        docker compose ps
+    else
+        log_error "docker-compose.yaml not found in $TARGET_DIR"
+        log_info "Please verify the configuration files were restored correctly"
+    fi
+else
+    echo -e "${CYAN}  [DRY-RUN] Would start services with docker compose up -d${NC}"
+fi
+
+# ============================================================================
+# Step 8: Database Restoration (if containers provide PostgreSQL)
+# ============================================================================
+
+log_step "Step 8: Database Restoration"
+
+if [[ "$SKIP_DB" != "true" ]] && [[ -d "$SCRIPT_DIR/databases" ]]; then
+    if [[ "$DRY_RUN" != "true" ]]; then
+        # Wait for PostgreSQL to be ready
+        log_info "Waiting for PostgreSQL container to be ready..."
+        local max_attempts=30
+        local attempt=0
+
+        while ! docker exec n8n_postgres pg_isready -U "${POSTGRES_USER:-n8n}" &>/dev/null; do
+            ((attempt++))
+            if [[ $attempt -ge $max_attempts ]]; then
+                log_error "PostgreSQL not ready after $max_attempts attempts"
+                log_info "You may need to restore databases manually"
+                break
+            fi
+            sleep 2
+        done
+
+        if [[ $attempt -lt $max_attempts ]]; then
+            log_success "PostgreSQL is ready"
+
+            db_count=0
+            for db_file in "$SCRIPT_DIR/databases"/*.dump; do
+                if [[ -f "$db_file" ]]; then
+                    db_name=$(basename "$db_file" .dump)
+                    log_info "Restoring database: $db_name"
+
+                    # Restore using docker exec
+                    cat "$db_file" | docker exec -i n8n_postgres pg_restore \
+                        -U "${POSTGRES_USER:-n8n}" \
+                        -d "$db_name" \
+                        --clean --if-exists --no-owner --no-acl 2>/dev/null || true
+
+                    log_success "Database $db_name restored"
+                    ((db_count++))
+                fi
+            done
+
+            if [[ $db_count -gt 0 ]]; then
+                log_success "Restored $db_count database(s)"
+            fi
+        fi
+    else
+        echo -e "${CYAN}  [DRY-RUN] Would restore databases${NC}"
+    fi
+else
+    log_info "Skipping database restoration"
+fi
+
+# ============================================================================
+# Step 9: Health Check
+# ============================================================================
+
+log_step "Step 9: Health Verification"
 
 validation_passed=true
 
-# Check config files exist
-if [[ -f "$TARGET_DIR/.env" ]]; then
-    log_success ".env file exists"
-else
-    log_warning ".env file not found at $TARGET_DIR/.env"
-    validation_passed=false
-fi
+if [[ "$DRY_RUN" != "true" ]] && command_exists docker; then
+    cd "$TARGET_DIR"
 
-if [[ -f "$TARGET_DIR/docker-compose.yaml" ]] || [[ -f "$TARGET_DIR/docker-compose.yml" ]]; then
-    log_success "docker-compose file exists"
-else
-    log_warning "docker-compose.yaml not found at $TARGET_DIR/"
-    validation_passed=false
-fi
+    # Check if services are running
+    echo ""
+    running_count=$(docker compose ps --status running -q 2>/dev/null | wc -l || echo "0")
+    total_count=$(docker compose ps -q 2>/dev/null | wc -l || echo "0")
 
-# Check database connectivity (if not skipped)
-if [[ "$SKIP_DB" != "true" && -n "$DB_PASS" && "$DRY_RUN" != "true" ]]; then
-    if PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d n8n -c "SELECT 1" &>/dev/null; then
-        log_success "Database connectivity verified"
+    if [[ "$running_count" -eq "$total_count" ]] && [[ "$total_count" -gt 0 ]]; then
+        log_success "All $total_count services are running"
     else
-        log_warning "Could not connect to n8n database"
+        log_warning "$running_count of $total_count services are running"
+        validation_passed=false
+    fi
+
+    # Check n8n health
+    if docker ps --filter "name=n8n" --filter "status=running" -q | grep -q .; then
+        log_success "n8n container is running"
+    else
+        log_warning "n8n container is not running"
+        validation_passed=false
+    fi
+
+    # Check nginx health
+    if docker ps --filter "name=nginx" --filter "status=running" -q | grep -q .; then
+        log_success "nginx container is running"
+    else
+        log_warning "nginx container is not running"
         validation_passed=false
     fi
 fi
 
+# ============================================================================
+# Completion
+# ============================================================================
+
 echo ""
-
-# ============================================================================
-# Completion Summary
-# ============================================================================
-
-echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════╗${NC}"
 if [[ "$DRY_RUN" == "true" ]]; then
-    echo -e "${GREEN}║              DRY RUN COMPLETED SUCCESSFULLY                  ║${NC}"
+    echo -e "${GREEN}║                 DRY RUN COMPLETED SUCCESSFULLY                       ║${NC}"
 else
-    echo -e "${GREEN}║              RESTORE COMPLETED SUCCESSFULLY                  ║${NC}"
+    echo -e "${GREEN}║                 RESTORE COMPLETED SUCCESSFULLY                       ║${NC}"
 fi
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 if [[ "$DRY_RUN" != "true" ]]; then
+    echo -e "${CYAN}Summary:${NC}"
+    echo "  Target Directory:  $TARGET_DIR"
+    echo "  Services Started:  Yes"
+    echo ""
+
     echo -e "${CYAN}Next Steps:${NC}"
-    echo "  1. Review restored configuration files in $TARGET_DIR"
-    echo "  2. Update .env with any environment-specific settings:"
-    echo "     - Database connection string"
-    echo "     - Domain name"
-    echo "     - API keys and secrets"
-    echo "  3. Navigate to the target directory:"
-    echo "     cd $TARGET_DIR"
-    echo "  4. Start the services:"
-    echo "     docker-compose up -d"
-    echo "  5. Verify services are running:"
-    echo "     docker-compose ps"
-    echo "  6. Check logs for any issues:"
-    echo "     docker-compose logs -f"
+    echo "  1. Verify services: cd $TARGET_DIR && docker compose ps"
+    echo "  2. Check logs:      docker compose logs -f"
+    echo "  3. Access n8n:      https://${DOMAIN:-your-domain}"
+    echo "  4. Access console:  https://${DOMAIN:-your-domain}/management"
     echo ""
 
     if [[ "$validation_passed" != "true" ]]; then
-        echo -e "${YELLOW}Warning: Some validation checks failed. Please review above.${NC}"
+        echo -e "${YELLOW}⚠ Some validation checks failed - please review the output above${NC}"
         echo ""
     fi
 fi
