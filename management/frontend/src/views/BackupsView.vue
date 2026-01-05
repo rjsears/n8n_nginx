@@ -62,36 +62,48 @@ const themeStore = useThemeStore()
 const backupStore = useBackupStore()
 const notificationStore = useNotificationStore()
 
-// Robust download function that works around browser blocking of subsequent programmatic downloads
-// Uses a minimal popup window positioned off-screen that auto-closes immediately
+// Trigger download from blob using minimal popup to bypass browser blocking
 function triggerBlobDownload(blob, filename) {
-  const url = URL.createObjectURL(blob)
+  const blobUrl = URL.createObjectURL(blob)
 
-  // Open a tiny popup window positioned off-screen - it will be nearly invisible
-  // The popup creates a fresh browser context that bypasses download blocking
-  const newWindow = window.open('', '_blank', 'width=1,height=1,left=-100,top=-100')
-  if (newWindow) {
-    newWindow.document.write('<!DOCTYPE html><html><body>' +
-      '<a id="dl" href="' + url + '" download="' + filename + '"></a>' +
-      '<scr' + 'ipt>document.getElementById("dl").click();window.close();</scr' + 'ipt>' +
-      '</body></html>')
-    newWindow.document.close()
+  // Use minimal popup to trigger download - bypasses browser's download blocking
+  const popup = window.open('', '_blank', 'width=1,height=1,left=-100,top=-100')
+  if (popup) {
+    popup.document.write('<html><body><a id="d" href="' + blobUrl + '" download="' + filename + '"></a>' +
+      '<scr' + 'ipt>document.getElementById("d").click();setTimeout(function(){window.close()},100);</scr' + 'ipt></body></html>')
+    popup.document.close()
   } else {
-    // Popup blocked - fall back to direct anchor click
-    console.warn('Popup blocked, trying direct download')
+    // Fallback if popup blocked
     const a = document.createElement('a')
-    a.href = url
+    a.href = blobUrl
     a.download = filename
-    a.style.display = 'none'
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
   }
 
   // Cleanup blob URL after delay
-  setTimeout(() => URL.revokeObjectURL(url), 120000)
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 120000)
+}
 
-  return true
+// Download helper - fetches blob and triggers download
+async function fetchAndDownload(url, fallbackFilename) {
+  const response = await api.get(url, {
+    responseType: 'blob',
+    timeout: 300000
+  })
+
+  const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/octet-stream' })
+
+  // Get filename from Content-Disposition header if available
+  const disposition = response.headers['content-disposition']
+  let filename = fallbackFilename
+  if (disposition) {
+    const match = disposition.match(/filename="?([^";\n]+)"?/)
+    if (match) filename = match[1]
+  }
+
+  triggerBlobDownload(blob, filename)
 }
 
 const loading = ref(true)
@@ -884,22 +896,11 @@ function formatFileSize(bytes) {
 async function createBareMetalRecovery(backup) {
   creatingBareMetal.value = backup.id
   try {
-    // Download the backup file (which already includes restore.sh)
-    const response = await api.get(`/backups/download/${backup.id}`, {
-      responseType: 'blob',
-      timeout: 300000 // 5 minutes
-    })
-
-    // Create blob and trigger download using robust method
-    const blob = new Blob([response.data], { type: 'application/gzip' })
-    const filename = backup.filename || `backup_${backup.id}.n8n_backup.tar.gz`
-    triggerBlobDownload(blob, filename)
-
+    await fetchAndDownload(`/backups/download/${backup.id}`, backup.filename || `backup_${backup.id}.n8n_backup.tar.gz`)
     notificationStore.success('Bare metal recovery archive downloaded. Extract and run ./restore.sh on target server.')
   } catch (error) {
-    console.error('Download error:', error)
-    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-    notificationStore.error(`Failed to download recovery archive: ${errorMsg}`)
+    const errorMsg = error.response?.data?.detail || error.message || 'Download failed'
+    notificationStore.error(`Failed to download: ${errorMsg}`)
   } finally {
     creatingBareMetal.value = null
   }
@@ -909,25 +910,12 @@ async function createBareMetalRecovery(backup) {
 async function downloadBackupData(backup) {
   downloadingBackup.value = backup.id
   try {
-    // Download data-only archive (excludes restore.sh)
-    // Use 5-minute timeout for large backup files
-    const response = await api.get(`/backups/download/${backup.id}/data-only`, {
-      responseType: 'blob',
-      timeout: 300000 // 5 minutes
-    })
-
-    // Create blob and trigger download using robust method
-    const blob = new Blob([response.data], { type: 'application/gzip' })
-    // Generate filename without restore script indicator
-    const filename = backup.filename?.replace('.n8n_backup.tar.gz', '.data.tar.gz') ||
-                     backup.filename?.replace('.tar.gz', '.data.tar.gz') ||
-                     `backup_${backup.id}.data.tar.gz`
-    triggerBlobDownload(blob, filename)
-
-    notificationStore.success('Backup data downloaded successfully.')
+    const filename = backup.filename?.replace('.n8n_backup.tar.gz', '.data.tar.gz') || `backup_${backup.id}.data.tar.gz`
+    await fetchAndDownload(`/backups/download/${backup.id}/data-only`, filename)
+    notificationStore.success('Backup data downloaded.')
   } catch (error) {
-    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-    notificationStore.error(`Failed to download backup: ${errorMsg}`)
+    const errorMsg = error.response?.data?.detail || error.message || 'Download failed'
+    notificationStore.error(`Failed to download: ${errorMsg}`)
   } finally {
     downloadingBackup.value = null
   }
