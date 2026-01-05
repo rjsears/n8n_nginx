@@ -62,6 +62,51 @@ const themeStore = useThemeStore()
 const backupStore = useBackupStore()
 const notificationStore = useNotificationStore()
 
+// Helper function to get the API base URL
+function getApiBaseUrl() {
+  const path = window.location.pathname
+  if (path.startsWith('/management')) {
+    return '/management/api'
+  }
+  return '/api'
+}
+
+// Helper function to trigger direct URL download with token auth
+// Uses direct URL navigation which is not blocked by browsers
+function triggerDirectDownload(endpoint) {
+  const token = localStorage.getItem('auth_token')
+  const baseUrl = getApiBaseUrl()
+  const separator = endpoint.includes('?') ? '&' : '?'
+  const downloadUrl = `${baseUrl}${endpoint}${separator}token=${encodeURIComponent(token)}`
+
+  // Use hidden iframe for download to avoid page navigation
+  const iframe = document.createElement('iframe')
+  iframe.style.display = 'none'
+  iframe.src = downloadUrl
+  document.body.appendChild(iframe)
+
+  // Clean up iframe after download starts
+  setTimeout(() => {
+    document.body.removeChild(iframe)
+  }, 60000) // Keep for 1 minute to allow large downloads
+}
+
+// Helper function to trigger blob download (for data fetched via API)
+function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  // Delay cleanup to ensure download starts
+  setTimeout(() => {
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }, 1000)
+}
+
 const loading = ref(true)
 const runningBackup = ref(false)
 const deleteDialog = ref({ open: false, backup: null, loading: false })
@@ -738,39 +783,21 @@ async function confirmUnprotect() {
   }
 }
 
-// Download Workflow JSON
-async function downloadWorkflow(backup, workflow) {
+// Download Workflow JSON - uses direct URL download to avoid browser blocking
+function downloadWorkflow(backup, workflow) {
   try {
-    const response = await api.get(`/backups/${backup.id}/workflows/${workflow.id}/download`)
-    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${workflow.name || 'workflow'}_${new Date().toISOString().slice(0, 10)}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    notificationStore.success(`Downloaded workflow: ${workflow.name}`)
+    triggerDirectDownload(`/backups/${backup.id}/workflows/${workflow.id}/download`)
+    notificationStore.success(`Downloading workflow: ${workflow.name}`)
   } catch (error) {
     notificationStore.error('Failed to download workflow')
   }
 }
 
-// Download Credential JSON
-async function downloadCredential(backup, credential) {
+// Download Credential JSON - uses direct URL download to avoid browser blocking
+function downloadCredential(backup, credential) {
   try {
-    const response = await api.get(`/backups/${backup.id}/credentials/${credential.id}/download`)
-    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${credential.name || 'credential'}_${new Date().toISOString().slice(0, 10)}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    notificationStore.success(`Downloaded credential: ${credential.name}`)
+    triggerDirectDownload(`/backups/${backup.id}/credentials/${credential.id}/download`)
+    notificationStore.success(`Downloading credential: ${credential.name}`)
   } catch (error) {
     notificationStore.error('Failed to download credential')
   }
@@ -818,31 +845,11 @@ async function restoreConfigFile(backup, configFile) {
   }
 }
 
-// Download config file from backup
-async function downloadConfigFile(backup, configFile) {
+// Download config file from backup - uses direct URL download to avoid browser blocking
+function downloadConfigFile(backup, configFile) {
   try {
-    // Download the specific config file from the backup archive
-    const response = await api.get(`/backups/${backup.id}/config-files/${configFile.path}/download`, {
-      responseType: 'blob'
-    })
-
-    // Create download link
-    const blob = new Blob([response.data], { type: 'application/octet-stream' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    // Extract just the filename (handles SSL files like "domain.com/fullchain.pem")
-    // Browsers can't create files with "/" in the name
-    const filename = configFile.name.includes('/')
-      ? configFile.name.split('/').pop()
-      : configFile.name
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    notificationStore.success(`Downloaded ${configFile.name}`)
+    triggerDirectDownload(`/backups/${backup.id}/config-files/${configFile.path}/download`)
+    notificationStore.success(`Downloading ${configFile.name}`)
   } catch (error) {
     console.error('Failed to download config file:', error)
     notificationStore.error(`Failed to download ${configFile.name}`)
@@ -868,68 +875,37 @@ function formatFileSize(bytes) {
 }
 
 // Bare Metal Recovery - Download complete archive with restore.sh
-async function createBareMetalRecovery(backup) {
+// Uses direct URL download to avoid browser blocking
+function createBareMetalRecovery(backup) {
   creatingBareMetal.value = backup.id
   try {
-    // Download the backup file (which already includes restore.sh)
-    const response = await api.get(`/backups/download/${backup.id}`, {
-      responseType: 'blob',
-      timeout: 300000 // 5 minutes
-    })
-
-    // Create download link - same method as EnvironmentSettings
-    const blob = new Blob([response.data], { type: 'application/gzip' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = backup.filename || `backup_${backup.id}.n8n_backup.tar.gz`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    notificationStore.success('Bare metal recovery archive downloaded. Extract and run ./restore.sh on target server.')
+    triggerDirectDownload(`/backups/download/${backup.id}`)
+    notificationStore.success('Bare metal recovery archive downloading. Extract and run ./restore.sh on target server.')
   } catch (error) {
     console.error('Download error:', error)
-    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-    notificationStore.error(`Failed to download recovery archive: ${errorMsg}`)
+    notificationStore.error('Failed to download recovery archive')
   } finally {
-    creatingBareMetal.value = null
+    // Reset state after a short delay to show loading briefly
+    setTimeout(() => {
+      creatingBareMetal.value = null
+    }, 1000)
   }
 }
 
 // Download Backup Data Only (without restore scripts)
-async function downloadBackupData(backup) {
+// Uses direct URL download to avoid browser blocking
+function downloadBackupData(backup) {
   downloadingBackup.value = backup.id
   try {
-    // Download data-only archive (excludes restore.sh)
-    // Use 5-minute timeout for large backup files
-    const response = await api.get(`/backups/download/${backup.id}/data-only`, {
-      responseType: 'blob',
-      timeout: 300000 // 5 minutes
-    })
-
-    // Create download link
-    const blob = new Blob([response.data], { type: 'application/gzip' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    // Generate filename without restore script indicator
-    const filename = backup.filename?.replace('.n8n_backup.tar.gz', '.data.tar.gz') ||
-                     backup.filename?.replace('.tar.gz', '.data.tar.gz') ||
-                     `backup_${backup.id}.data.tar.gz`
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    notificationStore.success('Backup data downloaded successfully.')
+    triggerDirectDownload(`/backups/download/${backup.id}/data-only`)
+    notificationStore.success('Backup data downloading...')
   } catch (error) {
-    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-    notificationStore.error(`Failed to download backup: ${errorMsg}`)
+    notificationStore.error('Failed to download backup')
   } finally {
-    downloadingBackup.value = null
+    // Reset state after a short delay to show loading briefly
+    setTimeout(() => {
+      downloadingBackup.value = null
+    }, 1000)
   }
 }
 

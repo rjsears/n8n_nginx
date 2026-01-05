@@ -11,10 +11,10 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
 
 from api.database import get_db, get_n8n_db
@@ -220,10 +220,22 @@ async def get_backup_history(
 @router.get("/download/{backup_id}")
 async def download_backup(
     backup_id: int,
-    _=Depends(get_current_user),
+    request: Request,
+    token: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Download a backup file (complete archive with restore scripts)."""
+    """Download a backup file (complete archive with restore scripts).
+
+    Supports authentication via:
+    - Authorization header (Bearer token)
+    - Session cookie
+    - Query parameter (?token=xxx) for direct URL downloads
+    """
+    from api.dependencies import get_session_for_download
+
+    # Authenticate using flexible method (header, cookie, or query param)
+    await get_session_for_download(request, token=token, db=db)
+
     import logging
     logger = logging.getLogger(__name__)
 
@@ -277,7 +289,8 @@ async def download_backup(
 @router.get("/download/{backup_id}/data-only")
 async def download_backup_data_only(
     backup_id: int,
-    _=Depends(get_current_user),
+    request: Request,
+    token: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -285,7 +298,17 @@ async def download_backup_data_only(
 
     This creates a clean archive suitable for manual restoration or archival,
     containing only the essential data without the restore.sh script.
+
+    Supports authentication via:
+    - Authorization header (Bearer token)
+    - Session cookie
+    - Query parameter (?token=xxx) for direct URL downloads
     """
+    from api.dependencies import get_session_for_download
+
+    # Authenticate using flexible method (header, cookie, or query param)
+    await get_session_for_download(request, token=token, db=db)
+
     import tarfile
     import tempfile
     import io
@@ -806,7 +829,8 @@ async def list_restorable_workflows(
 async def download_workflow_from_backup(
     backup_id: int,
     workflow_id: str,
-    _=Depends(get_current_user),
+    request: Request,
+    token: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -814,7 +838,17 @@ async def download_workflow_from_backup(
 
     This extracts the workflow from the backup and returns it as JSON
     suitable for importing into n8n.
+
+    Supports authentication via:
+    - Authorization header (Bearer token)
+    - Session cookie
+    - Query parameter (?token=xxx) for direct URL downloads
     """
+    from api.dependencies import get_session_for_download
+
+    # Authenticate using flexible method (header, cookie, or query param)
+    await get_session_for_download(request, token=token, db=db)
+
     service = RestoreService(db)
 
     try:
@@ -848,7 +882,8 @@ async def download_workflow_from_backup(
 async def download_credential_from_backup(
     backup_id: int,
     credential_id: str,
-    _=Depends(get_current_user),
+    request: Request,
+    token: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -857,7 +892,17 @@ async def download_credential_from_backup(
     This extracts the credential from the backup and returns it as JSON.
     NOTE: The credential data is encrypted and you may need to reconfigure
     the actual values after import.
+
+    Supports authentication via:
+    - Authorization header (Bearer token)
+    - Session cookie
+    - Query parameter (?token=xxx) for direct URL downloads
     """
+    from api.dependencies import get_session_for_download
+
+    # Authenticate using flexible method (header, cookie, or query param)
+    await get_session_for_download(request, token=token, db=db)
+
     service = RestoreService(db)
 
     try:
@@ -994,7 +1039,8 @@ async def list_config_files_in_backup(
 async def download_config_file_from_backup(
     backup_id: int,
     config_path: str,
-    _=Depends(get_current_user),
+    request: Request,
+    token: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1002,7 +1048,17 @@ async def download_config_file_from_backup(
 
     The config_path should match the path returned by list_config_files_in_backup,
     e.g., "config/.env" or "ssl/domain.com/fullchain.pem"
+
+    Supports authentication via:
+    - Authorization header (Bearer token)
+    - Session cookie
+    - Query parameter (?token=xxx) for direct URL downloads
     """
+    from api.dependencies import get_session_for_download
+
+    # Authenticate using flexible method (header, cookie, or query param)
+    await get_session_for_download(request, token=token, db=db)
+
     service = RestoreService(db)
 
     try:
