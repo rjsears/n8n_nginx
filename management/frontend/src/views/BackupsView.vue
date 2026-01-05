@@ -63,48 +63,39 @@ const backupStore = useBackupStore()
 const notificationStore = useNotificationStore()
 
 // Robust download function that works around browser blocking of subsequent programmatic downloads
-// Uses an iframe with its own JavaScript context to bypass main window download blocking
+// Uses window.open to create a new browsing context for the download
 function triggerBlobDownload(blob, filename) {
   const url = URL.createObjectURL(blob)
 
-  // Create a hidden iframe with its own context
-  const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;top:-10000px;left:-10000px;width:1px;height:1px;'
-  document.body.appendChild(iframe)
-
-  try {
-    const iframeDoc = iframe.contentWindow.document
-    iframeDoc.open()
-    // Write a minimal HTML document with a download link and auto-click script
-    // Note: </scr + ipt> is split to avoid Vue parser seeing it as end tag
-    iframeDoc.write('<!DOCTYPE html><html><head></head><body>' +
-      '<a id="downloadLink" href="' + url + '" download="' + filename + '"></a>' +
+  // Method: Open blob URL in new window/tab
+  // For blob URLs with Content-Disposition, browsers typically download rather than display
+  // Create a temporary anchor in a new window context
+  const newWindow = window.open('', '_blank')
+  if (newWindow) {
+    newWindow.document.write('<!DOCTYPE html><html><head><title>Downloading...</title></head><body>' +
+      '<p>Your download should start automatically. If not, <a id="dl" href="' + url + '" download="' + filename + '">click here</a>.</p>' +
       '<scr' + 'ipt>' +
-      'var link = document.getElementById("downloadLink");' +
-      'var evt = new MouseEvent("click", {view: window, bubbles: true, cancelable: false});' +
-      'link.dispatchEvent(evt);' +
+      'document.getElementById("dl").click();' +
+      'setTimeout(function() { window.close(); }, 2000);' +
       '</scr' + 'ipt>' +
       '</body></html>')
-    iframeDoc.close()
-  } catch (e) {
-    console.error('Iframe download failed, trying fallback:', e)
-    // Fallback: try window.location approach
+    newWindow.document.close()
+  } else {
+    // Popup blocked - fall back to direct anchor click
+    console.warn('Popup blocked, trying direct download')
     const a = document.createElement('a')
     a.href = url
     a.download = filename
-    a.target = '_blank'
+    a.style.display = 'none'
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
   }
 
-  // Cleanup after generous delay
+  // Cleanup after generous delay (don't revoke too early as new window needs it)
   setTimeout(() => {
-    if (iframe.parentNode) {
-      iframe.parentNode.removeChild(iframe)
-    }
     URL.revokeObjectURL(url)
-  }, 60000)
+  }, 120000) // 2 minutes
 
   return true
 }
