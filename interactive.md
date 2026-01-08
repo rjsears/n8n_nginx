@@ -26,7 +26,6 @@ When you run `./setup.sh`, you'll see:
     • Adminer - Web-based database management
     • Dozzle - Real-time container log viewer
     • Portainer / Portainer Agent - Container management UI
-    • Metrics Agent - Host-level system monitoring
 
   Ready to begin? [Y/n]:
 ```
@@ -554,9 +553,6 @@ The default container names are:
   Development Tools:
     • Adminer - Web-based database management
     • Dozzle - Real-time container log viewer
-
-  Monitoring:
-    • Metrics Agent - Host-level system monitoring (CPU, memory, disk)
 
   Notifications:
     • NTFY - Self-hosted push notifications server

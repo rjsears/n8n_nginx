@@ -4091,9 +4091,6 @@ configure_optional_services() {
     echo -e "    ${CYAN}•${NC} Adminer - Web-based database management"
     echo -e "    ${CYAN}•${NC} Dozzle - Real-time container log viewer"
     echo ""
-    echo -e "  ${WHITE}${BOLD}Monitoring:${NC}"
-    echo -e "    ${CYAN}•${NC} Metrics Agent - Host-level system monitoring (CPU, memory, disk)"
-    echo ""
     echo -e "  ${WHITE}${BOLD}Notifications:${NC}"
     echo -e "    ${CYAN}•${NC} NTFY - Self-hosted push notifications server"
     echo ""
@@ -5091,7 +5088,6 @@ main() {
         echo -e "    • Adminer - Web-based database management"
         echo -e "    • Dozzle - Real-time container log viewer"
         echo -e "    • Portainer / Portainer Agent - Container management UI"
-        echo -e "    • Metrics Agent - Host-level system monitoring"
         echo ""
 
         if ! confirm_prompt "Ready to begin?"; then
