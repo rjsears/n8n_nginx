@@ -4278,83 +4278,45 @@ configure_ntfy() {
     echo -e "  ${YELLOW}Important:${NC} ${GRAY}NTFY requires its own subdomain (e.g., ntfy.example.com).${NC}"
     echo -e "  ${GRAY}It cannot run on a subpath like /ntfy/ due to how NTFY handles requests.${NC}"
     echo ""
-    echo -e "  ${GRAY}You can choose to:${NC}"
-    echo -e "    1. Install a self-hosted NTFY server (recommended)"
-    echo -e "    2. Use the public ntfy.sh server"
-    echo -e "    3. Connect to your own existing NTFY server"
+
+    INSTALL_NTFY=true
+    # Internal URL for management console communication
+    NTFY_INTERNAL_URL="http://n8n_ntfy:80"
+
+    # Extract base domain (remove first subdomain if present)
+    # e.g., n8n01.example.com -> example.com, or example.com stays as example.com
+    local domain_parts=$(echo "${N8N_DOMAIN}" | tr '.' '\n' | wc -l)
+    if [ "$domain_parts" -gt 2 ]; then
+        local base_domain="${N8N_DOMAIN#*.}"
+    else
+        local base_domain="${N8N_DOMAIN}"
+    fi
+    local default_ntfy_subdomain="ntfy.${base_domain}"
+
+    echo -e "  ${GRAY}Enter the subdomain for your NTFY server.${NC}"
+    echo -e "  ${GRAY}This will be the public URL for accessing NTFY.${NC}"
+    echo -ne "${WHITE}  NTFY subdomain [default: ${default_ntfy_subdomain}]${NC}: "
+    read ntfy_subdomain
+    ntfy_subdomain=${ntfy_subdomain:-$default_ntfy_subdomain}
+
+    # Set the public URL
+    NTFY_PUBLIC_URL="https://${ntfy_subdomain}"
+    NTFY_BASE_URL="${NTFY_PUBLIC_URL}"
+
+    create_ntfy_config
+
+    print_success "Self-hosted NTFY server will be installed"
     echo ""
-
-    echo -ne "${WHITE}  Choose option [1/2/3, default: 1]${NC}: "
-    read ntfy_choice
-    ntfy_choice=${ntfy_choice:-1}
-
-    case "$ntfy_choice" in
-        1)
-            INSTALL_NTFY=true
-            # Internal URL for management console communication
-            NTFY_INTERNAL_URL="http://n8n_ntfy:80"
-
-            # Prompt for subdomain
-            local default_ntfy_subdomain="ntfy.${N8N_DOMAIN}"
-            echo ""
-            echo -e "  ${GRAY}Enter the subdomain for your NTFY server.${NC}"
-            echo -e "  ${GRAY}This will be the public URL for accessing NTFY.${NC}"
-            echo -ne "${WHITE}  NTFY subdomain [default: ${default_ntfy_subdomain}]${NC}: "
-            read ntfy_subdomain
-            ntfy_subdomain=${ntfy_subdomain:-$default_ntfy_subdomain}
-
-            # Set the public URL
-            NTFY_PUBLIC_URL="https://${ntfy_subdomain}"
-            NTFY_BASE_URL="${NTFY_PUBLIC_URL}"
-
-            create_ntfy_config
-
-            print_success "Self-hosted NTFY server will be installed"
-            echo ""
-            echo -e "  ${CYAN}ℹ${NC}  ${WHITE}NTFY Configuration:${NC}"
-            echo -e "      Public URL:   ${CYAN}${NTFY_PUBLIC_URL}${NC}"
-            echo -e "      Internal URL: ${GRAY}${NTFY_INTERNAL_URL}${NC} (for management console)"
-            echo ""
-            echo -e "  ${YELLOW}⚠${NC}  ${WHITE}Required: Configure Cloudflare Tunnel${NC}"
-            echo -e "      ${GRAY}Add a public hostname in Cloudflare Zero Trust:${NC}"
-            echo -e "      ${GRAY}  - Public hostname: ${CYAN}${ntfy_subdomain}${NC}"
-            echo -e "      ${GRAY}  - Service type:    ${CYAN}HTTP${NC}"
-            echo -e "      ${GRAY}  - Service URL:     ${CYAN}n8n_ntfy:80${NC}"
-            echo ""
-            ;;
-        2)
-            INSTALL_NTFY=false
-            NTFY_BASE_URL="https://ntfy.sh"
-            NTFY_PUBLIC_URL="https://ntfy.sh"
-            print_success "Using public ntfy.sh server"
-            print_warning "Note: Messages sent via ntfy.sh are public unless you use access tokens"
-            ;;
-        3)
-            INSTALL_NTFY=false
-            echo -ne "${WHITE}  Enter your NTFY server URL${NC}: "
-            read custom_ntfy_url
-            if [ -n "$custom_ntfy_url" ]; then
-                NTFY_BASE_URL="$custom_ntfy_url"
-                NTFY_PUBLIC_URL="$custom_ntfy_url"
-                print_success "Using custom NTFY server: $NTFY_BASE_URL"
-            else
-                print_error "No URL provided, defaulting to self-hosted"
-                INSTALL_NTFY=true
-                NTFY_INTERNAL_URL="http://n8n_ntfy:80"
-                NTFY_PUBLIC_URL="https://ntfy.${N8N_DOMAIN}"
-                NTFY_BASE_URL="${NTFY_PUBLIC_URL}"
-                create_ntfy_config
-            fi
-            ;;
-        *)
-            INSTALL_NTFY=true
-            NTFY_INTERNAL_URL="http://n8n_ntfy:80"
-            NTFY_PUBLIC_URL="https://ntfy.${N8N_DOMAIN}"
-            NTFY_BASE_URL="${NTFY_PUBLIC_URL}"
-            create_ntfy_config
-            print_success "Self-hosted NTFY server will be installed"
-            ;;
-    esac
+    echo -e "  ${CYAN}ℹ${NC}  ${WHITE}NTFY Configuration:${NC}"
+    echo -e "      Public URL:   ${CYAN}${NTFY_PUBLIC_URL}${NC}"
+    echo -e "      Internal URL: ${GRAY}${NTFY_INTERNAL_URL}${NC} (for management console)"
+    echo ""
+    echo -e "  ${YELLOW}⚠${NC}  ${WHITE}Required: Configure Cloudflare Tunnel${NC}"
+    echo -e "      ${GRAY}Add a public hostname in Cloudflare Zero Trust:${NC}"
+    echo -e "      ${GRAY}  - Public hostname: ${CYAN}${ntfy_subdomain}${NC}"
+    echo -e "      ${GRAY}  - Service type:    ${CYAN}HTTP${NC}"
+    echo -e "      ${GRAY}  - Service URL:     ${CYAN}n8n_ntfy:80${NC}"
+    echo ""
 }
 
 create_ntfy_config() {
