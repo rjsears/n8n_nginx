@@ -95,8 +95,8 @@ class SystemMetricsCache(Base):
 
 class HostMetricsSnapshot(Base):
     """
-    Stores periodic snapshots of host system metrics from the metrics-agent.
-    Used by the dashboard for instant data retrieval without querying the metrics-agent.
+    Stores periodic snapshots of host system metrics collected via psutil.
+    Used by the dashboard for instant data retrieval.
     """
 
     __tablename__ = "host_metrics_snapshot"
