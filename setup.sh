@@ -5031,35 +5031,42 @@ main() {
 
     print_header "n8n HTTPS Interactive Setup v${SCRIPT_VERSION}"
 
-    # Check for existing installation FIRST - before showing feature list
-    local detected_version=$(detect_current_version)
-    if [ "$detected_version" = "3.0" ]; then
-        # Existing v3.0 installation - show prominent banner immediately
-        handle_version_detection
-        # If we get here, user chose reconfigure or fresh - skip the "Ready to begin?" prompt
+    # If preconfig mode with auto-confirm, skip all interactive prompts
+    if [ "$PRECONFIG_MODE" = "true" ] && [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+        print_info "Running in non-interactive mode (AUTO_CONFIRM=true)"
+        # Set install mode to fresh for preconfig
+        INSTALL_MODE="fresh"
     else
-        # Fresh install or upgrade - show normal welcome screen
-        echo -e "  ${GRAY}This script will set up a production-ready n8n instance with:${NC}"
-        echo -e "    • Automated SSL certificates via Let's Encrypt (DNS-01)"
-        echo -e "    • PostgreSQL 16 with pgvector for AI workflows"
-        echo -e "    • Nginx reverse proxy with security headers"
-        echo -e "    • ${GREEN}NEW:${NC} Management console for backups and monitoring"
-        echo ""
-        echo -e "  ${GRAY}Optional services available:${NC}"
-        echo -e "    • Cloudflare Tunnel - Secure access without exposing ports"
-        echo -e "    • Tailscale - Private mesh VPN network access"
-        echo -e "    • NTFY - Self-hosted push notification server"
-        echo -e "    • Adminer - Web-based database management"
-        echo -e "    • Dozzle - Real-time container log viewer"
-        echo -e "    • Portainer / Portainer Agent - Container management UI"
-        echo ""
+        # Check for existing installation FIRST - before showing feature list
+        local detected_version=$(detect_current_version)
+        if [ "$detected_version" = "3.0" ]; then
+            # Existing v3.0 installation - show prominent banner immediately
+            handle_version_detection
+            # If we get here, user chose reconfigure or fresh - skip the "Ready to begin?" prompt
+        else
+            # Fresh install or upgrade - show normal welcome screen
+            echo -e "  ${GRAY}This script will set up a production-ready n8n instance with:${NC}"
+            echo -e "    • Automated SSL certificates via Let's Encrypt (DNS-01)"
+            echo -e "    • PostgreSQL 16 with pgvector for AI workflows"
+            echo -e "    • Nginx reverse proxy with security headers"
+            echo -e "    • ${GREEN}NEW:${NC} Management console for backups and monitoring"
+            echo ""
+            echo -e "  ${GRAY}Optional services available:${NC}"
+            echo -e "    • Cloudflare Tunnel - Secure access without exposing ports"
+            echo -e "    • Tailscale - Private mesh VPN network access"
+            echo -e "    • NTFY - Self-hosted push notification server"
+            echo -e "    • Adminer - Web-based database management"
+            echo -e "    • Dozzle - Real-time container log viewer"
+            echo -e "    • Portainer / Portainer Agent - Container management UI"
+            echo ""
 
-        if ! confirm_prompt "Ready to begin?"; then
-            exit 0
+            if ! confirm_prompt "Ready to begin?"; then
+                exit 0
+            fi
+
+            # Handle v2.0 upgrade or fresh install
+            handle_version_detection
         fi
-
-        # Handle v2.0 upgrade or fresh install
-        handle_version_detection
     fi
 
     # Skip all preliminary checks for reconfigure mode - user already has a working installation
