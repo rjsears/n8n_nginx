@@ -165,6 +165,19 @@ prompt_with_default() {
     local default="$2"
     local var_name="$3"
 
+    # Check if variable already has a value (from preconfig)
+    local current_value="${!var_name}"
+    if [ -n "$current_value" ]; then
+        default="$current_value"
+    fi
+
+    # In auto-confirm mode, use the existing/default value without prompting
+    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+        print_info "Using: $prompt = $default"
+        eval "$var_name='$default'"
+        return
+    fi
+
     echo -ne "${WHITE}  $prompt [$default]${NC}: "
     read value
 
@@ -178,6 +191,17 @@ prompt_with_default() {
 confirm_prompt() {
     local prompt="$1"
     local default="${2:-y}"
+
+    # In auto-confirm mode, use the default value without prompting
+    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+        if [ "$default" = "y" ]; then
+            print_info "Auto-confirming: $prompt [Y]"
+            return 0
+        else
+            print_info "Auto-declining: $prompt [N]"
+            return 1
+        fi
+    fi
 
     if [ "$default" = "y" ]; then
         echo -ne "${WHITE}  $prompt [Y/n]${NC}: "
@@ -1733,6 +1757,18 @@ configure_management_port() {
 configure_nfs() {
     print_section "NFS Backup Storage Configuration"
 
+    # In preconfig mode, NFS is already configured by load_preconfig
+    if [ "$PRECONFIG_MODE" = "true" ]; then
+        if [ -n "$NFS_SERVER" ] && [ "$NFS_SERVER" != "" ]; then
+            print_info "Using pre-configured NFS: $NFS_SERVER:$NFS_PATH"
+            NFS_CONFIGURED="true"
+        else
+            print_info "NFS not configured - using local storage"
+            NFS_CONFIGURED="false"
+        fi
+        return
+    fi
+
     echo ""
     echo -e "  ${GRAY}NFS storage allows centralized backup storage on a remote server.${NC}"
     echo -e "  ${GRAY}The NFS share will be mounted on this host and bind-mounted into Docker.${NC}"
@@ -1989,6 +2025,12 @@ configure_notifications() {
 
 create_admin_user() {
     print_section "Management Admin User"
+
+    # In preconfig mode, admin user is already configured by load_preconfig
+    if [ "$PRECONFIG_MODE" = "true" ]; then
+        print_info "Using pre-configured admin user: $ADMIN_USER"
+        return
+    fi
 
     echo ""
     echo -e "  ${GRAY}Create the admin user for the management interface.${NC}"
@@ -3595,6 +3637,12 @@ EOF
 configure_dns_provider() {
     print_section "DNS Provider Configuration"
 
+    # In preconfig mode, DNS provider is already configured by load_preconfig
+    if [ "$PRECONFIG_MODE" = "true" ]; then
+        print_info "Using pre-configured DNS provider: $DNS_PROVIDER_NAME"
+        return
+    fi
+
     echo -e "  ${GRAY}Let's Encrypt uses DNS validation to issue SSL certificates.${NC}"
     echo -e "  ${GRAY}This requires API access to your DNS provider.${NC}"
     echo ""
@@ -3758,6 +3806,16 @@ configure_other_dns() {
 
 configure_url() {
     print_section "Domain Configuration"
+
+    # In preconfig mode, domain is already set by load_preconfig
+    if [ "$PRECONFIG_MODE" = "true" ] && [ -n "$N8N_DOMAIN" ]; then
+        print_info "Using pre-configured domain: $N8N_DOMAIN"
+        # Set derived URL values
+        N8N_URL="https://${N8N_DOMAIN}"
+        WEBHOOK_URL="https://${N8N_DOMAIN}"
+        EDITOR_BASE_URL="https://${N8N_DOMAIN}"
+        return
+    fi
 
     echo -e "  ${GRAY}Enter the domain name where n8n will be accessible.${NC}"
     echo -e "  ${GRAY}Example: n8n.yourdomain.com${NC}"
@@ -3924,6 +3982,12 @@ validate_domain() {
 configure_database() {
     print_section "PostgreSQL Database Configuration"
 
+    # In preconfig mode, database is already configured by load_preconfig
+    if [ "$PRECONFIG_MODE" = "true" ]; then
+        print_info "Using pre-configured database: $DB_NAME (user: $DB_USER)"
+        return
+    fi
+
     prompt_with_default "Database name" "$DEFAULT_DB_NAME" "DB_NAME"
     prompt_with_default "Database username" "$DEFAULT_DB_USER" "DB_USER"
 
@@ -3955,6 +4019,12 @@ configure_containers() {
 
 configure_email() {
     print_section "Let's Encrypt Email Configuration"
+
+    # In preconfig mode, email is already set by load_preconfig
+    if [ "$PRECONFIG_MODE" = "true" ] && [ -n "$LETSENCRYPT_EMAIL" ]; then
+        print_info "Using pre-configured email: $LETSENCRYPT_EMAIL"
+        return
+    fi
 
     echo ""
     echo -e "  ${GRAY}Let's Encrypt requires a valid email for certificate expiration notices.${NC}"
@@ -4000,6 +4070,12 @@ configure_email() {
 
 configure_timezone() {
     print_section "Timezone Configuration"
+
+    # In preconfig mode, timezone is already set by load_preconfig
+    if [ "$PRECONFIG_MODE" = "true" ] && [ -n "$N8N_TIMEZONE" ]; then
+        print_info "Using pre-configured timezone: $N8N_TIMEZONE"
+        return
+    fi
 
     local default_tz="America/Los_Angeles"
     local system_tz=""
@@ -4078,6 +4154,19 @@ configure_portainer() {
 
 configure_optional_services() {
     print_section "Optional Services Configuration"
+
+    # In preconfig mode, services are already configured by load_preconfig
+    if [ "$PRECONFIG_MODE" = "true" ]; then
+        print_info "Using pre-configured optional services"
+        [ "$INSTALL_PORTAINER" = "true" ] && print_success "  Portainer: enabled"
+        [ "$INSTALL_PORTAINER_AGENT" = "true" ] && print_success "  Portainer Agent: enabled"
+        [ "$INSTALL_CLOUDFLARE_TUNNEL" = "true" ] && print_success "  Cloudflare Tunnel: enabled"
+        [ "$INSTALL_TAILSCALE" = "true" ] && print_success "  Tailscale: enabled"
+        [ "$INSTALL_ADMINER" = "true" ] && print_success "  Adminer: enabled"
+        [ "$INSTALL_DOZZLE" = "true" ] && print_success "  Dozzle: enabled"
+        [ "$INSTALL_NTFY" = "true" ] && print_success "  NTFY: enabled"
+        return
+    fi
 
     echo ""
     echo -e "  ${GRAY}The following optional services can be added to your installation:${NC}"
