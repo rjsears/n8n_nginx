@@ -2761,6 +2761,7 @@ CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
 # Optional: Tailscale VPN
 # ===========================================
 TAILSCALE_AUTH_KEY=${TAILSCALE_AUTH_KEY:-}
+TAILSCALE_HOSTNAME=${TAILSCALE_HOSTNAME:-n8n-server}
 TAILSCALE_ROUTES=${TAILSCALE_ROUTES:-}
 
 # ===========================================
@@ -3098,9 +3099,10 @@ EOF
     image: tailscale/tailscale:latest
     container_name: n8n_tailscale
     restart: always
-    hostname: n8n-tailscale
+    hostname: ${TAILSCALE_HOSTNAME}
     environment:
       - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
+      - TS_HOSTNAME=${TAILSCALE_HOSTNAME}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_EXTRA_ARGS=--accept-routes
