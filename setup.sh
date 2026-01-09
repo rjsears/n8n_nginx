@@ -2883,9 +2883,9 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD}@postgres:5432/n8n_management
       - N8N_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
       # PostgreSQL connection for backups (pg_dump)
-      - POSTGRES_HOST=\${POSTGRES_CONTAINER:-n8n_postgres}
-      - POSTGRES_USER=\${POSTGRES_USER:-n8n}
-      - POSTGRES_PASSWORD=\${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       # Security
       - SECRET_KEY=${MGMT_SECRET_KEY}
       # Admin user (created on first startup)
@@ -2897,9 +2897,9 @@ services:
       - PORT=8000
       - DEBUG=false
       # NFS Configuration (host-level mount, bind-mounted into container)
-      - NFS_SERVER=\${NFS_SERVER:-}
-      - NFS_PATH=\${NFS_PATH:-}
-      - NFS_LOCAL_MOUNT=\${NFS_LOCAL_MOUNT:-}
+      - NFS_SERVER=${NFS_SERVER:-}
+      - NFS_PATH=${NFS_PATH:-}
+      - NFS_LOCAL_MOUNT=${NFS_LOCAL_MOUNT:-}
       # Timezone
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # n8n API Integration (for creating test workflows)
