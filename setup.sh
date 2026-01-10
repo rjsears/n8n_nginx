@@ -3056,14 +3056,16 @@ EOF
       - certbot_data:/var/www/certbot:ro
       - letsencrypt:/etc/letsencrypt:ro
     depends_on:
-      - n8n
-      - n8n_management
+      n8n:
+        condition: service_healthy
+      n8n_management:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     networks:
       - n8n_network
 
@@ -3149,6 +3151,9 @@ EOF
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      nginx:
+        condition: service_healthy
     networks:
       - n8n_network
 
@@ -4378,7 +4383,16 @@ configure_tailscale() {
 generate_tailscale_serve_config() {
     print_info "Generating tailscale-serve.json..."
 
-    cat > "${SCRIPT_DIR}/tailscale-serve.json" << EOF
+    local ts_config_file="${SCRIPT_DIR}/tailscale-serve.json"
+
+    # Check if tailscale-serve.json exists as a directory (Docker creates this if file was missing)
+    if [ -d "$ts_config_file" ]; then
+        print_warning "tailscale-serve.json exists as a directory (Docker artifact)"
+        print_info "Removing directory and creating proper config file..."
+        rm -rf "$ts_config_file"
+    fi
+
+    cat > "$ts_config_file" << EOF
 {
   "TCP": { "443": { "HTTPS": true } },
   "Web": {
@@ -4391,7 +4405,7 @@ generate_tailscale_serve_config() {
 }
 EOF
 
-    chmod 644 "${SCRIPT_DIR}/tailscale-serve.json"
+    chmod 644 "$ts_config_file"
     print_success "tailscale-serve.json generated"
 }
 
