@@ -3019,10 +3019,10 @@ EOF
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
     restart: always
     environment:
-      # Disable IPv6 configuration script (not needed)
       - NGINX_ENTRYPOINT_QUIET_LOGS=1
     ports:
       - "443:443"
+      - "${MGMT_PORT:-3333}:${MGMT_PORT:-3333}"
 EOF
 
     # Note: All services (Management, Adminer, Dozzle, Portainer) accessed via paths on port 443
@@ -3365,6 +3365,16 @@ http {
         server ${DEFAULT_MANAGEMENT_CONTAINER}:80;
     }
 
+    # Upstream to Adminer (optional)
+    upstream adminer {
+        server ${ADMINER_CONTAINER:-n8n_adminer}:8080;
+    }
+
+    # Upstream to Dozzle (optional)
+    upstream dozzle {
+        server ${DOZZLE_CONTAINER:-n8n_dozzle}:8080;
+    }
+
     # ===========================================================================
     # IP-based Access Control
     # ===========================================================================
@@ -3626,6 +3636,141 @@ EOF
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_buffering off;
+        }
+    }
+EOF
+
+    # Add Management Console server block on port 3333
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+    # ===========================================================================
+    # Management Console HTTPS Server (Port ${MGMT_PORT:-3333})
+    # ===========================================================================
+    server {
+        listen ${MGMT_PORT:-3333} ssl;
+        http2 on;
+        server_name _;
+        client_max_body_size 100M;
+
+        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:MGMT_SSL:10m;
+        ssl_session_timeout 10m;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # WebSocket terminal endpoint (long-lived connections)
+        location /api/ws/ {
+            proxy_pass http://management;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_set_header X-Forwarded-Port \$server_port;
+
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            # Long timeouts for terminal sessions (24 hours)
+            proxy_connect_timeout 86400s;
+            proxy_send_timeout 86400s;
+            proxy_read_timeout 86400s;
+
+            proxy_buffering off;
+        }
+
+        # API endpoints
+        location /api/ {
+            proxy_pass http://management;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_set_header X-Forwarded-Port \$server_port;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
+
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 300s;
+            proxy_read_timeout 300s;
+        }
+
+        # Backup downloads
+        location /api/backups/download/ {
+            proxy_pass http://management;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_read_timeout 600s;
+        }
+EOF
+
+    # Add Adminer proxy if installed
+    if [ "$INSTALL_ADMINER" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # Adminer proxy (with SSO)
+        location /adminer/ {
+            auth_request /api/auth/verify;
+            auth_request_set $auth_status $upstream_status;
+
+            proxy_pass http://adminer/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+EOF
+    fi
+
+    # Add Dozzle proxy if installed
+    if [ "$INSTALL_DOZZLE" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # Dozzle log viewer (with SSO)
+        location /logs/ {
+            auth_request /api/auth/verify;
+
+            proxy_pass http://dozzle/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+EOF
+    fi
+
+    # Close the management server block
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # Auth verification endpoint
+        location = /api/auth/verify {
+            internal;
+            proxy_pass http://management/api/auth/verify;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header X-Original-URI $request_uri;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        # Static Vue.js frontend
+        location / {
+            proxy_pass http://management;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
         }
     }
 }
