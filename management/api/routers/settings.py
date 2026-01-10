@@ -106,6 +106,8 @@ async def reset_tailscale_container():
 
         # Step 4: Recreate and start the container
         logger.info("Starting Tailscale container with new auth key...")
+
+        # Try docker compose V2 first, fall back to docker-compose V1
         up_result = subprocess.run(
             ['docker', 'compose', 'up', '-d', 'tailscale'],
             cwd=host_dir,
@@ -113,6 +115,17 @@ async def reset_tailscale_container():
             text=True,
             timeout=120
         )
+
+        # If V2 failed, try V1 (docker-compose)
+        if up_result.returncode != 0 and 'unknown' in up_result.stderr.lower():
+            logger.info("Docker Compose V2 not available, trying V1...")
+            up_result = subprocess.run(
+                ['docker-compose', 'up', '-d', 'tailscale'],
+                cwd=host_dir,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
 
         if up_result.returncode == 0:
             logger.info("Tailscale container started successfully")
