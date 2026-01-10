@@ -272,6 +272,14 @@ const tailscaleKeyMasked = ref('')
 const tailscaleKeyIsSet = ref(false)
 const showTailscaleKey = ref(false)
 
+// Tailscale reset confirmation dialog
+const tailscaleResetDialog = ref({
+  open: false,
+  loading: false,
+  containerStatus: 'unknown',
+  actionLabel: 'Restart'
+})
+
 // Container restart state
 const restartDialog = ref({
   open: false,
@@ -727,16 +735,43 @@ async function saveTailscaleKey() {
     tailscaleKey.value = ''
     showTailscaleKey.value = false
 
-    if (response.data.requires_restart) {
-      notificationStore.success('Tailscale auth key saved. Restart the container to apply changes.')
-    } else {
-      notificationStore.success('Tailscale auth key saved successfully')
+    // Get container status to determine button label
+    try {
+      const statusRes = await api.settings.getTailscaleStatus()
+      tailscaleResetDialog.value.containerStatus = statusRes.data.status
+      tailscaleResetDialog.value.actionLabel = statusRes.data.action_label || 'Restart'
+    } catch {
+      tailscaleResetDialog.value.actionLabel = 'Start'
     }
+
+    // Show confirmation dialog for container restart
+    tailscaleResetDialog.value.open = true
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to save auth key')
   } finally {
     tailscaleKeyLoading.value = false
   }
+}
+
+async function confirmTailscaleReset() {
+  tailscaleResetDialog.value.loading = true
+  try {
+    await api.settings.resetTailscale()
+    notificationStore.success('Tailscale container restarted with new auth key')
+    tailscaleResetDialog.value.open = false
+
+    // Reload Tailscale info after a delay
+    setTimeout(() => loadNetworkInfo(), 5000)
+  } catch (error) {
+    notificationStore.error(error.response?.data?.detail || 'Failed to reset Tailscale container')
+  } finally {
+    tailscaleResetDialog.value.loading = false
+  }
+}
+
+function cancelTailscaleReset() {
+  tailscaleResetDialog.value.open = false
+  notificationStore.info('Auth key saved but container not restarted. You can restart it manually later.')
 }
 
 // Container Restart
@@ -2319,6 +2354,59 @@ onUnmounted(() => {
               class="btn-primary"
             >
               {{ tailscaleKeyLoading ? 'Saving...' : 'Save Key' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Tailscale Reset Confirmation Modal -->
+    <Teleport to="body">
+      <div
+        v-if="tailscaleResetDialog.open"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      >
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="!tailscaleResetDialog.loading && cancelTailscaleReset()"></div>
+        <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-400 dark:border-gray-700">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
+              <ExclamationTriangleIcon class="h-6 w-6 text-amber-500" />
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-primary">Container Restart Required</h3>
+              <p class="text-sm text-muted">The new auth key requires a container restart</p>
+            </div>
+          </div>
+
+          <div class="mb-6 p-4 rounded-lg bg-surface-hover">
+            <p class="text-sm text-secondary mb-3">
+              To apply the new Tailscale auth key, the container must be restarted with fresh authentication state.
+            </p>
+            <p class="text-sm text-secondary">
+              This will:
+            </p>
+            <ul class="text-sm text-secondary mt-2 ml-4 list-disc space-y-1">
+              <li>Stop the Tailscale container</li>
+              <li>Clear saved authentication data</li>
+              <li>Start container with the new key</li>
+            </ul>
+          </div>
+
+          <div class="flex justify-end gap-3">
+            <button
+              @click="cancelTailscaleReset"
+              :disabled="tailscaleResetDialog.loading"
+              class="btn-secondary"
+            >
+              Later
+            </button>
+            <button
+              @click="confirmTailscaleReset"
+              :disabled="tailscaleResetDialog.loading"
+              class="btn-primary"
+            >
+              <ArrowPathIcon v-if="tailscaleResetDialog.loading" class="h-4 w-4 animate-spin mr-2" />
+              {{ tailscaleResetDialog.loading ? 'Restarting...' : tailscaleResetDialog.actionLabel + ' Container' }}
             </button>
           </div>
         </div>
