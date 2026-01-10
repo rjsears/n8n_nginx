@@ -2853,7 +2853,7 @@ generate_docker_compose_v3() {
     cat > "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
 services:
   # ===========================================================================
-  # PostgreSQL Database
+  # PostgreSQL Database (shared by n8n and management)
   # ===========================================================================
   postgres:
     image: pgvector/pgvector:pg16
@@ -2861,10 +2861,11 @@ services:
     restart: always
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-n8n}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - POSTGRES_DB=${POSTGRES_DB:-n8n}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}']
       interval: 5s
@@ -2881,22 +2882,39 @@ services:
     container_name: ${N8N_CONTAINER:-n8n}
     restart: always
     environment:
+      # Database Configuration
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-n8n}
       - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-      - N8N_HOST=${DOMAIN}
+      # n8n Configuration - HTTPS
+      - N8N_HOST=${DOMAIN:?DOMAIN is required}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
       - WEBHOOK_URL=https://${DOMAIN}
       - N8N_EDITOR_BASE_URL=https://${DOMAIN}
+      # Timezone
       - GENERIC_TIMEZONE=${TIMEZONE:-America/Los_Angeles}
       - TZ=${TIMEZONE:-America/Los_Angeles}
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      # Execution Configuration
+      - EXECUTIONS_MODE=regular
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
+      # Security
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY is required}
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      # Performance & Isolation
+      - N8N_PAYLOAD_SIZE_MAX=16
+      - N8N_METRICS=false
+      # Logging
+      - N8N_LOG_LEVEL=info
+      - N8N_LOG_OUTPUT=console
+      # Community Nodes
       - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      # Proxy
       - N8N_TRUST_PROXY=true
     volumes:
       - n8n_data:/home/node/.n8n
@@ -2922,15 +2940,12 @@ services:
     container_name: ${MANAGEMENT_CONTAINER:-n8n_management}
     restart: always
     environment:
-      # Database
-      - DATABASE_URL=postgresql+asyncpg://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD}@postgres:5432/n8n_management
+      # Database connection (using asyncpg driver for async SQLAlchemy)
+      - DATABASE_URL=postgresql+asyncpg://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/n8n_management
       - N8N_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
-      # PostgreSQL connection for backups (pg_dump)
-      - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
-      - POSTGRES_USER=${POSTGRES_USER:-n8n}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       # Security
-      - SECRET_KEY=${MGMT_SECRET_KEY}
+      - SECRET_KEY=${MGMT_SECRET_KEY:?MGMT_SECRET_KEY is required}
+      - ENCRYPTION_KEY=${MGMT_ENCRYPTION_KEY:-${N8N_ENCRYPTION_KEY}}
       # Admin user (created on first startup)
       - ADMIN_USERNAME=${ADMIN_USER}
       - ADMIN_PASSWORD=${ADMIN_PASS}
@@ -2939,15 +2954,25 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=false
-      # NFS Configuration (host-level mount, bind-mounted into container)
+      # n8n API integration
+      - N8N_API_KEY=${N8N_API_KEY:-}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-}
+      # NFS Configuration (optional)
       - NFS_SERVER=${NFS_SERVER:-}
       - NFS_PATH=${NFS_PATH:-}
       - NFS_LOCAL_MOUNT=${NFS_LOCAL_MOUNT:-}
       # Timezone
       - TZ=${TIMEZONE:-America/Los_Angeles}
-      # n8n API Integration (for creating test workflows)
-      - N8N_API_KEY=${N8N_API_KEY:-}
-      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-}
+      # PostgreSQL version (for pg_dump compatibility)
+      - POSTGRES_VERSION=16
+      # Domain for constructing URLs (used in integration examples)
+      - DOMAIN=${DOMAIN:-}
+      # NTFY public URL (if different from https://ntfy.${DOMAIN})
+      - NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL:-}
+      # PostgreSQL connection for backups (pg_dump)
+      - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 EOF
 
     # Add notification environment variables if configured
@@ -3008,26 +3033,24 @@ EOF
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:8000/api/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - n8n_network
 
   # ===========================================================================
-  # Nginx Reverse Proxy
+  # Nginx Reverse Proxy (SSL termination)
   # ===========================================================================
   nginx:
     image: nginx:alpine
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
     restart: always
-    environment:
-      # Disable IPv6 configuration script (not needed)
-      - NGINX_ENTRYPOINT_QUIET_LOGS=1
     ports:
       - "443:443"
-EOF
-
-    # Note: All services (Management, Adminer, Dozzle, Portainer) accessed via paths on port 443
-
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - certbot_data:/var/www/certbot:ro
@@ -3036,7 +3059,7 @@ EOF
       - n8n
       - n8n_management
     healthcheck:
-      test: ['CMD-SHELL', 'curl -fsk https://localhost/healthz || exit 1']
+      test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -3335,6 +3358,7 @@ EOF
 generate_nginx_conf_v3() {
     print_info "Generating nginx.conf for v3.0..."
 
+    # Start nginx.conf with events and http block
     cat > "${SCRIPT_DIR}/nginx.conf" << EOF
 events {
     worker_connections 1024;
@@ -3357,12 +3381,12 @@ http {
 
     # Upstream to n8n
     upstream n8n {
-        server ${N8N_CONTAINER}:5678;
+        server ${N8N_CONTAINER:-n8n}:5678;
     }
 
     # Upstream to management console (connects to internal nginx on port 80)
     upstream management {
-        server ${DEFAULT_MANAGEMENT_CONTAINER}:80;
+        server ${DEFAULT_MANAGEMENT_CONTAINER:-n8n_management}:80;
     }
 
     # ===========================================================================
@@ -3384,6 +3408,7 @@ EOF
         fi
     done
 
+    # Continue with ACCESS CONTROL SUMMARY and server block
     cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
     }
 
@@ -3422,7 +3447,7 @@ EOF
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
 
-        # Webhook endpoint with CORS
+        # Webhook endpoint with CORS - PUBLICLY ACCESSIBLE
         location /webhook/ {
             add_header 'Access-Control-Allow-Origin' '*' always;
             add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
@@ -3450,7 +3475,6 @@ EOF
         }
 
         # Default n8n proxy - INTERNAL ACCESS ONLY
-        # n8n editor/UI should not be publicly accessible
         location / {
             # Block external access - only allow internal IPs
             if (\$access_level = "external") {
@@ -3555,18 +3579,51 @@ EOF
 EOF
     fi
 
-    # Note: NTFY is accessed via its own subdomain through Cloudflare Tunnel
-    # No nginx location block is needed - Cloudflare Tunnel routes directly to n8n_ntfy:80
+    # Add NTFY location if configured
     if [ "$INSTALL_NTFY" = true ]; then
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
-        # Note: NTFY is accessed via its own subdomain (e.g., ntfy.example.com)
-        # Configure Cloudflare Tunnel to route the NTFY subdomain to n8n_ntfy:80
-        # No proxy configuration needed here since Cloudflare Tunnel handles routing
+        # NTFY Push Notification Server - EXTERNALLY ACCESSIBLE
+        # Required for mobile apps and external services to receive notifications
+        location /ntfy/ {
+            # Use variable to enable runtime DNS resolution (prevents startup failure)
+            set $ntfy_upstream http://n8n_ntfy:80;
+
+            # CORS headers for external access
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
+
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' '*';
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS';
+                add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With';
+                add_header 'Access-Control-Max-Age' 86400;
+                add_header 'Content-Length' 0;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                return 204;
+            }
+
+            proxy_pass $ntfy_upstream/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_redirect off;
+            chunked_transfer_encoding on;
+            # Long timeout for SSE/WebSocket notification streams
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
 EOF
     fi
 
-    # Add Management Console location block
+    # Add Management Console location blocks
     cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
         # Management Console - INTERNAL ACCESS ONLY
@@ -4869,6 +4926,20 @@ show_final_summary_v3() {
         if [ "$INSTALL_TAILSCALE" = true ]; then
             echo -e "    Tailscale:           ${GREEN}Active${NC} (${TAILSCALE_HOSTNAME})"
         fi
+        echo ""
+    fi
+
+    # Tailscale route approval warning
+    if [ "$INSTALL_TAILSCALE" = true ] && [ -n "$TAILSCALE_ROUTES" ]; then
+        echo -e "  ${YELLOW}${BOLD}⚠ TAILSCALE ACTION REQUIRED:${NC}"
+        echo -e "    ${WHITE}You must approve the advertised route in Tailscale admin:${NC}"
+        echo ""
+        echo -e "    1. Visit: ${CYAN}https://login.tailscale.com/admin/machines${NC}"
+        echo -e "    2. Find your ${WHITE}${TAILSCALE_HOSTNAME:-n8n-tailscale}${NC} node"
+        echo -e "    3. Click the node and approve the advertised route: ${YELLOW}${TAILSCALE_ROUTES}${NC}"
+        echo ""
+        echo -e "    ${RED}${BOLD}NOTE:${NC} ${WHITE}The management console will NOT be accessible via Tailscale${NC}"
+        echo -e "          ${WHITE}until this route has been approved!${NC}"
         echo ""
     fi
 
