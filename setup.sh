@@ -3051,7 +3051,6 @@ EOF
     restart: always
     ports:
       - "443:443"
-      - "${MGMT_PORT:-3333}:${MGMT_PORT:-3333}"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - certbot_data:/var/www/certbot:ro
