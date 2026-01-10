@@ -4872,6 +4872,20 @@ show_final_summary_v3() {
         echo ""
     fi
 
+    # Tailscale route approval warning
+    if [ "$INSTALL_TAILSCALE" = true ] && [ -n "$TAILSCALE_ROUTES" ]; then
+        echo -e "  ${YELLOW}${BOLD}⚠ TAILSCALE ACTION REQUIRED:${NC}"
+        echo -e "    ${WHITE}You must approve the advertised route in Tailscale admin:${NC}"
+        echo ""
+        echo -e "    1. Visit: ${CYAN}https://login.tailscale.com/admin/machines${NC}"
+        echo -e "    2. Find your ${WHITE}${TAILSCALE_HOSTNAME:-n8n-tailscale}${NC} node"
+        echo -e "    3. Click the node and approve the advertised route: ${YELLOW}${TAILSCALE_ROUTES}${NC}"
+        echo ""
+        echo -e "    ${RED}${BOLD}NOTE:${NC} ${WHITE}The management console will NOT be accessible via Tailscale${NC}"
+        echo -e "          ${WHITE}until this route has been approved!${NC}"
+        echo ""
+    fi
+
     echo -e "  ${WHITE}${BOLD}Useful Commands:${NC}"
     echo -e "    ${GRAY}View logs:${NC}         docker compose logs -f"
     echo -e "    ${GRAY}Stop services:${NC}     docker compose down"
