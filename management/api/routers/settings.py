@@ -48,74 +48,85 @@ router = APIRouter()
 async def reset_tailscale_container():
     """
     Reset Tailscale container state when auth key changes.
-    This removes the stored authentication state so the new key will be used.
+    Uses shell commands to ensure proper cleanup:
+    1. docker stop n8n_tailscale
+    2. docker volume rm n8n_nginx_tailscale_data
+    3. docker compose up -d tailscale
     """
-    import docker
-    import asyncio
+    import subprocess
+    import os
+
+    # Get the host project directory (where docker-compose.yaml is)
+    host_dir = "/app/host_project"
 
     try:
-        client = docker.from_env()
-
-        # Find the Tailscale container
-        tailscale_container = None
-        for container in client.containers.list(all=True):
-            if 'tailscale' in container.name.lower():
-                tailscale_container = container
-                break
-
-        if not tailscale_container:
-            logger.warning("Tailscale container not found, skipping reset")
-            return False
-
-        container_name = tailscale_container.name
-        logger.info(f"Resetting Tailscale container: {container_name}")
-
-        # Stop the container
-        if tailscale_container.status == 'running':
-            logger.info("Stopping Tailscale container...")
-            tailscale_container.stop(timeout=10)
-
-        # Find and remove the Tailscale data volume
-        volume_name = None
-        for mount in tailscale_container.attrs.get('Mounts', []):
-            if 'tailscale' in mount.get('Name', '').lower():
-                volume_name = mount['Name']
-                break
-
-        if volume_name:
-            logger.info(f"Removing Tailscale volume: {volume_name}")
-            try:
-                # Need to remove container first to release volume
-                tailscale_container.remove(force=True)
-                volume = client.volumes.get(volume_name)
-                volume.remove(force=True)
-                logger.info("Tailscale volume removed successfully")
-            except docker.errors.NotFound:
-                logger.info("Volume already removed")
-            except Exception as e:
-                logger.warning(f"Could not remove volume: {e}")
-
-        # Recreate and start the container using docker-compose
-        # Run docker-compose up -d tailscale
-        import subprocess
-        result = subprocess.run(
-            ['docker', 'compose', 'up', '-d', 'tailscale'],
-            cwd='/app/host_config',
+        # Step 1: Stop the container
+        logger.info("Stopping Tailscale container...")
+        stop_result = subprocess.run(
+            ['docker', 'stop', 'n8n_tailscale'],
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=30
+        )
+        if stop_result.returncode != 0:
+            # Container might already be stopped, that's OK
+            logger.info(f"Stop returned: {stop_result.stderr.strip() or 'container may already be stopped'}")
+
+        # Step 2: Remove the volume (need to remove container first to release it)
+        logger.info("Removing Tailscale container to release volume...")
+        rm_container = subprocess.run(
+            ['docker', 'rm', '-f', 'n8n_tailscale'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        logger.info(f"Container removal: {rm_container.stdout.strip() or rm_container.stderr.strip()}")
+
+        # Step 3: Remove the volume
+        logger.info("Removing Tailscale data volume...")
+        # Try common volume name patterns
+        volume_names = ['n8n_nginx_tailscale_data', 'n8n-nginx_tailscale_data', 'tailscale_data']
+        volume_removed = False
+        for vol_name in volume_names:
+            vol_result = subprocess.run(
+                ['docker', 'volume', 'rm', vol_name],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if vol_result.returncode == 0:
+                logger.info(f"Removed volume: {vol_name}")
+                volume_removed = True
+                break
+            else:
+                logger.debug(f"Volume {vol_name} not found or already removed")
+
+        if not volume_removed:
+            logger.warning("Could not find/remove Tailscale volume - may already be removed")
+
+        # Step 4: Recreate and start the container
+        logger.info("Starting Tailscale container with new auth key...")
+        up_result = subprocess.run(
+            ['docker', 'compose', 'up', '-d', 'tailscale'],
+            cwd=host_dir,
+            capture_output=True,
+            text=True,
+            timeout=120
         )
 
-        if result.returncode == 0:
-            logger.info("Tailscale container restarted successfully with new auth key")
-            return True
+        if up_result.returncode == 0:
+            logger.info("Tailscale container started successfully")
+            return {"success": True, "message": "Tailscale container restarted with new auth key"}
         else:
-            logger.error(f"Failed to restart Tailscale: {result.stderr}")
-            return False
+            logger.error(f"Failed to start Tailscale: {up_result.stderr}")
+            return {"success": False, "message": f"Failed to start container: {up_result.stderr}"}
 
+    except subprocess.TimeoutExpired:
+        logger.error("Tailscale reset operation timed out")
+        return {"success": False, "message": "Operation timed out"}
     except Exception as e:
         logger.error(f"Error resetting Tailscale container: {e}")
-        return False
+        return {"success": False, "message": str(e)}
 
 
 @router.get("/", response_model=List[SettingValue])
@@ -801,20 +812,12 @@ async def update_env_variable(
         # without requiring a container restart
         os.environ[key] = value
 
-        # Special handling for Tailscale auth key changes
-        # Need to reset the container state so the new key is used
+        # For Tailscale auth key, don't auto-reset - just inform that restart is needed
+        # The frontend will call the separate reset endpoint after user confirmation
         if key == "TAILSCALE_AUTH_KEY":
-            logger.info("Tailscale auth key updated, resetting container state...")
-            reset_success = await reset_tailscale_container()
-            if reset_success:
-                return SuccessResponse(
-                    message=f"Tailscale auth key updated and container restarted with new key."
-                )
-            else:
-                return SuccessResponse(
-                    message=f"Tailscale auth key updated in .env, but container reset failed. "
-                    f"You may need to manually restart: docker compose up -d --force-recreate tailscale"
-                )
+            return SuccessResponse(
+                message="Tailscale auth key saved. Container restart required to apply changes."
+            )
 
         return SuccessResponse(message=f"Environment variable '{key}' updated successfully.")
 
@@ -823,6 +826,77 @@ async def update_env_variable(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update environment variable: {str(e)}",
         )
+
+
+@router.post("/tailscale/reset")
+async def reset_tailscale(
+    _=Depends(get_current_user),
+):
+    """
+    Reset the Tailscale container with fresh authentication state.
+    This should be called after updating the Tailscale auth key.
+
+    Steps performed:
+    1. Stop the Tailscale container
+    2. Remove the Tailscale data volume (clears auth state)
+    3. Start the container with docker-compose (uses new key from .env)
+    """
+    logger.info("Manual Tailscale reset requested")
+    result = await reset_tailscale_container()
+
+    if result.get("success"):
+        return SuccessResponse(message=result.get("message", "Tailscale reset successfully"))
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result.get("message", "Failed to reset Tailscale container")
+        )
+
+
+@router.get("/tailscale/status")
+async def get_tailscale_status(
+    _=Depends(get_current_user),
+):
+    """
+    Get the current status of the Tailscale container.
+    Returns running state and whether a restart is needed.
+    """
+    import subprocess
+
+    try:
+        # Check container status
+        result = subprocess.run(
+            ['docker', 'inspect', '--format', '{{.State.Status}}', 'n8n_tailscale'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            status = result.stdout.strip()
+            return {
+                "exists": True,
+                "status": status,
+                "running": status == "running",
+                "action_label": "Restart" if status == "running" else "Start"
+            }
+        else:
+            return {
+                "exists": False,
+                "status": "not found",
+                "running": False,
+                "action_label": "Start"
+            }
+
+    except Exception as e:
+        logger.error(f"Error checking Tailscale status: {e}")
+        return {
+            "exists": False,
+            "status": "error",
+            "running": False,
+            "action_label": "Start",
+            "error": str(e)
+        }
 
 
 # External Routes Management (Public paths in nginx.conf)

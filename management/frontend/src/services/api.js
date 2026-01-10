@@ -191,6 +191,9 @@ export const settingsApi = {
   getEnvVariables: () => api.get('/settings/env'),
   getEnvVariable: (key) => api.get(`/settings/env/${key}`),
   updateEnvVariable: (key, value) => api.put(`/settings/env/${key}`, { key, value }),
+  // Tailscale management
+  resetTailscale: () => api.post('/settings/tailscale/reset'),
+  getTailscaleStatus: () => api.get('/settings/tailscale/status'),
   // Debug mode
   getDebugMode: () => api.get('/settings/debug'),
   setDebugMode: (enabled) => api.put('/settings/debug', { enabled }),
