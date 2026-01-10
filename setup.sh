@@ -84,7 +84,8 @@ AUTOGEN_MGMT_SECRET=false
 AUTOGEN_ADMIN_PASS=false
 
 # Internal IP ranges that get full access (space-separated CIDR blocks)
-DEFAULT_INTERNAL_IP_RANGES="100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
+# 127.0.0.1/32 is required for nginx healthchecks - DO NOT REMOVE
+DEFAULT_INTERNAL_IP_RANGES="127.0.0.1/32 100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
 INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
 CUSTOM_INTERNAL_IPS=""
 
@@ -3017,6 +3018,9 @@ EOF
     image: nginx:alpine
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
     restart: always
+    environment:
+      # Disable IPv6 configuration script (not needed)
+      - NGINX_ENTRYPOINT_QUIET_LOGS=1
     ports:
       - "443:443"
 EOF
@@ -3032,7 +3036,7 @@ EOF
       - n8n
       - n8n_management
     healthcheck:
-      test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
+      test: ['CMD-SHELL', 'curl -fsk https://localhost/healthz || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
