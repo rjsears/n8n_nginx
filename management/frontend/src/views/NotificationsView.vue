@@ -61,6 +61,8 @@ import {
   HashtagIcon,
   BookmarkIcon,
   CodeBracketIcon,
+  SparklesIcon,
+  InformationCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
@@ -277,6 +279,9 @@ const ntfySuccessDialog = ref({ open: false, channel: null })
 const testingChannel = ref(null)
 const n8nStatus = ref({ checking: false, configured: false, connected: false, error: null })
 const creatingWorkflow = ref(false)
+const workflowCreationDialog = ref({ open: false })
+const credentialStatus = ref({ exists: false, checking: false })
+const creatingCredential = ref(false)
 
 // Channel type icons
 const channelIcons = {
@@ -449,7 +454,12 @@ async function createTestWorkflow(workflowType = 'broadcast') {
     const response = await notificationsApi.createTestWorkflow(workflowType)
     if (response.data.success) {
       const workflowName = response.data.workflow_name
-      notificationStore.success(`${workflowName} created! Open n8n to configure the credential and run it.`)
+      const credentialCreated = response.data.credential_id
+      if (credentialCreated) {
+        notificationStore.success(`${workflowName} created with auto-configured credential! Ready to test.`)
+      } else {
+        notificationStore.success(`${workflowName} created! Open n8n to configure the credential and run it.`)
+      }
     } else {
       notificationStore.error('Failed to create workflow: ' + (response.data.error || 'Unknown error'))
     }
@@ -460,13 +470,23 @@ async function createTestWorkflow(workflowType = 'broadcast') {
   }
 }
 
+function showWorkflowCreationDialog() {
+  workflowCreationDialog.value.open = true
+}
+
 async function createAllTestWorkflows() {
+  workflowCreationDialog.value.open = false
   creatingWorkflow.value = 'all'
   try {
     const response = await notificationsApi.createAllTestWorkflows()
     if (response.data.success) {
       const count = response.data.workflows_created?.length || 0
-      notificationStore.success(`Created ${count} test workflow(s) in n8n! Open n8n to configure credentials and run them.`)
+      const credentialsProvisioned = response.data.credentials_provisioned
+      if (credentialsProvisioned) {
+        notificationStore.success(`Created ${count} test workflow(s) with auto-configured credentials! Ready to test in n8n.`)
+      } else {
+        notificationStore.success(`Created ${count} test workflow(s) in n8n! Open n8n to configure credentials and run them.`)
+      }
       if (response.data.errors?.length > 0) {
         notificationStore.warning('Some workflows had errors: ' + response.data.errors.join(', '))
       }
@@ -477,6 +497,37 @@ async function createAllTestWorkflows() {
     notificationStore.error('Failed to create workflows: ' + (error.response?.data?.detail || 'Unknown error'))
   } finally {
     creatingWorkflow.value = false
+  }
+}
+
+async function checkCredentialStatus() {
+  credentialStatus.value.checking = true
+  try {
+    const response = await notificationsApi.getCredentialStatus()
+    credentialStatus.value.exists = response.data.exists
+    credentialStatus.value.configured = response.data.configured
+  } catch (error) {
+    console.error('Failed to check credential status:', error)
+  } finally {
+    credentialStatus.value.checking = false
+  }
+}
+
+async function createOrUpdateCredential() {
+  creatingCredential.value = true
+  try {
+    const response = await notificationsApi.createOrUpdateCredential()
+    if (response.data.success) {
+      const action = response.data.action
+      notificationStore.success(`Credential ${action} successfully in n8n!`)
+      credentialStatus.value.exists = true
+    } else {
+      notificationStore.error('Failed to manage credential: ' + (response.data.message || 'Unknown error'))
+    }
+  } catch (error) {
+    notificationStore.error('Failed to manage credential: ' + (error.response?.data?.detail || 'Unknown error'))
+  } finally {
+    creatingCredential.value = false
   }
 }
 
@@ -1715,7 +1766,7 @@ async function handleNtfyUpdateConfig(config) {
               <div class="space-y-3">
                 <!-- Create All Button -->
                 <button
-                  @click.stop="createAllTestWorkflows"
+                  @click.stop="showWorkflowCreationDialog"
                   :disabled="creatingWorkflow || !webhookInfo.has_key"
                   :class="[
                     'w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium rounded-lg transition-colors',
@@ -1724,66 +1775,33 @@ async function handleNtfyUpdateConfig(config) {
                       : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                   ]"
                 >
-                  <PlayIcon class="h-4 w-4" />
-                  {{ creatingWorkflow === 'all' ? 'Creating All...' : 'Create All Test Workflows' }}
+                  <SparklesIcon class="h-4 w-4" />
+                  {{ creatingWorkflow === 'all' ? 'Creating All...' : 'Create Test Workflows' }}
                 </button>
-                <p class="text-xs text-secondary text-center">Creates all three workflow types at once</p>
+                <p class="text-xs text-secondary text-center">Create workflows with auto-configured credentials</p>
 
-                <!-- Individual Workflow Buttons -->
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-400 dark:border-gray-700">
-                  <!-- Broadcast -->
-                  <button
-                    @click.stop="createTestWorkflow('broadcast')"
-                    :disabled="creatingWorkflow || !webhookInfo.has_key"
-                    :class="[
-                      'flex flex-col items-center gap-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors',
-                      webhookInfo.has_key
-                        ? 'bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 disabled:opacity-50'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
-                    ]"
-                  >
-                    <span class="text-lg">📢</span>
-                    <span>{{ creatingWorkflow === 'broadcast' ? 'Creating...' : 'Broadcast' }}</span>
-                    <span class="text-[10px] opacity-70">All channels</span>
-                  </button>
-
-                  <!-- Channel -->
-                  <button
-                    @click.stop="createTestWorkflow('channel')"
-                    :disabled="creatingWorkflow || !webhookInfo.has_key"
-                    :class="[
-                      'flex flex-col items-center gap-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors',
-                      webhookInfo.has_key
-                        ? 'bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 disabled:opacity-50'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
-                    ]"
-                  >
-                    <span class="text-lg">🎯</span>
-                    <span>{{ creatingWorkflow === 'channel' ? 'Creating...' : 'Channel' }}</span>
-                    <span class="text-[10px] opacity-70">Specific channel</span>
-                  </button>
-
-                  <!-- Group -->
-                  <button
-                    @click.stop="createTestWorkflow('group')"
-                    :disabled="creatingWorkflow || !webhookInfo.has_key"
-                    :class="[
-                      'flex flex-col items-center gap-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors',
-                      webhookInfo.has_key
-                        ? 'bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 disabled:opacity-50'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
-                    ]"
-                  >
-                    <span class="text-lg">👥</span>
-                    <span>{{ creatingWorkflow === 'group' ? 'Creating...' : 'Group' }}</span>
-                    <span class="text-[10px] opacity-70">Channel group</span>
-                  </button>
-                </div>
+                <!-- Credential Only Button -->
+                <button
+                  @click.stop="createOrUpdateCredential"
+                  :disabled="creatingCredential || !webhookInfo.has_key || !n8nStatus.connected"
+                  :class="[
+                    'w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-lg transition-colors border',
+                    webhookInfo.has_key && n8nStatus.connected
+                      ? 'border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-300 disabled:opacity-50'
+                      : 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                  ]"
+                >
+                  <KeyIcon class="h-3.5 w-3.5" />
+                  {{ creatingCredential ? 'Updating...' : 'Create/Update n8n Credential' }}
+                </button>
+                <p class="text-xs text-muted text-center">
+                  Update credential if you regenerated your API key
+                </p>
               </div>
 
               <p class="text-xs text-secondary mt-3">
-                After creation, open n8n to configure the Header Auth credential with your API key.
-                For channel/group workflows, edit the JSON body to specify your target slug.
+                Credentials are auto-configured when creating workflows.
+                For channel/group workflows, edit the JSON body in n8n to specify your target slug.
               </p>
             </div>
           </div>
@@ -2262,6 +2280,114 @@ async function handleNtfyUpdateConfig(config) {
       @confirm="confirmDeleteGroup"
       @cancel="deleteGroupDialog.open = false"
     />
+
+    <!-- Workflow Creation Info Dialog -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="workflowCreationDialog.open"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50"
+          @click.self="workflowCreationDialog.open = false"
+        >
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-xl w-full border border-gray-200 dark:border-gray-700">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
+                  <SparklesIcon class="h-6 w-6 text-indigo-500" />
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                  Create Test Workflows
+                </h3>
+              </div>
+              <button
+                @click="workflowCreationDialog.open = false"
+                class="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <XCircleIcon class="h-5 w-5" />
+              </button>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 space-y-4">
+              <!-- Info Message -->
+              <div class="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                <div class="text-sm text-blue-700 dark:text-blue-300">
+                  <p class="font-medium mb-1">Automatic Credential Setup</p>
+                  <p>
+                    This will create test workflows in n8n and automatically configure the Header Auth
+                    credential with your API key. Just open n8n, configure the target, and run!
+                  </p>
+                </div>
+              </div>
+
+              <!-- Workflow Types -->
+              <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                The following test workflows will be created:
+              </p>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <!-- Broadcast -->
+                <div class="flex flex-col items-center gap-2 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <span class="text-2xl">📢</span>
+                  <span class="font-medium text-blue-700 dark:text-blue-300">Broadcast</span>
+                  <span class="text-xs text-blue-600 dark:text-blue-400 text-center">
+                    Send to all webhook-enabled channels
+                  </span>
+                </div>
+
+                <!-- Channel -->
+                <div class="flex flex-col items-center gap-2 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                  <span class="text-2xl">🎯</span>
+                  <span class="font-medium text-green-700 dark:text-green-300">Channel</span>
+                  <span class="text-xs text-green-600 dark:text-green-400 text-center">
+                    Target a specific channel by slug
+                  </span>
+                </div>
+
+                <!-- Group -->
+                <div class="flex flex-col items-center gap-2 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <span class="text-2xl">👥</span>
+                  <span class="font-medium text-purple-700 dark:text-purple-300">Group</span>
+                  <span class="text-xs text-purple-600 dark:text-purple-400 text-center">
+                    Target a channel group by slug
+                  </span>
+                </div>
+              </div>
+
+              <!-- Note -->
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                For channel/group workflows, you'll need to edit the JSON body in n8n to specify
+                your target slug. Find slugs in the Channels or Groups tab.
+              </p>
+            </div>
+
+            <!-- Footer -->
+            <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+              <button
+                @click="workflowCreationDialog.open = false"
+                class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                @click="createAllTestWorkflows"
+                :disabled="creatingWorkflow"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <SparklesIcon v-if="!creatingWorkflow" class="h-4 w-4" />
+                <svg v-else class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                {{ creatingWorkflow ? 'Creating...' : 'Create All Workflows' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- NTFY Channel Created Success Dialog -->
     <Teleport to="body">

@@ -1249,3 +1249,97 @@ async def create_all_test_workflows(
         "errors": errors if errors else None,
         "next_steps": next_steps,
     }
+
+
+@router.post("/n8n/credential")
+async def create_or_update_credential(
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create or update the Header Auth credential for n8n webhook authentication.
+
+    This endpoint:
+    1. Checks if a "Management Webhook API Key" credential already exists
+    2. If it exists, deletes it and recreates with the current API key
+    3. If not, creates a new credential
+
+    Use this to:
+    - Set up the credential without creating test workflows
+    - Update the credential after regenerating your API key
+    """
+    from api.services.n8n_api_service import n8n_api
+
+    if not n8n_api.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="n8n API key not configured. Set N8N_API_KEY to enable workflow creation.",
+        )
+
+    # Get the current webhook API key
+    webhook_api_key = await get_webhook_api_key_from_db(db)
+    if not webhook_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No webhook API key configured. Generate one first.",
+        )
+
+    credential_name = "Management Webhook API Key"
+
+    # Check if credential already exists
+    existing = await n8n_api.find_credential_by_name(credential_name, "httpHeaderAuth")
+
+    if existing:
+        # Delete the existing credential first
+        logger.info(f"Deleting existing credential: {existing.get('id')}")
+        delete_result = await n8n_api.delete_credential(existing.get("id"))
+        if not delete_result["success"]:
+            logger.warning(f"Could not delete old credential: {delete_result.get('error')}")
+
+    # Create new credential with current API key
+    result = await n8n_api.create_header_auth_credential(
+        name=credential_name,
+        header_name="X-API-Key",
+        header_value=webhook_api_key
+    )
+
+    if result["success"]:
+        action = "updated" if existing else "created"
+        return {
+            "success": True,
+            "message": f"Credential {action} successfully",
+            "credential_id": result.get("credential_id"),
+            "action": action,
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create credential: {result.get('error')}",
+        )
+
+
+@router.get("/n8n/credential")
+async def get_credential_status(
+    user=Depends(get_current_user),
+):
+    """
+    Check if the Management Webhook API Key credential exists in n8n.
+    """
+    from api.services.n8n_api_service import n8n_api
+
+    if not n8n_api.is_configured():
+        return {
+            "configured": False,
+            "exists": False,
+            "message": "n8n API not configured",
+        }
+
+    credential_name = "Management Webhook API Key"
+    existing = await n8n_api.find_credential_by_name(credential_name, "httpHeaderAuth")
+
+    return {
+        "configured": True,
+        "exists": existing is not None,
+        "credential_id": existing.get("id") if existing else None,
+        "credential_name": credential_name,
+    }

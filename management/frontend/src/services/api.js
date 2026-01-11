@@ -161,6 +161,9 @@ export const notificationsApi = {
   getN8nStatus: () => api.get('/notifications/webhook/n8n-status'),
   createTestWorkflow: (workflowType = 'broadcast') => api.post(`/notifications/webhook/create-test-workflow?workflow_type=${workflowType}`),
   createAllTestWorkflows: () => api.post('/notifications/webhook/create-all-test-workflows'),
+  // n8n credential management
+  getCredentialStatus: () => api.get('/notifications/n8n/credential'),
+  createOrUpdateCredential: () => api.post('/notifications/n8n/credential'),
 }
 
 export const emailApi = {
