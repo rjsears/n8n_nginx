@@ -1176,55 +1176,72 @@ async def create_all_test_workflows(
     results = []
     errors = []
 
-    # Create broadcast workflow
+    # First, get or create the credential ONCE (shared by all workflows)
+    credential_id = None
+    credential_created = False
     try:
-        result = await n8n_api.create_notification_test_workflow(webhook_url, webhook_api_key)
+        cred_result = await n8n_api.get_or_create_webhook_credential(webhook_api_key)
+        if cred_result.get("success"):
+            credential_id = cred_result.get("credential_id")
+            credential_created = cred_result.get("created", False)
+            logger.info(f"Using credential ID {credential_id} for all workflows (created={credential_created})")
+        else:
+            logger.warning(f"Could not get/create credential: {cred_result.get('error')}")
+    except Exception as e:
+        logger.warning(f"Error getting/creating credential: {e}")
+
+    # Create broadcast workflow (using shared credential_id)
+    try:
+        workflow = n8n_api.generate_broadcast_test_workflow(webhook_url, credential_id)
+        result = await n8n_api.create_workflow(workflow)
         if result.get("success"):
             results.append({
                 "type": "broadcast",
                 "name": "Notification Test - Broadcast to All Channels",
                 "workflow_id": result.get("workflow_id"),
-                "credential_id": result.get("credential_id"),
+                "credential_id": credential_id,
             })
         else:
             errors.append(f"Broadcast: {result.get('error')}")
     except Exception as e:
         errors.append(f"Broadcast: {str(e)}")
 
-    # Create channel workflow
+    # Create channel workflow (using shared credential_id)
     try:
-        result = await n8n_api.create_channel_test_workflow(webhook_url, webhook_api_key)
+        workflow = n8n_api.generate_channel_test_workflow(webhook_url, credential_id)
+        result = await n8n_api.create_workflow(workflow)
         if result.get("success"):
             results.append({
                 "type": "channel",
                 "name": "Notification Test - Target Specific Channel",
                 "workflow_id": result.get("workflow_id"),
-                "credential_id": result.get("credential_id"),
+                "credential_id": credential_id,
             })
         else:
             errors.append(f"Channel: {result.get('error')}")
     except Exception as e:
         errors.append(f"Channel: {str(e)}")
 
-    # Create group workflow
+    # Create group workflow (using shared credential_id)
     try:
-        result = await n8n_api.create_group_test_workflow(webhook_url, webhook_api_key)
+        workflow = n8n_api.generate_group_test_workflow(webhook_url, credential_id)
+        result = await n8n_api.create_workflow(workflow)
         if result.get("success"):
             results.append({
                 "type": "group",
                 "name": "Notification Test - Target Group",
                 "workflow_id": result.get("workflow_id"),
-                "credential_id": result.get("credential_id"),
+                "credential_id": credential_id,
             })
         else:
             errors.append(f"Group: {result.get('error')}")
     except Exception as e:
         errors.append(f"Group: {str(e)}")
 
-    # Check if any credentials were created
-    credentials_created = any(w.get("credential_id") for w in results)
+    # Check if credential was successfully used
+    credentials_provisioned = credential_id is not None
 
-    if credentials_created:
+    if credentials_provisioned:
         next_steps = [
             "1. Open n8n to see the new workflows",
             "2. Credentials are pre-configured - workflows are ready to use!",
@@ -1245,7 +1262,7 @@ async def create_all_test_workflows(
         "success": len(results) > 0,
         "message": f"Created {len(results)} test workflow(s) in n8n.",
         "workflows_created": results,
-        "credentials_provisioned": credentials_created,
+        "credentials_provisioned": credentials_provisioned,
         "errors": errors if errors else None,
         "next_steps": next_steps,
     }

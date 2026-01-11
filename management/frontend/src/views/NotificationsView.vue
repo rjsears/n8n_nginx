@@ -282,6 +282,7 @@ const creatingWorkflow = ref(false)
 const workflowCreationDialog = ref({ open: false })
 const credentialStatus = ref({ exists: false, checking: false })
 const creatingCredential = ref(false)
+const regenerateSuccessDialog = ref({ open: false, updating: false })
 
 // Channel type icons
 const channelIcons = {
@@ -417,13 +418,31 @@ async function confirmRegenerateKey() {
       api_key: response.data.api_key,
       has_key: true,
     }
-    notificationStore.success('API key regenerated. Remember to update your n8n credentials!')
     regenerateDialog.value.open = false
     showApiKey.value = true
+    // Show the success dialog with option to update n8n credential
+    regenerateSuccessDialog.value.open = true
   } catch (error) {
     notificationStore.error('Failed to regenerate API key: ' + (error.response?.data?.detail || 'Unknown error'))
   } finally {
     regenerateDialog.value.loading = false
+  }
+}
+
+async function updateN8nCredentialAfterRegenerate() {
+  regenerateSuccessDialog.value.updating = true
+  try {
+    const response = await notificationsApi.createOrUpdateCredential()
+    if (response.data.success) {
+      notificationStore.success('n8n credential updated successfully!')
+      regenerateSuccessDialog.value.open = false
+    } else {
+      notificationStore.error('Failed to update credential: ' + (response.data.message || 'Unknown error'))
+    }
+  } catch (error) {
+    notificationStore.error('Failed to update credential: ' + (error.response?.data?.detail || 'Unknown error'))
+  } finally {
+    regenerateSuccessDialog.value.updating = false
   }
 }
 
@@ -711,7 +730,10 @@ async function confirmDelete() {
   }
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  checkN8nStatus()
+})
 
 // ==================== NTFY Section ====================
 
@@ -2280,6 +2302,86 @@ async function handleNtfyUpdateConfig(config) {
       @confirm="confirmDeleteGroup"
       @cancel="deleteGroupDialog.open = false"
     />
+
+    <!-- API Key Regenerated Success Dialog -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="regenerateSuccessDialog.open"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50"
+          @click.self="regenerateSuccessDialog.open = false"
+        >
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full border border-gray-200 dark:border-gray-700">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <div class="flex items-center gap-3">
+                <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
+                  <CheckCircleIcon class="h-6 w-6 text-green-500" />
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                  API Key Regenerated
+                </h3>
+              </div>
+              <button
+                @click="regenerateSuccessDialog.open = false"
+                class="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <XCircleIcon class="h-5 w-5" />
+              </button>
+            </div>
+
+            <!-- Content -->
+            <div class="px-6 py-5 space-y-4">
+              <p class="text-sm text-gray-600 dark:text-gray-300">
+                Your webhook API key has been regenerated successfully.
+              </p>
+
+              <!-- Warning -->
+              <div class="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <ExclamationTriangleIcon class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div class="text-sm text-amber-700 dark:text-amber-300">
+                  <p class="font-medium mb-1">Update Required</p>
+                  <p>
+                    Any n8n workflows using the old API key will stop working.
+                    You need to update the "Management Webhook API Key" credential in n8n.
+                  </p>
+                </div>
+              </div>
+
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                Click the button below to automatically update your n8n credential with the new API key.
+              </p>
+            </div>
+
+            <!-- Footer -->
+            <div class="flex flex-col gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+              <button
+                v-if="n8nStatus.connected"
+                @click="updateN8nCredentialAfterRegenerate"
+                :disabled="regenerateSuccessDialog.updating"
+                class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <KeyIcon v-if="!regenerateSuccessDialog.updating" class="h-4 w-4" />
+                <svg v-else class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                {{ regenerateSuccessDialog.updating ? 'Updating Credential...' : 'Update n8n Credential Now' }}
+              </button>
+              <p v-else class="text-xs text-center text-amber-600 dark:text-amber-400">
+                n8n API is not connected. Please update the credential manually in n8n.
+              </p>
+              <button
+                @click="regenerateSuccessDialog.open = false"
+                class="w-full px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
+              >
+                {{ n8nStatus.connected ? 'I\'ll Update Manually' : 'Close' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Workflow Creation Info Dialog -->
     <Teleport to="body">
