@@ -345,7 +345,7 @@ This is a security feature:
 
 ## Enabling HTTPS Certificates
 
-For Tailscale Serve to work properly, you must enable HTTPS certificates in the Tailscale admin console.
+For Tailscale Serve to work properly, you must enable HTTPS certificates in the Tailscale admin console. See the [official Tailscale documentation](https://tailscale.com/kb/1153/enabling-https) for more details.
 
 ### Step 1: Access DNS Settings
 
