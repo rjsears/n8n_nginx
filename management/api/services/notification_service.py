@@ -493,7 +493,9 @@ class NotificationService:
             self.db.add(membership)
 
         await self.db.commit()
-        await self.db.refresh(group)
+
+        # Re-fetch with eager loading of memberships and services
+        group = await self.get_group(group.id)
         logger.info(f"Created notification group: {name} with slug: {slug}, {len(channel_ids)} channels")
         return group
 
@@ -549,8 +551,9 @@ class NotificationService:
 
         group.updated_at = datetime.now(UTC)
         await self.db.commit()
-        await self.db.refresh(group)
-        return group
+
+        # Re-fetch with eager loading of memberships and services
+        return await self.get_group(group_id)
 
     async def delete_group(self, group_id: int) -> bool:
         """Delete a notification group."""
