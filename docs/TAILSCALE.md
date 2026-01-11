@@ -14,10 +14,11 @@ Tailscale provides secure, zero-config VPN access to your n8n installation and D
 4. [Understanding Subnet Routing](#understanding-subnet-routing)
 5. [Configuration in n8n Management](#configuration-in-n8n-management)
 6. [Approving Routes in Admin Console](#approving-routes-in-admin-console)
-7. [Tailscale Serve (HTTPS Proxy)](#tailscale-serve-https-proxy)
-8. [Accessing Services via Tailscale](#accessing-services-via-tailscale)
-9. [Security Best Practices](#security-best-practices)
-10. [Troubleshooting](#troubleshooting)
+7. [Enabling HTTPS Certificates](#enabling-https-certificates)
+8. [Tailscale Serve (HTTPS Proxy)](#tailscale-serve-https-proxy)
+9. [Accessing Services via Tailscale](#accessing-services-via-tailscale)
+10. [Security Best Practices](#security-best-practices)
+11. [Troubleshooting](#troubleshooting)
 
 ### Other Documentation
 
@@ -339,6 +340,28 @@ This is a security feature:
 - Prevents rogue devices from advertising routes
 - Ensures only authorized routes are enabled
 - Gives administrators control over network topology
+
+---
+
+## Enabling HTTPS Certificates
+
+For Tailscale Serve to work properly, you must enable HTTPS certificates in the Tailscale admin console. See the [official Tailscale documentation](https://tailscale.com/kb/1153/enabling-https) for more details.
+
+### Step 1: Access DNS Settings
+
+1. Visit [https://login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns)
+2. Scroll down to the **HTTPS Certificates** section
+
+### Step 2: Enable HTTPS Certificates
+
+1. Toggle **HTTPS Certificates** to **Enabled**
+2. This allows Tailscale to provision TLS certificates for your machines
+
+### Why This is Required
+
+- Tailscale Serve uses these certificates to provide HTTPS endpoints
+- Without this enabled, `https://n8n-tailscale.your-tailnet.ts.net` will not work
+- Certificates are automatically provisioned and renewed by Tailscale
 
 ---
 

@@ -2851,6 +2851,21 @@ generate_docker_compose_v3() {
     esac
 
     cat > "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# /docker-compose.yaml
+#
+# Part of the "n8n_nginx/n8n_management" suite
+# Version 3.0.0 - January 1st, 2026
+#
+# Richard J. Sears
+# richard@n8nmanagement.net
+# https://github.com/rjsears
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# n8n with Management Console v3.0
+# Includes: n8n, PostgreSQL, Nginx, Certbot, Management Console
+# Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale, Portainer, NTFY
+
 services:
   # ===========================================================================
   # PostgreSQL Database (shared by n8n and management)
@@ -2927,6 +2942,46 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    networks:
+      - n8n_network
+
+  # ===========================================================================
+  # Nginx Reverse Proxy (SSL termination)
+  # ===========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: ${NGINX_CONTAINER:-n8n_nginx}
+    restart: always
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot_data:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - n8n
+      - n8n_management
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - n8n_network
+
+  # ===========================================================================
+  # Certbot (SSL certificate management)
+  # ===========================================================================
+  certbot:
+    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
+    container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_data:/var/www/certbot
+      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:/credentials.ini:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER:-n8n_nginx} nginx -s reload' || true; sleep 12h & wait $${!}; done;"
     networks:
       - n8n_network
 
@@ -3034,53 +3089,11 @@ EOF
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q -O- http://localhost:8000/api/health || exit 1']
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/api/health || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    networks:
-      - n8n_network
-
-  # ===========================================================================
-  # Nginx Reverse Proxy (SSL termination)
-  # ===========================================================================
-  nginx:
-    image: nginx:alpine
-    container_name: ${NGINX_CONTAINER:-n8n_nginx}
-    restart: always
-    ports:
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - certbot_data:/var/www/certbot:ro
-      - letsencrypt:/etc/letsencrypt:ro
-    depends_on:
-      n8n:
-        condition: service_healthy
-      n8n_management:
-        condition: service_healthy
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    networks:
-      - n8n_network
-
-  # ===========================================================================
-  # Certbot SSL Certificate Manager
-  # ===========================================================================
-  certbot:
-    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
-    container_name: ${CERTBOT_CONTAINER}
-    volumes:
-      - letsencrypt:/etc/letsencrypt
-      - certbot_data:/var/www/certbot
-      - ${cred_mount}
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER} nginx -s reload' || true; sleep 12h & wait \$\${!}; done;"
     networks:
       - n8n_network
 
@@ -3151,9 +3164,6 @@ EOF
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      nginx:
-        condition: service_healthy
     networks:
       - n8n_network
 
@@ -3173,7 +3183,7 @@ EOF
     image: tailscale/tailscale:latest
     container_name: n8n_tailscale
     restart: always
-    hostname: ${TAILSCALE_HOSTNAME}
+    hostname: n8n-tailscale
     environment:
       - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
       - TS_HOSTNAME=${TAILSCALE_HOSTNAME}
@@ -4392,13 +4402,20 @@ generate_tailscale_serve_config() {
         rm -rf "$ts_config_file"
     fi
 
+    # Use N8N_DOMAIN if DOMAIN is not set
+    local proxy_domain="${DOMAIN:-${N8N_DOMAIN}}"
+    if [ -z "$proxy_domain" ]; then
+        print_error "DOMAIN is not set - cannot generate tailscale-serve.json"
+        return 1
+    fi
+
     cat > "$ts_config_file" << EOF
 {
   "TCP": { "443": { "HTTPS": true } },
   "Web": {
     "\${TS_CERT_DOMAIN}:443": {
       "Handlers": {
-        "/": { "Proxy": "https://${DOMAIN}:443" }
+        "/": { "Proxy": "https://${proxy_domain}:443" }
       }
     }
   }
