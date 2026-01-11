@@ -1051,46 +1051,72 @@ async def create_test_workflow(
         # Fallback to internal Docker URL if domain not configured
         webhook_url = "http://n8n_management:8000/api/notifications/webhook"
 
-    # Create the appropriate workflow
+    # Create the appropriate workflow (credentials are auto-provisioned)
     if workflow_type == "broadcast":
         result = await n8n_api.create_notification_test_workflow(webhook_url, webhook_api_key)
         workflow_name = "Notification Test - Broadcast to All Channels"
-        next_steps = [
-            "1. Open n8n and find the workflow",
-            "2. Click on the 'Send to All Channels' node",
-            "3. Create a new 'Header Auth' credential:",
-            "   - Name (header name): X-API-Key",
-            "   - Value: paste your webhook API key",
-            "4. Save and click 'Execute Workflow' to test",
-        ]
+        if result.get("credential_id"):
+            next_steps = [
+                "1. Open n8n and find the workflow",
+                "2. Click 'Execute Workflow' to test - credential is pre-configured!",
+            ]
+        else:
+            next_steps = [
+                "1. Open n8n and find the workflow",
+                "2. Click on the 'Send to All Channels' node",
+                "3. Create a new 'Header Auth' credential:",
+                "   - Name (header name): X-API-Key",
+                "   - Value: paste your webhook API key",
+                "4. Save and click 'Execute Workflow' to test",
+            ]
     elif workflow_type == "channel":
-        result = await n8n_api.create_channel_test_workflow(webhook_url)
+        result = await n8n_api.create_channel_test_workflow(webhook_url, webhook_api_key)
         workflow_name = "Notification Test - Target Specific Channel"
-        next_steps = [
-            "1. Open n8n and find the workflow",
-            "2. Click on the 'Send to Channel' node",
-            "3. Edit the JSON body: replace YOUR_CHANNEL_SLUG with your actual channel slug",
-            "4. Create a new 'Header Auth' credential:",
-            "   - Name (header name): X-API-Key",
-            "   - Value: paste your webhook API key",
-            "5. Save and click 'Execute Workflow' to test",
-            "",
-            "Find channel slugs in Management Console → Notifications → Channels tab",
-        ]
+        if result.get("credential_id"):
+            next_steps = [
+                "1. Open n8n and find the workflow",
+                "2. Click on the 'Send to Channel' node",
+                "3. Edit the JSON body: replace YOUR_CHANNEL_SLUG with your actual channel slug",
+                "4. Click 'Execute Workflow' to test - credential is pre-configured!",
+                "",
+                "Find channel slugs in Management Console → Notifications → Channels tab",
+            ]
+        else:
+            next_steps = [
+                "1. Open n8n and find the workflow",
+                "2. Click on the 'Send to Channel' node",
+                "3. Edit the JSON body: replace YOUR_CHANNEL_SLUG with your actual channel slug",
+                "4. Create a new 'Header Auth' credential:",
+                "   - Name (header name): X-API-Key",
+                "   - Value: paste your webhook API key",
+                "5. Save and click 'Execute Workflow' to test",
+                "",
+                "Find channel slugs in Management Console → Notifications → Channels tab",
+            ]
     else:  # group
-        result = await n8n_api.create_group_test_workflow(webhook_url)
+        result = await n8n_api.create_group_test_workflow(webhook_url, webhook_api_key)
         workflow_name = "Notification Test - Target Group"
-        next_steps = [
-            "1. First, create a group in Management Console → Notifications → Groups tab",
-            "2. Add channels to the group",
-            "3. Open n8n and find the workflow",
-            "4. Click on the 'Send to Group' node",
-            "5. Edit the JSON body: replace YOUR_GROUP_SLUG with your actual group slug",
-            "6. Create a new 'Header Auth' credential:",
-            "   - Name (header name): X-API-Key",
-            "   - Value: paste your webhook API key",
-            "7. Save and click 'Execute Workflow' to test",
-        ]
+        if result.get("credential_id"):
+            next_steps = [
+                "1. First, create a group in Management Console → Notifications → Groups tab",
+                "2. Add channels to the group",
+                "3. Open n8n and find the workflow",
+                "4. Click on the 'Send to Group' node",
+                "5. Edit the JSON body: replace YOUR_GROUP_SLUG with your actual group slug",
+                "6. Click 'Execute Workflow' to test - credential is pre-configured!",
+            ]
+        else:
+            next_steps = [
+                "1. First, create a group in Management Console → Notifications → Groups tab",
+                "2. Add channels to the group",
+                "3. Open n8n and find the workflow",
+                "4. Click on the 'Send to Group' node",
+                "5. Edit the JSON body: replace YOUR_GROUP_SLUG with your actual group slug",
+                "6. Create a new 'Header Auth' credential:",
+                "   - Name (header name): X-API-Key",
+                "   - Value: paste your webhook API key",
+                "7. Save and click 'Execute Workflow' to test",
+            ]
 
     if not result.get("success"):
         raise HTTPException(
@@ -1158,6 +1184,7 @@ async def create_all_test_workflows(
                 "type": "broadcast",
                 "name": "Notification Test - Broadcast to All Channels",
                 "workflow_id": result.get("workflow_id"),
+                "credential_id": result.get("credential_id"),
             })
         else:
             errors.append(f"Broadcast: {result.get('error')}")
@@ -1166,12 +1193,13 @@ async def create_all_test_workflows(
 
     # Create channel workflow
     try:
-        result = await n8n_api.create_channel_test_workflow(webhook_url)
+        result = await n8n_api.create_channel_test_workflow(webhook_url, webhook_api_key)
         if result.get("success"):
             results.append({
                 "type": "channel",
                 "name": "Notification Test - Target Specific Channel",
                 "workflow_id": result.get("workflow_id"),
+                "credential_id": result.get("credential_id"),
             })
         else:
             errors.append(f"Channel: {result.get('error')}")
@@ -1180,29 +1208,44 @@ async def create_all_test_workflows(
 
     # Create group workflow
     try:
-        result = await n8n_api.create_group_test_workflow(webhook_url)
+        result = await n8n_api.create_group_test_workflow(webhook_url, webhook_api_key)
         if result.get("success"):
             results.append({
                 "type": "group",
                 "name": "Notification Test - Target Group",
                 "workflow_id": result.get("workflow_id"),
+                "credential_id": result.get("credential_id"),
             })
         else:
             errors.append(f"Group: {result.get('error')}")
     except Exception as e:
         errors.append(f"Group: {str(e)}")
 
-    return {
-        "success": len(results) > 0,
-        "message": f"Created {len(results)} test workflow(s) in n8n.",
-        "workflows_created": results,
-        "errors": errors if errors else None,
-        "next_steps": [
+    # Check if any credentials were created
+    credentials_created = any(w.get("credential_id") for w in results)
+
+    if credentials_created:
+        next_steps = [
+            "1. Open n8n to see the new workflows",
+            "2. Credentials are pre-configured - workflows are ready to use!",
+            "3. For channel/group workflows, edit the target slug in the JSON body",
+            "4. Click 'Execute Workflow' to test each one",
+        ]
+    else:
+        next_steps = [
             "1. Open n8n to see the new workflows",
             "2. Each workflow has setup instructions in sticky notes",
             "3. Configure the Header Auth credential in each workflow:",
             "   - Name (header name): X-API-Key",
             "   - Value: your webhook API key from Management Console",
             "4. For channel/group workflows, edit the target slug in the JSON body",
-        ],
+        ]
+
+    return {
+        "success": len(results) > 0,
+        "message": f"Created {len(results)} test workflow(s) in n8n.",
+        "workflows_created": results,
+        "credentials_provisioned": credentials_created,
+        "errors": errors if errors else None,
+        "next_steps": next_steps,
     }

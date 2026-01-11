@@ -295,13 +295,246 @@ class N8nApiService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    # =========================================================================
+    # Credential Management Methods
+    # =========================================================================
+
+    async def list_credentials(self) -> Dict[str, Any]:
+        """List all credentials from n8n."""
+        if not self.api_key:
+            return {"success": False, "error": "n8n API key not configured"}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/credentials",
+                    headers=self._get_headers(),
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    return {"success": True, "credentials": data.get("data", [])}
+                elif response.status_code == 401:
+                    return {"success": False, "error": "Invalid n8n API key"}
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Failed to list credentials: {response.status_code}",
+                    }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def get_credential_schema(self, credential_type: str) -> Dict[str, Any]:
+        """Get the JSON schema for a credential type."""
+        if not self.api_key:
+            return {"success": False, "error": "n8n API key not configured"}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/credentials/schema/{credential_type}",
+                    headers=self._get_headers(),
+                )
+                if response.status_code == 200:
+                    return {"success": True, "schema": response.json()}
+                elif response.status_code == 404:
+                    return {"success": False, "error": f"Unknown credential type: {credential_type}"}
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Failed to get schema: {response.status_code}",
+                    }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def find_credential_by_name(self, name: str, credential_type: str = None) -> Optional[Dict[str, Any]]:
+        """Find a credential by name, optionally filtering by type."""
+        result = await self.list_credentials()
+        if not result["success"]:
+            return None
+
+        for cred in result["credentials"]:
+            if cred.get("name") == name:
+                if credential_type is None or cred.get("type") == credential_type:
+                    return cred
+        return None
+
+    async def create_header_auth_credential(
+        self, name: str, header_name: str, header_value: str
+    ) -> Dict[str, Any]:
+        """
+        Create a Header Auth credential in n8n.
+
+        Args:
+            name: Display name for the credential (e.g., "Management Webhook API Key")
+            header_name: The HTTP header name (e.g., "X-API-Key")
+            header_value: The header value (the actual API key)
+
+        Returns:
+            Dict with success status, credential_id, and full credential object
+        """
+        if not self.api_key:
+            return {"success": False, "error": "n8n API key not configured"}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                logger.info(f"Creating Header Auth credential: {name}")
+                response = await client.post(
+                    f"{self.base_url}/credentials",
+                    headers=self._get_headers(),
+                    json={
+                        "name": name,
+                        "type": "httpHeaderAuth",
+                        "data": {
+                            "name": header_name,
+                            "value": header_value
+                        }
+                    }
+                )
+
+                if response.status_code in (200, 201):
+                    cred = response.json()
+                    logger.info(f"Created credential with ID: {cred.get('id')}")
+                    return {
+                        "success": True,
+                        "credential_id": cred.get("id"),
+                        "credential": cred
+                    }
+                elif response.status_code == 401:
+                    return {"success": False, "error": "Invalid n8n API key"}
+                elif response.status_code == 400:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("message", response.text)
+                    except Exception:
+                        error_msg = response.text
+                    logger.error(f"Credential creation failed (400): {error_msg}")
+                    return {"success": False, "error": f"Invalid credential data: {error_msg}"}
+                else:
+                    error_msg = response.text
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("message", error_msg)
+                    except Exception:
+                        pass
+                    logger.error(f"Credential creation failed ({response.status_code}): {error_msg}")
+                    return {
+                        "success": False,
+                        "error": f"Failed to create credential ({response.status_code}): {error_msg}",
+                    }
+        except httpx.ConnectError:
+            return {"success": False, "error": "Cannot connect to n8n API"}
+        except Exception as e:
+            logger.error(f"Error creating credential: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def delete_credential(self, credential_id: str) -> Dict[str, Any]:
+        """Delete a credential by ID."""
+        if not self.api_key:
+            return {"success": False, "error": "n8n API key not configured"}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.delete(
+                    f"{self.base_url}/credentials/{credential_id}",
+                    headers=self._get_headers(),
+                )
+                if response.status_code in (200, 204):
+                    return {"success": True}
+                elif response.status_code == 404:
+                    return {"success": False, "error": "Credential not found"}
+                elif response.status_code == 401:
+                    return {"success": False, "error": "Invalid n8n API key"}
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Failed to delete credential: {response.status_code}",
+                    }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def get_or_create_webhook_credential(
+        self, webhook_api_key: str, credential_name: str = "Management Webhook API Key"
+    ) -> Dict[str, Any]:
+        """
+        Get existing or create new Header Auth credential for webhook authentication.
+
+        This is the main method to call when setting up test workflows.
+        It will reuse an existing credential if one with the same name exists,
+        or create a new one if not.
+
+        Args:
+            webhook_api_key: The API key for authenticating to management webhooks
+            credential_name: Name for the credential in n8n
+
+        Returns:
+            Dict with success, credential_id, and whether it was created or reused
+        """
+        # Check if credential already exists
+        existing = await self.find_credential_by_name(credential_name, "httpHeaderAuth")
+
+        if existing:
+            logger.info(f"Found existing credential: {credential_name} (ID: {existing.get('id')})")
+            return {
+                "success": True,
+                "credential_id": existing.get("id"),
+                "credential": existing,
+                "created": False,
+                "message": "Using existing credential"
+            }
+
+        # Create new credential
+        result = await self.create_header_auth_credential(
+            name=credential_name,
+            header_name="X-API-Key",
+            header_value=webhook_api_key
+        )
+
+        if result["success"]:
+            result["created"] = True
+            result["message"] = "Created new credential"
+
+        return result
+
     def generate_broadcast_test_workflow(
-        self, webhook_url: str
+        self, webhook_url: str, credential_id: str = None
     ) -> Dict[str, Any]:
         """
         Generate a test workflow that broadcasts to ALL webhook-enabled channels.
         Uses targets: ["all"]
+
+        Args:
+            webhook_url: The webhook URL for the management console
+            credential_id: Optional n8n credential ID. If provided, the workflow
+                          will be pre-configured with this credential.
         """
+        # Determine instruction text based on whether credential is pre-configured
+        if credential_id:
+            instructions = (
+                "# 📢 Broadcast Test Workflow\n\n"
+                "## What This Does\nSends a notification to **ALL** webhook-enabled channels.\n\n"
+                "## Ready to Use!\n"
+                "The credential has been **automatically configured** for you.\n\n"
+                "Just click **Execute Workflow** to test!\n\n"
+                "## Targeting\n"
+                "This workflow uses `\"targets\": [\"all\"]` which sends to every channel "
+                "that has **Webhook Enabled** checked."
+            )
+        else:
+            instructions = (
+                "# 📢 Broadcast Test Workflow\n\n"
+                "## What This Does\nSends a notification to **ALL** webhook-enabled channels.\n\n"
+                "## Setup Instructions\n"
+                "1. Click on the **Send to All Channels** node\n"
+                "2. Create a new **Header Auth** credential:\n"
+                "   - **Name**: `X-API-Key`\n"
+                "   - **Value**: Your webhook API key from Management Console\n"
+                "3. Save the credential\n"
+                "4. Click **Execute Workflow** to test\n\n"
+                "## Targeting\n"
+                "This workflow uses `\"targets\": [\"all\"]` which sends to every channel "
+                "that has **Webhook Enabled** checked."
+            )
+
         return {
             "name": "Notification Test - Broadcast to All Channels",
             "nodes": [
@@ -319,7 +552,7 @@ class N8nApiService:
                 },
                 {
                     "parameters": {
-                        "content": "# 📢 Broadcast Test Workflow\n\n## What This Does\nSends a notification to **ALL** webhook-enabled channels.\n\n## Setup Instructions\n1. Click on the **Send to All Channels** node\n2. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key from Management Console\n3. Save the credential\n4. Click **Execute Workflow** to test\n\n## Targeting\nThis workflow uses `\"targets\": [\"all\"]` which sends to every channel that has **Webhook Enabled** checked.",
+                        "content": instructions,
                         "height": 612,
                         "width": 320,
                         "color": 4,
@@ -356,7 +589,7 @@ class N8nApiService:
                     "position": [640, 192],
                     "credentials": {
                         "httpHeaderAuth": {
-                            "id": "PLACEHOLDER",
+                            "id": credential_id or "PLACEHOLDER",
                             "name": "Management Webhook API Key",
                         },
                     },
@@ -435,12 +668,47 @@ class N8nApiService:
         }
 
     def generate_channel_test_workflow(
-        self, webhook_url: str
+        self, webhook_url: str, credential_id: str = None
     ) -> Dict[str, Any]:
         """
         Generate a test workflow that targets a SPECIFIC channel by slug.
         User must edit the channel slug in the JSON body.
+
+        Args:
+            webhook_url: The webhook URL for the management console
+            credential_id: Optional n8n credential ID. If provided, the workflow
+                          will be pre-configured with this credential.
         """
+        # Determine instruction text based on whether credential is pre-configured
+        if credential_id:
+            instructions = (
+                "# 🎯 Channel Targeting Test\n\n"
+                "## What This Does\nSends a notification to a **SPECIFIC** channel using its slug.\n\n"
+                "## Setup Instructions\n"
+                "1. **Find your channel slug** in Management Console → Notifications → Channels tab\n"
+                "2. Click on the **Send to Channel** node\n"
+                "3. Edit the JSON body and replace `YOUR_CHANNEL_SLUG` with your actual slug\n"
+                "4. Click **Execute Workflow** to test\n\n"
+                "✅ **Credential is already configured!**\n\n"
+                "## Example Slugs\n- `devops_slack`\n- `alerts_email`\n- `mobile_push`\n\n"
+                "## Targeting Syntax\n`\"targets\": [\"channel:your_slug\"]`"
+            )
+        else:
+            instructions = (
+                "# 🎯 Channel Targeting Test\n\n"
+                "## What This Does\nSends a notification to a **SPECIFIC** channel using its slug.\n\n"
+                "## Setup Instructions\n"
+                "1. **Find your channel slug** in Management Console → Notifications → Channels tab\n"
+                "2. Click on the **Send to Channel** node\n"
+                "3. Edit the JSON body and replace `YOUR_CHANNEL_SLUG` with your actual slug\n"
+                "4. Create a new **Header Auth** credential:\n"
+                "   - **Name**: `X-API-Key`\n"
+                "   - **Value**: Your webhook API key\n"
+                "5. Click **Execute Workflow** to test\n\n"
+                "## Example Slugs\n- `devops_slack`\n- `alerts_email`\n- `mobile_push`\n\n"
+                "## Targeting Syntax\n`\"targets\": [\"channel:your_slug\"]`"
+            )
+
         return {
             "name": "Notification Test - Target Specific Channel",
             "nodes": [
@@ -458,7 +726,7 @@ class N8nApiService:
                 },
                 {
                     "parameters": {
-                        "content": "# 🎯 Channel Targeting Test\n\n## What This Does\nSends a notification to a **SPECIFIC** channel using its slug.\n\n## Setup Instructions\n1. **Find your channel slug** in Management Console → Notifications → Channels tab\n2. Click on the **Send to Channel** node\n3. Edit the JSON body and replace `YOUR_CHANNEL_SLUG` with your actual slug\n4. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key\n5. Click **Execute Workflow** to test\n\n## Example Slugs\n- `devops_slack`\n- `alerts_email`\n- `mobile_push`\n\n## Targeting Syntax\n`\"targets\": [\"channel:your_slug\"]`",
+                        "content": instructions,
                         "height": 712,
                         "width": 340,
                         "color": 6,
@@ -495,7 +763,7 @@ class N8nApiService:
                     "position": [640, -464],
                     "credentials": {
                         "httpHeaderAuth": {
-                            "id": "PLACEHOLDER",
+                            "id": credential_id or "PLACEHOLDER",
                             "name": "Management Webhook API Key",
                         },
                     },
@@ -575,12 +843,51 @@ class N8nApiService:
         }
 
     def generate_group_test_workflow(
-        self, webhook_url: str
+        self, webhook_url: str, credential_id: str = None
     ) -> Dict[str, Any]:
         """
         Generate a test workflow that targets a notification GROUP.
         User must edit the group slug in the JSON body.
+
+        Args:
+            webhook_url: The webhook URL for the management console
+            credential_id: Optional n8n credential ID. If provided, the workflow
+                          will be pre-configured with this credential.
         """
+        # Determine instruction text based on whether credential is pre-configured
+        if credential_id:
+            instructions = (
+                "# 👥 Group Targeting Test\n\n"
+                "## What This Does\nSends a notification to **ALL channels in a group** using the group's slug.\n\n"
+                "## Setup Instructions\n"
+                "1. **Create a group** in Management Console → Notifications → Groups tab\n"
+                "2. **Add channels** to the group\n"
+                "3. Click on the **Send to Group** node\n"
+                "4. Edit the JSON body and replace `YOUR_GROUP_SLUG` with your actual group slug\n"
+                "5. Click **Execute Workflow** to test\n\n"
+                "✅ **Credential is already configured!**\n\n"
+                "## Example Groups\n- `devops` → All DevOps team channels\n"
+                "- `critical_alerts` → High-priority channels\n- `management` → Management team\n\n"
+                "## Targeting Syntax\n`\"targets\": [\"group:your_slug\"]`"
+            )
+        else:
+            instructions = (
+                "# 👥 Group Targeting Test\n\n"
+                "## What This Does\nSends a notification to **ALL channels in a group** using the group's slug.\n\n"
+                "## Setup Instructions\n"
+                "1. **Create a group** in Management Console → Notifications → Groups tab\n"
+                "2. **Add channels** to the group\n"
+                "3. Click on the **Send to Group** node\n"
+                "4. Edit the JSON body and replace `YOUR_GROUP_SLUG` with your actual group slug\n"
+                "5. Create a new **Header Auth** credential:\n"
+                "   - **Name**: `X-API-Key`\n"
+                "   - **Value**: Your webhook API key\n"
+                "6. Click **Execute Workflow** to test\n\n"
+                "## Example Groups\n- `devops` → All DevOps team channels\n"
+                "- `critical_alerts` → High-priority channels\n- `management` → Management team\n\n"
+                "## Targeting Syntax\n`\"targets\": [\"group:your_slug\"]`"
+            )
+
         return {
             "name": "Notification Test - Target Group",
             "nodes": [
@@ -598,7 +905,7 @@ class N8nApiService:
                 },
                 {
                     "parameters": {
-                        "content": "# 👥 Group Targeting Test\n\n## What This Does\nSends a notification to **ALL channels in a group** using the group's slug.\n\n## Setup Instructions\n1. **Create a group** in Management Console → Notifications → Groups tab\n2. **Add channels** to the group\n3. Click on the **Send to Group** node\n4. Edit the JSON body and replace `YOUR_GROUP_SLUG` with your actual group slug\n5. Create a new **Header Auth** credential:\n   - **Name**: `X-API-Key`\n   - **Value**: Your webhook API key\n6. Click **Execute Workflow** to test\n\n## Example Groups\n- `devops` → All DevOps team channels\n- `critical_alerts` → High-priority channels\n- `management` → Management team\n\n## Targeting Syntax\n`\"targets\": [\"group:your_slug\"]`",
+                        "content": instructions,
                         "height": 756,
                         "width": 360,
                         "color": 3,
@@ -635,7 +942,7 @@ class N8nApiService:
                     "position": [688, 160],
                     "credentials": {
                         "httpHeaderAuth": {
-                            "id": "PLACEHOLDER",
+                            "id": credential_id or "PLACEHOLDER",
                             "name": "Management Webhook API Key",
                         },
                     },
@@ -715,7 +1022,7 @@ class N8nApiService:
         }
 
     def generate_notification_test_workflow(
-        self, webhook_url: str, api_key: str
+        self, webhook_url: str, api_key: str, credential_id: str = None
     ) -> Dict[str, Any]:
         """
         Generate a test workflow for notification webhook.
@@ -723,28 +1030,72 @@ class N8nApiService:
         DEPRECATED: Use generate_broadcast_test_workflow instead.
         """
         # For backwards compatibility, generate the broadcast workflow
-        return self.generate_broadcast_test_workflow(webhook_url)
+        return self.generate_broadcast_test_workflow(webhook_url, credential_id)
 
     async def create_notification_test_workflow(
         self, webhook_url: str, api_key: str
     ) -> Dict[str, Any]:
-        """Create the notification test workflow in n8n (broadcasts to all)."""
-        workflow = self.generate_broadcast_test_workflow(webhook_url)
-        return await self.create_workflow(workflow)
+        """
+        Create the notification test workflow in n8n (broadcasts to all).
+        Automatically creates/reuses the Header Auth credential.
+        """
+        # First, get or create the webhook credential
+        cred_result = await self.get_or_create_webhook_credential(api_key)
+        credential_id = cred_result.get("credential_id") if cred_result["success"] else None
+
+        if not cred_result["success"]:
+            logger.warning(f"Could not create credential: {cred_result.get('error')}")
+            # Continue anyway - workflow will have placeholder credential
+
+        workflow = self.generate_broadcast_test_workflow(webhook_url, credential_id)
+        result = await self.create_workflow(workflow)
+
+        # Include credential info in result
+        if result["success"] and cred_result["success"]:
+            result["credential_id"] = credential_id
+            result["credential_created"] = cred_result.get("created", False)
+
+        return result
 
     async def create_channel_test_workflow(
-        self, webhook_url: str
+        self, webhook_url: str, webhook_api_key: str = None
     ) -> Dict[str, Any]:
-        """Create a workflow that targets a specific channel."""
-        workflow = self.generate_channel_test_workflow(webhook_url)
-        return await self.create_workflow(workflow)
+        """
+        Create a workflow that targets a specific channel.
+        Automatically creates/reuses the Header Auth credential if api_key provided.
+        """
+        credential_id = None
+        if webhook_api_key:
+            cred_result = await self.get_or_create_webhook_credential(webhook_api_key)
+            credential_id = cred_result.get("credential_id") if cred_result["success"] else None
+
+        workflow = self.generate_channel_test_workflow(webhook_url, credential_id)
+        result = await self.create_workflow(workflow)
+
+        if result["success"] and credential_id:
+            result["credential_id"] = credential_id
+
+        return result
 
     async def create_group_test_workflow(
-        self, webhook_url: str
+        self, webhook_url: str, webhook_api_key: str = None
     ) -> Dict[str, Any]:
-        """Create a workflow that targets a notification group."""
-        workflow = self.generate_group_test_workflow(webhook_url)
-        return await self.create_workflow(workflow)
+        """
+        Create a workflow that targets a notification group.
+        Automatically creates/reuses the Header Auth credential if api_key provided.
+        """
+        credential_id = None
+        if webhook_api_key:
+            cred_result = await self.get_or_create_webhook_credential(webhook_api_key)
+            credential_id = cred_result.get("credential_id") if cred_result["success"] else None
+
+        workflow = self.generate_group_test_workflow(webhook_url, credential_id)
+        result = await self.create_workflow(workflow)
+
+        if result["success"] and credential_id:
+            result["credential_id"] = credential_id
+
+        return result
 
 
 # Singleton instance
