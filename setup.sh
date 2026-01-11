@@ -2851,6 +2851,21 @@ generate_docker_compose_v3() {
     esac
 
     cat > "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# /docker-compose.yaml
+#
+# Part of the "n8n_nginx/n8n_management" suite
+# Version 3.0.0 - January 1st, 2026
+#
+# Richard J. Sears
+# richard@n8nmanagement.net
+# https://github.com/rjsears
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# n8n with Management Console v3.0
+# Includes: n8n, PostgreSQL, Nginx, Certbot, Management Console
+# Optional: Adminer, Dozzle, Cloudflare Tunnel, Tailscale, Portainer, NTFY
+
 services:
   # ===========================================================================
   # PostgreSQL Database (shared by n8n and management)
@@ -3168,7 +3183,7 @@ EOF
     image: tailscale/tailscale:latest
     container_name: n8n_tailscale
     restart: always
-    hostname: ${TAILSCALE_HOSTNAME}
+    hostname: n8n-tailscale
     environment:
       - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
       - TS_HOSTNAME=${TAILSCALE_HOSTNAME}
