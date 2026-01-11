@@ -68,6 +68,8 @@ async def create_schedule(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a backup schedule."""
+    from api.tasks.scheduler import add_backup_job
+
     service = BackupService(db)
 
     kwargs = data.model_dump()
@@ -76,6 +78,11 @@ async def create_schedule(
     kwargs["compression"] = kwargs["compression"].value
 
     created = await service.create_schedule(**kwargs)
+
+    # Sync with APScheduler if schedule is enabled
+    if created.enabled:
+        await add_backup_job(created)
+
     return BackupScheduleResponse.model_validate(created)
 
 
@@ -106,6 +113,8 @@ async def update_schedule(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a backup schedule."""
+    from api.tasks.scheduler import add_backup_job, remove_backup_job
+
     service = BackupService(db)
 
     updates = data.model_dump(exclude_unset=True)
@@ -121,6 +130,14 @@ async def update_schedule(
             detail="Schedule not found",
         )
 
+    # Sync with APScheduler based on enabled status
+    if updated.enabled:
+        # Add or update the job (handles schedule changes like time/frequency)
+        await add_backup_job(updated)
+    else:
+        # Remove the job if disabled
+        await remove_backup_job(schedule_id)
+
     return BackupScheduleResponse.model_validate(updated)
 
 
@@ -131,7 +148,13 @@ async def delete_schedule(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a backup schedule."""
+    from api.tasks.scheduler import remove_backup_job
+
     service = BackupService(db)
+
+    # Remove from APScheduler first (before DB deletion)
+    await remove_backup_job(schedule_id)
+
     deleted = await service.delete_schedule(schedule_id)
 
     if not deleted:
