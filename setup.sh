@@ -4387,13 +4387,20 @@ generate_tailscale_serve_config() {
         rm -rf "$ts_config_file"
     fi
 
+    # Use N8N_DOMAIN if DOMAIN is not set
+    local proxy_domain="${DOMAIN:-${N8N_DOMAIN}}"
+    if [ -z "$proxy_domain" ]; then
+        print_error "DOMAIN is not set - cannot generate tailscale-serve.json"
+        return 1
+    fi
+
     cat > "$ts_config_file" << EOF
 {
   "TCP": { "443": { "HTTPS": true } },
   "Web": {
     "\${TS_CERT_DOMAIN}:443": {
       "Handlers": {
-        "/": { "Proxy": "https://${DOMAIN}:443" }
+        "/": { "Proxy": "https://${proxy_domain}:443" }
       }
     }
   }
