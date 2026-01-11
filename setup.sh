@@ -3056,10 +3056,8 @@ EOF
       - certbot_data:/var/www/certbot:ro
       - letsencrypt:/etc/letsencrypt:ro
     depends_on:
-      n8n:
-        condition: service_healthy
-      n8n_management:
-        condition: service_healthy
+      - n8n
+      - n8n_management
     healthcheck:
       test: ['CMD-SHELL', 'curl -fsk https://localhost/ || exit 1']
       interval: 30s
@@ -3151,9 +3149,6 @@ EOF
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      nginx:
-        condition: service_healthy
     networks:
       - n8n_network
 
