@@ -3034,7 +3034,7 @@ EOF
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q -O- http://localhost:8000/api/health || exit 1']
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/api/health || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
