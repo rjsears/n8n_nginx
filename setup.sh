@@ -2876,10 +2876,11 @@ services:
     restart: always
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-n8n}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - POSTGRES_DB=${POSTGRES_DB:-n8n}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}']
       interval: 5s
@@ -2904,7 +2905,7 @@ services:
       - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       # n8n Configuration - HTTPS
-      - N8N_HOST=${DOMAIN}
+      - N8N_HOST=${DOMAIN:?DOMAIN is required}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
       - WEBHOOK_URL=https://${DOMAIN}
@@ -2918,7 +2919,7 @@ services:
       - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
       - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
       # Security
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY is required}
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       # Performance & Isolation
       - N8N_PAYLOAD_SIZE_MAX=16
@@ -2958,7 +2959,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${MGMT_DB_USER:-n8n_mgmt}:${MGMT_DB_PASSWORD:-${POSTGRES_PASSWORD}}@postgres:5432/n8n_management
       - N8N_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-n8n}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-n8n}
       # Security
-      - SECRET_KEY=${MGMT_SECRET_KEY}
+      - SECRET_KEY=${MGMT_SECRET_KEY:?MGMT_SECRET_KEY is required}
       - ENCRYPTION_KEY=${MGMT_ENCRYPTION_KEY:-${N8N_ENCRYPTION_KEY}}
       # Admin user (created on first startup)
       - ADMIN_USERNAME=${ADMIN_USER}
@@ -3026,12 +3027,17 @@ EOF
       - mgmt_logs:/app/logs
       # Configuration persistence
       - mgmt_config:/app/config
-      - ./.env:/app/host_env/.env:rw
+      # Mount the entire project directory for config file access
+      # This is more reliable than individual file mounts which can be shadowed
+      - ./:/app/host_project:rw
+      # SSL certificates for backup/restore (read-write for selective restore)
+      - letsencrypt:/etc/letsencrypt:rw
 EOF
 
     # Add NFS bind mount if configured (host-level NFS mount)
     if [ "$NFS_CONFIGURED" = "true" ] && [ -n "$NFS_LOCAL_MOUNT" ]; then
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+      # NFS backup mount
       - ${NFS_LOCAL_MOUNT}:/mnt/backups
 EOF
     fi
@@ -3042,6 +3048,12 @@ EOF
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/api/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - n8n_network
 
@@ -3066,7 +3078,7 @@ EOF
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     networks:
       - n8n_network
 
@@ -3174,6 +3186,7 @@ EOF
     hostname: n8n-tailscale
     environment:
       - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
+      - TS_HOSTNAME=${TAILSCALE_HOSTNAME}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_EXTRA_ARGS=--accept-routes
