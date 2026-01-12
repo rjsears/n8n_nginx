@@ -22,6 +22,9 @@ letsencrypt/
 letsencrypt-temp/
 ssl/
 
+#Node
+node_modules/
+
 # Generated nginx config (created by setup.sh with your domain)
 # Do NOT track this - it contains environment-specific values
 nginx.conf
