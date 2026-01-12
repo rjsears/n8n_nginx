@@ -192,6 +192,8 @@ main() {
         echo ""
         info "Launching setup..."
         echo ""
+        # Reconnect stdin to terminal for interactive prompts (needed when piped from curl)
+        exec </dev/tty
         exec ./setup.sh
     else
         error "setup.sh not found in repository. Installation may be incomplete."
