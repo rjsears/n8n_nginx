@@ -700,7 +700,7 @@ async def _cleanup_orphaned_alpine_containers() -> None:
     """
     Clean up any orphaned alpine containers that weren't properly removed.
     This runs periodically to catch any containers that slipped through.
-    Handles both 'exited' and 'created' (stuck/never started) containers.
+    Handles 'exited', 'created', 'dead', and long-running 'running' containers.
     """
     import docker
 
@@ -711,8 +711,9 @@ async def _cleanup_orphaned_alpine_containers() -> None:
         # - 'exited': completed but not removed
         # - 'created': stuck in created state (never started)
         # - 'dead': container failed to start
+        # - 'running': stuck in running state (with longer threshold)
         containers = []
-        for status in ["exited", "created", "dead"]:
+        for status in ["exited", "created", "dead", "running"]:
             try:
                 status_containers = client.containers.list(
                     all=True,
@@ -734,20 +735,29 @@ async def _cleanup_orphaned_alpine_containers() -> None:
                 attrs = container.attrs
                 container_status = attrs.get("State", {}).get("Status", "")
 
-                # For 'created' or 'dead' containers, check creation time
-                # For 'exited' containers, check finished time
+                # Determine which timestamp to check and age threshold based on status
                 timestamp_to_check = None
+                age_threshold = 300  # Default: 5 minutes
 
                 if container_status in ["created", "dead"]:
-                    # Use creation time - these containers never ran
+                    # Use creation time - these containers never ran properly
                     created_at = attrs.get("Created", "")
                     if created_at:
                         timestamp_to_check = created_at
+                    age_threshold = 300  # 5 minutes
+                elif container_status == "running":
+                    # Use start time for running containers
+                    # Only remove if running for over 1 hour (likely stuck)
+                    started_at = attrs.get("State", {}).get("StartedAt", "")
+                    if started_at and "0001-01-01" not in started_at:
+                        timestamp_to_check = started_at
+                    age_threshold = 3600  # 1 hour for running containers
                 else:
                     # Use finished time for exited containers
                     finished_at = attrs.get("State", {}).get("FinishedAt", "")
                     if finished_at and "0001-01-01" not in finished_at:
                         timestamp_to_check = finished_at
+                    age_threshold = 300  # 5 minutes
 
                 if timestamp_to_check:
                     # Parse Docker timestamp (e.g., "2024-01-15T10:30:00.123456789Z")
@@ -757,19 +767,27 @@ async def _cleanup_orphaned_alpine_containers() -> None:
                         parsed_time = datetime.fromisoformat(timestamp_clean.replace("Z", "+00:00"))
                         age_seconds = (datetime.now(timezone.utc) - parsed_time).total_seconds()
 
-                        # Remove if older than 5 minutes
-                        if age_seconds > 300:
+                        # Remove if older than threshold
+                        if age_seconds > age_threshold:
+                            if container_status == "running":
+                                # Stop running containers first
+                                try:
+                                    container.stop(timeout=1)
+                                except Exception:
+                                    pass
                             container.remove(force=True)
                             removed_count += 1
-                            logger.debug(f"Cleaned up orphaned alpine container ({container_status}): {container.short_id}")
+                            logger.debug(f"Cleaned up orphaned alpine container ({container_status}, {int(age_seconds)}s old): {container.short_id}")
                     except ValueError:
-                        # If we can't parse the timestamp, remove it anyway
+                        # If we can't parse the timestamp, remove it anyway if not running
+                        if container_status != "running":
+                            container.remove(force=True)
+                            removed_count += 1
+                else:
+                    # No valid timestamp, remove it anyway if not running (it's likely orphaned)
+                    if container_status != "running":
                         container.remove(force=True)
                         removed_count += 1
-                else:
-                    # No valid timestamp, remove it anyway (it's orphaned)
-                    container.remove(force=True)
-                    removed_count += 1
 
             except Exception as e:
                 logger.debug(f"Failed to clean up container {container.short_id}: {e}")

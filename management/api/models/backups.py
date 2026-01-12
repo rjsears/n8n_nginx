@@ -35,7 +35,7 @@ class BackupSchedule(Base):
     minute = Column(Integer, default=0)
     day_of_week = Column(Integer, nullable=True)  # 0=Monday
     day_of_month = Column(Integer, nullable=True)
-    timezone = Column(String(50), default="UTC")
+    timezone = Column(String(50), default="UTC")  # Note: create_schedule() sets to system timezone if not provided
 
     # Compression
     compression = Column(String(20), default="gzip")  # 'none', 'gzip', 'zstd'
