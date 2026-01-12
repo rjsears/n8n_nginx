@@ -365,7 +365,7 @@ update_system() {
     return 0
 }
 
-# Install required utilities (curl, git, openssl, jq)
+# Install required utilities (curl, git, openssl, jq, tmux)
 install_required_utilities() {
     print_info "Checking and installing required utilities..."
 
@@ -380,6 +380,7 @@ install_required_utilities() {
     command_exists git || missing_utils="$missing_utils git"
     command_exists openssl || missing_utils="$missing_utils openssl"
     command_exists jq || missing_utils="$missing_utils jq"
+    command_exists tmux || missing_utils="$missing_utils tmux"
 
     if [ -z "$missing_utils" ]; then
         print_success "All required utilities are already installed"
@@ -418,7 +419,7 @@ install_required_utilities() {
             ;;
         *)
             print_warning "Could not install utilities automatically for this distribution"
-            print_info "Please install manually: curl git openssl jq"
+            print_info "Please install manually: curl git openssl jq tmux"
             return 1
             ;;
     esac
@@ -429,6 +430,7 @@ install_required_utilities() {
     command_exists git || failed="$failed git"
     command_exists openssl || failed="$failed openssl"
     command_exists jq || failed="$failed jq"
+    command_exists tmux || failed="$failed tmux"
 
     if [ -n "$failed" ]; then
         print_error "Failed to install:$failed"
