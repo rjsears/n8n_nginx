@@ -14,6 +14,7 @@ https://github.com/rjsears
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func, text
 from datetime import datetime, timedelta, UTC
+from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Tuple
 import subprocess
 import asyncio
@@ -228,8 +229,9 @@ class BackupService:
 
             logger.info(f"Databases to backup: {databases}")
 
-            # Generate filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Generate filename using configured timezone
+            tz = ZoneInfo(settings.timezone)
+            timestamp = datetime.now(tz).strftime("%Y%m%d_%H%M%S")
             filename = f"{backup_type}_{timestamp}.sql"
             if compression == "gzip":
                 filename += ".gz"
@@ -1046,7 +1048,8 @@ class BackupService:
         Create complete backup archive with all components.
         Returns filepath and metadata dict.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tz = ZoneInfo(settings.timezone)
+        timestamp = datetime.now(tz).strftime("%Y%m%d_%H%M%S")
         archive_name = f"backup_{timestamp}.n8n_backup.tar.gz"
 
         storage_dir = await self._get_storage_location()
@@ -2565,7 +2568,8 @@ exit 0
         compression: str,
     ) -> Tuple[str, Dict[str, Any]]:
         """Simple backup without n8n database session (fallback)."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tz = ZoneInfo(settings.timezone)
+        timestamp = datetime.now(tz).strftime("%Y%m%d_%H%M%S")
         filename = f"{backup_type}_{timestamp}.sql"
         if compression == "gzip":
             filename += ".gz"

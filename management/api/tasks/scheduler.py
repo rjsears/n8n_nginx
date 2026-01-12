@@ -367,8 +367,9 @@ async def add_backup_job(schedule) -> None:
 
     job_id = f"backup_{schedule.id}"
 
-    # Use schedule's timezone (default to system timezone if not set)
-    schedule_tz = schedule.timezone or settings.timezone
+    # Use schedule's timezone, fall back to system timezone if not set
+    schedule_tz = schedule.timezone if schedule.timezone else settings.timezone
+    logger.debug(f"Schedule {schedule.id} timezone: stored={schedule.timezone}, using={schedule_tz}")
 
     # Build trigger based on frequency
     if schedule.frequency == "hourly":
