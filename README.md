@@ -53,7 +53,7 @@ A production-ready, self-hosted deployment solution for [n8n](https://n8n.io) wo
 - [3. Pre-Installation Preparation](#3-pre-installation-preparation)
   - [3.1 Gathering Required Information](#31-gathering-required-information)
   - [3.2 Preparing Your Server](#32-preparing-your-server)
-  - [3.3 Downloading the Repository](#33-downloading-the-repository)
+  - [3.3 Installing the Repository](#33-installing-the-repository)
 - [4. Installation Methods](#4-installation-methods)
   - [4.1 Unattended Installation (Pre-Configuration)](#41-unattended-installation-pre-configuration)
 - [5. Interactive Setup](#5-interactive-setup)
@@ -604,7 +604,29 @@ During setup, the script will ask early on:
 - Tell you to forward port 443 to this server's internal IP (where n8n is installed)
 - Configure direct SSL termination via Nginx
 
-### 3.3 Downloading the Repository
+### 3.3 Installing the Repository
+
+#### Quick Install (Recommended)
+
+The fastest way to get started is using the one-line installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rjsears/n8n_nginx/main/install.sh | bash
+```
+
+This will:
+- Check for and install `git` if needed
+- Clone the repository
+- Automatically launch the setup wizard
+
+> **Testing a specific branch**: Use the `BRANCH` environment variable:
+> ```bash
+> BRANCH=dev curl -fsSL https://raw.githubusercontent.com/rjsears/n8n_nginx/main/install.sh | bash
+> ```
+
+#### Manual Install (Alternative)
+
+If you prefer to clone manually:
 
 ```bash
 # Clone the repository
@@ -613,8 +635,9 @@ git clone https://github.com/rjsears/n8n_nginx.git
 # Navigate to the directory
 cd n8n_nginx
 
-# Make setup script executable
+# Make setup script executable and run it
 chmod +x setup.sh
+./setup.sh
 ```
 
 ---
