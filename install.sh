@@ -190,11 +190,24 @@ main() {
         chmod +x setup.sh
         success "Repository ready"
         echo ""
-        info "Launching setup..."
-        echo ""
-        # Reconnect stdin to terminal for interactive prompts (needed when piped from curl)
-        exec </dev/tty
-        exec ./setup.sh
+
+        # Check if we're running interactively (not piped)
+        if [ -t 0 ]; then
+            info "Launching setup..."
+            echo ""
+            exec ./setup.sh
+        else
+            # When piped from curl, don't auto-launch (stdin issues with interactive prompts)
+            echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
+            echo ""
+            echo -e "${GREEN}${BOLD}Installation complete!${NC}"
+            echo ""
+            echo -e "To start setup, run:"
+            echo ""
+            echo -e "    ${YELLOW}cd $(pwd) && ./setup.sh${NC}"
+            echo ""
+            echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
+        fi
     else
         error "setup.sh not found in repository. Installation may be incomplete."
     fi
