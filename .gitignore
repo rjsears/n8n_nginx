@@ -25,6 +25,10 @@ ssl/
 #Node
 node_modules/
 
+# package Files
+package-lock.json
+package.json
+
 # Generated nginx config (created by setup.sh with your domain)
 # Do NOT track this - it contains environment-specific values
 nginx.conf
