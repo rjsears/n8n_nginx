@@ -191,23 +191,17 @@ main() {
         success "Repository ready"
         echo ""
 
-        # Check if we're running interactively (not piped)
-        if [ -t 0 ]; then
-            info "Launching setup..."
-            echo ""
-            exec ./setup.sh
-        else
-            # When piped from curl, don't auto-launch (stdin issues with interactive prompts)
-            echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
-            echo ""
-            echo -e "${GREEN}${BOLD}Installation complete!${NC}"
-            echo ""
-            echo -e "To start setup, run:"
-            echo ""
-            echo -e "    ${YELLOW}cd $(pwd) && ./setup.sh${NC}"
-            echo ""
-            echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
-        fi
+        # When piped from curl, stdin is not usable for interactive prompts
+        # Always show manual instructions - it's safer and clearer
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "${GREEN}${BOLD}Installation complete!${NC}"
+        echo ""
+        echo -e "To start setup, run:"
+        echo ""
+        echo -e "    ${YELLOW}cd $(pwd) && ./setup.sh${NC}"
+        echo ""
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
     else
         error "setup.sh not found in repository. Installation may be incomplete."
     fi
