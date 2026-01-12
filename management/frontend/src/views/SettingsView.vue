@@ -52,6 +52,7 @@ import {
   FireIcon,
   HeartIcon,
   BoltIcon,
+  SparklesIcon,
   LinkIcon,
   BeakerIcon,
   ServerIcon,
@@ -300,7 +301,8 @@ async function changePassword() {
 // Theme selection with notification feedback
 function selectTheme(mode) {
   themeStore.setColorMode(mode)
-  notificationStore.success(`Theme changed to ${mode === 'dark' ? 'Dark' : 'Light'} mode`)
+  const modeNames = { light: 'Light', dark: 'Dark', neon: 'Neon' }
+  notificationStore.success(`Theme changed to ${modeNames[mode] || mode} mode`)
 }
 
 async function toggleDebugMode() {
@@ -671,12 +673,12 @@ watch(activeTab, (newTab) => {
       <!-- Appearance Tab -->
       <div v-if="activeTab === 'appearance'" class="space-y-6">
         <Card title="Theme" subtitle="Choose your preferred color scheme and navigation layout">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <!-- Modern Light Theme Card -->
             <div
               :class="[
                 'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
-                !themeStore.isDark
+                themeStore.colorMode === 'light'
                   ? 'border-blue-500 ring-2 ring-blue-500/20'
                   : 'border-gray-400 hover:border-gray-400'
               ]"
@@ -693,7 +695,7 @@ watch(activeTab, (newTab) => {
                     <p class="text-xs text-gray-500">Clean and bright interface</p>
                   </div>
                   <CheckIcon
-                    v-if="!themeStore.isDark"
+                    v-if="themeStore.colorMode === 'light'"
                     class="h-6 w-6 text-blue-500 ml-auto"
                   />
                 </div>
@@ -742,7 +744,7 @@ watch(activeTab, (newTab) => {
             <div
               :class="[
                 'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
-                themeStore.isDark
+                themeStore.colorMode === 'dark'
                   ? 'border-blue-500 ring-2 ring-blue-500/20'
                   : 'border-gray-400 hover:border-gray-400'
               ]"
@@ -759,7 +761,7 @@ watch(activeTab, (newTab) => {
                     <p class="text-xs text-slate-400">Easy on the eyes at night</p>
                   </div>
                   <CheckIcon
-                    v-if="themeStore.isDark"
+                    v-if="themeStore.colorMode === 'dark'"
                     class="h-6 w-6 text-blue-400 ml-auto"
                   />
                 </div>
@@ -794,6 +796,72 @@ watch(activeTab, (newTab) => {
                         themeStore.layout === 'sidebar'
                           ? 'bg-blue-500 text-white'
                           : 'text-slate-400 hover:bg-slate-800'
+                      ]"
+                    >
+                      <ViewColumnsIcon class="h-4 w-4" />
+                      Side
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Neon Theme Card -->
+            <div
+              :class="[
+                'relative rounded-xl border-2 overflow-hidden transition-all cursor-pointer',
+                themeStore.colorMode === 'neon'
+                  ? 'border-cyan-500 ring-2 ring-cyan-500/20'
+                  : 'border-gray-400 hover:border-gray-400'
+              ]"
+              @click="selectTheme('neon')"
+            >
+              <!-- Preview Area -->
+              <div class="bg-gray-950 p-4 border-b border-cyan-500/30">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-cyan-500/50">
+                    <SparklesIcon class="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p class="font-semibold text-cyan-400">Neon</p>
+                    <p class="text-xs text-gray-400">Vibrant cyberpunk glow</p>
+                  </div>
+                  <CheckIcon
+                    v-if="themeStore.colorMode === 'neon'"
+                    class="h-6 w-6 text-cyan-400 ml-auto"
+                  />
+                </div>
+                <!-- Mini preview with neon glow -->
+                <div class="bg-gray-900 rounded-lg p-2 space-y-1 border border-cyan-500/20">
+                  <div class="h-2 w-3/4 bg-cyan-500/40 rounded shadow-sm shadow-cyan-500/50"></div>
+                  <div class="h-2 w-1/2 bg-fuchsia-500/40 rounded shadow-sm shadow-fuchsia-500/50"></div>
+                  <div class="h-2 w-2/3 bg-cyan-500/40 rounded shadow-sm shadow-cyan-500/50"></div>
+                </div>
+              </div>
+              <!-- Layout Toggle -->
+              <div class="bg-gray-900 p-3" @click.stop>
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-medium text-cyan-300">Navigation</span>
+                  <div class="flex items-center gap-2 bg-gray-950 rounded-lg p-1 border border-cyan-500/30">
+                    <button
+                      @click="themeStore.setLayoutMode('horizontal')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'horizontal'
+                          ? 'bg-cyan-500 text-black'
+                          : 'text-cyan-400 hover:bg-gray-800'
+                      ]"
+                    >
+                      <Bars3Icon class="h-4 w-4" />
+                      Top
+                    </button>
+                    <button
+                      @click="themeStore.setLayoutMode('sidebar')"
+                      :class="[
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                        themeStore.layout === 'sidebar'
+                          ? 'bg-cyan-500 text-black'
+                          : 'text-cyan-400 hover:bg-gray-800'
                       ]"
                     >
                       <ViewColumnsIcon class="h-4 w-4" />

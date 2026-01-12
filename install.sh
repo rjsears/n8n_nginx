@@ -32,7 +32,7 @@ REPO_URL="https://github.com/rjsears/n8n_nginx.git"
 INSTALL_DIR="n8n_nginx"
 
 # Branch to install (default: main, override with BRANCH env var)
-# Usage: BRANCH=dev curl -fsSL https://raw.githubusercontent.com/rjsears/n8n_nginx/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/rjsears/n8n_nginx/main/install.sh | BRANCH=dev bash
 BRANCH="${BRANCH:-main}"
 
 # ═══════════════════════════════════════════════════════════════════════════════

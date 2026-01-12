@@ -621,7 +621,7 @@ This will:
 
 > **Testing a specific branch**: Use the `BRANCH` environment variable:
 > ```bash
-> BRANCH=dev curl -fsSL https://raw.githubusercontent.com/rjsears/n8n_nginx/main/install.sh | bash
+> curl -fsSL https://raw.githubusercontent.com/rjsears/n8n_nginx/main/install.sh | BRANCH=dev bash
 > ```
 
 #### Manual Install (Alternative)
