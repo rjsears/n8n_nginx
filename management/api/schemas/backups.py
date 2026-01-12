@@ -17,6 +17,12 @@ from datetime import datetime
 from enum import Enum
 
 
+def _get_default_timezone() -> str:
+    """Get the default timezone from settings."""
+    from api.config import settings
+    return settings.timezone
+
+
 class BackupType(str, Enum):
     """Backup types."""
     POSTGRES_FULL = "postgres_full"
@@ -51,7 +57,7 @@ class BackupScheduleCreate(BaseModel):
     minute: int = Field(default=0, ge=0, le=59)
     day_of_week: Optional[int] = Field(None, ge=0, le=6)  # 0=Monday
     day_of_month: Optional[int] = Field(None, ge=1, le=28)
-    timezone: str = "UTC"
+    timezone: str = Field(default_factory=_get_default_timezone)
     compression: BackupCompression = BackupCompression.GZIP
 
 

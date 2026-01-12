@@ -110,11 +110,16 @@ class BackupService:
 
     async def create_schedule(self, **kwargs) -> BackupSchedule:
         """Create a backup schedule."""
+        # Set timezone to system default if not provided
+        if "timezone" not in kwargs or kwargs["timezone"] is None:
+            from api.config import settings
+            kwargs["timezone"] = settings.timezone
+
         schedule = BackupSchedule(**kwargs)
         self.db.add(schedule)
         await self.db.commit()
         await self.db.refresh(schedule)
-        logger.info(f"Created backup schedule: {schedule.name}")
+        logger.info(f"Created backup schedule: {schedule.name} (timezone: {schedule.timezone})")
         return schedule
 
     async def update_schedule(self, schedule_id: int, **updates) -> Optional[BackupSchedule]:

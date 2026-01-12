@@ -4176,6 +4176,62 @@ configure_timezone() {
     fi
 
     print_success "Timezone set to: $N8N_TIMEZONE"
+
+    # Set the docker host's timezone to match
+    if confirm_prompt "Set docker host timezone to match ($N8N_TIMEZONE)?" "y"; then
+        set_host_timezone "$N8N_TIMEZONE"
+    fi
+}
+
+set_host_timezone() {
+    local timezone="$1"
+    local tz_file="/usr/share/zoneinfo/$timezone"
+
+    # Check if timezone file exists
+    if [ ! -f "$tz_file" ]; then
+        print_warning "Timezone file not found: $tz_file"
+        print_warning "Host timezone will remain unchanged"
+        return 1
+    fi
+
+    print_info "Setting host timezone to: $timezone"
+
+    # Set timezone using timedatectl if available (preferred method)
+    if command_exists timedatectl; then
+        if run_privileged timedatectl set-timezone "$timezone" 2>/dev/null; then
+            print_success "Host timezone updated using timedatectl"
+            return 0
+        else
+            print_warning "timedatectl failed, trying manual method..."
+        fi
+    fi
+
+    # Fallback: Manual method
+    # Create symlink for /etc/localtime
+    if run_privileged ln -sf "$tz_file" /etc/localtime 2>/dev/null; then
+        print_success "Updated /etc/localtime symlink"
+    else
+        print_warning "Failed to update /etc/localtime"
+        return 1
+    fi
+
+    # Update /etc/timezone file (Debian/Ubuntu)
+    if [ -f /etc/timezone ] || [ -d /etc ]; then
+        if echo "$timezone" | run_privileged tee /etc/timezone >/dev/null 2>&1; then
+            print_success "Updated /etc/timezone file"
+        else
+            print_warning "Failed to update /etc/timezone"
+        fi
+    fi
+
+    # Update clock
+    if command_exists hwclock; then
+        run_privileged hwclock --systohc 2>/dev/null || true
+    fi
+
+    print_success "Host timezone updated to: $timezone"
+    print_info "Note: APScheduler will use this timezone for backup scheduling"
+    return 0
 }
 
 generate_encryption_key() {
