@@ -61,6 +61,7 @@ const detectingStorage = ref(false)
 const notificationServices = ref([])
 const notificationGroups = ref([])
 const loadingChannels = ref(false)
+const primaryScheduleId = ref(null) // Track the primary schedule ID for updates
 
 
 // Collapsible sections state - all start collapsed
@@ -201,9 +202,10 @@ const selectedChannel = computed(() => {
 async function loadConfiguration() {
   loading.value = true
   try {
-    const [config, storage] = await Promise.all([
+    const [config, storage, schedulesRes] = await Promise.all([
       backupStore.fetchConfiguration(),
-      backupStore.detectStorageLocations().catch(() => null)
+      backupStore.detectStorageLocations().catch(() => null),
+      api.get('/backups/schedules').catch(() => ({ data: [] }))
     ])
 
     Object.keys(form.value).forEach(key => {
@@ -211,6 +213,28 @@ async function loadConfiguration() {
         form.value[key] = config[key]
       }
     })
+
+    // Load schedule settings from actual BackupSchedule (if exists)
+    const schedules = schedulesRes.data || []
+    if (schedules.length > 0) {
+      // Use the first (primary) schedule
+      const schedule = schedules[0]
+      primaryScheduleId.value = schedule.id
+      form.value.schedule_enabled = schedule.enabled
+      form.value.schedule_frequency = schedule.frequency || 'daily'
+
+      // Convert hour/minute to time string
+      const hour = schedule.hour ?? 2
+      const minute = schedule.minute ?? 0
+      form.value.schedule_time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+
+      form.value.schedule_day_of_week = schedule.day_of_week
+      form.value.schedule_day_of_month = schedule.day_of_month
+    } else {
+      // No schedule exists yet - set defaults
+      primaryScheduleId.value = null
+      form.value.schedule_enabled = false
+    }
 
     if (storage) {
       storageDetection.value = storage
@@ -298,12 +322,46 @@ async function validatePath(path) {
 async function save() {
   saving.value = true
   try {
+    // Save configuration (non-schedule settings)
     await backupStore.updateConfiguration(form.value)
+
+    // Save schedule settings to actual BackupSchedule
+    await saveSchedule()
+
     notificationStore.success('Backup configuration saved')
   } catch (err) {
+    console.error('Failed to save configuration:', err)
     notificationStore.error('Failed to save configuration')
   } finally {
     saving.value = false
+  }
+}
+
+async function saveSchedule() {
+  // Parse time into hour and minute
+  const [hourStr, minuteStr] = (form.value.schedule_time || '02:00').split(':')
+  const hour = parseInt(hourStr, 10)
+  const minute = parseInt(minuteStr, 10)
+
+  const scheduleData = {
+    name: 'Primary Backup Schedule',
+    backup_type: form.value.default_backup_type || 'postgres_full',
+    enabled: form.value.schedule_enabled,
+    frequency: form.value.schedule_frequency || 'daily',
+    hour: hour,
+    minute: minute,
+    day_of_week: form.value.schedule_day_of_week,
+    day_of_month: form.value.schedule_day_of_month,
+    compression: form.value.compression_algorithm || 'gzip',
+  }
+
+  if (primaryScheduleId.value) {
+    // Update existing schedule
+    await api.put(`/backups/schedules/${primaryScheduleId.value}`, scheduleData)
+  } else if (form.value.schedule_enabled) {
+    // Create new schedule only if enabled
+    const response = await api.post('/backups/schedules', scheduleData)
+    primaryScheduleId.value = response.data.id
   }
 }
 
