@@ -257,9 +257,6 @@ async def run_schema_migrations() -> None:
         # Fix certificate_expiring event category (move from security to ssl)
         await _migrate_certificate_event_category(conn)
 
-        # Migrate backup schedules from UTC to system timezone
-        await _migrate_backup_schedule_timezone(conn)
-
 
 async def _migrate_certificate_event_category(conn) -> None:
     """Move certificate_expiring event from security category to ssl category."""
@@ -273,27 +270,6 @@ async def _migrate_certificate_event_category(conn) -> None:
             logger.info(f"Migrated certificate_expiring event to ssl category")
     except Exception as e:
         logger.warning(f"Failed to migrate certificate event category: {e}")
-
-
-async def _migrate_backup_schedule_timezone(conn) -> None:
-    """
-    Clear UTC timezone from backup schedules so they use system timezone.
-
-    Previously, the BackupSchedule model defaulted timezone to 'UTC', which caused
-    scheduled backups to run at UTC times instead of the configured system timezone.
-    This migration sets timezone to NULL for schedules that have 'UTC', allowing
-    them to fall back to the system timezone from settings.
-    """
-    try:
-        result = await conn.execute(text("""
-            UPDATE backup_schedules
-            SET timezone = NULL
-            WHERE timezone = 'UTC'
-        """))
-        if result.rowcount > 0:
-            logger.info(f"Migrated {result.rowcount} backup schedule(s) from UTC to system timezone")
-    except Exception as e:
-        logger.warning(f"Failed to migrate backup schedule timezones: {e}")
 
 
 async def seed_system_notification_events() -> None:
