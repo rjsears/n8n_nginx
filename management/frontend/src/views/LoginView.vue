@@ -64,20 +64,20 @@ async function handleLogin() {
         <div
           :class="[
             'inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4',
-            themeStore.isNeon ? 'bg-cyan-500/20 neon-box-cyan' : 'bg-blue-500/10'
+            'bg-blue-500/10'
           ]"
         >
           <LockClosedIcon
             :class="[
               'h-8 w-8',
-              themeStore.isNeon ? 'text-cyan-400' : 'text-blue-500'
+              'text-blue-500'
             ]"
           />
         </div>
         <h1
           :class="[
             'text-2xl font-bold',
-            themeStore.isNeon ? 'neon-text-cyan' : 'text-primary'
+            'text-primary'
           ]"
         >
           n8n Management
@@ -90,7 +90,7 @@ async function handleLogin() {
         @submit.prevent="handleLogin"
         :class="[
           'bg-surface rounded-xl border border-gray-400 dark:border-black p-6',
-          themeStore.isNeon ? 'neon-card' : ''
+          ''
         ]"
       >
         <!-- Error Alert -->
@@ -116,7 +116,7 @@ async function handleLogin() {
               placeholder="Enter your username"
               :class="[
                 'input-field pl-10',
-                themeStore.isNeon ? 'neon-input' : ''
+                ''
               ]"
             />
           </div>
@@ -137,7 +137,7 @@ async function handleLogin() {
               placeholder="Enter your password"
               :class="[
                 'input-field pl-10 pr-10',
-                themeStore.isNeon ? 'neon-input' : ''
+                ''
               ]"
             />
             <button
@@ -155,13 +155,7 @@ async function handleLogin() {
         <button
           type="submit"
           :disabled="!isValid || loading"
-          :class="[
-            'w-full py-2.5 rounded-lg font-medium transition-all',
-            'disabled:opacity-50 disabled:cursor-not-allowed',
-            themeStore.isNeon
-              ? 'bg-cyan-500 text-black hover:bg-cyan-400 neon-btn-cyan'
-              : 'bg-blue-500 text-white hover:bg-blue-600'
-          ]"
+          class="w-full py-2.5 rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-blue-500 text-white hover:bg-blue-600"
         >
           <span v-if="loading" class="flex items-center justify-center gap-2">
             <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">

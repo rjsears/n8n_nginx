@@ -72,33 +72,19 @@ https://github.com/rjsears
   --color-status-warning: #fbbf24;
 }
 
-/* Dark mode explicit border overrides (excluded when neon is active) */
-.dark:not(.neon-enabled) .border,
-.dark:not(.neon-enabled) .border-t,
-.dark:not(.neon-enabled) .border-b,
-.dark:not(.neon-enabled) .border-l,
-.dark:not(.neon-enabled) .border-r,
-.dark:not(.neon-enabled) [class*="border-"] {
+/* Dark mode explicit border overrides */
+.dark .border,
+.dark .border-t,
+.dark .border-b,
+.dark .border-l,
+.dark .border-r,
+.dark [class*="border-"] {
   --tw-border-opacity: 1 !important;
   border-color: #000000 !important;
 }
 
-.dark:not(.neon-enabled) * {
+.dark * {
   --color-border: #000000;
-}
-
-/* Neon mode uses its own color variables from neon.css */
-.neon-enabled {
-  --color-bg-primary: #0a0a0f;
-  --color-bg-secondary: #0f0f18;
-  --color-bg-tertiary: #12121c;
-  --color-surface: #12121c;
-  --color-surface-hover: rgba(34, 211, 238, 0.1);
-  --color-border: rgba(34, 211, 238, 0.2);
-  --color-text-primary: #e2e8f0;
-  --color-text-secondary: rgba(148, 163, 184, 0.8);
-  --color-accent-primary: #22d3ee;
-  --color-accent-info: #22d3ee;
 }
 
 /* Alternative dark theme (softer) */

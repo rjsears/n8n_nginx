@@ -17,19 +17,17 @@ import api from '@/services/api'
 
 export const useThemeStore = defineStore('theme', () => {
   // Internal state
-  const _colorMode = ref('light') // 'light', 'dark', or 'neon'
+  const _colorMode = ref('light') // 'light' or 'dark'
   const _layoutMode = ref('horizontal') // 'horizontal' or 'sidebar'
   const _sidebarCollapsed = ref(false)
 
   // Read-only getters
-  const isDark = computed(() => _colorMode.value === 'dark' || _colorMode.value === 'neon')
-  const isNeon = computed(() => _colorMode.value === 'neon')
+  const isDark = computed(() => _colorMode.value === 'dark')
   const isSidebar = computed(() => _layoutMode.value === 'sidebar')
   const sidebarCollapsed = computed(() => _sidebarCollapsed.value)
 
   // For compatibility - maps to the color mode
   const currentPreset = computed(() => {
-    if (_colorMode.value === 'neon') return 'neon'
     return _colorMode.value === 'dark' ? 'modern_dark' : 'modern_light'
   })
 
@@ -59,19 +57,13 @@ export const useThemeStore = defineStore('theme', () => {
     const body = document.body
 
     // Reset classes
-    html.classList.remove('dark', 'neon-enabled', 'layout-sidebar', 'layout-horizontal')
-    body.classList.remove('dark', 'neon-enabled', 'layout-sidebar', 'layout-horizontal')
+    html.classList.remove('dark', 'layout-sidebar', 'layout-horizontal')
+    body.classList.remove('dark', 'layout-sidebar', 'layout-horizontal')
 
-    // Apply dark mode (neon is also dark-based)
+    // Apply dark mode
     if (isDark.value) {
       html.classList.add('dark')
       body.classList.add('dark')
-    }
-
-    // Apply neon mode
-    if (isNeon.value) {
-      html.classList.add('neon-enabled')
-      body.classList.add('neon-enabled')
     }
 
     // Apply layout
@@ -115,9 +107,7 @@ export const useThemeStore = defineStore('theme', () => {
 
   function setPreset(presetName) {
     // For compatibility - presets just set color mode
-    if (presetName === 'neon') {
-      setColorMode('neon')
-    } else if (presetName === 'modern_dark') {
+    if (presetName === 'modern_dark') {
       setColorMode('dark')
     } else {
       setColorMode('light')
@@ -187,8 +177,6 @@ export const useThemeStore = defineStore('theme', () => {
     layout,
     // Legacy compatibility
     layoutMode: _layoutMode,
-    isNeon,
-    neonEffects: isNeon, // Alias for isNeon
     // Actions
     setPreset,
     applyPreset: setPreset,

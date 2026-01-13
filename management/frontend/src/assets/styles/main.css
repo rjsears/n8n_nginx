@@ -16,7 +16,6 @@ https://github.com/rjsears
 @tailwind utilities;
 
 @import './themes.css';
-@import './neon.css';
 
 /* Base styles */
 body {

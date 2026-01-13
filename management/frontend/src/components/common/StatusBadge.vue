@@ -12,7 +12,6 @@ https://github.com/rjsears
 -->
 <script setup>
 import { computed } from 'vue'
-import { useThemeStore } from '@/stores/theme'
 
 const props = defineProps({
   status: {
@@ -25,43 +24,41 @@ const props = defineProps({
   },
 })
 
-const themeStore = useThemeStore()
-
 const statusConfig = {
   // Container statuses
-  running: { label: 'Running', color: 'emerald', neonClass: 'status-running' },
-  stopped: { label: 'Stopped', color: 'gray', neonClass: 'status-stopped' },
-  restarting: { label: 'Restarting', color: 'amber', neonClass: 'status-warning' },
-  unhealthy: { label: 'Unhealthy', color: 'red', neonClass: 'status-error' },
-  healthy: { label: 'Healthy', color: 'emerald', neonClass: 'status-running' },
+  running: { label: 'Running', color: 'emerald' },
+  stopped: { label: 'Stopped', color: 'gray' },
+  restarting: { label: 'Restarting', color: 'amber' },
+  unhealthy: { label: 'Unhealthy', color: 'red' },
+  healthy: { label: 'Healthy', color: 'emerald' },
 
   // Backup statuses
-  success: { label: 'Success', color: 'emerald', neonClass: 'status-running' },
-  failed: { label: 'Failed', color: 'red', neonClass: 'status-error' },
-  pending: { label: 'Pending', color: 'amber', neonClass: 'status-warning' },
-  partial: { label: 'Partial', color: 'amber', neonClass: 'status-warning' },
+  success: { label: 'Success', color: 'emerald' },
+  failed: { label: 'Failed', color: 'red' },
+  pending: { label: 'Pending', color: 'amber' },
+  partial: { label: 'Partial', color: 'amber' },
 
   // Verification statuses
-  passed: { label: 'Passed', color: 'emerald', neonClass: 'status-running' },
-  skipped: { label: 'Skipped', color: 'gray', neonClass: 'status-stopped' },
+  passed: { label: 'Passed', color: 'emerald' },
+  skipped: { label: 'Skipped', color: 'gray' },
 
   // Notification statuses
-  sent: { label: 'Sent', color: 'emerald', neonClass: 'status-running' },
+  sent: { label: 'Sent', color: 'emerald' },
 
   // Generic
-  active: { label: 'Active', color: 'emerald', neonClass: 'status-running' },
-  inactive: { label: 'Inactive', color: 'gray', neonClass: 'status-stopped' },
-  archived: { label: 'Archived', color: 'amber', neonClass: 'status-warning' },
-  enabled: { label: 'Enabled', color: 'emerald', neonClass: 'status-running' },
-  disabled: { label: 'Disabled', color: 'gray', neonClass: 'status-stopped' },
-  error: { label: 'Error', color: 'red', neonClass: 'status-error' },
-  warning: { label: 'Warning', color: 'amber', neonClass: 'status-warning' },
-  info: { label: 'Info', color: 'blue', neonClass: '' },
+  active: { label: 'Active', color: 'emerald' },
+  inactive: { label: 'Inactive', color: 'gray' },
+  archived: { label: 'Archived', color: 'amber' },
+  enabled: { label: 'Enabled', color: 'emerald' },
+  disabled: { label: 'Disabled', color: 'gray' },
+  error: { label: 'Error', color: 'red' },
+  warning: { label: 'Warning', color: 'amber' },
+  info: { label: 'Info', color: 'blue' },
 }
 
 const config = computed(() => {
   const status = props.status.toLowerCase()
-  return statusConfig[status] || { label: props.status, color: 'gray', neonClass: '' }
+  return statusConfig[status] || { label: props.status, color: 'gray' }
 })
 
 const colorClasses = computed(() => {
@@ -90,8 +87,7 @@ const sizeClasses = computed(() => {
     :class="[
       'inline-flex items-center font-medium rounded-full',
       colorClasses,
-      sizeClasses,
-      themeStore.isNeon ? config.neonClass : ''
+      sizeClasses
     ]"
   >
     <span class="w-1.5 h-1.5 rounded-full mr-1.5 bg-current opacity-75" />

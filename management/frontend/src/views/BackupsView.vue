@@ -1015,7 +1015,7 @@ onUnmounted(stopPolling)
         <h1
           :class="[
             'text-2xl font-bold',
-            themeStore.isNeon ? 'neon-text-cyan' : 'text-primary'
+            'text-primary'
           ]"
         >
           Backups
@@ -1046,7 +1046,7 @@ onUnmounted(stopPolling)
           :disabled="runningBackup"
           :class="[
             'btn-primary flex items-center gap-2',
-            themeStore.isNeon ? 'neon-btn-cyan' : ''
+            ''
           ]"
         >
           <PlayIcon class="h-4 w-4" />
@@ -1093,7 +1093,7 @@ onUnmounted(stopPolling)
     <template v-else>
       <!-- Stats Grid -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
@@ -1107,7 +1107,7 @@ onUnmounted(stopPolling)
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
@@ -1121,7 +1121,7 @@ onUnmounted(stopPolling)
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-red-100 dark:bg-red-500/20">
@@ -1135,7 +1135,7 @@ onUnmounted(stopPolling)
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
@@ -1151,7 +1151,7 @@ onUnmounted(stopPolling)
       </div>
 
       <!-- Backup Configuration Summary Card (Clickable - navigates to storage settings) -->
-      <Card v-if="backupConfig" :neon="true" :padding="false" class="mt-4">
+      <Card v-if="backupConfig" :padding="false" class="mt-4">
         <button
           @click="router.push('/backup-settings?tab=storage')"
           class="w-full p-4 text-left hover:bg-surface-hover transition-colors rounded-lg"
@@ -1250,7 +1250,7 @@ onUnmounted(stopPolling)
       </Card>
 
       <!-- Schedule Card (Clickable - navigates to schedule settings) -->
-      <Card :neon="true" :padding="false">
+      <Card :padding="false">
         <button
           @click="router.push('/backup-settings?tab=schedule')"
           class="w-full text-left hover:bg-surface-hover transition-colors rounded-lg"
@@ -1293,7 +1293,7 @@ onUnmounted(stopPolling)
       </Card>
 
       <!-- Backup History - Collapsible Section -->
-      <Card :neon="true" :padding="false">
+      <Card :padding="false">
         <!-- Section Header (Collapsible) -->
         <button
           @click="toggleSection('history')"

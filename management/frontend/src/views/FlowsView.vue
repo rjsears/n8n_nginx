@@ -286,7 +286,7 @@ onMounted(loadData)
         <h1
           :class="[
             'text-2xl font-bold',
-            themeStore.isNeon ? 'neon-text-cyan' : 'text-primary'
+            'text-primary'
           ]"
         >
           Workflows
@@ -345,7 +345,7 @@ onMounted(loadData)
     <template v-else>
       <!-- Stats Grid -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
@@ -359,7 +359,7 @@ onMounted(loadData)
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
@@ -373,7 +373,7 @@ onMounted(loadData)
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-gray-100 dark:bg-gray-500/20">
@@ -387,7 +387,7 @@ onMounted(loadData)
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
@@ -403,7 +403,7 @@ onMounted(loadData)
       </div>
 
       <!-- Search and Filters -->
-      <Card :neon="true" :padding="false">
+      <Card :padding="false">
         <div class="p-4 flex items-center gap-4">
           <div class="relative flex-1 max-w-md">
             <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted" />
@@ -469,7 +469,7 @@ onMounted(loadData)
       </Card>
 
       <!-- Workflows List (Collapsible) -->
-      <Card :neon="true" :padding="false">
+      <Card :padding="false">
         <!-- Collapsible Header -->
         <div
           @click="workflowsExpanded = !workflowsExpanded"
@@ -757,7 +757,7 @@ onMounted(loadData)
       </Card>
 
       <!-- Recent Executions (Collapsible) -->
-      <Card :neon="true" :padding="false">
+      <Card :padding="false">
         <!-- Collapsible Header -->
         <div
           @click="executionsExpanded = !executionsExpanded"

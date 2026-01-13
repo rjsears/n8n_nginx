@@ -12,7 +12,6 @@ https://github.com/rjsears
 -->
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useThemeStore } from '@/stores/theme'
 
 defineProps({
   text: {
@@ -20,8 +19,6 @@ defineProps({
     default: 'Loading system metrics...',
   },
 })
-
-const themeStore = useThemeStore()
 
 // Animated text that cycles through loading messages
 const loadingMessages = [
@@ -51,21 +48,18 @@ onUnmounted(() => {
     <!-- Main animated graphic -->
     <div class="relative w-48 h-48 mb-6">
       <!-- Outer rotating ring -->
-      <div class="absolute inset-0 rounded-full border-4 border-dashed animate-spin-slow"
-           :class="themeStore.isNeon ? 'border-cyan-500/30' : 'border-blue-500/30'"></div>
+      <div class="absolute inset-0 rounded-full border-4 border-dashed animate-spin-slow border-blue-500/30"></div>
 
       <!-- Middle pulsing ring -->
-      <div class="absolute inset-4 rounded-full animate-pulse-ring"
-           :class="themeStore.isNeon ? 'bg-cyan-500/10 border-2 border-cyan-400/50' : 'bg-blue-500/10 border-2 border-blue-400/50'"></div>
+      <div class="absolute inset-4 rounded-full animate-pulse-ring bg-blue-500/10 border-2 border-blue-400/50"></div>
 
       <!-- Inner container with server icon -->
-      <div class="absolute inset-8 rounded-full flex items-center justify-center"
-           :class="themeStore.isNeon ? 'bg-gray-900/80' : 'bg-gray-100 dark:bg-gray-800'">
+      <div class="absolute inset-8 rounded-full flex items-center justify-center bg-gray-100 dark:bg-gray-800">
 
         <!-- Animated server/metrics visualization -->
         <div class="relative">
           <!-- Central server icon -->
-          <svg class="w-16 h-16" :class="themeStore.isNeon ? 'text-cyan-400' : 'text-blue-500'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg class="w-16 h-16 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <!-- Server rack -->
             <rect x="4" y="2" width="16" height="6" rx="1" class="animate-pulse" />
             <rect x="4" y="9" width="16" height="6" rx="1" class="animate-pulse" style="animation-delay: 0.2s" />
@@ -82,16 +76,13 @@ onUnmounted(() => {
 
           <!-- Orbiting data particles -->
           <div class="absolute -inset-6 animate-orbit">
-            <div class="w-2 h-2 rounded-full absolute top-0 left-1/2 -translate-x-1/2"
-                 :class="themeStore.isNeon ? 'bg-cyan-400 shadow-lg shadow-cyan-400/50' : 'bg-blue-500'"></div>
+            <div class="w-2 h-2 rounded-full absolute top-0 left-1/2 -translate-x-1/2 bg-blue-500"></div>
           </div>
           <div class="absolute -inset-6 animate-orbit-reverse">
-            <div class="w-2 h-2 rounded-full absolute top-0 left-1/2 -translate-x-1/2"
-                 :class="themeStore.isNeon ? 'bg-purple-400 shadow-lg shadow-purple-400/50' : 'bg-purple-500'"></div>
+            <div class="w-2 h-2 rounded-full absolute top-0 left-1/2 -translate-x-1/2 bg-purple-500"></div>
           </div>
           <div class="absolute -inset-6 animate-orbit-slow">
-            <div class="w-1.5 h-1.5 rounded-full absolute bottom-0 left-1/2 -translate-x-1/2"
-                 :class="themeStore.isNeon ? 'bg-emerald-400 shadow-lg shadow-emerald-400/50' : 'bg-emerald-500'"></div>
+            <div class="w-1.5 h-1.5 rounded-full absolute bottom-0 left-1/2 -translate-x-1/2 bg-emerald-500"></div>
           </div>
         </div>
       </div>
@@ -99,29 +90,23 @@ onUnmounted(() => {
       <!-- Data flow lines -->
       <svg class="absolute inset-0 w-full h-full" viewBox="0 0 200 200">
         <!-- Animated data streams -->
-        <path d="M100 10 L100 40" stroke-dasharray="4 4" class="animate-dash"
-              :class="themeStore.isNeon ? 'stroke-cyan-400/60' : 'stroke-blue-400/60'" stroke-width="2" fill="none" />
-        <path d="M100 160 L100 190" stroke-dasharray="4 4" class="animate-dash"
-              :class="themeStore.isNeon ? 'stroke-cyan-400/60' : 'stroke-blue-400/60'" stroke-width="2" fill="none" />
-        <path d="M10 100 L40 100" stroke-dasharray="4 4" class="animate-dash"
-              :class="themeStore.isNeon ? 'stroke-purple-400/60' : 'stroke-purple-400/60'" stroke-width="2" fill="none" />
-        <path d="M160 100 L190 100" stroke-dasharray="4 4" class="animate-dash"
-              :class="themeStore.isNeon ? 'stroke-purple-400/60' : 'stroke-purple-400/60'" stroke-width="2" fill="none" />
+        <path d="M100 10 L100 40" stroke-dasharray="4 4" class="animate-dash stroke-blue-400/60" stroke-width="2" fill="none" />
+        <path d="M100 160 L100 190" stroke-dasharray="4 4" class="animate-dash stroke-blue-400/60" stroke-width="2" fill="none" />
+        <path d="M10 100 L40 100" stroke-dasharray="4 4" class="animate-dash stroke-purple-400/60" stroke-width="2" fill="none" />
+        <path d="M160 100 L190 100" stroke-dasharray="4 4" class="animate-dash stroke-purple-400/60" stroke-width="2" fill="none" />
       </svg>
     </div>
 
     <!-- Animated bars representing metrics -->
     <div class="flex gap-1 mb-4 h-8 items-end">
       <div v-for="i in 12" :key="i"
-           class="w-2 rounded-t animate-bar"
-           :class="themeStore.isNeon ? 'bg-gradient-to-t from-cyan-600 to-cyan-400' : 'bg-gradient-to-t from-blue-600 to-blue-400'"
+           class="w-2 rounded-t animate-bar bg-gradient-to-t from-blue-600 to-blue-400"
            :style="{ animationDelay: `${i * 0.1}s` }"></div>
     </div>
 
     <!-- Loading text with transition -->
     <transition name="fade" mode="out-in">
-      <p :key="currentMessage" class="text-sm font-medium"
-         :class="themeStore.isNeon ? 'text-cyan-400' : 'text-blue-500'">
+      <p :key="currentMessage" class="text-sm font-medium text-blue-500">
         {{ loadingMessages[currentMessage] }}
       </p>
     </transition>
@@ -129,8 +114,7 @@ onUnmounted(() => {
     <!-- Progress dots -->
     <div class="flex gap-2 mt-3">
       <span v-for="i in 3" :key="i"
-            class="w-2 h-2 rounded-full animate-bounce"
-            :class="themeStore.isNeon ? 'bg-cyan-400' : 'bg-blue-500'"
+            class="w-2 h-2 rounded-full animate-bounce bg-blue-500"
             :style="{ animationDelay: `${i * 0.15}s` }"></span>
     </div>
   </div>

@@ -388,14 +388,6 @@ const terminalThemes = {
 
 // Chart colors based on theme
 const chartColors = computed(() => {
-  if (themeStore.isNeon) {
-    return {
-      cpu: 'rgb(34, 211, 238)',
-      memory: 'rgb(244, 114, 182)',
-      disk: 'rgb(52, 211, 153)',
-      grid: 'rgba(34, 211, 238, 0.1)',
-    }
-  }
   return {
     cpu: 'rgb(59, 130, 246)',
     memory: 'rgb(168, 85, 247)',
@@ -469,7 +461,7 @@ function formatBytes(bytes) {
 function getProgressColor(percent) {
   if (percent >= 90) return 'bg-red-500'
   if (percent >= 75) return 'bg-amber-500'
-  return themeStore.isNeon ? 'bg-cyan-400' : 'bg-blue-500'
+  return 'bg-blue-500'
 }
 
 async function loadData() {
@@ -1066,7 +1058,7 @@ onUnmounted(() => {
         <h1
           :class="[
             'text-2xl font-bold',
-            themeStore.isNeon ? 'neon-text-cyan' : 'text-primary'
+            'text-primary'
           ]"
         >
           System
@@ -1190,7 +1182,7 @@ onUnmounted(() => {
         <!-- Health Check Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-6">
           <!-- Docker Containers -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
@@ -1246,7 +1238,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- Services -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
@@ -1290,7 +1282,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- n8n Database -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
@@ -1341,7 +1333,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- Host System Resources -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-cyan-100 dark:bg-cyan-500/20">
@@ -1422,7 +1414,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- SSL Certificates -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
@@ -1515,7 +1507,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- Management Database -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
@@ -1568,7 +1560,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- Backups -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-teal-100 dark:bg-teal-500/20">
@@ -1620,7 +1612,7 @@ onUnmounted(() => {
 
           <!-- Recent Logs (Clickable when has errors/warnings) -->
           <Card
-            :neon="true"
+           
             :padding="false"
             :class="{ 'cursor-pointer hover:ring-2 hover:ring-rose-500/50 transition-all': hasLogsToShow() }"
             @click="openLogsDetailModal"
@@ -1682,7 +1674,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- Docker Disk -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3 mb-4">
                 <div class="p-2 rounded-lg bg-orange-100 dark:bg-orange-500/20">
@@ -1714,7 +1706,7 @@ onUnmounted(() => {
       <template v-else>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- External Services -->
-          <Card title="External Services" :neon="true">
+          <Card title="External Services">
             <div v-if="externalServices.length > 0" class="grid grid-cols-1 gap-3">
               <a
                 v-for="service in externalServices"
@@ -1752,7 +1744,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- Network Configuration (with hostname in header) -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <template #header>
               <div class="flex items-center justify-between w-full px-4 py-3">
                 <h3 class="font-semibold text-primary">Network Configuration</h3>
@@ -1817,7 +1809,7 @@ onUnmounted(() => {
         <!-- VPN & Tunnel Services -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           <!-- Cloudflare Tunnel -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <template #header>
               <div class="flex items-center justify-between w-full px-4 py-3">
                 <div class="flex items-center gap-2">
@@ -1969,7 +1961,7 @@ onUnmounted(() => {
           </Card>
 
           <!-- Tailscale -->
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <template #header>
               <div class="flex items-center justify-between w-full px-4 py-3">
                 <div class="flex items-center gap-2">
@@ -2108,7 +2100,7 @@ onUnmounted(() => {
 
     <!-- Terminal Tab -->
     <template v-if="activeTab === 'terminal'">
-      <Card :neon="true" :padding="false">
+      <Card :padding="false">
         <!-- Header: Title LEFT | Dropdown CENTER | Buttons RIGHT -->
         <template #header>
           <div class="flex items-center w-full px-4 py-3">

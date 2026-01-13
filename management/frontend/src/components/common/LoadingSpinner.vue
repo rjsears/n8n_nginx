@@ -11,8 +11,6 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { useThemeStore } from '@/stores/theme'
-
 defineProps({
   size: {
     type: String,
@@ -28,8 +26,6 @@ defineProps({
   },
 })
 
-const themeStore = useThemeStore()
-
 const sizes = {
   sm: 'h-4 w-4',
   md: 'h-8 w-8',
@@ -42,8 +38,7 @@ const sizes = {
     <svg
       :class="[
         sizes[size],
-        'animate-spin',
-        themeStore.isNeon ? 'text-cyan-400' : 'text-blue-500'
+        'animate-spin text-blue-500'
       ]"
       xmlns="http://www.w3.org/2000/svg"
       fill="none"

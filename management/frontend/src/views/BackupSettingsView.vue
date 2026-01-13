@@ -424,7 +424,7 @@ onMounted(() => {
           <h1
             :class="[
               'text-2xl font-bold',
-              themeStore.isNeon ? 'neon-text-cyan' : 'text-primary'
+              'text-primary'
             ]"
           >
             Backup Configuration
@@ -446,7 +446,7 @@ onMounted(() => {
           :disabled="saving"
           :class="[
             'btn-primary flex items-center gap-2',
-            themeStore.isNeon ? 'neon-btn-cyan' : ''
+            ''
           ]"
         >
           <CheckIcon v-if="!saving" class="h-4 w-4" />

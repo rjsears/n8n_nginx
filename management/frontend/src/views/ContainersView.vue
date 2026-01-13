@@ -755,7 +755,7 @@ onUnmounted(() => {
         <h1
           :class="[
             'text-2xl font-bold',
-            themeStore.isNeon ? 'neon-text-cyan' : 'text-primary'
+            'text-primary'
           ]"
         >
           Containers
@@ -818,7 +818,7 @@ onUnmounted(() => {
     <template v-else>
       <!-- Stats Grid -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
@@ -832,7 +832,7 @@ onUnmounted(() => {
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
@@ -846,7 +846,7 @@ onUnmounted(() => {
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <button
             @click="openStoppedContainersDialog"
             :disabled="stats.stopped === 0"
@@ -870,7 +870,7 @@ onUnmounted(() => {
           </button>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-red-100 dark:bg-red-500/20">
@@ -927,7 +927,7 @@ onUnmounted(() => {
         <Card
           v-for="container in filteredContainers"
           :key="container.id"
-          :neon="true"
+         
           :padding="false"
         >
           <!-- Collapsed Header Row (always visible, clickable to expand) -->

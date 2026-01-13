@@ -1062,7 +1062,7 @@ async function handleNtfyUpdateConfig(config) {
         <h1
           :class="[
             'text-2xl font-bold',
-            themeStore.isNeon ? 'neon-text-cyan' : 'text-primary'
+            'text-primary'
           ]"
         >
           Notifications
@@ -1074,7 +1074,7 @@ async function handleNtfyUpdateConfig(config) {
         @click="openAddDialog"
         :class="[
           'btn-primary flex items-center gap-2',
-          themeStore.isNeon ? 'neon-btn-cyan' : ''
+          ''
         ]"
       >
         <PlusIcon class="h-4 w-4" />
@@ -1122,7 +1122,7 @@ async function handleNtfyUpdateConfig(config) {
       <template v-else>
       <!-- Stats Grid -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
@@ -1136,7 +1136,7 @@ async function handleNtfyUpdateConfig(config) {
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
@@ -1150,7 +1150,7 @@ async function handleNtfyUpdateConfig(config) {
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
@@ -1164,7 +1164,7 @@ async function handleNtfyUpdateConfig(config) {
           </div>
         </Card>
 
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
@@ -1180,7 +1180,7 @@ async function handleNtfyUpdateConfig(config) {
       </div>
 
       <!-- Notification Channels (Collapsible) -->
-      <Card :neon="true" :padding="false">
+      <Card :padding="false">
         <div
           @click="channelsExpanded = !channelsExpanded"
           class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
@@ -1323,7 +1323,7 @@ async function handleNtfyUpdateConfig(config) {
       </Card>
 
       <!-- Notification History (Collapsible) -->
-      <Card :neon="true" :padding="false">
+      <Card :padding="false">
         <div
           @click="historyExpanded = !historyExpanded"
           class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
@@ -1573,7 +1573,7 @@ async function handleNtfyUpdateConfig(config) {
       </Card>
 
       <!-- n8n Webhook Integration (Collapsible) -->
-      <Card v-if="webhookInfo" :neon="true" :padding="false">
+      <Card v-if="webhookInfo" :padding="false">
         <div
           @click="webhookExpanded = !webhookExpanded"
           class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
@@ -1852,7 +1852,7 @@ async function handleNtfyUpdateConfig(config) {
       <template v-else>
         <!-- Groups Stats -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3">
                 <div class="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
@@ -1866,7 +1866,7 @@ async function handleNtfyUpdateConfig(config) {
             </div>
           </Card>
 
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3">
                 <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
@@ -1880,7 +1880,7 @@ async function handleNtfyUpdateConfig(config) {
             </div>
           </Card>
 
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center gap-3">
                 <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
@@ -1896,7 +1896,7 @@ async function handleNtfyUpdateConfig(config) {
         </div>
 
         <!-- Groups List (Collapsible) -->
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div
             @click="groupsExpanded = !groupsExpanded"
             class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
@@ -1915,7 +1915,7 @@ async function handleNtfyUpdateConfig(config) {
                 @click.stop="openAddGroupDialog"
                 :class="[
                   'btn-primary flex items-center gap-2',
-                  themeStore.isNeon ? 'neon-btn-cyan' : ''
+                  ''
                 ]"
               >
                 <PlusIcon class="h-4 w-4" />
@@ -2080,7 +2080,7 @@ async function handleNtfyUpdateConfig(config) {
         </Card>
 
         <!-- How to Use Groups -->
-        <Card title="How to Target Groups" subtitle="Use groups in your n8n webhooks" :neon="true">
+        <Card title="How to Target Groups" subtitle="Use groups in your n8n webhooks">
           <div class="space-y-4">
             <p class="text-sm text-secondary">
               When sending notifications from n8n, use the <code class="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono">targets</code> field to specify which groups or channels should receive the notification.
@@ -2130,7 +2130,7 @@ async function handleNtfyUpdateConfig(config) {
       <template v-else>
         <!-- NTFY Stats Cards -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <div class="flex items-center justify-between">
                 <div>
@@ -2144,21 +2144,21 @@ async function handleNtfyUpdateConfig(config) {
             </div>
           </Card>
 
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <p class="text-sm text-secondary">Topics</p>
               <p class="text-xl font-bold text-primary">{{ ntfyStatus.topics_count || 0 }}</p>
             </div>
           </Card>
 
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <p class="text-sm text-secondary">Templates</p>
               <p class="text-xl font-bold text-primary">{{ ntfyStatus.templates_count || 0 }}</p>
             </div>
           </Card>
 
-          <Card :neon="true" :padding="false">
+          <Card :padding="false">
             <div class="p-4">
               <p class="text-sm text-secondary">Messages Today</p>
               <p class="text-xl font-bold text-primary">{{ ntfyStatus.messages_today || 0 }}</p>
@@ -2167,7 +2167,7 @@ async function handleNtfyUpdateConfig(config) {
         </div>
 
         <!-- NTFY Sub-Tabs -->
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="border-b border-gray-400 dark:border-gray-700">
             <nav class="flex -mb-px overflow-x-auto">
               <button

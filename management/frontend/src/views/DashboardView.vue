@@ -342,7 +342,7 @@ const networkChartOptions = computed(() => ({
       <h1
         :class="[
           'text-2xl font-bold',
-          themeStore.isNeon ? 'neon-text-cyan' : 'text-primary'
+          'text-primary'
         ]"
       >
         System Overview
@@ -376,7 +376,7 @@ const networkChartOptions = computed(() => ({
       <!-- Quick Stats Row (Overview style) -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <!-- CPU -->
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
@@ -397,7 +397,7 @@ const networkChartOptions = computed(() => ({
         </Card>
 
         <!-- Memory -->
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-500/20">
@@ -418,7 +418,7 @@ const networkChartOptions = computed(() => ({
         </Card>
 
         <!-- Disk -->
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
@@ -439,7 +439,7 @@ const networkChartOptions = computed(() => ({
         </Card>
 
         <!-- Uptime -->
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
@@ -456,7 +456,7 @@ const networkChartOptions = computed(() => ({
 
       <!-- Charts Row - CPU & Memory -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="CPU History" subtitle="Last hour" :neon="true">
+        <Card title="CPU History" subtitle="Last hour">
           <div class="h-48">
             <Line
               v-if="history.length > 0"
@@ -469,7 +469,7 @@ const networkChartOptions = computed(() => ({
           </div>
         </Card>
 
-        <Card title="Memory History" subtitle="Last hour" :neon="true">
+        <Card title="Memory History" subtitle="Last hour">
           <div class="h-48">
             <Line
               v-if="history.length > 0"
@@ -486,7 +486,7 @@ const networkChartOptions = computed(() => ({
       <!-- Containers & Network Row -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Containers Tile - Indigo -->
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-6">
             <div class="flex items-start justify-between mb-4">
               <div>
@@ -527,7 +527,7 @@ const networkChartOptions = computed(() => ({
         </Card>
 
         <!-- Network I/O Current Rates -->
-        <Card :neon="true" :padding="false">
+        <Card :padding="false">
           <div class="p-6">
             <p class="text-sm font-medium text-secondary uppercase tracking-wider mb-4">Network I/O</p>
             <div class="grid grid-cols-2 gap-4">
@@ -550,7 +550,7 @@ const networkChartOptions = computed(() => ({
 
       <!-- Network History Charts -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Download History" subtitle="Last hour" :neon="true">
+        <Card title="Download History" subtitle="Last hour">
           <div class="h-40">
             <Line
               v-if="history.length > 0"
@@ -563,7 +563,7 @@ const networkChartOptions = computed(() => ({
           </div>
         </Card>
 
-        <Card title="Upload History" subtitle="Last hour" :neon="true">
+        <Card title="Upload History" subtitle="Last hour">
           <div class="h-40">
             <Line
               v-if="history.length > 0"
