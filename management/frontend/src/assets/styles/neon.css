@@ -11,117 +11,309 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 */
 
-/* Neon Effects for Theme D (Dashboard Dark + Neon) */
+/* Neon Theme - Cyberpunk Style */
 
+/* Base neon theme overrides - applies to entire app when neon-enabled */
 .neon-enabled {
-  /* Glow shadows */
+  /* CSS Variables for neon glow effects */
   --glow-cyan: 0 0 20px rgba(34, 211, 238, 0.5);
   --glow-fuchsia: 0 0 20px rgba(217, 70, 239, 0.5);
   --glow-success: 0 0 15px rgba(52, 211, 153, 0.5);
   --glow-warning: 0 0 15px rgba(251, 191, 36, 0.5);
   --glow-danger: 0 0 15px rgba(248, 113, 113, 0.5);
+
+  /* Override base colors for neon theme */
+  --color-bg-primary: #0a0a0f;
+  --color-bg-secondary: #0f0f18;
+  --color-bg-surface: #12121c;
+  --color-border: rgba(34, 211, 238, 0.2);
 }
 
-/* Neon card borders */
+/* Dark background with subtle grid pattern */
+.neon-enabled body,
+.neon-enabled .bg-primary,
+.neon-enabled .dark .bg-primary {
+  background-color: #0a0a0f !important;
+  background-image:
+    linear-gradient(rgba(34, 211, 238, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+/* Surface backgrounds (cards, panels) */
+.neon-enabled .bg-surface,
+.neon-enabled .dark .bg-surface {
+  background-color: rgba(15, 15, 25, 0.8) !important;
+  backdrop-filter: blur(10px);
+}
+
+/* All borders get cyan tint */
+.neon-enabled .border-gray-400,
+.neon-enabled .dark\\:border-black,
+.neon-enabled [class*="border-"] {
+  border-color: rgba(34, 211, 238, 0.15) !important;
+}
+
+/* Primary text gets slight cyan tint */
+.neon-enabled .text-primary {
+  color: #e2e8f0 !important;
+}
+
+/* Secondary text */
+.neon-enabled .text-secondary {
+  color: rgba(148, 163, 184, 0.8) !important;
+}
+
+/* Neon card styles - enhanced glow */
 .neon-enabled .neon-card {
-  @apply border-cyan-500/30;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  background: linear-gradient(135deg, rgba(15, 15, 25, 0.9) 0%, rgba(20, 20, 35, 0.9) 100%) !important;
   box-shadow:
     0 0 0 1px rgba(34, 211, 238, 0.1),
-    0 0 20px rgba(34, 211, 238, 0.1),
-    inset 0 0 20px rgba(34, 211, 238, 0.05);
+    0 0 30px rgba(34, 211, 238, 0.15),
+    inset 0 1px 0 rgba(34, 211, 238, 0.1);
 }
 
 .neon-enabled .neon-card:hover {
-  @apply border-cyan-400/50;
+  border-color: rgba(34, 211, 238, 0.5) !important;
   box-shadow:
     0 0 0 1px rgba(34, 211, 238, 0.2),
-    0 0 30px rgba(34, 211, 238, 0.2),
-    inset 0 0 30px rgba(34, 211, 238, 0.1);
+    0 0 40px rgba(34, 211, 238, 0.25),
+    inset 0 1px 0 rgba(34, 211, 238, 0.15);
 }
 
-/* Neon text */
+/* Neon text effects */
 .neon-enabled .neon-text {
-  text-shadow: 0 0 10px currentColor;
+  text-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
 }
 
 .neon-enabled .neon-text-cyan {
-  @apply text-cyan-400;
-  text-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+  color: #22d3ee !important;
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.8), 0 0 30px rgba(34, 211, 238, 0.4);
 }
 
 .neon-enabled .neon-text-fuchsia {
-  @apply text-fuchsia-400;
-  text-shadow: 0 0 10px rgba(217, 70, 239, 0.8);
+  color: #d946ef !important;
+  text-shadow: 0 0 10px rgba(217, 70, 239, 0.8), 0 0 30px rgba(217, 70, 239, 0.4);
 }
 
-/* Neon status indicators */
-.neon-enabled .status-running {
-  @apply text-emerald-400;
-  text-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+/* Override blue colors with cyan throughout */
+.neon-enabled .text-blue-500,
+.neon-enabled .text-blue-600,
+.neon-enabled .dark\\:text-blue-400 {
+  color: #22d3ee !important;
 }
 
-.neon-enabled .status-stopped {
-  @apply text-gray-400;
+.neon-enabled .bg-blue-500,
+.neon-enabled .bg-blue-600 {
+  background-color: #06b6d4 !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.5);
 }
 
-.neon-enabled .status-error {
-  @apply text-rose-400;
-  text-shadow: 0 0 8px rgba(248, 113, 113, 0.8);
-  animation: neon-pulse 2s ease-in-out infinite;
-}
-
-.neon-enabled .status-warning {
-  @apply text-amber-400;
-  text-shadow: 0 0 8px rgba(251, 191, 36, 0.8);
-}
-
-/* Neon buttons */
-.neon-enabled .btn-neon {
-  @apply bg-cyan-500/20 text-cyan-400 border border-cyan-500/50;
+.neon-enabled .border-blue-500 {
+  border-color: #22d3ee !important;
   box-shadow: 0 0 10px rgba(34, 211, 238, 0.3);
+}
+
+/* Buttons - neon style */
+.neon-enabled button.bg-blue-500,
+.neon-enabled button.bg-blue-600,
+.neon-enabled .btn-primary {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%) !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.5) !important;
+}
+
+.neon-enabled button.bg-blue-500:hover,
+.neon-enabled button.bg-blue-600:hover,
+.neon-enabled .btn-primary:hover {
+  background: linear-gradient(135deg, #22d3ee 0%, #06b6d4 100%) !important;
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.neon-enabled .btn-neon {
+  background: rgba(34, 211, 238, 0.1) !important;
+  color: #22d3ee !important;
+  border: 1px solid rgba(34, 211, 238, 0.5) !important;
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.3);
   transition: all 0.2s ease;
 }
 
 .neon-enabled .btn-neon:hover {
-  @apply bg-cyan-500/30 border-cyan-400;
-  box-shadow: 0 0 20px rgba(34, 211, 238, 0.5);
+  background: rgba(34, 211, 238, 0.2) !important;
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 25px rgba(34, 211, 238, 0.5);
 }
 
 .neon-enabled .btn-neon-fuchsia {
-  @apply bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/50;
-  box-shadow: 0 0 10px rgba(217, 70, 239, 0.3);
+  background: rgba(217, 70, 239, 0.1) !important;
+  color: #d946ef !important;
+  border: 1px solid rgba(217, 70, 239, 0.5) !important;
+  box-shadow: 0 0 15px rgba(217, 70, 239, 0.3);
 }
 
 .neon-enabled .btn-neon-fuchsia:hover {
-  @apply bg-fuchsia-500/30 border-fuchsia-400;
-  box-shadow: 0 0 20px rgba(217, 70, 239, 0.5);
+  background: rgba(217, 70, 239, 0.2) !important;
+  box-shadow: 0 0 25px rgba(217, 70, 239, 0.5);
 }
 
-/* Neon progress bars */
+/* Status indicators with glow */
+.neon-enabled .status-running {
+  color: #34d399 !important;
+  text-shadow: 0 0 10px rgba(52, 211, 153, 0.8);
+}
+
+.neon-enabled .status-stopped {
+  color: #6b7280 !important;
+}
+
+.neon-enabled .status-error {
+  color: #f87171 !important;
+  text-shadow: 0 0 10px rgba(248, 113, 113, 0.8);
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+.neon-enabled .status-warning {
+  color: #fbbf24 !important;
+  text-shadow: 0 0 10px rgba(251, 191, 36, 0.8);
+}
+
+/* Success/error badges with glow */
+.neon-enabled .bg-emerald-500,
+.neon-enabled .bg-green-500 {
+  box-shadow: 0 0 15px rgba(52, 211, 153, 0.5);
+}
+
+.neon-enabled .bg-red-500,
+.neon-enabled .bg-rose-500 {
+  box-shadow: 0 0 15px rgba(248, 113, 113, 0.5);
+}
+
+.neon-enabled .bg-amber-500,
+.neon-enabled .bg-yellow-500 {
+  box-shadow: 0 0 15px rgba(251, 191, 36, 0.5);
+}
+
+/* Progress bars */
 .neon-enabled .progress-neon {
-  @apply bg-cyan-500/20;
-  box-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+  background: rgba(34, 211, 238, 0.2) !important;
+  box-shadow: inset 0 0 10px rgba(34, 211, 238, 0.3);
 }
 
 .neon-enabled .progress-neon .progress-bar {
-  @apply bg-gradient-to-r from-cyan-500 to-fuchsia-500;
-  box-shadow: 0 0 15px rgba(34, 211, 238, 0.7);
+  background: linear-gradient(90deg, #06b6d4 0%, #d946ef 100%) !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.7);
 }
 
-/* Neon sidebar */
-.neon-enabled .sidebar-neon {
-  border-right: 1px solid rgba(34, 211, 238, 0.2);
-  box-shadow: 2px 0 20px rgba(34, 211, 238, 0.1);
+/* Sidebar styling */
+.neon-enabled .sidebar-neon,
+.neon-enabled aside,
+.neon-enabled [class*="sidebar"] {
+  background: rgba(10, 10, 18, 0.95) !important;
+  border-right: 1px solid rgba(34, 211, 238, 0.2) !important;
+  box-shadow: 2px 0 30px rgba(34, 211, 238, 0.1);
 }
 
 .neon-enabled .sidebar-item-active {
-  @apply bg-cyan-500/20 border-l-2 border-cyan-400;
+  background: rgba(34, 211, 238, 0.15) !important;
+  border-left: 3px solid #22d3ee !important;
   box-shadow: inset 0 0 20px rgba(34, 211, 238, 0.1);
 }
 
-/* Neon charts */
-.neon-enabled .chart-glow {
-  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.5));
+/* Navigation/header bar */
+.neon-enabled nav,
+.neon-enabled header {
+  background: rgba(10, 10, 18, 0.9) !important;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.2) !important;
+  backdrop-filter: blur(10px);
+}
+
+/* Input fields */
+.neon-enabled input,
+.neon-enabled select,
+.neon-enabled textarea {
+  background: rgba(15, 15, 25, 0.8) !important;
+  border-color: rgba(34, 211, 238, 0.2) !important;
+}
+
+.neon-enabled input:focus,
+.neon-enabled select:focus,
+.neon-enabled textarea:focus {
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2), 0 0 15px rgba(34, 211, 238, 0.3) !important;
+  outline: none !important;
+}
+
+.neon-enabled .input-neon {
+  border-color: rgba(34, 211, 238, 0.3) !important;
+  background: rgba(15, 15, 25, 0.9) !important;
+}
+
+.neon-enabled .input-neon:focus {
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2), 0 0 20px rgba(34, 211, 238, 0.4) !important;
+}
+
+/* Charts - add glow effect */
+.neon-enabled .chart-glow,
+.neon-enabled canvas {
+  filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.3));
+}
+
+/* Tables */
+.neon-enabled table {
+  border-color: rgba(34, 211, 238, 0.15) !important;
+}
+
+.neon-enabled th {
+  background: rgba(34, 211, 238, 0.1) !important;
+  border-color: rgba(34, 211, 238, 0.2) !important;
+}
+
+.neon-enabled tr:hover td {
+  background: rgba(34, 211, 238, 0.05) !important;
+}
+
+/* Scrollbar styling */
+.neon-enabled ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.neon-enabled ::-webkit-scrollbar-track {
+  background: rgba(15, 15, 25, 0.5);
+}
+
+.neon-enabled ::-webkit-scrollbar-thumb {
+  background: rgba(34, 211, 238, 0.3);
+  border-radius: 4px;
+}
+
+.neon-enabled ::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 211, 238, 0.5);
+}
+
+/* Dividers */
+.neon-enabled hr,
+.neon-enabled .divider-neon {
+  border-color: rgba(34, 211, 238, 0.2) !important;
+  box-shadow: 0 0 5px rgba(34, 211, 238, 0.2);
+}
+
+/* Modal/dialog backgrounds */
+.neon-enabled [role="dialog"],
+.neon-enabled .modal {
+  background: rgba(15, 15, 25, 0.95) !important;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  box-shadow: 0 0 50px rgba(34, 211, 238, 0.2);
+}
+
+/* Dropdown menus */
+.neon-enabled [role="menu"],
+.neon-enabled .dropdown-menu {
+  background: rgba(15, 15, 25, 0.98) !important;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.2);
 }
 
 /* Animations */
@@ -139,7 +331,16 @@ https://github.com/rjsears
     box-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
   }
   50% {
-    box-shadow: 0 0 20px rgba(34, 211, 238, 0.8);
+    box-shadow: 0 0 25px rgba(34, 211, 238, 0.8), 0 0 50px rgba(34, 211, 238, 0.4);
+  }
+}
+
+@keyframes neon-border-glow {
+  0%, 100% {
+    border-color: rgba(34, 211, 238, 0.3);
+  }
+  50% {
+    border-color: rgba(34, 211, 238, 0.6);
   }
 }
 
@@ -147,18 +348,43 @@ https://github.com/rjsears
   animation: neon-glow 2s ease-in-out infinite;
 }
 
-/* Neon dividers */
-.neon-enabled .divider-neon {
-  @apply border-t border-cyan-500/30;
-  box-shadow: 0 0 5px rgba(34, 211, 238, 0.3);
+.neon-enabled .animate-neon-border {
+  animation: neon-border-glow 3s ease-in-out infinite;
 }
 
-/* Neon inputs */
-.neon-enabled .input-neon {
-  @apply border-slate-600 bg-slate-800/50;
+/* Ring/focus states */
+.neon-enabled .ring-blue-500,
+.neon-enabled .focus\\:ring-blue-500:focus {
+  --tw-ring-color: rgba(34, 211, 238, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.3);
 }
 
-.neon-enabled .input-neon:focus {
-  @apply border-cyan-500;
-  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2), 0 0 10px rgba(34, 211, 238, 0.3);
+/* Gradients - cyan to fuchsia theme */
+.neon-enabled .bg-gradient-to-r.from-blue-500,
+.neon-enabled .bg-gradient-to-br.from-blue-500 {
+  background: linear-gradient(to right, #06b6d4, #d946ef) !important;
+}
+
+/* Links */
+.neon-enabled a:not(.btn):not(button) {
+  color: #22d3ee;
+}
+
+.neon-enabled a:not(.btn):not(button):hover {
+  color: #67e8f9;
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+}
+
+/* Code blocks */
+.neon-enabled pre,
+.neon-enabled code {
+  background: rgba(10, 10, 18, 0.9) !important;
+  border: 1px solid rgba(34, 211, 238, 0.2) !important;
+}
+
+/* Tooltips */
+.neon-enabled [role="tooltip"] {
+  background: rgba(15, 15, 25, 0.95) !important;
+  border: 1px solid rgba(34, 211, 238, 0.3) !important;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.2);
 }
