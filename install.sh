@@ -195,11 +195,15 @@ main() {
         echo ""
         echo -e "${GREEN}${BOLD}Installation complete!${NC}"
         echo ""
+        echo -e "Changed to ${YELLOW}$(pwd)${NC}"
+        echo ""
         echo -e "To start setup, run:"
         echo ""
-        echo -e "    ${YELLOW}cd $(pwd) && ./setup.sh${NC}"
+        echo -e "    ${YELLOW}./setup.sh${NC}"
         echo ""
         echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
+        # Spawn a new shell in the install directory so user is ready to run setup
+        exec bash
     else
         error "setup.sh not found in repository. Installation may be incomplete."
     fi
