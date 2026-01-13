@@ -29,6 +29,11 @@ https://github.com/rjsears
   --color-border: rgba(34, 211, 238, 0.2);
 }
 
+/* Ensure all descendants inherit neon border color */
+.neon-enabled * {
+  --color-border: rgba(34, 211, 238, 0.2);
+}
+
 /* Dark background with subtle grid pattern */
 .neon-enabled body,
 .neon-enabled .bg-primary,
