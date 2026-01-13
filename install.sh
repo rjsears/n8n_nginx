@@ -191,11 +191,15 @@ main() {
         success "Repository ready"
         echo ""
 
-        info "Launching setup..."
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
         echo ""
-        # Run setup.sh in a subshell with stdin explicitly from terminal
-        # This works around the stdin pipe issue when running via curl | bash
-        bash -c 'exec 0</dev/tty; exec ./setup.sh'
+        echo -e "${GREEN}${BOLD}Installation complete!${NC}"
+        echo ""
+        echo -e "To start setup, run:"
+        echo ""
+        echo -e "    ${YELLOW}cd $(pwd) && ./setup.sh${NC}"
+        echo ""
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
     else
         error "setup.sh not found in repository. Installation may be incomplete."
     fi
