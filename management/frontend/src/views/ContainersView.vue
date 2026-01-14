@@ -731,10 +731,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  disconnectTerminal()
-  if (terminal) {
-    terminal.dispose()
-    terminal = null
+  if (statsInterval) {
+    clearInterval(statsInterval)
   }
   if (containerLoadingInterval) {
     clearInterval(containerLoadingInterval)
