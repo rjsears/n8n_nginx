@@ -1199,7 +1199,7 @@ async def get_tailscale_status(
                             })
 
                         # Add peers
-                        peers = ts_status.get("Peer", {})
+                        peers = ts_status.get("Peer") or {}
                         for peer_id, peer_info in peers.items():
                             # Check multiple fields for online status
                             # Tailscale uses "Online" but also check "Active" and "CurAddr"
@@ -1249,7 +1249,9 @@ async def get_tailscale_status(
                         status_info["online_peers"] = sum(1 for p in device_list if p.get("online"))
 
                         # Current tailnet
-                        status_info["tailnet"] = ts_status.get("CurrentTailnet", {}).get("Name")
+                        current_tailnet = ts_status.get("CurrentTailnet")
+                        if current_tailnet:
+                            status_info["tailnet"] = current_tailnet.get("Name")
 
                 except json_module.JSONDecodeError:
                     # Try plain text status
