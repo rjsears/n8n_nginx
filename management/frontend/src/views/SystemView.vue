@@ -16,7 +16,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notifications'
-import api from '../services/api'
+import api, { systemApi, settingsApi } from '../services/api'
 import { formatBytes, getProgressColor } from '../utils/formatters'
 import { usePoll } from '../composables/usePoll'
 import { POLLING } from '../config/constants'
@@ -457,7 +457,7 @@ async function loadData() {
   loading.value = true
   try {
     const [systemRes] = await Promise.all([
-      api.system.getInfo(),
+      systemApi.getInfo(),
     ])
     systemInfo.value = systemRes.data
 
@@ -485,7 +485,7 @@ async function loadHealthData() {
   }, 2000)
 
   try {
-    const response = await api.system.getHealthFull()
+    const response = await systemApi.getHealthFull()
     healthData.value = response.data
     healthLastUpdated.value = new Date()
   } catch (error) {
@@ -521,9 +521,9 @@ async function loadNetworkInfo() {
   try {
     // Load network, cloudflare, and tailscale info in parallel
     const [networkRes, cloudflareRes, tailscaleRes] = await Promise.all([
-      api.system.getNetwork(),
-      api.system.getCloudflare().catch(() => ({ data: { error: 'Not available' } })),
-      api.system.getTailscale().catch(() => ({ data: { error: 'Not available' } })),
+      systemApi.getNetwork(),
+      systemApi.getCloudflare().catch(() => ({ data: { error: 'Not available' } })),
+      systemApi.getTailscale().catch(() => ({ data: { error: 'Not available' } })),
     ])
     networkInfo.value = networkRes.data
     cloudflareInfo.value = cloudflareRes.data
@@ -541,7 +541,7 @@ async function loadNetworkInfo() {
 async function loadSslInfo() {
   sslLoading.value = true
   try {
-    const response = await api.system.getSsl()
+    const response = await systemApi.getSsl()
     sslInfo.value = response.data
   } catch (error) {
     console.error('SSL info load failed:', error.response?.data || error.message)
@@ -554,7 +554,7 @@ async function loadSslInfo() {
 
 async function loadTerminalTargets() {
   try {
-    const response = await api.system.getTerminalTargets()
+    const response = await systemApi.getTerminalTargets()
     terminalTargets.value = response.data.targets || []
     if (terminalTargets.value.length > 0 && !selectedTarget.value) {
       selectedTarget.value = terminalTargets.value[0].id
@@ -567,7 +567,7 @@ async function loadTerminalTargets() {
 async function loadExternalServices() {
   externalServicesLoading.value = true
   try {
-    const response = await api.system.getExternalServices()
+    const response = await systemApi.getExternalServices()
     // Build URLs using current origin + path from nginx.conf
     const origin = window.location.origin
     externalServices.value = (response.data.services || []).map(service => ({
@@ -584,7 +584,7 @@ async function loadExternalServices() {
 
 async function runHealthCheck() {
   try {
-    const response = await api.system.getHealth()
+    const response = await systemApi.getHealth()
     healthChecks.value = response.data.checks || []
     notificationStore.success('Health check completed')
   } catch (error) {
@@ -595,7 +595,7 @@ async function runHealthCheck() {
 // Cloudflare Token Management
 async function loadCloudflareTokenStatus() {
   try {
-    const response = await api.settings.getEnvVariable('CLOUDFLARE_TUNNEL_TOKEN')
+    const response = await settingsApi.getEnvVariable('CLOUDFLARE_TUNNEL_TOKEN')
     cloudflareTokenIsSet.value = response.data.is_set
     cloudflareTokenMasked.value = response.data.masked_value || ''
   } catch (error) {
@@ -623,7 +623,7 @@ async function saveCloudflareToken() {
 
   cloudflareTokenLoading.value = true
   try {
-    const response = await api.settings.updateEnvVariable('CLOUDFLARE_TUNNEL_TOKEN', cloudflareToken.value.trim())
+    const response = await settingsApi.updateEnvVariable('CLOUDFLARE_TUNNEL_TOKEN', cloudflareToken.value.trim())
     cloudflareTokenIsSet.value = true
     cloudflareTokenMasked.value = response.data.masked_value || ''
     cloudflareTokenModal.value = false
@@ -645,7 +645,7 @@ async function saveCloudflareToken() {
 // Tailscale Key Management
 async function loadTailscaleKeyStatus() {
   try {
-    const response = await api.settings.getEnvVariable('TAILSCALE_AUTH_KEY')
+    const response = await settingsApi.getEnvVariable('TAILSCALE_AUTH_KEY')
     tailscaleKeyIsSet.value = response.data.is_set
     tailscaleKeyMasked.value = response.data.masked_value || ''
   } catch (error) {
@@ -673,7 +673,7 @@ async function saveTailscaleKey() {
 
   tailscaleKeyLoading.value = true
   try {
-    const response = await api.settings.updateEnvVariable('TAILSCALE_AUTH_KEY', tailscaleKey.value.trim())
+    const response = await settingsApi.updateEnvVariable('TAILSCALE_AUTH_KEY', tailscaleKey.value.trim())
     tailscaleKeyIsSet.value = true
     tailscaleKeyMasked.value = response.data.masked_value || ''
     tailscaleKeyModal.value = false
@@ -682,7 +682,7 @@ async function saveTailscaleKey() {
 
     // Get container status to determine button label
     try {
-      const statusRes = await api.settings.getTailscaleStatus()
+      const statusRes = await settingsApi.getTailscaleStatus()
       tailscaleResetDialog.value.containerStatus = statusRes.data.status
       tailscaleResetDialog.value.actionLabel = statusRes.data.action_label || 'Restart'
     } catch {
@@ -701,7 +701,7 @@ async function saveTailscaleKey() {
 async function confirmTailscaleReset() {
   tailscaleResetDialog.value.loading = true
   try {
-    await api.settings.resetTailscale()
+    await settingsApi.resetTailscale()
     notificationStore.success('Tailscale container restarted with new auth key')
     tailscaleResetDialog.value.open = false
 
@@ -735,7 +735,7 @@ async function confirmRestart() {
 
   restartDialog.value.loading = true
   try {
-    await api.settings.restartContainer(containerName, 'Manual restart from System page')
+    await settingsApi.restartContainer(containerName, 'Manual restart from System page')
     notificationStore.success(`${displayName} restarted successfully`)
 
     // Reload the relevant info after restart
@@ -766,7 +766,7 @@ async function forceRenewSslCertificate() {
   sslRenewalResult.value = null
 
   try {
-    const response = await api.system.sslRenew()
+    const response = await systemApi.sslRenew()
     sslRenewalResult.value = response.data
 
     if (response.data.success) {

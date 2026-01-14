@@ -861,13 +861,13 @@ watch(mainTab, (newTab) => {
 // NTFY Message handlers
 async function handleNtfySendMessage(message) {
   try {
-    const res = await api.ntfy.send(message)
-    if (res.data.success) {
-      // Refresh history
-      const historyRes = await api.ntfy.getHistory({ limit: 50 })
-      ntfyHistory.value = historyRes.data || []
+    const res = await ntfyApi.send(message)
+    if (res.status === 200) {
+      notificationStore.success('Notification sent successfully')
+      const historyRes = await ntfyApi.getHistory({ limit: 50 })
+      ntfyHistory.value = historyRes.data
       // Refresh status
-      const statusRes = await api.ntfy.status()
+      const statusRes = await ntfyApi.status()
       ntfyStatus.value = statusRes.data
       return { success: true }
     }
@@ -877,50 +877,41 @@ async function handleNtfySendMessage(message) {
   }
 }
 
-async function handleNtfySaveMessage(message) {
+async function saveNtfyMessage(message) {
   try {
-    await api.ntfy.createSavedMessage(message)
-    const savedRes = await api.ntfy.getSavedMessages()
-    ntfySavedMessages.value = savedRes.data || []
-    return { success: true }
+    await ntfyApi.createSavedMessage(message)
+    const savedRes = await ntfyApi.getSavedMessages()
+    savedMessages.value = savedRes.data
+    notificationStore.success('Message saved')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
-  }
-}
 
 // NTFY Template handlers
-async function handleNtfyCreateTemplate(template) {
+async function createNtfyTemplate(template) {
   try {
-    await api.ntfy.createTemplate(template)
-    const res = await api.ntfy.getTemplates()
-    ntfyTemplates.value = res.data || []
-    // Refresh status
-    const statusRes = await api.ntfy.status()
-    ntfyStatus.value = statusRes.data
-    return { success: true }
+    await ntfyApi.createTemplate(template)
+    const res = await ntfyApi.getTemplates()
+    ntfyTemplates.value = res.data
+    // Refresh status as template count changed
+    const statusRes = await ntfyApi.status()
+    ntfyStatus.value = res.data
+    notificationStore.success('Template created')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
-  }
-}
 
-async function handleNtfyUpdateTemplate(id, template) {
+async function updateNtfyTemplate({ id, template }) {
   try {
-    await api.ntfy.updateTemplate(id, template)
-    const res = await api.ntfy.getTemplates()
-    ntfyTemplates.value = res.data || []
-    return { success: true }
+    await ntfyApi.updateTemplate(id, template)
+    const res = await ntfyApi.getTemplates()
+    ntfyTemplates.value = res.data
+    notificationStore.success('Template updated')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
-  }
-}
 
 async function handleNtfyDeleteTemplate(id) {
   try {
-    await api.ntfy.deleteTemplate(id)
-    const res = await api.ntfy.getTemplates()
+    await ntfyApi.deleteTemplate(id)
+    const res = await ntfyApi.getTemplates()
     ntfyTemplates.value = res.data || []
     // Refresh status
-    const statusRes = await api.ntfy.status()
+    const statusRes = await ntfyApi.status()
     ntfyStatus.value = statusRes.data
     return { success: true }
   } catch (error) {
@@ -928,9 +919,9 @@ async function handleNtfyDeleteTemplate(id) {
   }
 }
 
-async function handleNtfyPreviewTemplate(data) {
+async function previewNtfyTemplate(data) {
   try {
-    const res = await api.ntfy.previewTemplate(data)
+    const res = await ntfyApi.previewTemplate(data)
     return res.data
   } catch (error) {
     return { success: false, error: error.response?.data?.detail || error.message }
@@ -938,45 +929,38 @@ async function handleNtfyPreviewTemplate(data) {
 }
 
 // NTFY Topic handlers
-async function handleNtfyCreateTopic(topic) {
+async function createNtfyTopic(topic) {
   try {
-    const createRes = await api.ntfy.createTopic(topic)
-    const createdTopic = createRes.data
-    const res = await api.ntfy.getTopics()
-    ntfyTopics.value = res.data || []
-    // Refresh status
-    const statusRes = await api.ntfy.status()
-    ntfyStatus.value = statusRes.data
-    return { success: true, topic: createdTopic }
+    const createRes = await ntfyApi.createTopic(topic)
+    // Reload topics
+    const res = await ntfyApi.getTopics()
+    ntfyTopics.value = res.data
+    // Refresh status as topic count changed
+    const statusRes = await ntfyApi.status()
+    ntfyStatus.value = res.data
+    notificationStore.success('Topic created')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
-  }
-}
 
-async function handleNtfyUpdateTopic(id, topic) {
-  try {
-    await api.ntfy.updateTopic(id, topic)
-    const res = await api.ntfy.getTopics()
-    ntfyTopics.value = res.data || []
-    return { success: true }
-  } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
-  }
-}
 
-async function handleNtfyDeleteTopic(id) {
+async function updateNtfyTopic({ id, topic }) {
   try {
-    await api.ntfy.deleteTopic(id)
-    const res = await api.ntfy.getTopics()
-    ntfyTopics.value = res.data || []
-    // Refresh status
-    const statusRes = await api.ntfy.status()
-    ntfyStatus.value = statusRes.data
-    return { success: true }
+    await ntfyApi.updateTopic(id, topic)
+    const res = await ntfyApi.getTopics()
+    ntfyTopics.value = res.data
+    notificationStore.success('Topic updated')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
-  }
-}
+
+
+async function deleteNtfyTopic(id) {
+  try {
+    await ntfyApi.deleteTopic(id)
+    const res = await ntfyApi.getTopics()
+    ntfyTopics.value = res.data
+    // Refresh status as topic count changed
+    const statusRes = await ntfyApi.status()
+    ntfyStatus.value = statusRes.data
+    notificationStore.success('Topic deleted')
+  } catch (error) {
 
 // NTFY Sync topics <-> channels (bidirectional)
 async function handleNtfySyncTopics() {
@@ -1002,30 +986,26 @@ async function handleNtfySyncTopics() {
 }
 
 // NTFY Saved message handlers
-async function handleNtfySendSavedMessage(id) {
+async function sendSavedMessage(id) {
   try {
-    const res = await api.ntfy.sendSavedMessage(id)
-    if (res.data.success) {
-      // Refresh history
-      const historyRes = await api.ntfy.getHistory({ limit: 50 })
-      ntfyHistory.value = historyRes.data || []
+    const res = await ntfyApi.sendSavedMessage(id)
+    if (res.status === 200) {
+      notificationStore.success('Saved message sent')
+      const historyRes = await ntfyApi.getHistory({ limit: 50 })
+      ntfyHistory.value = historyRes.data
       // Refresh status
-      const statusRes = await api.ntfy.status()
+      const statusRes = await ntfyApi.status()
       ntfyStatus.value = statusRes.data
-      return { success: true }
     }
-    return { success: false, error: res.data.error }
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
-  }
-}
 
-async function handleNtfyDeleteSavedMessage(id) {
+
+async function deleteSavedMessage(id) {
   try {
-    await api.ntfy.deleteSavedMessage(id)
-    const res = await api.ntfy.getSavedMessages()
-    ntfySavedMessages.value = res.data || []
-    return { success: true }
+    await ntfyApi.deleteSavedMessage(id)
+    const res = await ntfyApi.getSavedMessages()
+    savedMessages.value = res.data
+    notificationStore.success('Message deleted')
   } catch (error) {
     return { success: false, error: error.response?.data?.detail || error.message }
   }

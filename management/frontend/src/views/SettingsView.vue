@@ -17,7 +17,7 @@ import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notifications'
 import { useDebugStore } from '../stores/debug'
-import api from '../services/api'
+import api, { settingsApi, authApi, systemApi } from '../services/api'
 import Card from '../components/common/Card.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
@@ -237,14 +237,14 @@ const tabs = [
 async function loadSettings() {
   loading.value = true
   try {
-    const response = await api.settings.getAll()
+    const response = await settingsApi.getAll()
     if (response.data) {
       settings.value = { ...settings.value, ...response.data }
     }
 
     // Load n8n API key status
     try {
-      const apiKeyRes = await api.settings.getEnvVariable('N8N_API_KEY')
+      const apiKeyRes = await settingsApi.getEnvVariable('N8N_API_KEY')
       n8nApiKeyIsSet.value = apiKeyRes.data.is_set
       n8nApiKeyMasked.value = apiKeyRes.data.masked_value || ''
     } catch (e) {
@@ -272,19 +272,9 @@ async function saveSettings(section) {
 }
 
 async function changePassword() {
-  if (passwordForm.value.new !== passwordForm.value.confirm) {
-    notificationStore.error('New passwords do not match')
-    return
-  }
-
-  if (passwordForm.value.new.length < 8) {
-    notificationStore.error('Password must be at least 8 characters')
-    return
-  }
-
-  changingPassword.value = true
+  passwordLoading.value = true
   try {
-    await api.auth.changePassword({
+    await authApi.changePassword({
       current_password: passwordForm.value.current,
       new_password: passwordForm.value.new,
     })
@@ -401,7 +391,7 @@ async function addIpRange() {
 
   addingIpRange.value = true
   try {
-    await api.settings.addIpRange(newIpRange.value)
+    await settingsApi.addIpRange(newIpRange.value)
     notificationStore.success(`IP range ${newIpRange.value.cidr} added`)
     newIpRange.value = { cidr: '', description: '', access_level: 'internal' }
     await loadAccessControl()
@@ -419,12 +409,11 @@ function confirmDeleteIpRange(ipRange) {
 
 async function deleteIpRange() {
   if (!ipRangeToDelete.value) return
-
+  loading.value = true
   try {
-    await api.settings.deleteIpRange(ipRangeToDelete.value.cidr)
-    notificationStore.success(`IP range ${ipRangeToDelete.value.cidr} deleted`)
+    await settingsApi.deleteIpRange(ipRangeToDelete.value.cidr)
+    deleteIpRangeDialog.value = false
     ipRangeToDelete.value = null
-    showDeleteConfirm.value = false
     await loadAccessControl()
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to delete IP range')
@@ -470,7 +459,7 @@ function cancelEditIpRangeDescription() {
 async function saveIpRangeDescription(cidr) {
   savingIpRangeDescription.value = true
   try {
-    await api.settings.updateIpRange(cidr, editingIpRangeDescription.value)
+    await settingsApi.updateIpRange(cidr, editingIpRangeDescription.value)
     notificationStore.success('Description updated successfully')
     editingIpRangeIndex.value = null
     editingIpRangeDescription.value = ''
@@ -486,7 +475,7 @@ async function saveIpRangeDescription(cidr) {
 async function loadExternalRoutes() {
   externalRoutesLoading.value = true
   try {
-    const response = await api.settings.getExternalRoutes()
+    const response = await settingsApi.getExternalRoutes()
     externalRoutes.value = response.data
   } catch (error) {
     console.error('Failed to load external routes:', error)
@@ -529,12 +518,11 @@ function confirmDeleteRoute(route) {
 
 async function deleteExternalRoute() {
   if (!routeToDelete.value) return
-
+  loading.value = true
   try {
-    await api.settings.deleteExternalRoute(routeToDelete.value.path)
-    notificationStore.success(`External route ${routeToDelete.value.path} removed. Reload nginx to apply.`)
+    await settingsApi.deleteExternalRoute(routeToDelete.value.path)
+    deleteRouteDialog.value = false
     routeToDelete.value = null
-    showDeleteRouteConfirm.value = false
     await loadExternalRoutes()
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to delete external route')
