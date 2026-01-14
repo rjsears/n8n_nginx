@@ -19,7 +19,7 @@ import SystemMetricsLoader from '../components/common/SystemMetricsLoader.vue'
 import { systemApi } from '../services/api'
 import { usePoll } from '../composables/usePoll'
 import { POLLING } from '../config/constants'
-import { formatBytes, formatRate, formatUptime } from '../utils/formatters'
+import { formatBytes, formatRate, formatUptime, getProgressColor } from '../utils/formatters'
 import {
   ServerIcon,
   CpuChipIcon,
@@ -63,13 +63,6 @@ const metricsAvailable = ref(false)
 
 // Metrics data from the cached SQL endpoint
 const metricsData = ref(null)
-
-// Get color for progress bar based on percent
-function getProgressColor(percent) {
-  if (percent >= 90) return 'bg-red-500'
-  if (percent >= 70) return 'bg-amber-500'
-  return 'bg-emerald-500'
-}
 
 // Fetch metrics from the cached SQL endpoint
 async function fetchMetrics() {

@@ -91,3 +91,14 @@ export function formatScheduleTimeFromSchedule(schedule) {
   const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
   return `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
 }
+
+/**
+ * Get color class for progress bar based on percent
+ * @param {number} percent - Percentage value (0-100)
+ * @returns {string} Tailwind CSS color class
+ */
+export function getProgressColor(percent) {
+  if (percent >= 90) return 'bg-red-500'
+  if (percent >= 75) return 'bg-amber-500' // Using 75 to match SystemView logic, Dashboard used 70
+  return 'bg-emerald-500'
+}
