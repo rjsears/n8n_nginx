@@ -338,6 +338,7 @@ const terminalDarkMode = ref(true) // Terminal theme preference (default dark)
 let terminal = null
 let fitAddon = null
 let websocket = null
+let pingInterval = null
 
 // Terminal theme definitions - vibrant high-contrast GitHub-style colors
 const terminalThemes = {
@@ -873,6 +874,14 @@ function connectTerminal() {
       terminalConnected.value = true
       terminal?.clear()
       terminal?.focus()
+
+      // Start ping interval (30s)
+      if (pingInterval) clearInterval(pingInterval)
+      pingInterval = setInterval(() => {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+          websocket.send(JSON.stringify({ type: 'ping' }))
+        }
+      }, 30000)
     }
 
     websocket.onmessage = (event) => {
@@ -887,6 +896,8 @@ function connectTerminal() {
         } else if (msg.type === 'disconnected') {
           terminal?.writeln('\r\n\x1b[33mDisconnected\x1b[0m')
           terminalConnected.value = false
+        } else if (msg.type === 'pong') {
+          // Pong received, connection is alive
         }
       } catch (e) {
         // Raw output
@@ -898,12 +909,20 @@ function connectTerminal() {
       console.error('WebSocket error:', error)
       terminalConnecting.value = false
       notificationStore.error('Terminal connection error')
+      if (pingInterval) {
+        clearInterval(pingInterval)
+        pingInterval = null
+      }
     }
 
     websocket.onclose = () => {
       terminalConnecting.value = false
       terminalConnected.value = false
       terminal?.writeln('\r\n\x1b[33mConnection closed\x1b[0m')
+      if (pingInterval) {
+        clearInterval(pingInterval)
+        pingInterval = null
+      }
     }
 
   } catch (error) {
@@ -914,6 +933,10 @@ function connectTerminal() {
 }
 
 function disconnectTerminal() {
+  if (pingInterval) {
+    clearInterval(pingInterval)
+    pingInterval = null
+  }
   if (websocket) {
     websocket.close()
     websocket = null
