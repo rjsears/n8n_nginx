@@ -21,7 +21,7 @@ import api from '@/services/api'
 import Card from '@/components/common/Card.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ProgressModal from '@/components/backups/ProgressModal.vue'
+import ProgressModal from '@/components/backup-ui/ProgressModal.vue'
 import {
   ExclamationCircleIcon,
   CircleStackIcon,

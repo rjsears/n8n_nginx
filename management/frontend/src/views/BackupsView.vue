@@ -31,7 +31,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import BackupScanLoader from '@/components/common/BackupScanLoader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ProgressModal from '@/components/backups/ProgressModal.vue'
+import ProgressModal from '@/components/backup-ui/ProgressModal.vue'
 import BackupContents from '@/components/backup-ui/BackupContents.vue'
 import {
   CircleStackIcon,
