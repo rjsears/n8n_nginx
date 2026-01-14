@@ -5540,6 +5540,7 @@ main() {
             echo -e "    • Cloudflare Tunnel - Secure access without exposing ports"
             echo -e "    • Tailscale - Private mesh VPN network access"
             echo -e "    • NTFY - Self-hosted push notification server"
+            echo -e "    • Public Website Hosting - Static website with File Browser"
             echo -e "    • Adminer - Web-based database management"
             echo -e "    • Dozzle - Real-time container log viewer"
             echo -e "    • Portainer / Portainer Agent - Container management UI"
