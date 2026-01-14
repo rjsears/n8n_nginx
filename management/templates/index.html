@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>n8n Management Suite - Public Website</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0f172a; /* Dark slate 900 */
+            color: #f1f5f9; /* Slate 100 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 2rem;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            background-color: #1e293b; /* Slate 800 */
+            border: 1px solid #334155; /* Slate 700 */
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .banner {
+            width: 100%;
+            max-width: 600px;
+            border-radius: 0.5rem;
+            margin-bottom: 2rem;
+        }
+        h1 {
+            color: #f59e0b; /* Amber 500 */
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+        p {
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+            color: #94a3b8; /* Slate 400 */
+        }
+        .links {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 2rem;
+            flex-wrap: wrap;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background-color: #f59e0b; /* Amber 500 */
+            color: #ffffff;
+        }
+        .btn-primary:hover {
+            background-color: #d97706; /* Amber 600 */
+        }
+        .btn-secondary {
+            background-color: #334155; /* Slate 700 */
+            color: #f1f5f9;
+        }
+        .btn-secondary:hover {
+            background-color: #475569; /* Slate 600 */
+        }
+        .code-block {
+            background-color: #0f172a;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-family: monospace;
+            text-align: left;
+            margin: 1.5rem 0;
+            border: 1px solid #334155;
+            color: #cbd5e1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="n8n_repo_banner.jpg" alt="n8n Management Suite" class="banner">
+        
+        <h1>Website Successfully Deployed!</h1>
+        
+        <p>
+            If you are seeing this page, your public website hosting is configured correctly.
+            This is a placeholder page served by Nginx.
+        </p>
+
+        <div class="code-block">
+            <strong>Next Steps:</strong>
+            <br><br>
+            1. Log in to the Management Console using the link below.<br>
+            2. Navigate to the <strong>Files</strong> tab.<br>
+            3. Upload your own <code>index.html</code> and website assets to replace this page.
+        </div>
+
+        <div class="links">
+            <a href="/management/" class="btn btn-primary">Go to Management Console</a>
+            <a href="https://n8n.io" target="_blank" class="btn btn-secondary">Learn about n8n</a>
+        </div>
+    </div>
+</body>
+</html>

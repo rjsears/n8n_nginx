@@ -4487,10 +4487,63 @@ configure_optional_services() {
 configure_public_website() {
     print_subsection
     echo -e "${WHITE}  Public Website Configuration${NC}"
+    
+    # Extract root domain logic
+    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+    local www_domain="www.${root_domain}"
+    
     echo ""
-    echo -e "  ${GRAY}This will configure Nginx to serve a static website at www.${N8N_DOMAIN#*.} (and root domain).${NC}"
+    echo -e "  ${GRAY}This will configure Nginx to serve a static website at:${NC}"
+    echo -e "    - ${CYAN}${www_domain}${NC}"
+    echo -e "    - ${CYAN}${root_domain}${NC}"
     echo -e "  ${GRAY}It includes 'File Browser' for managing website files via the Management Console.${NC}"
     echo ""
+
+    # Check DNS for public domains if Cloudflare Tunnel is enabled
+    # (Users requested "SAME dns tests" as main domain)
+    if [ "$INSTALL_CLOUDFLARE_TUNNEL" = "true" ]; then
+        print_info "Checking DNS resolution for ${www_domain}..."
+        
+        local local_ips=$(get_local_ips)
+        local domain_ip=""
+        
+        if command_exists dig; then
+            domain_ip=$(dig +short "$www_domain" 2>/dev/null | head -1)
+        elif command_exists nslookup; then
+            domain_ip=$(nslookup "$www_domain" 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | head -1)
+        fi
+        
+        # Check if the resolved IP matches any local IP
+        local ip_matches=false
+        if [ -n "$domain_ip" ]; then
+            for local_ip in $local_ips; do
+                if [ "$local_ip" = "$domain_ip" ]; then
+                    ip_matches=true
+                    break
+                fi
+            done
+        fi
+        
+        if [ "$ip_matches" = false ]; then
+            print_warning "DNS Warning: ${www_domain} does not resolve to this server's internal IP."
+            echo ""
+            echo -e "  ${YELLOW}IMPORTANT for Cloudflare Tunnel Users:${NC}"
+            echo -e "  You must configure a separate Public Hostname for the website."
+            echo ""
+            echo -e "  1. Go to Cloudflare Zero Trust > Tunnels > Configure"
+            echo -e "  2. Add Public Hostname:"
+            echo -e "     - Subdomain: ${WHITE}www${NC}"
+            echo -e "     - Domain: ${WHITE}${root_domain}${NC}"
+            echo -e "     - Service: ${CYAN}HTTPS${NC} -> ${CYAN}n8n_nginx:443${NC}"
+            echo -e "     - Settings: Enable ${WHITE}No TLS Verify${NC}"
+            echo ""
+            if ! confirm_prompt "Do you understand this requirement?" "y"; then
+                print_warning "Public website may not be accessible until configured."
+            fi
+        else
+            print_success "DNS resolution for ${www_domain} matches local IP"
+        fi
+    fi
 
     INSTALL_PUBLIC_WEBSITE=true
     print_success "Public Website enabled"
