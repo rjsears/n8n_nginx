@@ -13,26 +13,26 @@ https://github.com/rjsears
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import { useBackupStore } from '@/stores/backups'
-import { useNotificationStore } from '@/stores/notifications'
-import api from '@/services/api'
+import { useThemeStore } from '../stores/theme'
+import { useBackupStore } from '../stores/backups'
+import { useNotificationStore } from '../stores/notifications'
+import api from '../services/api'
 import {
   formatBytes,
   formatDate,
   formatScheduleTime,
   formatScheduleTimeFromSchedule
-} from '@/utils/formatters'
-import { usePoll } from '@/composables/usePoll'
-import { POLLING, TIMEOUTS, PAGINATION } from '@/config/constants'
-import Card from '@/components/common/Card.vue'
-import StatusBadge from '@/components/common/StatusBadge.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import BackupScanLoader from '@/components/common/BackupScanLoader.vue'
-import EmptyState from '@/components/common/EmptyState.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ProgressModal from '@/components/backup-ui/ProgressModal.vue'
-import BackupContents from '@/components/backup-ui/BackupContents.vue'
+} from '../utils/formatters'
+import { usePoll } from '../composables/usePoll'
+import { POLLING, TIMEOUTS, PAGINATION } from '../config/constants'
+import Card from '../components/common/Card.vue'
+import StatusBadge from '../components/common/StatusBadge.vue'
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import BackupScanLoader from '../components/common/BackupScanLoader.vue'
+import EmptyState from '../components/common/EmptyState.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
+import ProgressModal from '../components/backup-ui/ProgressModal.vue'
+import BackupContents from '../components/backup-ui/BackupContents.vue'
 import {
   CircleStackIcon,
   PlayIcon,

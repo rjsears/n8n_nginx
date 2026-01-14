@@ -23,9 +23,9 @@ import {
   DocumentIcon,
   ShieldCheckIcon
 } from '@heroicons/vue/24/outline'
-import BackupScanLoader from '@/components/common/BackupScanLoader.vue'
-import { formatBytes } from '@/utils/formatters'
-import { getConfigFileIcon } from '@/utils/helpers'
+import BackupScanLoader from '../common/BackupScanLoader.vue'
+import { formatBytes } from '../../utils/formatters'
+import { getConfigFileIcon } from '../../utils/helpers'
 
 const props = defineProps({
   backup: {

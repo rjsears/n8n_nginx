@@ -13,13 +13,13 @@ https://github.com/rjsears
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import Card from '@/components/common/Card.vue'
-import SystemMetricsLoader from '@/components/common/SystemMetricsLoader.vue'
-import { systemApi } from '@/services/api'
-import { usePoll } from '@/composables/usePoll'
-import { POLLING } from '@/config/constants'
-import { formatBytes, formatRate, formatUptime } from '@/utils/formatters'
+import { useThemeStore } from '../stores/theme'
+import Card from '../components/common/Card.vue'
+import SystemMetricsLoader from '../components/common/SystemMetricsLoader.vue'
+import { systemApi } from '../services/api'
+import { usePoll } from '../composables/usePoll'
+import { POLLING } from '../config/constants'
+import { formatBytes, formatRate, formatUptime } from '../utils/formatters'
 import {
   ServerIcon,
   CpuChipIcon,
