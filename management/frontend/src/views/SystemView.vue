@@ -933,15 +933,21 @@ function connectTerminal() {
 }
 
 function disconnectTerminal() {
+  terminalConnected.value = false
+  terminalConnecting.value = false
   if (pingInterval) {
     clearInterval(pingInterval)
     pingInterval = null
   }
   if (websocket) {
-    websocket.close()
+    try {
+      websocket.close()
+    } catch (e) {
+      console.error('Error closing websocket:', e)
+    }
     websocket = null
   }
-  terminalConnected.value = false
+  terminal?.writeln('\r\n\x1b[33mDisconnected\x1b[0m')
 }
 
 function toggleTerminalTheme() {
@@ -2087,22 +2093,35 @@ onUnmounted(() => {
             </div>
 
             <!-- Center: Dropdown (with flex-1 spacers on each side) -->
-            <div class="flex-1 flex justify-center">
-              <select
-                v-model="selectedTarget"
-                :disabled="terminalConnected"
-                class="select-field text-sm py-1.5 min-w-[220px]"
-              >
-                <option
-                  v-for="target in terminalTargets"
-                  :key="target.id"
-                  :value="target.id"
+            <div class="flex-1 flex justify-center items-center gap-2">
+              <div class="relative">
+                <select
+                  v-model="selectedTarget"
+                  :disabled="terminalConnected || terminalConnecting"
+                  :class="[
+                    'select-field text-sm py-1.5 min-w-[220px] bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white',
+                    (terminalConnected || terminalConnecting) ? 'opacity-50 cursor-not-allowed' : ''
+                  ]"
                 >
-                  {{ target.name }}
-                  <template v-if="target.type === 'container'"> ({{ target.image?.split(':')[0] }})</template>
-                  <template v-if="target.type === 'host'"> - Host</template>
-                </option>
-              </select>
+                  <option
+                    v-for="target in terminalTargets"
+                    :key="target.id"
+                    :value="target.id"
+                  >
+                    {{ target.name }}
+                    <template v-if="target.type === 'container'"> ({{ target.image?.split(':')[0] }})</template>
+                    <template v-if="target.type === 'host'"> - Host</template>
+                  </option>
+                </select>
+              </div>
+              <button
+                @click="loadTerminalTargets"
+                :disabled="terminalConnected || terminalConnecting"
+                class="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Refresh targets"
+              >
+                <ArrowPathIcon class="h-4 w-4" />
+              </button>
             </div>
 
             <!-- Right: Theme Toggle + Connect Button -->
