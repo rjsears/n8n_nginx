@@ -25,6 +25,7 @@ import {
   ServerStackIcon,
   CubeTransparentIcon,
   CpuChipIcon,
+  FolderIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
   SunIcon,
@@ -51,6 +52,7 @@ const navItems = [
   { name: 'Containers', route: 'containers', icon: ServerStackIcon },
   { name: 'Flows', route: 'flows', icon: CubeTransparentIcon },
   { name: 'System', route: 'system', icon: CpuChipIcon },
+  { name: 'Files', route: 'file-browser', icon: FolderIcon },
   { name: 'Settings', route: 'settings', icon: Cog6ToothIcon },
 ]
 

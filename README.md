@@ -105,10 +105,11 @@ A production-ready, self-hosted deployment solution for [n8n](https://n8n.io) wo
   - [9.4 Global Settings](#94-global-settings)
   - [9.5 Per-Container Configuration](#95-per-container-configuration)
   - [9.6 Flapping Detection](#96-flapping-detection)
-- [10. Container Management](#10-container-management)
-- [11. Workflow Management](#11-workflow-management)
-- [12. System Monitoring](#12-system-monitoring)
-- [13. Settings](#13-settings)
+- 10. Container Management
+- 11. Workflow Management
+- 12. Public Website Management
+- 13. System Monitoring
+- 14. Settings
 
 ### Part V: Operations and Maintenance
 - [14. Daily Operations](#14-daily-operations)
@@ -175,6 +176,7 @@ Whether you are running n8n for personal automation or deploying it for an organ
 - Certbot / Let's Encrypt support for multiple DNS providers (Cloudflare, AWS Route 53, Google Cloud DNS, DigitalOcean)
 - PostgreSQL 16 with pgvector extension for AI vector embeddings
 - Nginx reverse proxy with optimized configuration for n8n
+- Optional public website hosting with integrated File Browser management
 - Optional Tailscale VPN and Cloudflare Tunnel integration
 
 #### Management Console
@@ -2624,7 +2626,41 @@ View recent executions for each workflow:
 
 ---
 
-## 12. System Monitoring
+## 12. Public Website Management
+
+If you enabled the "Public Website" option during setup, you can host a static website alongside your n8n instance.
+
+### File Manager
+
+The **Files** tab provides a full-featured file manager (File Browser) for your public website root directory.
+
+- **Upload**: Upload HTML, CSS, JS, and image files directly
+- **Edit**: Edit code files in the browser
+- **Organize**: Create folders and manage file structure
+
+### Accessing Your Site
+
+Your public website is accessible at:
+- `https://www.yourdomain.com`
+- `https://yourdomain.com`
+
+> **Note**: This is separate from your n8n instance at `n8n.yourdomain.com`.
+
+### Cloudflare Tunnel Configuration
+
+If using Cloudflare Tunnel, you **must** add a public hostname for your website:
+
+1. Go to Cloudflare Zero Trust > Access > Tunnels
+2. Select your tunnel > Configure > Public Hostname
+3. Add a new hostname:
+   - **Subdomain**: `www` (or leave blank for root)
+   - **Domain**: `yourdomain.com`
+   - **Service**: `HTTPS` -> `n8n_nginx:443`
+   - **Settings**: TLS -> No TLS Verify (enabled)
+
+---
+
+## 13. System Monitoring
 
 Monitor system health and resources.
 
@@ -2681,7 +2717,7 @@ System Docker details:
 
 ---
 
-## 13. Settings
+## 14. Settings
 
 Configure the management console.
 

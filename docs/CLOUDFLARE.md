@@ -13,12 +13,13 @@ Cloudflare Tunnel (formerly Argo Tunnel) provides secure, outbound-only access t
 3. [Adding Your Domain to Cloudflare](#adding-your-domain-to-cloudflare)
 4. [Setting Up Zero Trust](#setting-up-zero-trust)
 5. [Creating a Tunnel](#creating-a-tunnel)
-6. [Generating the Tunnel Token](#generating-the-tunnel-token)
-7. [Configuration in n8n Management](#configuration-in-n8n-management)
-8. [Understanding How Tunnels Work](#understanding-how-tunnels-work)
-9. [Zero Trust Access Policies](#zero-trust-access-policies)
-10. [Security Best Practices](#security-best-practices)
-11. [Troubleshooting](#troubleshooting)
+6. [Public Website Hosting](#public-website-hosting)
+7. [Generating the Tunnel Token](#generating-the-tunnel-token)
+8. [Configuration in n8n Management](#configuration-in-n8n-management)
+9. [Understanding How Tunnels Work](#understanding-how-tunnels-work)
+10. [Zero Trust Access Policies](#zero-trust-access-policies)
+11. [Security Best Practices](#security-best-practices)
+12. [Troubleshooting](#troubleshooting)
 
 ### Other Documentation
 
@@ -238,6 +239,43 @@ The n8n Management Suite uses nginx reverse proxy with path-based routing - no p
 
 1. Review your configuration
 2. Click **Save tunnel**
+
+---
+
+## Public Website Hosting
+
+If you enabled the **Public Website** feature during setup, you must configure Cloudflare Tunnel to route traffic for your website (`www.yourdomain.com` or `yourdomain.com`).
+
+### Why is this needed?
+The `n8n` public hostname (e.g., `n8n.example.com`) only routes traffic to the n8n application. To serve your static website, you need separate public hostnames pointing to the same tunnel.
+
+### Configuration Steps
+
+1. Go to **Networks** > **Tunnels**
+2. Select your `n8n-tunnel` > **Configure**
+3. Go to **Public Hostname** tab
+4. Click **Add a public hostname**
+
+**For www subdomain:**
+| Field | Value |
+|-------|-------|
+| Subdomain | `www` |
+| Domain | `example.com` |
+| Path | (leave empty) |
+| Type | `HTTPS` |
+| URL | `n8n_nginx:443` |
+
+**For root domain (optional):**
+| Field | Value |
+|-------|-------|
+| Subdomain | (leave empty) |
+| Domain | `example.com` |
+| Type | `HTTPS` |
+| URL | `n8n_nginx:443` |
+
+### Important Settings
+For both hostnames, you **must** enable this setting under **Additional application settings > TLS**:
+- **No TLS Verify**: ✅ Enabled
 
 ---
 

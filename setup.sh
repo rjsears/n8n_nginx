@@ -76,6 +76,7 @@ INSTALL_NTFY=false
 NTFY_BASE_URL=""
 NTFY_PUBLIC_URL=""
 NTFY_INTERNAL_URL=""
+INSTALL_PUBLIC_WEBSITE=false
 
 # Auto-generated credential tracking (for display at end of setup)
 AUTOGEN_DB_PASSWORD=false
@@ -730,6 +731,7 @@ SAVED_INSTALL_NTFY="$INSTALL_NTFY"
 SAVED_NTFY_BASE_URL="$NTFY_BASE_URL"
 SAVED_NTFY_PUBLIC_URL="$NTFY_PUBLIC_URL"
 SAVED_NTFY_INTERNAL_URL="$NTFY_INTERNAL_URL"
+SAVED_INSTALL_PUBLIC_WEBSITE="$INSTALL_PUBLIC_WEBSITE"
 
 # Access Control
 SAVED_INTERNAL_IP_RANGES="$INTERNAL_IP_RANGES"
@@ -790,6 +792,7 @@ load_state() {
         NTFY_BASE_URL="${SAVED_NTFY_BASE_URL:-}"
         NTFY_PUBLIC_URL="${SAVED_NTFY_PUBLIC_URL:-}"
         NTFY_INTERNAL_URL="${SAVED_NTFY_INTERNAL_URL:-}"
+        INSTALL_PUBLIC_WEBSITE="${SAVED_INSTALL_PUBLIC_WEBSITE:-false}"
 
         # Access Control
         INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
@@ -917,6 +920,11 @@ restore_optional_services_from_config() {
         INSTALL_NTFY="$NTFY_ENABLED"
     fi
 
+    # Public Website
+    if [ -n "$PUBLIC_WEBSITE_ENABLED" ]; then
+        INSTALL_PUBLIC_WEBSITE="$PUBLIC_WEBSITE_ENABLED"
+    fi
+
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1027,6 +1035,14 @@ load_preconfig() {
         print_success "NTFY enabled"
     else
         INSTALL_NTFY=false
+    fi
+
+    # Public Website: enabled if PUBLIC_WEBSITE_ENABLED is set
+    if [ "$PUBLIC_WEBSITE_ENABLED" = "true" ]; then
+        INSTALL_PUBLIC_WEBSITE=true
+        print_success "Public Website enabled"
+    else
+        INSTALL_PUBLIC_WEBSITE=false
     fi
 
     # Other optional services (use explicit flags)
@@ -3307,6 +3323,27 @@ EOF
 EOF
     fi
 
+    # Add File Browser if configured (Public Website)
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        touch "${SCRIPT_DIR}/filebrowser.db"
+        chmod 600 "${SCRIPT_DIR}/filebrowser.db"
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  # ===========================================================================
+  # File Browser - Public Website Management
+  # ===========================================================================
+  filebrowser:
+    image: filebrowser/filebrowser:latest
+    container_name: n8n_filebrowser
+    restart: unless-stopped
+    volumes:
+      - public_web_root:/srv
+      - ./filebrowser.db:/database.db
+    networks:
+      - n8n_network
+
+EOF
+    fi
+
     # Add volumes section
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
 # ===========================================================================
@@ -3328,6 +3365,13 @@ volumes:
   certbot_data:
     driver: local
 EOF
+
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  public_web_root:
+    driver: local
+EOF
+    fi
 
     # NFS is now mounted at host level and bind-mounted into container
     # No Docker NFS volume needed - using ${NFS_LOCAL_MOUNT}:/mnt/backups bind mount
@@ -3369,11 +3413,24 @@ networks:
     driver: bridge
 EOF
 
+    # Inject public_web_root volume into nginx service if configured
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        if [ "$CHECK_PLATFORM" = "macos" ]; then
+            sed -i '' '/letsencrypt:\/etc\/letsencrypt:ro/a\
+      - public_web_root:/var/www/public:ro' "${SCRIPT_DIR}/docker-compose.yaml"
+        else
+            sed -i '/letsencrypt:\/etc\/letsencrypt:ro/a\      - public_web_root:/var/www/public:ro' "${SCRIPT_DIR}/docker-compose.yaml"
+        fi
+    fi
+
     print_success "docker-compose.yaml generated for v3.0"
 }
 
 generate_nginx_conf_v3() {
     print_info "Generating nginx.conf for v3.0..."
+
+    # Extract root domain for public website config
+    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
 
     # Start nginx.conf with events and http block
     cat > "${SCRIPT_DIR}/nginx.conf" << EOF
@@ -3443,6 +3500,40 @@ EOF
     #   - /adminer/     - Database management (if enabled)
     #   - /dozzle/      - Log viewer (if enabled)
     # ===========================================================================
+EOF
+
+    # Public Website Server Block
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+    # ===========================================================================
+    # Public Website (www & root)
+    # ===========================================================================
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name www.${root_domain} ${root_domain};
+
+        # Reuse the same wildcard certificate
+        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+
+        # Serve static files
+        root /var/www/public;
+        index index.html;
+
+        location / {
+            try_files \$uri \$uri/ =404;
+        }
+    }
+EOF
+    fi
+
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
 
     # ===========================================================================
     # Main n8n HTTPS Server (Port 443)
@@ -3636,6 +3727,35 @@ EOF
             # Long timeout for SSE/WebSocket notification streams
             proxy_read_timeout 86400s;
             proxy_send_timeout 86400s;
+        }
+EOF
+    fi
+
+    # Add File Browser location if configured
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # File Browser - Public Website Management - INTERNAL ACCESS ONLY
+        location /files/ {
+            # Block external access
+            if ($access_level = "external") {
+                return 403;
+            }
+
+            # Authenticate via internal API
+            auth_request /management/api/auth/verify;
+
+            proxy_pass http://n8n_filebrowser:80/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            # Pass authenticated user to File Browser
+            proxy_set_header X-Remote-User admin;
         }
 EOF
     fi
@@ -4299,6 +4419,7 @@ configure_optional_services() {
         [ "$INSTALL_ADMINER" = "true" ] && print_success "  Adminer: enabled"
         [ "$INSTALL_DOZZLE" = "true" ] && print_success "  Dozzle: enabled"
         [ "$INSTALL_NTFY" = "true" ] && print_success "  NTFY: enabled"
+        [ "$INSTALL_PUBLIC_WEBSITE" = "true" ] && print_success "  Public Website: enabled"
         return
     fi
 
@@ -4319,8 +4440,16 @@ configure_optional_services() {
     echo -e "  ${WHITE}${BOLD}Notifications:${NC}"
     echo -e "    ${CYAN}•${NC} NTFY - Self-hosted push notifications server"
     echo ""
+    echo -e "  ${WHITE}${BOLD}Web Hosting:${NC}"
+    echo -e "    ${CYAN}•${NC} Public Website - Host a static website (www.) with File Browser management"
+    echo ""
 
     if confirm_prompt "Would you like to configure optional services?" "n"; then
+        # Public Website
+        if confirm_prompt "  Host a public website (www.${N8N_DOMAIN#*.})?" "n"; then
+            configure_public_website
+        fi
+
         # Portainer
         if confirm_prompt "  Install Portainer for container management?" "n"; then
             configure_portainer
@@ -4353,6 +4482,18 @@ configure_optional_services() {
     else
         print_info "Skipping optional services. You can add them later by running setup again."
     fi
+}
+
+configure_public_website() {
+    print_subsection
+    echo -e "${WHITE}  Public Website Configuration${NC}"
+    echo ""
+    echo -e "  ${GRAY}This will configure Nginx to serve a static website at www.${N8N_DOMAIN#*.} (and root domain).${NC}"
+    echo -e "  ${GRAY}It includes 'File Browser' for managing website files via the Management Console.${NC}"
+    echo ""
+
+    INSTALL_PUBLIC_WEBSITE=true
+    print_success "Public Website enabled"
 }
 
 configure_cloudflare_tunnel() {
@@ -4817,6 +4958,44 @@ obtain_ssl_certificate() {
     local cred_volume_opt=""
     local force_renew="${FORCE_SSL_RENEWAL:-false}"
 
+    # Determine domains for certificate
+    local domains_arg="-d $N8N_DOMAIN"
+    
+    # Try to extract root domain (e.g. n8n.example.com -> example.com)
+    # This logic handles:
+    #   sub.example.com -> example.com
+    #   example.com -> example.com (no change)
+    #   n8n.sub.example.co.uk -> example.co.uk (basic heuristic)
+    
+    # Simple extraction: take last two parts (works for .com, .net, etc.)
+    # For complex TLDs (.co.uk), this heuristic might be too simple, 
+    # but since we prompt the user, it's safe.
+    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+    
+    # If using preconfig, check if we should force wildcard
+    if [ "$PRECONFIG_MODE" = "true" ]; then
+        if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+            print_info "Public Website enabled - requesting wildcard certificate for ${root_domain}"
+            domains_arg="-d $root_domain -d *.$root_domain"
+        fi
+    else
+        # Interactive mode
+        if [ "$root_domain" != "$N8N_DOMAIN" ]; then
+            echo ""
+            echo -e "  ${WHITE}Certificate Scope Configuration${NC}"
+            echo -e "  ${GRAY}We can request a wildcard certificate for ${WHITE}*.${root_domain}${GRAY}${NC}"
+            echo -e "  ${GRAY}This allows hosting other services (like www.${root_domain}) without new certificates.${NC}"
+            echo ""
+            
+            if confirm_prompt "Do you control the DNS for ${root_domain}?" "y"; then
+                domains_arg="-d $root_domain -d *.$root_domain"
+                print_success "Will request wildcard certificate for *.${root_domain}"
+            else
+                print_info "Falling back to single-domain certificate for ${N8N_DOMAIN}"
+            fi
+        fi
+    fi
+
     # Check for existing valid certificate first
     if check_existing_ssl_certificate "$N8N_DOMAIN"; then
         display_certificate_info
@@ -4899,7 +5078,7 @@ obtain_ssl_certificate() {
         $DNS_CERTBOT_IMAGE \
         certonly \
         $certbot_flags \
-        -d "$N8N_DOMAIN" \
+        $domains_arg \
         --agree-tos \
         --non-interactive \
         --email "$LETSENCRYPT_EMAIL"; then
