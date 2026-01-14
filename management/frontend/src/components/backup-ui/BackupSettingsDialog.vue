@@ -11,18 +11,10 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
-import { useBackupStore } from '@/stores/backups'
-import { useNotificationStore } from '@/stores/notifications'
-import {
-  XMarkIcon,
-  FolderIcon,
-  ClockIcon,
-  TrashIcon,
-  BellIcon,
-  CheckCircleIcon,
-  Cog6ToothIcon,
-} from '@heroicons/vue/24/outline'
+import { ref, watch } from 'vue'
+import { useBackupStore } from '../../stores/backups'
+import { useNotificationStore } from '../../stores/notifications'
+import { XMarkIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   open: Boolean,

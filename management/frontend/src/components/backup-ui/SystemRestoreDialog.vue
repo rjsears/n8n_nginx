@@ -11,21 +11,11 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { useBackupStore } from '@/stores/backups'
-import { useNotificationStore } from '@/stores/notifications'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import {
-  XMarkIcon,
-  ArrowPathIcon,
-  ExclamationTriangleIcon,
-  CheckCircleIcon,
-  CircleStackIcon,
-  DocumentTextIcon,
-  ShieldCheckIcon,
-  TableCellsIcon,
-  Cog6ToothIcon,
-} from '@heroicons/vue/24/outline'
+import { ref, watch } from 'vue'
+import { useBackupStore } from '../../stores/backups'
+import { useNotificationStore } from '../../stores/notifications'
+import LoadingSpinner from '../common/LoadingSpinner.vue'
+import { XMarkIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   open: Boolean,

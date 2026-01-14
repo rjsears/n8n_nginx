@@ -946,7 +946,6 @@ async function loadData() {
 }
 
 onMounted(loadData)
-onUnmounted(stopPolling)
 </script>
 
 <template>

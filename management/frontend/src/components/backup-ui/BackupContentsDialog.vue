@@ -12,10 +12,10 @@ https://github.com/rjsears
 -->
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useBackupStore } from '@/stores/backups'
-import { useNotificationStore } from '@/stores/notifications'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import StatusBadge from '@/components/common/StatusBadge.vue'
+import { useBackupStore } from '../../stores/backups'
+import { useNotificationStore } from '../../stores/notifications'
+import LoadingSpinner from '../common/LoadingSpinner.vue'
+import StatusBadge from '../common/StatusBadge.vue'
 import WorkflowRestoreDialog from './WorkflowRestoreDialog.vue'
 import {
   XMarkIcon,
