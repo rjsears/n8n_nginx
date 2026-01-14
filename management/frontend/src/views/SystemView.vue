@@ -11,17 +11,20 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import { useAuthStore } from '@/stores/auth'
-import { useNotificationStore } from '@/stores/notifications'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import HeartbeatLoader from '@/components/common/HeartbeatLoader.vue'
-import DnaHelixLoader from '@/components/common/DnaHelixLoader.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { useThemeStore } from '../stores/theme'
+import { useAuthStore } from '../stores/auth'
+import { useNotificationStore } from '../stores/notifications'
+import api from '../services/api'
+import { formatBytes } from '../utils/formatters'
+import { usePoll } from '../composables/usePoll'
+import { POLLING } from '../config/constants'
+import Card from '../components/common/Card.vue'
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import HeartbeatLoader from '../components/common/HeartbeatLoader.vue'
+import DnaHelixLoader from '../components/common/DnaHelixLoader.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import {
   CpuChipIcon,
   CircleStackIcon,
@@ -450,26 +453,11 @@ const chartOptions = computed(() => ({
   },
 }))
 
-function formatBytes(bytes) {
-  if (!bytes) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
-}
-
-function getProgressColor(percent) {
-  if (percent >= 90) return 'bg-red-500'
-  if (percent >= 75) return 'bg-amber-500'
-  return 'bg-blue-500'
-}
-
 async function loadData() {
   loading.value = true
   try {
-    const [systemRes, healthRes] = await Promise.all([
+    const [systemRes] = await Promise.all([
       api.system.getInfo(),
-      api.system.getHealth(),
     ])
     systemInfo.value = systemRes.data
 
@@ -479,19 +467,8 @@ async function loadData() {
     memoryHistory.value.push(systemInfo.value.memory?.percent || 0)
     memoryHistory.value.shift()
   } catch (error) {
-    console.error('System info load failed:', {
-      message: error.message,
-      status: error.response?.status,
-      data: error.response?.data,
-    })
-
-    let errorMessage = 'Failed to load system information'
-    if (!error.response) {
-      errorMessage = 'Cannot connect to server'
-    } else if (error.response?.status === 500) {
-      errorMessage = `System info error: ${error.response?.data?.detail || 'Internal server error'}`
-    }
-    notificationStore.error(errorMessage)
+    console.error('System info load failed:', error)
+    notificationStore.error('Failed to load system information')
   } finally {
     loading.value = false
   }
@@ -512,38 +489,9 @@ async function loadHealthData() {
     healthData.value = response.data
     healthLastUpdated.value = new Date()
   } catch (error) {
-    // Always log detailed error to console for debugging
-    console.error('Health data load failed:', {
-      message: error.message,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      url: error.config?.url,
-    })
-
-    // Build user-friendly error message with details
-    let errorMessage = 'Failed to load health data'
-    const detail = error.response?.data?.detail
-
-    if (error.response?.status === 401) {
-      errorMessage = 'Session expired - please log in again'
-    } else if (error.response?.status === 500) {
-      if (typeof detail === 'object' && detail?.message) {
-        errorMessage = `Health check error: ${detail.message}`
-      } else if (typeof detail === 'string') {
-        errorMessage = `Health check error: ${detail}`
-      } else {
-        errorMessage = 'Health check failed - check browser console for details'
-      }
-    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      errorMessage = 'Health check timed out - the server may be busy'
-    } else if (!error.response) {
-      errorMessage = 'Cannot connect to server - check if the management API is running'
-    }
-
-    notificationStore.error(errorMessage)
+    console.error('Health data load failed:', error)
+    notificationStore.error('Failed to load health data')
     healthData.value.overall_status = 'error'
-    healthData.value.error = errorMessage
   } finally {
     // Stop rotating messages
     if (healthLoadingInterval) {
@@ -553,6 +501,11 @@ async function loadHealthData() {
     healthLoading.value = false
   }
 }
+
+// Start polling for system info
+usePoll(loadData, POLLING.DASHBOARD_METRICS, false)
+// Poll health data every minute
+usePoll(loadHealthData, 60000, false)
 
 async function loadNetworkInfo() {
   networkLoading.value = true

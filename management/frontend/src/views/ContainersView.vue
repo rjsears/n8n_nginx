@@ -11,17 +11,20 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { useThemeStore } from '@/stores/theme'
-import { useContainerStore } from '@/stores/containers'
-import { useNotificationStore } from '@/stores/notifications'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import StatusBadge from '@/components/common/StatusBadge.vue'
-import ContainerStackLoader from '@/components/common/ContainerStackLoader.vue'
-import EmptyState from '@/components/common/EmptyState.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useThemeStore } from '../stores/theme'
+import { useContainerStore } from '../stores/containers'
+import { useNotificationStore } from '../stores/notifications'
+import api from '../services/api'
+import { formatBytes } from '../utils/formatters'
+import { usePoll } from '../composables/usePoll'
+import { POLLING } from '../config/constants'
+import Card from '../components/common/Card.vue'
+import StatusBadge from '../components/common/StatusBadge.vue'
+import ContainerStackLoader from '../components/common/ContainerStackLoader.vue'
+import EmptyState from '../components/common/EmptyState.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import { useRouter } from 'vue-router'
 import {
   ServerIcon,
@@ -159,8 +162,6 @@ const removeConfirmDialog = ref({ open: false, container: null, loading: false }
 
 // Recreate container dialog
 const recreateDialog = ref({ open: false, container: null, loading: false })
-
-let statsInterval = null
 
 // Funny loading messages for containers
 const allContainerMessages = [
@@ -358,14 +359,6 @@ function getCpuColor(cpuPercent) {
   if (cpuPercent > 80) return 'text-red-500'
   if (cpuPercent > 50) return 'text-amber-500'
   return 'text-emerald-500'
-}
-
-function formatBytes(bytes) {
-  if (!bytes || bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
 function getHealthBadgeClass(health) {
@@ -730,15 +723,18 @@ async function loadData() {
   }
 }
 
+// Start polling for stats
+usePoll(fetchStats, POLLING.DASHBOARD_METRICS, false)
+
 onMounted(() => {
   loadData()
-  // Refresh stats every 30 seconds
-  statsInterval = setInterval(fetchStats, 30000)
 })
 
 onUnmounted(() => {
-  if (statsInterval) {
-    clearInterval(statsInterval)
+  disconnectTerminal()
+  if (terminal) {
+    terminal.dispose()
+    terminal = null
   }
   if (containerLoadingInterval) {
     clearInterval(containerLoadingInterval)
