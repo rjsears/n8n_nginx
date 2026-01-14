@@ -731,9 +731,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (statsInterval) {
-    clearInterval(statsInterval)
-  }
   if (containerLoadingInterval) {
     clearInterval(containerLoadingInterval)
     containerLoadingInterval = null
