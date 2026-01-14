@@ -12,72 +12,61 @@ https://github.com/rjsears
 */
 
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-
-// Views
-import LoginView from '@/views/LoginView.vue'
-import DashboardView from '@/views/DashboardView.vue'
-import BackupsView from '@/views/BackupsView.vue'
-import NotificationsView from '@/views/NotificationsView.vue'
-import ContainersView from '@/views/ContainersView.vue'
-import FlowsView from '@/views/FlowsView.vue'
-import SystemView from '@/views/SystemView.vue'
-import SettingsView from '@/views/SettingsView.vue'
-import BackupSettingsView from '@/views/BackupSettingsView.vue'
+import { useAuthStore } from '../stores/auth'
 
 const routes = [
   {
     path: '/login',
     name: 'login',
-    component: LoginView,
+    component: () => import('../views/LoginView.vue'),
     meta: { guest: true },
   },
   {
     path: '/',
     name: 'dashboard',
-    component: DashboardView,
+    component: () => import('../views/DashboardView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/backups',
     name: 'backups',
-    component: BackupsView,
+    component: () => import('../views/BackupsView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/backup-settings',
     name: 'backup-settings',
-    component: BackupSettingsView,
+    component: () => import('../views/BackupSettingsView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/notifications',
     name: 'notifications',
-    component: NotificationsView,
+    component: () => import('../views/NotificationsView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/containers',
     name: 'containers',
-    component: ContainersView,
+    component: () => import('../views/ContainersView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/flows',
     name: 'flows',
-    component: FlowsView,
+    component: () => import('../views/FlowsView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/system',
     name: 'system',
-    component: SystemView,
+    component: () => import('../views/SystemView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/settings',
     name: 'settings',
-    component: SettingsView,
+    component: () => import('../views/SettingsView.vue'),
     meta: { requiresAuth: true },
   },
   {

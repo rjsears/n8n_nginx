@@ -15,13 +15,13 @@ https://github.com/rjsears
 -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useNotificationStore } from '@/stores/notifications'
-import { useBackupStore } from '@/stores/backups'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import ProgressModal from '@/components/backups/ProgressModal.vue'
+import { useNotificationStore } from '../../stores/notifications'
+import { useBackupStore } from '../../stores/backups'
+import api from '../../services/api'
+import Card from '../common/Card.vue'
+import LoadingSpinner from '../common/LoadingSpinner.vue'
+import ConfirmDialog from '../common/ConfirmDialog.vue'
+import ProgressModal from '../backup-ui/ProgressModal.vue'
 import {
   ExclamationCircleIcon,
   CircleStackIcon,

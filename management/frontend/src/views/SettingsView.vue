@@ -13,16 +13,16 @@ https://github.com/rjsears
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import { useAuthStore } from '@/stores/auth'
-import { useNotificationStore } from '@/stores/notifications'
-import { useDebugStore } from '@/stores/debug'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import SystemNotificationsSettings from '@/components/settings/SystemNotificationsSettings.vue'
-import EnvironmentSettings from '@/components/settings/EnvironmentSettings.vue'
+import { useThemeStore } from '../stores/theme'
+import { useAuthStore } from '../stores/auth'
+import { useNotificationStore } from '../stores/notifications'
+import { useDebugStore } from '../stores/debug'
+import api, { settingsApi, authApi, systemApi } from '../services/api'
+import Card from '../components/common/Card.vue'
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
+import SystemNotificationsSettings from '../components/settings/SystemNotificationsSettings.vue'
+import EnvironmentSettings from '../components/settings/EnvironmentSettings.vue'
 import {
   Cog6ToothIcon,
   PaintBrushIcon,
@@ -237,14 +237,14 @@ const tabs = [
 async function loadSettings() {
   loading.value = true
   try {
-    const response = await api.settings.getAll()
+    const response = await settingsApi.getAll()
     if (response.data) {
       settings.value = { ...settings.value, ...response.data }
     }
 
     // Load n8n API key status
     try {
-      const apiKeyRes = await api.settings.getEnvVariable('N8N_API_KEY')
+      const apiKeyRes = await settingsApi.getEnvVariable('N8N_API_KEY')
       n8nApiKeyIsSet.value = apiKeyRes.data.is_set
       n8nApiKeyMasked.value = apiKeyRes.data.masked_value || ''
     } catch (e) {
@@ -261,7 +261,7 @@ async function saveSettings(section) {
   saving.value = true
   try {
     // Backend expects {value: data} format per SettingUpdate schema
-    await api.settings.update(section, { value: settings.value[section] })
+    await settingsApi.update(section, { value: settings.value[section] })
     notificationStore.success('Settings saved successfully')
   } catch (error) {
     console.error('Failed to save settings:', error)
@@ -272,19 +272,9 @@ async function saveSettings(section) {
 }
 
 async function changePassword() {
-  if (passwordForm.value.new !== passwordForm.value.confirm) {
-    notificationStore.error('New passwords do not match')
-    return
-  }
-
-  if (passwordForm.value.new.length < 8) {
-    notificationStore.error('Password must be at least 8 characters')
-    return
-  }
-
-  changingPassword.value = true
+  passwordLoading.value = true
   try {
-    await api.auth.changePassword({
+    await authApi.changePassword({
       current_password: passwordForm.value.current,
       new_password: passwordForm.value.new,
     })
@@ -331,7 +321,7 @@ async function saveN8nApiKey() {
 
   n8nApiKeyLoading.value = true
   try {
-    await api.settings.updateEnvVariable('N8N_API_KEY', n8nApiKey.value.trim())
+    await settingsApi.updateEnvVariable('N8N_API_KEY', n8nApiKey.value.trim())
     n8nApiKeyIsSet.value = true
     n8nApiKeyMasked.value = n8nApiKey.value.length > 8
       ? `${n8nApiKey.value.slice(0, 4)}...${n8nApiKey.value.slice(-4)}`
@@ -353,7 +343,7 @@ async function loadAccessControl() {
   try {
     // Load defaults first - this should always work
     try {
-      const defaultsResponse = await api.settings.getDefaultIpRanges()
+      const defaultsResponse = await settingsApi.getDefaultIpRanges()
       defaultIpRanges.value = defaultsResponse.data
     } catch (e) {
       console.error('Failed to load default IP ranges:', e)
@@ -361,7 +351,7 @@ async function loadAccessControl() {
 
     // Load current config - may fail if nginx config doesn't exist
     try {
-      const configResponse = await api.settings.getAccessControl()
+      const configResponse = await settingsApi.getAccessControl()
       accessControl.value = configResponse.data
     } catch (e) {
       console.error('Failed to load access control config:', e)
@@ -376,7 +366,7 @@ async function loadAccessControl() {
 
     // Check if Cloudflare tunnel is installed/running
     try {
-      const cfResponse = await api.system.cloudflare()
+      const cfResponse = await systemApi.cloudflare()
       cloudflareInstalled.value = cfResponse.data?.installed || false
       cloudflareRunning.value = cfResponse.data?.running || false
     } catch (e) {
@@ -401,7 +391,7 @@ async function addIpRange() {
 
   addingIpRange.value = true
   try {
-    await api.settings.addIpRange(newIpRange.value)
+    await settingsApi.addIpRange(newIpRange.value)
     notificationStore.success(`IP range ${newIpRange.value.cidr} added`)
     newIpRange.value = { cidr: '', description: '', access_level: 'internal' }
     await loadAccessControl()
@@ -419,12 +409,11 @@ function confirmDeleteIpRange(ipRange) {
 
 async function deleteIpRange() {
   if (!ipRangeToDelete.value) return
-
+  loading.value = true
   try {
-    await api.settings.deleteIpRange(ipRangeToDelete.value.cidr)
-    notificationStore.success(`IP range ${ipRangeToDelete.value.cidr} deleted`)
+    await settingsApi.deleteIpRange(ipRangeToDelete.value.cidr)
+    deleteIpRangeDialog.value = false
     ipRangeToDelete.value = null
-    showDeleteConfirm.value = false
     await loadAccessControl()
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to delete IP range')
@@ -435,7 +424,7 @@ async function deleteIpRange() {
 async function reloadNginx() {
   reloadingNginx.value = true
   try {
-    await api.settings.reloadNginx()
+    await settingsApi.reloadNginx()
     notificationStore.success('Nginx reloaded successfully')
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to reload nginx')
@@ -470,7 +459,7 @@ function cancelEditIpRangeDescription() {
 async function saveIpRangeDescription(cidr) {
   savingIpRangeDescription.value = true
   try {
-    await api.settings.updateIpRange(cidr, editingIpRangeDescription.value)
+    await settingsApi.updateIpRange(cidr, editingIpRangeDescription.value)
     notificationStore.success('Description updated successfully')
     editingIpRangeIndex.value = null
     editingIpRangeDescription.value = ''
@@ -486,7 +475,7 @@ async function saveIpRangeDescription(cidr) {
 async function loadExternalRoutes() {
   externalRoutesLoading.value = true
   try {
-    const response = await api.settings.getExternalRoutes()
+    const response = await settingsApi.getExternalRoutes()
     externalRoutes.value = response.data
   } catch (error) {
     console.error('Failed to load external routes:', error)
@@ -510,7 +499,7 @@ async function addExternalRoute() {
 
   addingExternalRoute.value = true
   try {
-    await api.settings.addExternalRoute(newExternalRoute.value)
+    await settingsApi.addExternalRoute(newExternalRoute.value)
     const accessType = newExternalRoute.value.is_public ? 'public' : 'restricted'
     notificationStore.success(`External route ${newExternalRoute.value.path} added (${accessType}). Reload nginx to apply.`)
     newExternalRoute.value = { path: '', description: '', upstream: 'n8n', upstream_port: null, is_public: true }
@@ -529,12 +518,11 @@ function confirmDeleteRoute(route) {
 
 async function deleteExternalRoute() {
   if (!routeToDelete.value) return
-
+  loading.value = true
   try {
-    await api.settings.deleteExternalRoute(routeToDelete.value.path)
-    notificationStore.success(`External route ${routeToDelete.value.path} removed. Reload nginx to apply.`)
+    await settingsApi.deleteExternalRoute(routeToDelete.value.path)
+    deleteRouteDialog.value = false
     routeToDelete.value = null
-    showDeleteRouteConfirm.value = false
     await loadExternalRoutes()
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to delete external route')

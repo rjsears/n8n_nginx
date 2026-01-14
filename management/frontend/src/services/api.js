@@ -12,7 +12,7 @@ https://github.com/rjsears
 */
 
 import axios from 'axios'
-import router from '@/router'
+import router from '../router'
 
 // Determine API base URL based on current path
 // If accessed via /management/, use /management/api, otherwise use /api
@@ -105,6 +105,18 @@ export const systemApi = {
   debug: () => api.get('/system/debug'),
   // Host metrics from database cache (collected via psutil + Docker API)
   hostMetricsCached: (historyMinutes = 60) => api.get('/system/host-metrics/cached', { params: { history_minutes: historyMinutes } }),
+
+  // Aliases for SystemView compatibility
+  getHealth: () => api.get('/system/health'),
+  getHealthFull: () => api.get('/system/health/full'),
+  getInfo: () => api.get('/system/info'),
+  getNetwork: () => api.get('/system/network'),
+  getSsl: () => api.get('/system/ssl'),
+  getCloudflare: () => api.get('/system/cloudflare'),
+  getTailscale: () => api.get('/system/tailscale'),
+  getTerminalTargets: () => api.get('/system/terminal/targets'),
+  getExternalServices: () => api.get('/system/external-services'),
+  getDebug: () => api.get('/system/debug'),
 }
 
 export const backupsApi = {

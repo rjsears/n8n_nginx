@@ -11,12 +11,15 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import Card from '@/components/common/Card.vue'
-import SystemMetricsLoader from '@/components/common/SystemMetricsLoader.vue'
-import { systemApi } from '@/services/api'
+import { useThemeStore } from '../stores/theme'
+import Card from '../components/common/Card.vue'
+import SystemMetricsLoader from '../components/common/SystemMetricsLoader.vue'
+import { systemApi } from '../services/api'
+import { usePoll } from '../composables/usePoll'
+import { POLLING } from '../config/constants'
+import { formatBytes, formatRate, formatUptime, getProgressColor } from '../utils/formatters'
 import {
   ServerIcon,
   CpuChipIcon,
@@ -61,44 +64,6 @@ const metricsAvailable = ref(false)
 // Metrics data from the cached SQL endpoint
 const metricsData = ref(null)
 
-let refreshInterval = null
-
-// Format bytes to human readable
-function formatBytes(bytes, decimals = 1) {
-  if (!bytes || bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i]
-}
-
-// Format bytes per second to human readable rate
-function formatRate(bytesPerSec) {
-  if (!bytesPerSec || bytesPerSec === 0) return '0 B/s'
-  const k = 1024
-  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s']
-  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k))
-  return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-}
-
-// Format uptime
-function formatUptime(seconds) {
-  if (!seconds) return '0m'
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  if (days > 0) return `${days}d ${hours}h`
-  if (hours > 0) return `${hours}h ${minutes}m`
-  return `${minutes}m`
-}
-
-// Get color for progress bar based on percent
-function getProgressColor(percent) {
-  if (percent >= 90) return 'bg-red-500'
-  if (percent >= 70) return 'bg-amber-500'
-  return 'bg-emerald-500'
-}
-
 // Fetch metrics from the cached SQL endpoint
 async function fetchMetrics() {
   try {
@@ -125,16 +90,11 @@ function navigateToContainers(filter = null) {
   router.push({ name: 'containers', query: filter ? { status: filter } : {} })
 }
 
+// Initialize polling
+usePoll(fetchMetrics, POLLING.DASHBOARD_METRICS, false)
+
 onMounted(() => {
   loadData()
-  // Refresh every 30 seconds (data is updated every minute in the database)
-  refreshInterval = setInterval(fetchMetrics, 30000)
-})
-
-onUnmounted(() => {
-  if (refreshInterval) {
-    clearInterval(refreshInterval)
-  }
 })
 
 // Computed properties for easy access

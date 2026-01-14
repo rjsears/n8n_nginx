@@ -13,12 +13,12 @@ https://github.com/rjsears
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import { useBackupStore } from '@/stores/backups'
-import { useNotificationStore } from '@/stores/notifications'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import { useThemeStore } from '../stores/theme'
+import { useBackupStore } from '../stores/backups'
+import { useNotificationStore } from '../stores/notifications'
+import api from '../services/api'
+import Card from '../components/common/Card.vue'
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import {
   FolderIcon,
   ClockIcon,

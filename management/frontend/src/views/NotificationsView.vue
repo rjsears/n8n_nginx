@@ -13,25 +13,25 @@ https://github.com/rjsears
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import { useNotificationStore } from '@/stores/notifications'
-import { notificationsApi, ntfyApi } from '@/services/api'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import StatusBadge from '@/components/common/StatusBadge.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import EmptyState from '@/components/common/EmptyState.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import NotificationServiceDialog from '@/components/notifications/NotificationServiceDialog.vue'
-import NotificationGroupDialog from '@/components/notifications/NotificationGroupDialog.vue'
+import { useThemeStore } from '../stores/theme'
+import { useNotificationStore } from '../stores/notifications'
+import { notificationsApi, ntfyApi } from '../services/api'
+import api from '../services/api'
+import Card from '../components/common/Card.vue'
+import StatusBadge from '../components/common/StatusBadge.vue'
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import EmptyState from '../components/common/EmptyState.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
+import NotificationServiceDialog from '../components/notifications/NotificationServiceDialog.vue'
+import NotificationGroupDialog from '../components/notifications/NotificationGroupDialog.vue'
 // NTFY Components
-import MessageComposer from '@/components/ntfy/MessageComposer.vue'
-import TemplateBuilder from '@/components/ntfy/TemplateBuilder.vue'
-import TopicsManager from '@/components/ntfy/TopicsManager.vue'
-import SavedMessages from '@/components/ntfy/SavedMessages.vue'
-import MessageHistory from '@/components/ntfy/MessageHistory.vue'
-import ServerSettings from '@/components/ntfy/ServerSettings.vue'
-import IntegrationHub from '@/components/ntfy/IntegrationHub.vue'
+import MessageComposer from '../components/ntfy/MessageComposer.vue'
+import TemplateBuilder from '../components/ntfy/TemplateBuilder.vue'
+import TopicsManager from '../components/ntfy/TopicsManager.vue'
+import SavedMessages from '../components/ntfy/SavedMessages.vue'
+import MessageHistory from '../components/ntfy/MessageHistory.vue'
+import ServerSettings from '../components/ntfy/ServerSettings.vue'
+import IntegrationHub from '../components/ntfy/IntegrationHub.vue'
 import {
   BellIcon,
   BellAlertIcon,
@@ -819,21 +819,21 @@ async function loadNtfyData() {
   try {
     // Load health and status in parallel
     const [healthRes, statusRes] = await Promise.all([
-      api.ntfy.health(),
-      api.ntfy.status(),
+      ntfyApi.health(),
+      ntfyApi.status(),
     ])
     ntfyHealth.value = healthRes.data
     ntfyStatus.value = statusRes.data
 
     // Load other data
     const [topicsRes, templatesRes, savedRes, historyRes, configRes, emojisRes, examplesRes] = await Promise.all([
-      api.ntfy.getTopics(),
-      api.ntfy.getTemplates(),
-      api.ntfy.getSavedMessages(),
-      api.ntfy.getHistory({ limit: 50 }),
-      api.ntfy.getConfig(),
-      api.ntfy.getEmojiCategories(),
-      api.ntfy.getExamples(),
+      ntfyApi.getTopics(),
+      ntfyApi.getTemplates(),
+      ntfyApi.getSavedMessages(),
+      ntfyApi.getHistory({ limit: 50 }),
+      ntfyApi.getConfig(),
+      ntfyApi.getEmojiCategories(),
+      ntfyApi.getExamples(),
     ])
 
     ntfyTopics.value = topicsRes.data || []
@@ -861,13 +861,13 @@ watch(mainTab, (newTab) => {
 // NTFY Message handlers
 async function handleNtfySendMessage(message) {
   try {
-    const res = await api.ntfy.send(message)
-    if (res.data.success) {
-      // Refresh history
-      const historyRes = await api.ntfy.getHistory({ limit: 50 })
-      ntfyHistory.value = historyRes.data || []
+    const res = await ntfyApi.send(message)
+    if (res.status === 200) {
+      notificationStore.success('Notification sent successfully')
+      const historyRes = await ntfyApi.getHistory({ limit: 50 })
+      ntfyHistory.value = historyRes.data
       // Refresh status
-      const statusRes = await api.ntfy.status()
+      const statusRes = await ntfyApi.status()
       ntfyStatus.value = statusRes.data
       return { success: true }
     }
@@ -877,50 +877,48 @@ async function handleNtfySendMessage(message) {
   }
 }
 
-async function handleNtfySaveMessage(message) {
+async function saveNtfyMessage(message) {
   try {
-    await api.ntfy.createSavedMessage(message)
-    const savedRes = await api.ntfy.getSavedMessages()
-    ntfySavedMessages.value = savedRes.data || []
-    return { success: true }
+    await ntfyApi.createSavedMessage(message)
+    const savedRes = await ntfyApi.getSavedMessages()
+    savedMessages.value = savedRes.data
+    notificationStore.success('Message saved')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
+    notificationStore.error('Failed to save message')
   }
 }
-
-// NTFY Template handlers
-async function handleNtfyCreateTemplate(template) {
+async function createNtfyTemplate(template) {
   try {
-    await api.ntfy.createTemplate(template)
-    const res = await api.ntfy.getTemplates()
-    ntfyTemplates.value = res.data || []
-    // Refresh status
-    const statusRes = await api.ntfy.status()
+    await ntfyApi.createTemplate(template)
+    const res = await ntfyApi.getTemplates()
+    ntfyTemplates.value = res.data
+    // Refresh status as template count changed
+    const statusRes = await ntfyApi.status()
     ntfyStatus.value = statusRes.data
-    return { success: true }
+    notificationStore.success('Template created')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
+    notificationStore.error('Failed to create template')
   }
 }
 
-async function handleNtfyUpdateTemplate(id, template) {
+async function updateNtfyTemplate({ id, template }) {
   try {
-    await api.ntfy.updateTemplate(id, template)
-    const res = await api.ntfy.getTemplates()
-    ntfyTemplates.value = res.data || []
-    return { success: true }
+    await ntfyApi.updateTemplate(id, template)
+    const res = await ntfyApi.getTemplates()
+    ntfyTemplates.value = res.data
+    notificationStore.success('Template updated')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
+    notificationStore.error('Failed to update template')
   }
 }
 
 async function handleNtfyDeleteTemplate(id) {
   try {
-    await api.ntfy.deleteTemplate(id)
-    const res = await api.ntfy.getTemplates()
+    await ntfyApi.deleteTemplate(id)
+    const res = await ntfyApi.getTemplates()
     ntfyTemplates.value = res.data || []
     // Refresh status
-    const statusRes = await api.ntfy.status()
+    const statusRes = await ntfyApi.status()
     ntfyStatus.value = statusRes.data
     return { success: true }
   } catch (error) {
@@ -928,9 +926,9 @@ async function handleNtfyDeleteTemplate(id) {
   }
 }
 
-async function handleNtfyPreviewTemplate(data) {
+async function previewNtfyTemplate(data) {
   try {
-    const res = await api.ntfy.previewTemplate(data)
+    const res = await ntfyApi.previewTemplate(data)
     return res.data
   } catch (error) {
     return { success: false, error: error.response?.data?.detail || error.message }
@@ -938,43 +936,43 @@ async function handleNtfyPreviewTemplate(data) {
 }
 
 // NTFY Topic handlers
-async function handleNtfyCreateTopic(topic) {
+async function createNtfyTopic(topic) {
   try {
-    const createRes = await api.ntfy.createTopic(topic)
-    const createdTopic = createRes.data
-    const res = await api.ntfy.getTopics()
-    ntfyTopics.value = res.data || []
-    // Refresh status
-    const statusRes = await api.ntfy.status()
+    const createRes = await ntfyApi.createTopic(topic)
+    // Reload topics
+    const res = await ntfyApi.getTopics()
+    ntfyTopics.value = res.data
+    // Refresh status as topic count changed
+    const statusRes = await ntfyApi.status()
     ntfyStatus.value = statusRes.data
-    return { success: true, topic: createdTopic }
+    notificationStore.success('Topic created')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
+    notificationStore.error('Failed to create topic')
   }
 }
 
-async function handleNtfyUpdateTopic(id, topic) {
+async function updateNtfyTopic({ id, topic }) {
   try {
-    await api.ntfy.updateTopic(id, topic)
-    const res = await api.ntfy.getTopics()
-    ntfyTopics.value = res.data || []
-    return { success: true }
+    await ntfyApi.updateTopic(id, topic)
+    const res = await ntfyApi.getTopics()
+    ntfyTopics.value = res.data
+    notificationStore.success('Topic updated')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
+    notificationStore.error('Failed to update topic')
   }
 }
 
-async function handleNtfyDeleteTopic(id) {
+async function deleteNtfyTopic(id) {
   try {
-    await api.ntfy.deleteTopic(id)
-    const res = await api.ntfy.getTopics()
-    ntfyTopics.value = res.data || []
-    // Refresh status
-    const statusRes = await api.ntfy.status()
+    await ntfyApi.deleteTopic(id)
+    const res = await ntfyApi.getTopics()
+    ntfyTopics.value = res.data
+    // Refresh status as topic count changed
+    const statusRes = await ntfyApi.status()
     ntfyStatus.value = statusRes.data
-    return { success: true }
+    notificationStore.success('Topic deleted')
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
+    notificationStore.error('Failed to delete topic')
   }
 }
 
@@ -983,8 +981,8 @@ async function handleNtfySyncTopics() {
   try {
     // Sync in both directions
     const [topicsToChannels, channelsToTopics] = await Promise.all([
-      api.ntfy.syncTopicsToChannels(),
-      api.ntfy.syncChannelsToTopics()
+      ntfyApi.syncTopicsToChannels(),
+      ntfyApi.syncChannelsToTopics()
     ])
 
     // Refresh data to show changes
@@ -1002,30 +1000,28 @@ async function handleNtfySyncTopics() {
 }
 
 // NTFY Saved message handlers
-async function handleNtfySendSavedMessage(id) {
+async function sendSavedMessage(id) {
   try {
-    const res = await api.ntfy.sendSavedMessage(id)
-    if (res.data.success) {
-      // Refresh history
-      const historyRes = await api.ntfy.getHistory({ limit: 50 })
-      ntfyHistory.value = historyRes.data || []
+    const res = await ntfyApi.sendSavedMessage(id)
+    if (res.status === 200) {
+      notificationStore.success('Saved message sent')
+      const historyRes = await ntfyApi.getHistory({ limit: 50 })
+      ntfyHistory.value = historyRes.data
       // Refresh status
-      const statusRes = await api.ntfy.status()
+      const statusRes = await ntfyApi.status()
       ntfyStatus.value = statusRes.data
-      return { success: true }
     }
-    return { success: false, error: res.data.error }
   } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
+    notificationStore.error('Failed to send saved message')
   }
 }
 
-async function handleNtfyDeleteSavedMessage(id) {
+async function deleteSavedMessage(id) {
   try {
-    await api.ntfy.deleteSavedMessage(id)
-    const res = await api.ntfy.getSavedMessages()
-    ntfySavedMessages.value = res.data || []
-    return { success: true }
+    await ntfyApi.deleteSavedMessage(id)
+    const res = await ntfyApi.getSavedMessages()
+    savedMessages.value = res.data
+    notificationStore.success('Message deleted')
   } catch (error) {
     return { success: false, error: error.response?.data?.detail || error.message }
   }
@@ -1034,7 +1030,7 @@ async function handleNtfyDeleteSavedMessage(id) {
 // NTFY History handlers
 async function loadMoreNtfyHistory() {
   try {
-    const res = await api.ntfy.getHistory({ limit: 50, offset: ntfyHistory.value.length })
+    const res = await ntfyApi.getHistory({ limit: 50, offset: ntfyHistory.value.length })
     ntfyHistory.value = [...ntfyHistory.value, ...(res.data || [])]
   } catch (error) {
     console.error('Failed to load more history:', error)
@@ -1044,8 +1040,8 @@ async function loadMoreNtfyHistory() {
 // NTFY Config handler
 async function handleNtfyUpdateConfig(config) {
   try {
-    await api.ntfy.updateConfig(config)
-    const res = await api.ntfy.getConfig()
+    await ntfyApi.updateConfig(config)
+    const res = await ntfyApi.getConfig()
     ntfyServerConfig.value = res.data || {}
     return { success: true }
   } catch (error) {

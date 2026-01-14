@@ -171,30 +171,36 @@ class TerminalSession:
     async def read_output(self):
         """Read output from the terminal and send to websocket."""
         try:
+            loop = asyncio.get_running_loop()
             sock = self.socket._sock
             sock.setblocking(False)
 
             while self._running:
                 try:
-                    data = sock.recv(4096)
+                    # Use asyncio's efficient socket reading
+                    data = await loop.sock_recv(sock, 4096)
                     if data:
                         # Send as text (terminal output)
                         await self.websocket.send_text(
                             json.dumps({"type": "output", "data": data.decode("utf-8", errors="replace")})
                         )
                     else:
-                        # Connection closed
+                        # Connection closed (empty bytes means EOF)
+                        logger.info("Terminal socket closed by remote end")
                         break
-                except BlockingIOError:
-                    # No data available, wait a bit
-                    await asyncio.sleep(0.01)
+                except OSError as e:
+                    if self._running:
+                        logger.debug(f"Socket error: {e}")
+                    break
                 except Exception as e:
                     if self._running:
-                        logger.debug(f"Read error: {e}")
+                        logger.exception("Unexpected error in read loop")
                     break
 
         except Exception as e:
             logger.exception("Error reading terminal output")
+        finally:
+            self._running = False
 
     async def write_input(self, data: str):
         """Write input to the terminal."""

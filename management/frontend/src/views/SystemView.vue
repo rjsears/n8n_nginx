@@ -13,15 +13,18 @@ https://github.com/rjsears
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import { useAuthStore } from '@/stores/auth'
-import { useNotificationStore } from '@/stores/notifications'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import HeartbeatLoader from '@/components/common/HeartbeatLoader.vue'
-import DnaHelixLoader from '@/components/common/DnaHelixLoader.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { useThemeStore } from '../stores/theme'
+import { useAuthStore } from '../stores/auth'
+import { useNotificationStore } from '../stores/notifications'
+import api, { systemApi, settingsApi } from '../services/api'
+import { formatBytes, getProgressColor } from '../utils/formatters'
+import { usePoll } from '../composables/usePoll'
+import { POLLING } from '../config/constants'
+import Card from '../components/common/Card.vue'
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import HeartbeatLoader from '../components/common/HeartbeatLoader.vue'
+import DnaHelixLoader from '../components/common/DnaHelixLoader.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import {
   CpuChipIcon,
   CircleStackIcon,
@@ -335,6 +338,7 @@ const terminalDarkMode = ref(true) // Terminal theme preference (default dark)
 let terminal = null
 let fitAddon = null
 let websocket = null
+let pingInterval = null
 
 // Terminal theme definitions - vibrant high-contrast GitHub-style colors
 const terminalThemes = {
@@ -450,26 +454,11 @@ const chartOptions = computed(() => ({
   },
 }))
 
-function formatBytes(bytes) {
-  if (!bytes) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
-}
-
-function getProgressColor(percent) {
-  if (percent >= 90) return 'bg-red-500'
-  if (percent >= 75) return 'bg-amber-500'
-  return 'bg-blue-500'
-}
-
 async function loadData() {
   loading.value = true
   try {
-    const [systemRes, healthRes] = await Promise.all([
-      api.system.getInfo(),
-      api.system.getHealth(),
+    const [systemRes] = await Promise.all([
+      systemApi.getInfo(),
     ])
     systemInfo.value = systemRes.data
 
@@ -479,19 +468,8 @@ async function loadData() {
     memoryHistory.value.push(systemInfo.value.memory?.percent || 0)
     memoryHistory.value.shift()
   } catch (error) {
-    console.error('System info load failed:', {
-      message: error.message,
-      status: error.response?.status,
-      data: error.response?.data,
-    })
-
-    let errorMessage = 'Failed to load system information'
-    if (!error.response) {
-      errorMessage = 'Cannot connect to server'
-    } else if (error.response?.status === 500) {
-      errorMessage = `System info error: ${error.response?.data?.detail || 'Internal server error'}`
-    }
-    notificationStore.error(errorMessage)
+    console.error('System info load failed:', error)
+    notificationStore.error('Failed to load system information')
   } finally {
     loading.value = false
   }
@@ -508,42 +486,13 @@ async function loadHealthData() {
   }, 2000)
 
   try {
-    const response = await api.system.getHealthFull()
+    const response = await systemApi.getHealthFull()
     healthData.value = response.data
     healthLastUpdated.value = new Date()
   } catch (error) {
-    // Always log detailed error to console for debugging
-    console.error('Health data load failed:', {
-      message: error.message,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      url: error.config?.url,
-    })
-
-    // Build user-friendly error message with details
-    let errorMessage = 'Failed to load health data'
-    const detail = error.response?.data?.detail
-
-    if (error.response?.status === 401) {
-      errorMessage = 'Session expired - please log in again'
-    } else if (error.response?.status === 500) {
-      if (typeof detail === 'object' && detail?.message) {
-        errorMessage = `Health check error: ${detail.message}`
-      } else if (typeof detail === 'string') {
-        errorMessage = `Health check error: ${detail}`
-      } else {
-        errorMessage = 'Health check failed - check browser console for details'
-      }
-    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      errorMessage = 'Health check timed out - the server may be busy'
-    } else if (!error.response) {
-      errorMessage = 'Cannot connect to server - check if the management API is running'
-    }
-
-    notificationStore.error(errorMessage)
+    console.error('Health data load failed:', error)
+    notificationStore.error('Failed to load health data')
     healthData.value.overall_status = 'error'
-    healthData.value.error = errorMessage
   } finally {
     // Stop rotating messages
     if (healthLoadingInterval) {
@@ -553,6 +502,11 @@ async function loadHealthData() {
     healthLoading.value = false
   }
 }
+
+// Start polling for system info
+usePoll(loadData, POLLING.DASHBOARD_METRICS, false)
+// Poll health data every minute
+usePoll(loadHealthData, 60000, false)
 
 async function loadNetworkInfo() {
   networkLoading.value = true
@@ -568,9 +522,9 @@ async function loadNetworkInfo() {
   try {
     // Load network, cloudflare, and tailscale info in parallel
     const [networkRes, cloudflareRes, tailscaleRes] = await Promise.all([
-      api.system.getNetwork(),
-      api.system.getCloudflare().catch(() => ({ data: { error: 'Not available' } })),
-      api.system.getTailscale().catch(() => ({ data: { error: 'Not available' } })),
+      systemApi.getNetwork(),
+      systemApi.getCloudflare().catch(() => ({ data: { error: 'Not available' } })),
+      systemApi.getTailscale().catch(() => ({ data: { error: 'Not available' } })),
     ])
     networkInfo.value = networkRes.data
     cloudflareInfo.value = cloudflareRes.data
@@ -588,7 +542,7 @@ async function loadNetworkInfo() {
 async function loadSslInfo() {
   sslLoading.value = true
   try {
-    const response = await api.system.getSsl()
+    const response = await systemApi.getSsl()
     sslInfo.value = response.data
   } catch (error) {
     console.error('SSL info load failed:', error.response?.data || error.message)
@@ -601,7 +555,7 @@ async function loadSslInfo() {
 
 async function loadTerminalTargets() {
   try {
-    const response = await api.system.getTerminalTargets()
+    const response = await systemApi.getTerminalTargets()
     terminalTargets.value = response.data.targets || []
     if (terminalTargets.value.length > 0 && !selectedTarget.value) {
       selectedTarget.value = terminalTargets.value[0].id
@@ -614,7 +568,7 @@ async function loadTerminalTargets() {
 async function loadExternalServices() {
   externalServicesLoading.value = true
   try {
-    const response = await api.system.getExternalServices()
+    const response = await systemApi.getExternalServices()
     // Build URLs using current origin + path from nginx.conf
     const origin = window.location.origin
     externalServices.value = (response.data.services || []).map(service => ({
@@ -631,7 +585,7 @@ async function loadExternalServices() {
 
 async function runHealthCheck() {
   try {
-    const response = await api.system.getHealth()
+    const response = await systemApi.getHealth()
     healthChecks.value = response.data.checks || []
     notificationStore.success('Health check completed')
   } catch (error) {
@@ -642,7 +596,7 @@ async function runHealthCheck() {
 // Cloudflare Token Management
 async function loadCloudflareTokenStatus() {
   try {
-    const response = await api.settings.getEnvVariable('CLOUDFLARE_TUNNEL_TOKEN')
+    const response = await settingsApi.getEnvVariable('CLOUDFLARE_TUNNEL_TOKEN')
     cloudflareTokenIsSet.value = response.data.is_set
     cloudflareTokenMasked.value = response.data.masked_value || ''
   } catch (error) {
@@ -670,7 +624,7 @@ async function saveCloudflareToken() {
 
   cloudflareTokenLoading.value = true
   try {
-    const response = await api.settings.updateEnvVariable('CLOUDFLARE_TUNNEL_TOKEN', cloudflareToken.value.trim())
+    const response = await settingsApi.updateEnvVariable('CLOUDFLARE_TUNNEL_TOKEN', cloudflareToken.value.trim())
     cloudflareTokenIsSet.value = true
     cloudflareTokenMasked.value = response.data.masked_value || ''
     cloudflareTokenModal.value = false
@@ -692,7 +646,7 @@ async function saveCloudflareToken() {
 // Tailscale Key Management
 async function loadTailscaleKeyStatus() {
   try {
-    const response = await api.settings.getEnvVariable('TAILSCALE_AUTH_KEY')
+    const response = await settingsApi.getEnvVariable('TAILSCALE_AUTH_KEY')
     tailscaleKeyIsSet.value = response.data.is_set
     tailscaleKeyMasked.value = response.data.masked_value || ''
   } catch (error) {
@@ -720,7 +674,7 @@ async function saveTailscaleKey() {
 
   tailscaleKeyLoading.value = true
   try {
-    const response = await api.settings.updateEnvVariable('TAILSCALE_AUTH_KEY', tailscaleKey.value.trim())
+    const response = await settingsApi.updateEnvVariable('TAILSCALE_AUTH_KEY', tailscaleKey.value.trim())
     tailscaleKeyIsSet.value = true
     tailscaleKeyMasked.value = response.data.masked_value || ''
     tailscaleKeyModal.value = false
@@ -729,7 +683,7 @@ async function saveTailscaleKey() {
 
     // Get container status to determine button label
     try {
-      const statusRes = await api.settings.getTailscaleStatus()
+      const statusRes = await settingsApi.getTailscaleStatus()
       tailscaleResetDialog.value.containerStatus = statusRes.data.status
       tailscaleResetDialog.value.actionLabel = statusRes.data.action_label || 'Restart'
     } catch {
@@ -748,7 +702,7 @@ async function saveTailscaleKey() {
 async function confirmTailscaleReset() {
   tailscaleResetDialog.value.loading = true
   try {
-    await api.settings.resetTailscale()
+    await settingsApi.resetTailscale()
     notificationStore.success('Tailscale container restarted with new auth key')
     tailscaleResetDialog.value.open = false
 
@@ -782,7 +736,7 @@ async function confirmRestart() {
 
   restartDialog.value.loading = true
   try {
-    await api.settings.restartContainer(containerName, 'Manual restart from System page')
+    await settingsApi.restartContainer(containerName, 'Manual restart from System page')
     notificationStore.success(`${displayName} restarted successfully`)
 
     // Reload the relevant info after restart
@@ -813,7 +767,7 @@ async function forceRenewSslCertificate() {
   sslRenewalResult.value = null
 
   try {
-    const response = await api.system.sslRenew()
+    const response = await systemApi.sslRenew()
     sslRenewalResult.value = response.data
 
     if (response.data.success) {
@@ -920,6 +874,14 @@ function connectTerminal() {
       terminalConnected.value = true
       terminal?.clear()
       terminal?.focus()
+
+      // Start ping interval (30s)
+      if (pingInterval) clearInterval(pingInterval)
+      pingInterval = setInterval(() => {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+          websocket.send(JSON.stringify({ type: 'ping' }))
+        }
+      }, 30000)
     }
 
     websocket.onmessage = (event) => {
@@ -934,6 +896,8 @@ function connectTerminal() {
         } else if (msg.type === 'disconnected') {
           terminal?.writeln('\r\n\x1b[33mDisconnected\x1b[0m')
           terminalConnected.value = false
+        } else if (msg.type === 'pong') {
+          // Pong received, connection is alive
         }
       } catch (e) {
         // Raw output
@@ -945,12 +909,20 @@ function connectTerminal() {
       console.error('WebSocket error:', error)
       terminalConnecting.value = false
       notificationStore.error('Terminal connection error')
+      if (pingInterval) {
+        clearInterval(pingInterval)
+        pingInterval = null
+      }
     }
 
     websocket.onclose = () => {
       terminalConnecting.value = false
       terminalConnected.value = false
       terminal?.writeln('\r\n\x1b[33mConnection closed\x1b[0m')
+      if (pingInterval) {
+        clearInterval(pingInterval)
+        pingInterval = null
+      }
     }
 
   } catch (error) {
@@ -961,11 +933,21 @@ function connectTerminal() {
 }
 
 function disconnectTerminal() {
+  terminalConnected.value = false
+  terminalConnecting.value = false
+  if (pingInterval) {
+    clearInterval(pingInterval)
+    pingInterval = null
+  }
   if (websocket) {
-    websocket.close()
+    try {
+      websocket.close()
+    } catch (e) {
+      console.error('Error closing websocket:', e)
+    }
     websocket = null
   }
-  terminalConnected.value = false
+  terminal?.writeln('\r\n\x1b[33mDisconnected\x1b[0m')
 }
 
 function toggleTerminalTheme() {
@@ -2102,20 +2084,23 @@ onUnmounted(() => {
     <template v-if="activeTab === 'terminal'">
       <Card :padding="false">
         <!-- Header: Title LEFT | Dropdown CENTER | Buttons RIGHT -->
-        <template #header>
-          <div class="flex items-center w-full px-4 py-3">
-            <!-- Left: Title -->
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <CommandLineIcon class="h-5 w-5 text-primary" />
-              <h3 class="font-semibold text-primary">Web Terminal</h3>
-            </div>
+        <div class="flex items-center w-full px-4 py-3 bg-amber-500/15 dark:bg-amber-500/20 border-b border-amber-500/30 rounded-t-lg">
+          <!-- Left: Title -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <CommandLineIcon class="h-5 w-5 text-amber-700 dark:text-amber-400" />
+            <h3 class="font-semibold text-amber-900 dark:text-amber-100">Web Terminal</h3>
+          </div>
 
-            <!-- Center: Dropdown (with flex-1 spacers on each side) -->
-            <div class="flex-1 flex justify-center">
+          <!-- Center: Dropdown (with flex-1 spacers on each side) -->
+          <div class="flex-1 flex justify-center items-center gap-2">
+            <div class="relative">
               <select
                 v-model="selectedTarget"
-                :disabled="terminalConnected"
-                class="select-field text-sm py-1.5 min-w-[220px]"
+                :disabled="terminalConnected || terminalConnecting"
+                :class="[
+                  'select-field text-sm py-1.5 min-w-[220px] bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white shadow-sm',
+                  (terminalConnected || terminalConnecting) ? 'opacity-50 cursor-not-allowed' : ''
+                ]"
               >
                 <option
                   v-for="target in terminalTargets"
@@ -2128,43 +2113,51 @@ onUnmounted(() => {
                 </option>
               </select>
             </div>
-
-            <!-- Right: Theme Toggle + Connect Button -->
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <button
-                @click="toggleTerminalTheme"
-                :class="[
-                  'p-1.5 rounded-lg transition-colors',
-                  terminalDarkMode
-                    ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                ]"
-                :title="terminalDarkMode ? 'Switch to light theme' : 'Switch to dark theme'"
-              >
-                <SunIcon v-if="terminalDarkMode" class="h-4 w-4" />
-                <MoonIcon v-else class="h-4 w-4" />
-              </button>
-
-              <button
-                v-if="!terminalConnected"
-                @click="connectTerminal"
-                :disabled="terminalConnecting || !selectedTarget"
-                class="btn-primary flex items-center gap-1.5 text-sm py-1.5 px-4"
-              >
-                <PlayIcon class="h-4 w-4" />
-                {{ terminalConnecting ? 'Connecting...' : 'Connect' }}
-              </button>
-              <button
-                v-else
-                @click="disconnectTerminal"
-                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-4 text-red-500 hover:bg-red-500/10"
-              >
-                <StopIcon class="h-4 w-4" />
-                Disconnect
-              </button>
-            </div>
+            <button
+              @click="loadTerminalTargets"
+              :disabled="terminalConnected || terminalConnecting"
+              class="p-1.5 rounded-lg text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200 hover:bg-amber-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Refresh targets"
+            >
+              <ArrowPathIcon class="h-4 w-4" />
+            </button>
           </div>
-        </template>
+
+          <!-- Right: Theme Toggle + Connect Button -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button
+              @click="toggleTerminalTheme"
+              :class="[
+                'p-1.5 rounded-lg transition-colors',
+                terminalDarkMode
+                  ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700 border border-gray-600'
+                  : 'bg-white text-amber-600 hover:bg-amber-50 border border-amber-200'
+              ]"
+              :title="terminalDarkMode ? 'Switch to light theme' : 'Switch to dark theme'"
+            >
+              <SunIcon v-if="terminalDarkMode" class="h-4 w-4" />
+              <MoonIcon v-else class="h-4 w-4" />
+            </button>
+
+            <button
+              v-if="!terminalConnected"
+              @click="connectTerminal"
+              :disabled="terminalConnecting || !selectedTarget"
+              class="btn-primary flex items-center gap-1.5 text-sm py-1.5 px-4 bg-amber-600 hover:bg-amber-700 text-white border-transparent focus:ring-amber-500"
+            >
+              <PlayIcon class="h-4 w-4" />
+              {{ terminalConnecting ? 'Connecting...' : 'Connect' }}
+            </button>
+            <button
+              v-else
+              @click="disconnectTerminal"
+              class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-4 text-red-600 bg-white hover:bg-red-50 border-red-200 dark:bg-gray-800 dark:border-red-900 dark:text-red-400"
+            >
+              <StopIcon class="h-4 w-4" />
+              Disconnect
+            </button>
+          </div>
+        </div>
 
         <!-- Terminal Window - INLINE STYLE for guaranteed height -->
         <div class="p-4">

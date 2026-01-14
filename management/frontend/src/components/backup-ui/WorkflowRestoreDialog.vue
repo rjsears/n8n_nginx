@@ -12,9 +12,9 @@ https://github.com/rjsears
 -->
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useBackupStore } from '@/stores/backups'
-import { useNotificationStore } from '@/stores/notifications'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import { useBackupStore } from '../../stores/backups'
+import { useNotificationStore } from '../../stores/notifications'
+import LoadingSpinner from '../common/LoadingSpinner.vue'
 import {
   XMarkIcon,
   ArrowPathIcon,
