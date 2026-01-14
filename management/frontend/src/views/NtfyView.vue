@@ -138,7 +138,7 @@ https://github.com/rjsears
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import api from '@/services/api'
+import api from '../services/api'
 import {
   PaperAirplaneIcon,
   DocumentTextIcon,
@@ -150,13 +150,13 @@ import {
 } from '@heroicons/vue/24/outline'
 
 // Import sub-components
-import MessageComposer from '@/components/ntfy/MessageComposer.vue'
-import TemplateBuilder from '@/components/ntfy/TemplateBuilder.vue'
-import TopicsManager from '@/components/ntfy/TopicsManager.vue'
-import SavedMessages from '@/components/ntfy/SavedMessages.vue'
-import MessageHistory from '@/components/ntfy/MessageHistory.vue'
-import ServerSettings from '@/components/ntfy/ServerSettings.vue'
-import IntegrationHub from '@/components/ntfy/IntegrationHub.vue'
+import MessageComposer from '../components/ntfy/MessageComposer.vue'
+import TemplateBuilder from '../components/ntfy/TemplateBuilder.vue'
+import TopicsManager from '../components/ntfy/TopicsManager.vue'
+import SavedMessages from '../components/ntfy/SavedMessages.vue'
+import MessageHistory from '../components/ntfy/MessageHistory.vue'
+import ServerSettings from '../components/ntfy/ServerSettings.vue'
+import IntegrationHub from '../components/ntfy/IntegrationHub.vue'
 
 // State
 const loading = ref(true)

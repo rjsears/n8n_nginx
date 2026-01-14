@@ -12,13 +12,13 @@ https://github.com/rjsears
 -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useThemeStore } from '@/stores/theme'
-import { useNotificationStore } from '@/stores/notifications'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import StatusBadge from '@/components/common/StatusBadge.vue'
-import EmptyState from '@/components/common/EmptyState.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { useThemeStore } from '../stores/theme'
+import { useNotificationStore } from '../stores/notifications'
+import api from '../services/api'
+import Card from '../components/common/Card.vue'
+import StatusBadge from '../components/common/StatusBadge.vue'
+import EmptyState from '../components/common/EmptyState.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import {
   BoltIcon,
   PlayIcon,

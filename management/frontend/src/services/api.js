@@ -12,7 +12,7 @@ https://github.com/rjsears
 */
 
 import axios from 'axios'
-import router from '@/router'
+import router from '../router'
 
 // Determine API base URL based on current path
 // If accessed via /management/, use /management/api, otherwise use /api

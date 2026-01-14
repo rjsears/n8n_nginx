@@ -13,12 +13,12 @@ https://github.com/rjsears
 <script setup>
 import { onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
-import { useDebugStore } from '@/stores/debug'
-import HorizontalLayout from '@/components/layouts/HorizontalLayout.vue'
-import SidebarLayout from '@/components/layouts/SidebarLayout.vue'
-import ToastContainer from '@/components/common/ToastContainer.vue'
+import { useAuthStore } from './stores/auth'
+import { useThemeStore } from './stores/theme'
+import { useDebugStore } from './stores/debug'
+import HorizontalLayout from './components/layouts/HorizontalLayout.vue'
+import SidebarLayout from './components/layouts/SidebarLayout.vue'
+import ToastContainer from './components/common/ToastContainer.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()

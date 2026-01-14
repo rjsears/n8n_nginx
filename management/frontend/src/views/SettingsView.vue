@@ -13,16 +13,16 @@ https://github.com/rjsears
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
-import { useAuthStore } from '@/stores/auth'
-import { useNotificationStore } from '@/stores/notifications'
-import { useDebugStore } from '@/stores/debug'
-import api from '@/services/api'
-import Card from '@/components/common/Card.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import SystemNotificationsSettings from '@/components/settings/SystemNotificationsSettings.vue'
-import EnvironmentSettings from '@/components/settings/EnvironmentSettings.vue'
+import { useThemeStore } from '../stores/theme'
+import { useAuthStore } from '../stores/auth'
+import { useNotificationStore } from '../stores/notifications'
+import { useDebugStore } from '../stores/debug'
+import api from '../services/api'
+import Card from '../components/common/Card.vue'
+import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
+import SystemNotificationsSettings from '../components/settings/SystemNotificationsSettings.vue'
+import EnvironmentSettings from '../components/settings/EnvironmentSettings.vue'
 import {
   Cog6ToothIcon,
   PaintBrushIcon,

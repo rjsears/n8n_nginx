@@ -13,11 +13,11 @@ https://github.com/rjsears
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
-import { useDebugStore } from '@/stores/debug'
-import AboutDialog from '@/components/common/AboutDialog.vue'
-import HelpDialog from '@/components/common/HelpDialog.vue'
+import { useAuthStore } from '../../stores/auth'
+import { useThemeStore } from '../../stores/theme'
+import { useDebugStore } from '../../stores/debug'
+import AboutDialog from '../common/AboutDialog.vue'
+import HelpDialog from '../common/HelpDialog.vue'
 import {
   HomeIcon,
   CloudIcon,

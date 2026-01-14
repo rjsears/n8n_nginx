@@ -11,7 +11,7 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { useNotificationStore } from '@/stores/notifications'
+import { useNotificationStore } from '../../stores/notifications'
 import {
   CheckCircleIcon,
   ExclamationCircleIcon,

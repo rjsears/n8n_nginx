@@ -12,61 +12,61 @@ https://github.com/rjsears
 */
 
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '../stores/auth'
 
 const routes = [
   {
     path: '/login',
     name: 'login',
-    component: () => import('@/views/LoginView.vue'),
+    component: () => import('../views/LoginView.vue'),
     meta: { guest: true },
   },
   {
     path: '/',
     name: 'dashboard',
-    component: () => import('@/views/DashboardView.vue'),
+    component: () => import('../views/DashboardView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/backups',
     name: 'backups',
-    component: () => import('@/views/BackupsView.vue'),
+    component: () => import('../views/BackupsView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/backup-settings',
     name: 'backup-settings',
-    component: () => import('@/views/BackupSettingsView.vue'),
+    component: () => import('../views/BackupSettingsView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/notifications',
     name: 'notifications',
-    component: () => import('@/views/NotificationsView.vue'),
+    component: () => import('../views/NotificationsView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/containers',
     name: 'containers',
-    component: () => import('@/views/ContainersView.vue'),
+    component: () => import('../views/ContainersView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/flows',
     name: 'flows',
-    component: () => import('@/views/FlowsView.vue'),
+    component: () => import('../views/FlowsView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/system',
     name: 'system',
-    component: () => import('@/views/SystemView.vue'),
+    component: () => import('../views/SystemView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/settings',
     name: 'settings',
-    component: () => import('@/views/SettingsView.vue'),
+    component: () => import('../views/SettingsView.vue'),
     meta: { requiresAuth: true },
   },
   {

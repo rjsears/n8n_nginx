@@ -383,7 +383,7 @@ import {
   LinkIcon,
   MegaphoneIcon,
 } from '@heroicons/vue/24/outline'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ConfirmDialog from '../common/ConfirmDialog.vue'
 
 const props = defineProps({
   topics: { type: Array, default: () => [] },

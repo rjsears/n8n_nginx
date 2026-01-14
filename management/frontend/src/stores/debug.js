@@ -12,8 +12,8 @@ https://github.com/rjsears
 */
 
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import api from '@/services/api'
+import { ref, computed } from 'vue'
+import api from '../services/api'
 
 export const useDebugStore = defineStore('debug', () => {
   const isEnabled = ref(false)
