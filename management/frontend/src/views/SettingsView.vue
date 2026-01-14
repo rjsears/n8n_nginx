@@ -261,7 +261,7 @@ async function saveSettings(section) {
   saving.value = true
   try {
     // Backend expects {value: data} format per SettingUpdate schema
-    await api.settings.update(section, { value: settings.value[section] })
+    await settingsApi.update(section, { value: settings.value[section] })
     notificationStore.success('Settings saved successfully')
   } catch (error) {
     console.error('Failed to save settings:', error)
@@ -321,7 +321,7 @@ async function saveN8nApiKey() {
 
   n8nApiKeyLoading.value = true
   try {
-    await api.settings.updateEnvVariable('N8N_API_KEY', n8nApiKey.value.trim())
+    await settingsApi.updateEnvVariable('N8N_API_KEY', n8nApiKey.value.trim())
     n8nApiKeyIsSet.value = true
     n8nApiKeyMasked.value = n8nApiKey.value.length > 8
       ? `${n8nApiKey.value.slice(0, 4)}...${n8nApiKey.value.slice(-4)}`
@@ -343,7 +343,7 @@ async function loadAccessControl() {
   try {
     // Load defaults first - this should always work
     try {
-      const defaultsResponse = await api.settings.getDefaultIpRanges()
+      const defaultsResponse = await settingsApi.getDefaultIpRanges()
       defaultIpRanges.value = defaultsResponse.data
     } catch (e) {
       console.error('Failed to load default IP ranges:', e)
@@ -351,7 +351,7 @@ async function loadAccessControl() {
 
     // Load current config - may fail if nginx config doesn't exist
     try {
-      const configResponse = await api.settings.getAccessControl()
+      const configResponse = await settingsApi.getAccessControl()
       accessControl.value = configResponse.data
     } catch (e) {
       console.error('Failed to load access control config:', e)
@@ -366,7 +366,7 @@ async function loadAccessControl() {
 
     // Check if Cloudflare tunnel is installed/running
     try {
-      const cfResponse = await api.system.cloudflare()
+      const cfResponse = await systemApi.cloudflare()
       cloudflareInstalled.value = cfResponse.data?.installed || false
       cloudflareRunning.value = cfResponse.data?.running || false
     } catch (e) {
@@ -424,7 +424,7 @@ async function deleteIpRange() {
 async function reloadNginx() {
   reloadingNginx.value = true
   try {
-    await api.settings.reloadNginx()
+    await settingsApi.reloadNginx()
     notificationStore.success('Nginx reloaded successfully')
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to reload nginx')
@@ -499,7 +499,7 @@ async function addExternalRoute() {
 
   addingExternalRoute.value = true
   try {
-    await api.settings.addExternalRoute(newExternalRoute.value)
+    await settingsApi.addExternalRoute(newExternalRoute.value)
     const accessType = newExternalRoute.value.is_public ? 'public' : 'restricted'
     notificationStore.success(`External route ${newExternalRoute.value.path} added (${accessType}). Reload nginx to apply.`)
     newExternalRoute.value = { path: '', description: '', upstream: 'n8n', upstream_port: null, is_public: true }
