@@ -2084,82 +2084,80 @@ onUnmounted(() => {
     <template v-if="activeTab === 'terminal'">
       <Card :padding="false">
         <!-- Header: Title LEFT | Dropdown CENTER | Buttons RIGHT -->
-        <template #header>
-          <div class="flex items-center w-full px-4 py-3">
-            <!-- Left: Title -->
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <CommandLineIcon class="h-5 w-5 text-primary" />
-              <h3 class="font-semibold text-primary">Web Terminal</h3>
-            </div>
-
-            <!-- Center: Dropdown (with flex-1 spacers on each side) -->
-            <div class="flex-1 flex justify-center items-center gap-2">
-              <div class="relative">
-                <select
-                  v-model="selectedTarget"
-                  :disabled="terminalConnected || terminalConnecting"
-                  :class="[
-                    'select-field text-sm py-1.5 min-w-[220px] bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white',
-                    (terminalConnected || terminalConnecting) ? 'opacity-50 cursor-not-allowed' : ''
-                  ]"
-                >
-                  <option
-                    v-for="target in terminalTargets"
-                    :key="target.id"
-                    :value="target.id"
-                  >
-                    {{ target.name }}
-                    <template v-if="target.type === 'container'"> ({{ target.image?.split(':')[0] }})</template>
-                    <template v-if="target.type === 'host'"> - Host</template>
-                  </option>
-                </select>
-              </div>
-              <button
-                @click="loadTerminalTargets"
-                :disabled="terminalConnected || terminalConnecting"
-                class="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Refresh targets"
-              >
-                <ArrowPathIcon class="h-4 w-4" />
-              </button>
-            </div>
-
-            <!-- Right: Theme Toggle + Connect Button -->
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <button
-                @click="toggleTerminalTheme"
-                :class="[
-                  'p-1.5 rounded-lg transition-colors',
-                  terminalDarkMode
-                    ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                ]"
-                :title="terminalDarkMode ? 'Switch to light theme' : 'Switch to dark theme'"
-              >
-                <SunIcon v-if="terminalDarkMode" class="h-4 w-4" />
-                <MoonIcon v-else class="h-4 w-4" />
-              </button>
-
-              <button
-                v-if="!terminalConnected"
-                @click="connectTerminal"
-                :disabled="terminalConnecting || !selectedTarget"
-                class="btn-primary flex items-center gap-1.5 text-sm py-1.5 px-4"
-              >
-                <PlayIcon class="h-4 w-4" />
-                {{ terminalConnecting ? 'Connecting...' : 'Connect' }}
-              </button>
-              <button
-                v-else
-                @click="disconnectTerminal"
-                class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-4 text-red-500 hover:bg-red-500/10"
-              >
-                <StopIcon class="h-4 w-4" />
-                Disconnect
-              </button>
-            </div>
+        <div class="flex items-center w-full px-4 py-3 bg-amber-500/15 dark:bg-amber-500/20 border-b border-amber-500/30 rounded-t-lg">
+          <!-- Left: Title -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <CommandLineIcon class="h-5 w-5 text-amber-700 dark:text-amber-400" />
+            <h3 class="font-semibold text-amber-900 dark:text-amber-100">Web Terminal</h3>
           </div>
-        </template>
+
+          <!-- Center: Dropdown (with flex-1 spacers on each side) -->
+          <div class="flex-1 flex justify-center items-center gap-2">
+            <div class="relative">
+              <select
+                v-model="selectedTarget"
+                :disabled="terminalConnected || terminalConnecting"
+                :class="[
+                  'select-field text-sm py-1.5 min-w-[220px] bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white shadow-sm',
+                  (terminalConnected || terminalConnecting) ? 'opacity-50 cursor-not-allowed' : ''
+                ]"
+              >
+                <option
+                  v-for="target in terminalTargets"
+                  :key="target.id"
+                  :value="target.id"
+                >
+                  {{ target.name }}
+                  <template v-if="target.type === 'container'"> ({{ target.image?.split(':')[0] }})</template>
+                  <template v-if="target.type === 'host'"> - Host</template>
+                </option>
+              </select>
+            </div>
+            <button
+              @click="loadTerminalTargets"
+              :disabled="terminalConnected || terminalConnecting"
+              class="p-1.5 rounded-lg text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200 hover:bg-amber-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Refresh targets"
+            >
+              <ArrowPathIcon class="h-4 w-4" />
+            </button>
+          </div>
+
+          <!-- Right: Theme Toggle + Connect Button -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button
+              @click="toggleTerminalTheme"
+              :class="[
+                'p-1.5 rounded-lg transition-colors',
+                terminalDarkMode
+                  ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700 border border-gray-600'
+                  : 'bg-white text-amber-600 hover:bg-amber-50 border border-amber-200'
+              ]"
+              :title="terminalDarkMode ? 'Switch to light theme' : 'Switch to dark theme'"
+            >
+              <SunIcon v-if="terminalDarkMode" class="h-4 w-4" />
+              <MoonIcon v-else class="h-4 w-4" />
+            </button>
+
+            <button
+              v-if="!terminalConnected"
+              @click="connectTerminal"
+              :disabled="terminalConnecting || !selectedTarget"
+              class="btn-primary flex items-center gap-1.5 text-sm py-1.5 px-4 bg-amber-600 hover:bg-amber-700 text-white border-transparent focus:ring-amber-500"
+            >
+              <PlayIcon class="h-4 w-4" />
+              {{ terminalConnecting ? 'Connecting...' : 'Connect' }}
+            </button>
+            <button
+              v-else
+              @click="disconnectTerminal"
+              class="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-4 text-red-600 bg-white hover:bg-red-50 border-red-200 dark:bg-gray-800 dark:border-red-900 dark:text-red-400"
+            >
+              <StopIcon class="h-4 w-4" />
+              Disconnect
+            </button>
+          </div>
+        </div>
 
         <!-- Terminal Window - INLINE STYLE for guaranteed height -->
         <div class="p-4">
