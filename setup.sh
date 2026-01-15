@@ -732,6 +732,9 @@ SAVED_NTFY_BASE_URL="$NTFY_BASE_URL"
 SAVED_NTFY_PUBLIC_URL="$NTFY_PUBLIC_URL"
 SAVED_NTFY_INTERNAL_URL="$NTFY_INTERNAL_URL"
 SAVED_INSTALL_PUBLIC_WEBSITE="$INSTALL_PUBLIC_WEBSITE"
+SAVED_PUBLIC_WEBSITE_DOMAIN="$PUBLIC_WEBSITE_DOMAIN"
+SAVED_PUBLIC_WEBSITE_ROOT_DOMAIN="$PUBLIC_WEBSITE_ROOT_DOMAIN"
+SAVED_PUBLIC_WEBSITE_INCLUDE_ROOT="$PUBLIC_WEBSITE_INCLUDE_ROOT"
 
 # Access Control
 SAVED_INTERNAL_IP_RANGES="$INTERNAL_IP_RANGES"
@@ -3504,15 +3507,31 @@ EOF
 
     # Public Website Server Block
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        # Use saved variables if available (from interactive setup)
+        # Fallback to calculated defaults for non-interactive/legacy runs
+        local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
+        local include_root="${PUBLIC_WEBSITE_INCLUDE_ROOT:-y}"
+        
+        # Build server_name directive
+        local server_names="$public_domain"
+        if [ "$include_root" = "y" ]; then
+            # If root_domain wasn't saved, use calculated one
+            local root="${PUBLIC_WEBSITE_ROOT_DOMAIN:-$root_domain}"
+            # Only add root if it's different from public_domain
+            if [ "$root" != "$public_domain" ]; then
+                server_names="$server_names $root"
+            fi
+        fi
+
         cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
 
     # ===========================================================================
-    # Public Website (www & root)
+    # Public Website (${server_names})
     # ===========================================================================
     server {
         listen 443 ssl;
         http2 on;
-        server_name www.${root_domain} ${root_domain};
+        server_name ${server_names};
 
         # Reuse the same wildcard certificate
         ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
@@ -4490,62 +4509,113 @@ configure_public_website() {
     
     # Extract root domain logic
     local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
-    local www_domain="www.${root_domain}"
+    
+    echo ""
+    echo -e "  ${GRAY}Enter the subdomain for your public website (e.g., 'www').${NC}"
+    echo -ne "${WHITE}  Public website subdomain [www]${NC}: "
+    read public_subdomain
+    public_subdomain=${public_subdomain:-www}
+    
+    local public_domain="${public_subdomain}.${root_domain}"
+    
+    # Check if they want to include root domain
+    local include_root="y"
+    if confirm_prompt "Also serve the root domain (${root_domain})?" "y"; then
+        include_root="y"
+    else
+        include_root="n"
+    fi
     
     echo ""
     echo -e "  ${GRAY}This will configure Nginx to serve a static website at:${NC}"
-    echo -e "    - ${CYAN}${www_domain}${NC}"
-    echo -e "    - ${CYAN}${root_domain}${NC}"
+    echo -e "    - ${CYAN}${public_domain}${NC}"
+    if [ "$include_root" = "y" ]; then
+        echo -e "    - ${CYAN}${root_domain}${NC}"
+    fi
     echo -e "  ${GRAY}It includes 'File Browser' for managing website files via the Management Console.${NC}"
     echo ""
 
-    # Check DNS for public domains if Cloudflare Tunnel is enabled
-    # (Users requested "SAME dns tests" as main domain)
-    if [ "$INSTALL_CLOUDFLARE_TUNNEL" = "true" ]; then
-        print_info "Checking DNS resolution for ${www_domain}..."
-        
-        local local_ips=$(get_local_ips)
-        local domain_ip=""
-        
-        if command_exists dig; then
-            domain_ip=$(dig +short "$www_domain" 2>/dev/null | head -1)
-        elif command_exists nslookup; then
-            domain_ip=$(nslookup "$www_domain" 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | head -1)
-        fi
-        
+    # Perform DNS Validation (Same as validate_domain)
+    print_info "Validating public domain DNS..."
+    
+    local local_ips=$(get_local_ips)
+    local domain_ip=""
+    local validation_passed=true
+    
+    # Resolve the PUBLIC domain
+    print_info "Resolving $public_domain..."
+    
+    if command_exists dig; then
+        domain_ip=$(dig +short "$public_domain" 2>/dev/null | head -1)
+    elif command_exists nslookup; then
+        domain_ip=$(nslookup "$public_domain" 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | head -1)
+    elif command_exists host; then
+        domain_ip=$(host "$public_domain" 2>/dev/null | grep "has address" | awk '{print $4}' | head -1)
+    elif command_exists getent; then
+        domain_ip=$(getent hosts "$public_domain" 2>/dev/null | awk '{print $1}' | head -1)
+    fi
+
+    if [ -z "$domain_ip" ]; then
+        print_warning "Could not resolve $public_domain to an IP address"
+        echo ""
+        echo -e "  ${YELLOW}This could mean:${NC}"
+        echo -e "    - The DNS record hasn't been created yet"
+        echo -e "    - The DNS hasn't propagated yet"
+        echo -e "    - The domain name is incorrect"
+        echo ""
+        validation_passed=false
+    else
+        print_success "Domain resolves to: $domain_ip"
+
         # Check if the resolved IP matches any local IP
         local ip_matches=false
-        if [ -n "$domain_ip" ]; then
-            for local_ip in $local_ips; do
-                if [ "$local_ip" = "$domain_ip" ]; then
-                    ip_matches=true
-                    break
-                fi
-            done
-        fi
-        
-        if [ "$ip_matches" = false ]; then
-            print_warning "DNS Warning: ${www_domain} does not resolve to this server's internal IP."
-            echo ""
-            echo -e "  ${YELLOW}IMPORTANT for Cloudflare Tunnel Users:${NC}"
-            echo -e "  You must configure a separate Public Hostname for the website."
-            echo ""
-            echo -e "  1. Go to Cloudflare Zero Trust > Tunnels > Configure"
-            echo -e "  2. Add Public Hostname:"
-            echo -e "     - Subdomain: ${WHITE}www${NC}"
-            echo -e "     - Domain: ${WHITE}${root_domain}${NC}"
-            echo -e "     - Service: ${CYAN}HTTPS${NC} -> ${CYAN}n8n_nginx:443${NC}"
-            echo -e "     - Settings: Enable ${WHITE}No TLS Verify${NC}"
-            echo ""
-            if ! confirm_prompt "Do you understand this requirement?" "y"; then
-                print_warning "Public website may not be accessible until configured."
+        for local_ip in $local_ips; do
+            if [ "$local_ip" = "$domain_ip" ]; then
+                ip_matches=true
+                break
             fi
+        done
+
+        if [ "$ip_matches" = true ]; then
+            print_success "Domain IP matches this server"
         else
-            print_success "DNS resolution for ${www_domain} matches local IP"
+            print_warning "Domain IP ($domain_ip) does not match any local IP"
+            echo ""
+            echo -e "  ${YELLOW}IMPORTANT:${NC}"
+            echo -e "  ${YELLOW}The domain $public_domain points to $domain_ip${NC}"
+            echo -e "  ${YELLOW}but this server's IPs are different.${NC}"
+            echo ""
+            
+            # Special hint for Cloudflare Tunnel users
+            if [ "$INSTALL_CLOUDFLARE_TUNNEL" = "true" ]; then
+                echo -e "  ${YELLOW}Since you are using Cloudflare Tunnel:${NC}"
+                echo -e "  You must add a Public Hostname in Cloudflare Zero Trust:"
+                echo -e "    - Hostname: ${CYAN}${public_domain}${NC}"
+                echo -e "    - Service:  ${CYAN}HTTPS${NC} -> ${CYAN}n8n_nginx:443${NC}"
+                echo -e "    - Settings: ${WHITE}No TLS Verify${NC}"
+            else
+                echo -e "  ${YELLOW}This will cause the website to fail because:${NC}"
+                echo -e "    - SSL certificate validation may fail"
+                echo -e "    - Traffic won't reach this server"
+            fi
+            echo ""
+            validation_passed=false
         fi
     fi
 
+    if [ "$validation_passed" = false ]; then
+        if ! confirm_prompt "Do you understand the risks and want to continue?" "n"; then
+            print_warning "Public website configuration cancelled."
+            return
+        fi
+    fi
+
+    # Save variables for Nginx generation
+    PUBLIC_WEBSITE_DOMAIN="$public_domain"
+    PUBLIC_WEBSITE_ROOT_DOMAIN="$root_domain"
+    PUBLIC_WEBSITE_INCLUDE_ROOT="$include_root"
     INSTALL_PUBLIC_WEBSITE=true
+    
     print_success "Public Website enabled"
 }
 
@@ -5202,6 +5272,12 @@ show_final_summary_v3() {
         echo -e "    NTFY (Push):         ${CYAN}${NTFY_PUBLIC_URL:-https://ntfy.${N8N_DOMAIN}}${NC}"
         echo -e "                         ${GRAY}(Configure in Cloudflare Tunnel)${NC}"
     fi
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        echo -e "    Public Website:      ${CYAN}https://${PUBLIC_WEBSITE_DOMAIN:-www.${N8N_DOMAIN#*.}}${NC}"
+        if [ "${PUBLIC_WEBSITE_INCLUDE_ROOT:-y}" = "y" ]; then
+            echo -e "                         ${CYAN}https://${PUBLIC_WEBSITE_ROOT_DOMAIN:-${N8N_DOMAIN#*.}}${NC}"
+        fi
+    fi
     echo ""
     echo -e "  ${WHITE}${BOLD}Management Login:${NC}"
     echo -e "    Username:            ${CYAN}${ADMIN_USER}${NC}"
@@ -5261,6 +5337,19 @@ show_final_summary_v3() {
         echo ""
         echo -e "    ${RED}${BOLD}NOTE:${NC} ${WHITE}The management console will NOT be accessible via Tailscale${NC}"
         echo -e "          ${WHITE}until this route has been approved!${NC}"
+        echo ""
+    fi
+
+    # Cloudflare Tunnel public website hostname reminder
+    if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] && [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        echo -e "  ${YELLOW}${BOLD}⚠ CLOUDFLARE ACTION REQUIRED:${NC}"
+        echo -e "    ${WHITE}You must add a Public Hostname for your website in Zero Trust:${NC}"
+        echo ""
+        echo -e "    1. Visit: ${CYAN}https://one.dash.cloudflare.com${NC}"
+        echo -e "    2. Networks > Tunnels > [Your Tunnel] > Configure > Public Hostname"
+        echo -e "    3. Add Hostname: ${CYAN}${PUBLIC_WEBSITE_DOMAIN:-www.${N8N_DOMAIN#*.}}${NC}"
+        echo -e "    4. Service: ${WHITE}HTTPS${NC} -> ${WHITE}n8n_nginx:443${NC}"
+        echo -e "    5. Settings: Enable ${WHITE}No TLS Verify${NC}"
         echo ""
     fi
 
