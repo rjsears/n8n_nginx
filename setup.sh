@@ -4870,8 +4870,12 @@ show_configuration_summary() {
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] || [ "$INSTALL_TAILSCALE" = true ] || \
        [ "$INSTALL_ADMINER" = true ] || [ "$INSTALL_DOZZLE" = true ] || \
        [ "$INSTALL_PORTAINER" = true ] || [ "$INSTALL_PORTAINER_AGENT" = true ] || \
-       [ "$INSTALL_NTFY" = true ] || [ -n "$NTFY_BASE_URL" ]; then
+       [ "$INSTALL_NTFY" = true ] || [ -n "$NTFY_BASE_URL" ] || \
+       [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         echo -e "  ${WHITE}${BOLD}Optional Services:${NC}"
+        if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+            echo -e "    Public Website:      ${GREEN}enabled${NC} (${PUBLIC_WEBSITE_DOMAIN:-www.${N8N_DOMAIN#*.}})"
+        fi
         if [ "$INSTALL_PORTAINER" = true ]; then
             echo -e "    Portainer:           ${GREEN}enabled${NC} (/portainer/)"
         elif [ "$INSTALL_PORTAINER_AGENT" = true ]; then
