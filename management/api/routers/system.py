@@ -822,6 +822,12 @@ async def get_external_services(
             "color": "bg-rose-100 dark:bg-rose-500/20",
             "icon_color": "text-rose-500",
         },
+        "files": {
+            "name": "File Browser",
+            "description": "Public website file management",
+            "color": "bg-orange-100 dark:bg-orange-500/20",
+            "icon_color": "text-orange-500",
+        },
     }
 
     services = []
