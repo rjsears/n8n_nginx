@@ -796,6 +796,9 @@ load_state() {
         NTFY_PUBLIC_URL="${SAVED_NTFY_PUBLIC_URL:-}"
         NTFY_INTERNAL_URL="${SAVED_NTFY_INTERNAL_URL:-}"
         INSTALL_PUBLIC_WEBSITE="${SAVED_INSTALL_PUBLIC_WEBSITE:-false}"
+        PUBLIC_WEBSITE_DOMAIN="${SAVED_PUBLIC_WEBSITE_DOMAIN:-}"
+        PUBLIC_WEBSITE_ROOT_DOMAIN="${SAVED_PUBLIC_WEBSITE_ROOT_DOMAIN:-}"
+        PUBLIC_WEBSITE_INCLUDE_ROOT="${SAVED_PUBLIC_WEBSITE_INCLUDE_ROOT:-}"
 
         # Access Control
         INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
@@ -3510,18 +3513,10 @@ EOF
         # Use saved variables if available (from interactive setup)
         # Fallback to calculated defaults for non-interactive/legacy runs
         local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
-        local include_root="${PUBLIC_WEBSITE_INCLUDE_ROOT:-y}"
         
-        # Build server_name directive
+        # Build server_name directive - only use the configured public domain (e.g. www)
+        # Cloudflare Tunnel routing requires exact hostname match
         local server_names="$public_domain"
-        if [ "$include_root" = "y" ]; then
-            # If root_domain wasn't saved, use calculated one
-            local root="${PUBLIC_WEBSITE_ROOT_DOMAIN:-$root_domain}"
-            # Only add root if it's different from public_domain
-            if [ "$root" != "$public_domain" ]; then
-                server_names="$server_names $root"
-            fi
-        fi
 
         cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
 
@@ -4518,24 +4513,13 @@ configure_public_website() {
     
     local public_domain="${public_subdomain}.${root_domain}"
     
-    # Check if they want to include root domain
-    local include_root="y"
-    if confirm_prompt "Also serve the root domain (${root_domain})?" "y"; then
-        include_root="y"
-    else
-        include_root="n"
-    fi
-    
     echo ""
     echo -e "  ${GRAY}This will configure Nginx to serve a static website at:${NC}"
     echo -e "    - ${CYAN}${public_domain}${NC}"
-    if [ "$include_root" = "y" ]; then
-        echo -e "    - ${CYAN}${root_domain}${NC}"
-    fi
     echo -e "  ${GRAY}It includes 'File Browser' for managing website files via the Management Console.${NC}"
     echo ""
 
-    # Perform DNS Validation (Same as validate_domain)
+    # Perform DNS Validation (Matching validate_domain exactly)
     print_info "Validating public domain DNS..."
     
     local local_ips=$(get_local_ips)
@@ -4613,7 +4597,6 @@ configure_public_website() {
     # Save variables for Nginx generation
     PUBLIC_WEBSITE_DOMAIN="$public_domain"
     PUBLIC_WEBSITE_ROOT_DOMAIN="$root_domain"
-    PUBLIC_WEBSITE_INCLUDE_ROOT="$include_root"
     INSTALL_PUBLIC_WEBSITE=true
     
     print_success "Public Website enabled"
@@ -5274,9 +5257,6 @@ show_final_summary_v3() {
     fi
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         echo -e "    Public Website:      ${CYAN}https://${PUBLIC_WEBSITE_DOMAIN:-www.${N8N_DOMAIN#*.}}${NC}"
-        if [ "${PUBLIC_WEBSITE_INCLUDE_ROOT:-y}" = "y" ]; then
-            echo -e "                         ${CYAN}https://${PUBLIC_WEBSITE_ROOT_DOMAIN:-${N8N_DOMAIN#*.}}${NC}"
-        fi
     fi
     echo ""
     echo -e "  ${WHITE}${BOLD}Management Login:${NC}"
