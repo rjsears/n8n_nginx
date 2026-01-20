@@ -25,6 +25,7 @@ import ContainerStackLoader from '../components/common/ContainerStackLoader.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import CacheStatus from '../components/common/CacheStatus.vue'
 import { useRouter } from 'vue-router'
 import {
   ServerIcon,
@@ -681,11 +682,11 @@ function getOptionUnavailableReason(optionField) {
   return ''
 }
 
-async function fetchStats() {
+async function fetchStats(forceRefresh = false) {
   try {
-    const response = await api.get('/containers/stats')
+    await containerStore.fetchStats(forceRefresh)
     const statsMap = {}
-    for (const stat of response.data) {
+    for (const stat of containerStore.stats) {
       statsMap[stat.name] = stat
     }
     containerStats.value = statsMap
@@ -694,20 +695,23 @@ async function fetchStats() {
   }
 }
 
-async function loadData() {
-  loading.value = true
-  containerLoadingMessageIndex.value = 0
-  shuffleContainerMessages()
+async function loadData(forceRefresh = false) {
+  // For force refresh, don't show the loading spinner - just refresh in background
+  if (!forceRefresh) {
+    loading.value = true
+    containerLoadingMessageIndex.value = 0
+    shuffleContainerMessages()
 
-  // Start rotating messages every 2 seconds
-  containerLoadingInterval = setInterval(() => {
-    containerLoadingMessageIndex.value = (containerLoadingMessageIndex.value + 1) % containerLoadingMessages.value.length
-  }, 2000)
+    // Start rotating messages every 2 seconds
+    containerLoadingInterval = setInterval(() => {
+      containerLoadingMessageIndex.value = (containerLoadingMessageIndex.value + 1) % containerLoadingMessages.value.length
+    }, 2000)
+  }
 
   try {
     await Promise.all([
-      containerStore.fetchContainers(),
-      fetchStats(),
+      containerStore.fetchContainers(forceRefresh),
+      fetchStats(forceRefresh),
       loadContainerConfigs(),
       checkContainerEventTargets(),
     ])
@@ -794,13 +798,18 @@ onUnmounted(() => {
           </button>
           <div class="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
         </template>
-        <button
-          @click="loadData"
-          class="btn-secondary flex items-center gap-2"
-        >
-          <ArrowPathIcon class="h-4 w-4" />
-          Refresh
-        </button>
+        <div class="flex items-center gap-3">
+          <!-- Cache Status Indicator -->
+          <CacheStatus :cacheStatus="containerStore.cacheStatus" />
+          <button
+            @click="loadData(true)"
+            :disabled="containerStore.refreshing"
+            class="btn-secondary flex items-center gap-2"
+          >
+            <ArrowPathIcon :class="['h-4 w-4', containerStore.refreshing && 'animate-spin']" />
+            {{ containerStore.refreshing ? 'Refreshing...' : 'Refresh' }}
+          </button>
+        </div>
       </div>
     </div>
 
