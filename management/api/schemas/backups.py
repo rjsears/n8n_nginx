@@ -393,6 +393,7 @@ class BackupConfigurationUpdate(BaseModel):
     include_n8n_config: Optional[bool] = None
     include_ssl_certs: Optional[bool] = None
     include_env_files: Optional[bool] = None
+    include_public_website: Optional[bool] = None
 
     # Notification Settings
     notify_on_success: Optional[bool] = None
@@ -436,6 +437,7 @@ class BackupConfigurationResponse(BaseModel):
     include_n8n_config: bool = True
     include_ssl_certs: bool = True
     include_env_files: bool = True
+    include_public_website: bool = True
 
     # Notification Settings
     notify_on_success: bool = False

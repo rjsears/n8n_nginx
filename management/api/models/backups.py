@@ -343,6 +343,7 @@ class BackupConfiguration(Base):
     include_n8n_config = Column(Boolean, default=True)
     include_ssl_certs = Column(Boolean, default=True)
     include_env_files = Column(Boolean, default=True)
+    include_public_website = Column(Boolean, default=True)  # Include public website files (if installed)
 
     # Notification Settings
     notify_on_success = Column(Boolean, default=False)
