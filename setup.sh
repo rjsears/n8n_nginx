@@ -686,6 +686,7 @@ SAVED_DNS_CREDENTIALS_FILE="$DNS_CREDENTIALS_FILE"
 # Domain Configuration
 SAVED_N8N_DOMAIN="$N8N_DOMAIN"
 SAVED_LETSENCRYPT_EMAIL="$LETSENCRYPT_EMAIL"
+SAVED_SSL_CERT_DOMAIN="$SSL_CERT_DOMAIN"
 
 # Database Configuration
 SAVED_DB_NAME="$DB_NAME"
@@ -756,6 +757,7 @@ load_state() {
 
         N8N_DOMAIN="${SAVED_N8N_DOMAIN:-}"
         LETSENCRYPT_EMAIL="${SAVED_LETSENCRYPT_EMAIL:-}"
+        SSL_CERT_DOMAIN="${SAVED_SSL_CERT_DOMAIN:-$N8N_DOMAIN}"
 
         DB_NAME="${SAVED_DB_NAME:-}"
         DB_USER="${SAVED_DB_USER:-}"
@@ -3529,8 +3531,8 @@ EOF
         server_name ${server_names};
 
         # Reuse the same wildcard certificate
-        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
+        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/privkey.pem;
 
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
@@ -3557,8 +3559,8 @@ EOF
         http2 on;
         server_name ${N8N_DOMAIN};
 
-        ssl_certificate /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${N8N_DOMAIN}/privkey.pem;
+        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/privkey.pem;
 
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
@@ -5070,7 +5072,10 @@ obtain_ssl_certificate() {
 
     # Determine domains for certificate
     local domains_arg="-d $N8N_DOMAIN"
-    
+
+    # Default: certificate domain is the n8n domain (single-domain cert)
+    SSL_CERT_DOMAIN="$N8N_DOMAIN"
+
     # Try to extract root domain (e.g. n8n.example.com -> example.com)
     # This logic handles:
     #   sub.example.com -> example.com
@@ -5087,6 +5092,7 @@ obtain_ssl_certificate() {
         if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
             print_info "Public Website enabled - requesting wildcard certificate for ${root_domain}"
             domains_arg="-d $root_domain -d *.$root_domain"
+            SSL_CERT_DOMAIN="$root_domain"
         fi
     else
         # Interactive mode
@@ -5099,15 +5105,17 @@ obtain_ssl_certificate() {
             
             if confirm_prompt "Do you control the DNS for ${root_domain}?" "y"; then
                 domains_arg="-d $root_domain -d *.$root_domain"
+                SSL_CERT_DOMAIN="$root_domain"
                 print_success "Will request wildcard certificate for *.${root_domain}"
             else
                 print_info "Falling back to single-domain certificate for ${N8N_DOMAIN}"
+                SSL_CERT_DOMAIN="$N8N_DOMAIN"
             fi
         fi
     fi
 
-    # Check for existing valid certificate first
-    if check_existing_ssl_certificate "$N8N_DOMAIN"; then
+    # Check for existing valid certificate first (use SSL_CERT_DOMAIN which may be root domain for wildcards)
+    if check_existing_ssl_certificate "$SSL_CERT_DOMAIN"; then
         display_certificate_info
 
         # Check if force renewal via env var
@@ -5458,6 +5466,7 @@ update_access_control() {
         INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
         CUSTOM_INTERNAL_IPS="${SAVED_CUSTOM_INTERNAL_IPS:-}"
         N8N_DOMAIN="${SAVED_N8N_DOMAIN:-}"
+        SSL_CERT_DOMAIN="${SAVED_SSL_CERT_DOMAIN:-$N8N_DOMAIN}"
         INSTALL_CLOUDFLARE_TUNNEL="${SAVED_INSTALL_CLOUDFLARE_TUNNEL:-false}"
         INSTALL_TAILSCALE="${SAVED_INSTALL_TAILSCALE:-false}"
     else
