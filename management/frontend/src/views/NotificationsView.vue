@@ -936,9 +936,9 @@ async function previewNtfyTemplate(data) {
 }
 
 // NTFY Topic handlers
-async function createNtfyTopic(topic) {
+async function handleNtfyCreateTopic(topicData) {
   try {
-    const createRes = await ntfyApi.createTopic(topic)
+    const createRes = await ntfyApi.createTopic(topicData)
     // Reload topics
     const res = await ntfyApi.getTopics()
     ntfyTopics.value = res.data
@@ -946,23 +946,27 @@ async function createNtfyTopic(topic) {
     const statusRes = await ntfyApi.status()
     ntfyStatus.value = statusRes.data
     notificationStore.success('Topic created')
+    return { success: true, topic: createRes.data }
   } catch (error) {
     notificationStore.error('Failed to create topic')
+    return { success: false, error: error.message || 'Failed to create topic' }
   }
 }
 
-async function updateNtfyTopic({ id, topic }) {
+async function handleNtfyUpdateTopic(id, topicData) {
   try {
-    await ntfyApi.updateTopic(id, topic)
+    await ntfyApi.updateTopic(id, topicData)
     const res = await ntfyApi.getTopics()
     ntfyTopics.value = res.data
     notificationStore.success('Topic updated')
+    return { success: true }
   } catch (error) {
     notificationStore.error('Failed to update topic')
+    return { success: false, error: error.message || 'Failed to update topic' }
   }
 }
 
-async function deleteNtfyTopic(id) {
+async function handleNtfyDeleteTopic(id) {
   try {
     await ntfyApi.deleteTopic(id)
     const res = await ntfyApi.getTopics()
@@ -971,8 +975,10 @@ async function deleteNtfyTopic(id) {
     const statusRes = await ntfyApi.status()
     ntfyStatus.value = statusRes.data
     notificationStore.success('Topic deleted')
+    return { success: true }
   } catch (error) {
     notificationStore.error('Failed to delete topic')
+    return { success: false, error: error.message || 'Failed to delete topic' }
   }
 }
 
