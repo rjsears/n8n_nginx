@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     from api.database import init_db, close_db
     from api.tasks.scheduler import init_scheduler, shutdown_scheduler
     from api.services.email_service import create_default_templates
+    from api.services.redis_cache_service import init_redis_cache, close_redis_cache
 
     # Startup
     logger.info(f"Starting n8n Management API v{__version__}")
@@ -77,6 +78,10 @@ async def lifespan(app: FastAPI):
         await init_scheduler()
         logger.info("Scheduler initialized")
 
+        # Initialize Redis cache
+        await init_redis_cache()
+        logger.info("Redis cache initialized")
+
     except Exception as e:
         logger.error(f"Startup error: {e}")
         raise
@@ -87,6 +92,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down n8n Management API")
     try:
         await shutdown_scheduler()
+        await close_redis_cache()
         await close_db()
     except Exception as e:
         logger.error(f"Shutdown error: {e}")
@@ -137,10 +143,23 @@ app.include_router(env_config.router, prefix="/api/env-config", tags=["Environme
 @app.get("/api/health")
 async def health_check():
     """Basic health check endpoint (no auth required)."""
+    # Check Redis status
+    redis_status = {"enabled": False}
+    try:
+        from api.services.redis_cache_service import get_redis_cache
+        from api.config import settings
+        if settings.redis_enabled:
+            redis_cache = await get_redis_cache()
+            redis_info = await redis_cache.get_info()
+            redis_status = redis_info
+    except Exception as e:
+        redis_status = {"enabled": True, "connected": False, "error": str(e)}
+
     return {
         "status": "healthy",
         "version": __version__,
         "service": "n8n-management",
+        "redis": redis_status,
     }
 
 

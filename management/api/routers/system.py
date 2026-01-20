@@ -313,14 +313,39 @@ async def get_timezone(
 
 @router.get("/network")
 async def get_network_info(
+    force_refresh: bool = False,
     _=Depends(get_current_user),
 ):
-    """Get network configuration information from the Docker host."""
+    """Get network configuration information from the Docker host.
+
+    Uses Redis cache from n8n_status collector for fast response.
+    Falls back to direct collection if cache unavailable.
+
+    Args:
+        force_refresh: If True, bypass cache and collect directly
+    """
     import socket
     import subprocess
     import re
 
-    # Try to get host network info via Docker (since we're in a container)
+    # Try Redis cache first (unless force_refresh)
+    if not force_refresh:
+        try:
+            from api.services.redis_cache_service import get_redis_cache
+            redis_cache = await get_redis_cache()
+            cached = await redis_cache.get_cached("system:network")
+            if cached and "data" in cached:
+                data = cached["data"]
+                return {
+                    **data,
+                    "source": "cache",
+                    "cached_at": cached.get("collected_at"),
+                    "age_seconds": cached.get("age_seconds"),
+                }
+        except Exception as e:
+            logger.debug(f"Redis cache miss for network: {e}")
+
+    # Fallback: Try to get host network info via Docker (since we're in a container)
     try:
         import docker
         client = docker.from_env()
@@ -901,11 +926,37 @@ async def get_external_services(
 
 @router.get("/cloudflare")
 async def get_cloudflare_status(
+    force_refresh: bool = False,
     _=Depends(get_current_user),
 ):
-    """Get Cloudflare Tunnel status from cloudflared container."""
+    """Get Cloudflare Tunnel status from cloudflared container.
+
+    Uses Redis cache from n8n_status collector for fast response.
+    Falls back to direct collection if cache unavailable.
+
+    Args:
+        force_refresh: If True, bypass cache and collect directly
+    """
     import re
 
+    # Try Redis cache first (unless force_refresh)
+    if not force_refresh:
+        try:
+            from api.services.redis_cache_service import get_redis_cache
+            redis_cache = await get_redis_cache()
+            cached = await redis_cache.get_cached("system:cloudflare")
+            if cached and "data" in cached:
+                data = cached["data"]
+                return {
+                    **data,
+                    "source": "cache",
+                    "cached_at": cached.get("collected_at"),
+                    "age_seconds": cached.get("age_seconds"),
+                }
+        except Exception as e:
+            logger.debug(f"Redis cache miss for cloudflare: {e}")
+
+    # Fallback: Direct collection
     status_info = {
         "installed": False,
         "running": False,
@@ -1123,11 +1174,37 @@ async def get_cloudflare_status(
 
 @router.get("/tailscale")
 async def get_tailscale_status(
+    force_refresh: bool = False,
     _=Depends(get_current_user),
 ):
-    """Get Tailscale status from tailscale container or host."""
+    """Get Tailscale status from tailscale container or host.
+
+    Uses Redis cache from n8n_status collector for fast response.
+    Falls back to direct collection if cache unavailable.
+
+    Args:
+        force_refresh: If True, bypass cache and collect directly
+    """
     import json as json_module
 
+    # Try Redis cache first (unless force_refresh)
+    if not force_refresh:
+        try:
+            from api.services.redis_cache_service import get_redis_cache
+            redis_cache = await get_redis_cache()
+            cached = await redis_cache.get_cached("system:tailscale")
+            if cached and "data" in cached:
+                data = cached["data"]
+                return {
+                    **data,
+                    "source": "cache",
+                    "cached_at": cached.get("collected_at"),
+                    "age_seconds": cached.get("age_seconds"),
+                }
+        except Exception as e:
+            logger.debug(f"Redis cache miss for tailscale: {e}")
+
+    # Fallback: Direct collection
     status_info = {
         "installed": False,
         "running": False,

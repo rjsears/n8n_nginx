@@ -109,6 +109,12 @@ class Settings(BaseSettings):
         description="API key for webhook notification endpoint. If not set, a random key is generated on startup."
     )
 
+    # Redis cache settings
+    redis_host: str = Field(default="redis", description="Redis server hostname")
+    redis_port: int = Field(default=6379, description="Redis server port")
+    redis_db: int = Field(default=0, description="Redis database number")
+    redis_enabled: bool = Field(default=True, description="Enable Redis caching for status data")
+
     # Debug
     debug: bool = Field(default=False, description="Enable debug mode")
     log_level: str = Field(default="INFO", description="Logging level")
