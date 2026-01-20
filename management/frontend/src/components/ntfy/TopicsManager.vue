@@ -490,6 +490,10 @@ async function saveTopic() {
       // Show success dialog for new topics
       if (isCreating && result.topic) {
         successDialog.value = { open: true, topic: result.topic }
+        // Auto-sync channels in background after creating a topic
+        if (typeof props.onSync === 'function') {
+          props.onSync().catch(() => {})  // Fire and forget
+        }
       }
     } else {
       alert(result?.error || 'Failed to save topic')
