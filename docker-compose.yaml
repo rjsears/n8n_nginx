@@ -182,6 +182,10 @@ services:
       - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
       - POSTGRES_USER=${POSTGRES_USER:-n8n}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # Redis connection for cached status data
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_ENABLED=true
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -202,6 +206,8 @@ services:
       - "80"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8000/api/health || exit 1']
@@ -303,6 +309,62 @@ services:
       - n8n_network
 
   # ===========================================
+  # Redis - Status Cache
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: n8n_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - n8n_network
+
+  # ===========================================
+  # Status Collector - Caches system metrics in Redis
+  # ===========================================
+  n8n_status:
+    build:
+      context: ./n8n_status
+      dockerfile: Dockerfile
+    container_name: n8n_status
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - POLL_INTERVAL_METRICS=5
+      - POLL_INTERVAL_NETWORK=30
+      - POLL_INTERVAL_CONTAINERS=5
+      - POLL_INTERVAL_EXTERNAL=15
+      - TZ=${TIMEZONE:-America/Los_Angeles}
+      # For Cloudflare tunnel status checking
+      - CLOUDFLARE_CONTAINER=${CLOUDFLARE_CONTAINER:-n8n_cloudflared}
+      # For Tailscale status checking
+      - TAILSCALE_CONTAINER=${TAILSCALE_CONTAINER:-n8n_tailscale}
+      # For NTFY health checking
+      - NTFY_CONTAINER=${NTFY_CONTAINER:-n8n_ntfy}
+      - NTFY_URL=http://ntfy:80
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - n8n_network
+
+  # ===========================================
   # NTFY - Push Notifications
   # ===========================================
   ntfy:
@@ -388,6 +450,10 @@ volumes:
   ntfy_data:
     driver: local
   ntfy_cache:
+    driver: local
+
+  # Redis cache data
+  redis_data:
     driver: local
 
 # ===========================================
