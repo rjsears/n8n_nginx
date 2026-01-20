@@ -62,7 +62,14 @@ CONFIG_FILES = [
     {"name": "tailscale-serve.json", "host_path": "/app/host_project/tailscale-serve.json", "archive_path": "config/tailscale-serve.json"},
     {"name": "dozzle/users.yml", "host_path": "/app/host_project/dozzle/users.yml", "archive_path": "config/dozzle/users.yml"},
     {"name": "ntfy/server.yml", "host_path": "/app/host_project/ntfy/server.yml", "archive_path": "config/ntfy/server.yml"},
+    # Public website (FileBrowser) - only exists if INSTALL_PUBLIC_WEBSITE=true during setup
+    {"name": "filebrowser.db", "host_path": "/app/host_project/filebrowser.db", "archive_path": "config/filebrowser.db"},
 ]
+
+# Public website Docker volume name
+PUBLIC_WEBSITE_VOLUME = "public_web_root"
+# Path to check if public website is installed
+PUBLIC_WEBSITE_INDICATOR = "/app/host_project/filebrowser.db"
 
 # SSL certificate paths
 SSL_CERT_PATH = "/etc/letsencrypt/live"
@@ -1122,6 +1129,20 @@ class BackupService:
                 ssl_dir = os.path.join(temp_dir, "ssl")
                 shutil.copytree(SSL_CERT_PATH, ssl_dir)
 
+            # 3.5 Backup public website volume if installed and enabled (52-55%)
+            public_website_included = False
+            public_website_file_count = 0
+            if self._is_public_website_installed():
+                # Check if include_public_website is enabled in config
+                config = await self._get_backup_configuration()
+                if config and config.include_public_website:
+                    await update_progress(52, "Backing up public website files")
+                    public_website_included, public_website_file_count = await self._backup_public_website_volume(temp_dir)
+                else:
+                    logger.info("Public website backup disabled in configuration")
+            metadata["public_website_included"] = public_website_included
+            metadata["public_website_file_count"] = public_website_file_count
+
             # 4. Capture manifests (55-75%)
             await update_progress(55, "Capturing workflow manifest")
             workflow_count, workflows_manifest = await self.capture_workflow_manifest(n8n_db)
@@ -1220,6 +1241,67 @@ class BackupService:
             pass
         return os.environ.get("N8N_VERSION", "unknown")
 
+    def _is_public_website_installed(self) -> bool:
+        """Check if public website feature is installed by looking for filebrowser.db."""
+        return os.path.exists(PUBLIC_WEBSITE_INDICATOR)
+
+    async def _backup_public_website_volume(self, temp_dir: str) -> Tuple[bool, int]:
+        """
+        Back up public_web_root Docker volume contents.
+        Returns (success, file_count).
+        """
+        if not self._is_public_website_installed():
+            logger.info("Public website not installed - skipping volume backup")
+            return False, 0
+
+        try:
+            # Check if the volume exists
+            result = subprocess.run(
+                ["docker", "volume", "inspect", PUBLIC_WEBSITE_VOLUME],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                logger.warning(f"Public website volume '{PUBLIC_WEBSITE_VOLUME}' does not exist")
+                return False, 0
+
+            # Create destination directory
+            public_website_dir = os.path.join(temp_dir, "public_website")
+            os.makedirs(public_website_dir, exist_ok=True)
+
+            # Use docker to copy volume contents to temp directory
+            # docker run --rm -v public_web_root:/source -v {host_path}:/backup alpine cp -r /source/. /backup/
+            result = subprocess.run(
+                [
+                    "docker", "run", "--rm",
+                    "-v", f"{PUBLIC_WEBSITE_VOLUME}:/source:ro",
+                    "-v", f"{public_website_dir}:/backup",
+                    "alpine",
+                    "sh", "-c", "cp -r /source/. /backup/"
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Failed to backup public website volume: {result.stderr}")
+                return False, 0
+
+            # Count files
+            file_count = sum(len(files) for _, _, files in os.walk(public_website_dir))
+            logger.info(f"Backed up public website volume: {file_count} files")
+            return True, file_count
+
+        except Exception as e:
+            logger.error(f"Error backing up public website volume: {e}")
+            return False, 0
+
+    async def _get_backup_configuration(self) -> Optional["BackupConfiguration"]:
+        """Get the backup configuration settings."""
+        from api.models.backups import BackupConfiguration
+        result = await self.db.execute(select(BackupConfiguration).limit(1))
+        return result.scalar_one_or_none()
+
     def _generate_restore_script(self) -> str:
         """Generate the restore.sh script for bare metal recovery."""
         return r'''#!/bin/bash
@@ -1252,6 +1334,7 @@ class BackupService:
 #   - Restores all configuration files
 #   - Restores databases
 #   - Restores SSL certificates
+#   - Restores public website files (if included in backup)
 #   - Creates required Docker volumes
 #   - Starts all services
 #   - Performs health checks
@@ -1260,13 +1343,14 @@ class BackupService:
 #
 # Options:
 #   --target-dir DIR    Directory to restore to (default: /opt/n8n)
-#   --skip-docker       Skip Docker installation check
-#   --skip-ssl          Skip SSL certificate restoration
-#   --skip-db           Skip database restoration
-#   --skip-config       Skip config file restoration
-#   --skip-nfs          Skip NFS setup even if configured in backup
-#   --skip-dns-check    Skip DNS validation (use with caution)
-#   --skip-system-check Skip system requirements check
+#   --skip-docker          Skip Docker installation check
+#   --skip-ssl             Skip SSL certificate restoration
+#   --skip-db              Skip database restoration
+#   --skip-config          Skip config file restoration
+#   --skip-nfs             Skip NFS setup even if configured in backup
+#   --skip-public-website  Skip public website restoration
+#   --skip-dns-check       Skip DNS validation (use with caution)
+#   --skip-system-check    Skip system requirements check
 #   --dry-run           Show what would be done without making changes
 #   --force             Skip all confirmation prompts
 #   --auto              Fully automatic mode (implies --force)
@@ -1297,6 +1381,7 @@ SKIP_SSL=false
 SKIP_DB=false
 SKIP_CONFIG=false
 SKIP_NFS=false
+SKIP_PUBLIC_WEBSITE=false
 SKIP_DNS_CHECK=false
 SKIP_SYSTEM_CHECK=false
 DRY_RUN=false
@@ -1326,6 +1411,7 @@ while [[ $# -gt 0 ]]; do
         --skip-db) SKIP_DB=true; shift ;;
         --skip-config) SKIP_CONFIG=true; shift ;;
         --skip-nfs) SKIP_NFS=true; shift ;;
+        --skip-public-website) SKIP_PUBLIC_WEBSITE=true; shift ;;
         --skip-dns-check) SKIP_DNS_CHECK=true; shift ;;
         --skip-system-check) SKIP_SYSTEM_CHECK=true; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
@@ -1841,6 +1927,14 @@ validate_backup_contents() {
         fi
     fi
 
+    # Check for public website files
+    if [[ -d "$SCRIPT_DIR/public_website" ]]; then
+        local pw_count=$(find "$SCRIPT_DIR/public_website" -type f 2>/dev/null | wc -l)
+        if [[ "$pw_count" -gt 0 ]]; then
+            log_success "Found public website files ($pw_count files)"
+        fi
+    fi
+
     if [[ "$valid" != "true" ]]; then
         log_warning "Some backup components are missing"
         if ! confirm "Continue anyway?"; then
@@ -2011,15 +2105,16 @@ echo "────────────────────────�
 echo ""
 
 echo -e "${CYAN}Restore Configuration:${NC}"
-echo "  Target Directory:  $TARGET_DIR"
-echo "  Skip Docker:       $SKIP_DOCKER"
-echo "  Skip SSL:          $SKIP_SSL"
-echo "  Skip Database:     $SKIP_DB"
-echo "  Skip Config:       $SKIP_CONFIG"
-echo "  Skip NFS:          $SKIP_NFS"
-echo "  Skip DNS Check:    $SKIP_DNS_CHECK"
-echo "  Dry Run:           $DRY_RUN"
-echo "  Auto Mode:         $AUTO_MODE"
+echo "  Target Directory:     $TARGET_DIR"
+echo "  Skip Docker:          $SKIP_DOCKER"
+echo "  Skip SSL:             $SKIP_SSL"
+echo "  Skip Database:        $SKIP_DB"
+echo "  Skip Config:          $SKIP_CONFIG"
+echo "  Skip NFS:             $SKIP_NFS"
+echo "  Skip Public Website:  $SKIP_PUBLIC_WEBSITE"
+echo "  Skip DNS Check:       $SKIP_DNS_CHECK"
+echo "  Dry Run:              $DRY_RUN"
+echo "  Auto Mode:            $AUTO_MODE"
 echo ""
 
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -2203,6 +2298,47 @@ if [[ "$SKIP_SSL" != "true" ]] && [[ -d "$SCRIPT_DIR/ssl" ]]; then
     log_success "Restored SSL certificates for $ssl_count domain(s)"
 else
     log_info "Skipping SSL certificate restoration"
+fi
+
+# ============================================================================
+# Step 5.5: Restore Public Website Files
+# ============================================================================
+
+log_step "Step 5.5: Public Website Files"
+
+if [[ "$SKIP_PUBLIC_WEBSITE" != "true" ]] && [[ -d "$SCRIPT_DIR/public_website" ]]; then
+    log_info "Found public website files in backup"
+
+    if [[ "$DRY_RUN" != "true" ]] && command_exists docker; then
+        # Create the public_web_root volume if it doesn't exist
+        if ! docker volume inspect public_web_root &>/dev/null; then
+            docker volume create public_web_root
+            log_success "Created public_web_root volume"
+        else
+            log_info "public_web_root volume already exists"
+        fi
+
+        # Copy files to the volume using alpine container
+        log_info "Restoring public website files to Docker volume..."
+        docker run --rm \
+            -v public_web_root:/dest \
+            -v "$SCRIPT_DIR/public_website:/source:ro" \
+            alpine \
+            sh -c "cp -r /source/. /dest/"
+
+        if [[ $? -eq 0 ]]; then
+            file_count=$(find "$SCRIPT_DIR/public_website" -type f | wc -l)
+            log_success "Restored $file_count public website file(s)"
+        else
+            log_warning "Failed to restore some public website files"
+        fi
+    else
+        echo -e "${CYAN}  [DRY-RUN] Would create public_web_root volume and restore files${NC}"
+    fi
+elif [[ "$SKIP_PUBLIC_WEBSITE" == "true" ]]; then
+    log_info "Skipping public website restoration (--skip-public-website)"
+else
+    log_info "No public website files in backup"
 fi
 
 # ============================================================================

@@ -230,6 +230,8 @@ async def run_schema_migrations() -> None:
         # backup_configuration workflow and verification columns
         ("backup_configuration", "backup_workflow", "VARCHAR(20) DEFAULT 'direct'"),
         ("backup_configuration", "verify_frequency", "INTEGER DEFAULT 1"),
+        # backup_configuration public website backup setting
+        ("backup_configuration", "include_public_website", "BOOLEAN DEFAULT TRUE"),
     ]
 
     async with engine.begin() as conn:

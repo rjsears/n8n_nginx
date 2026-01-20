@@ -62,6 +62,7 @@ const notificationServices = ref([])
 const notificationGroups = ref([])
 const loadingChannels = ref(false)
 const primaryScheduleId = ref(null) // Track the primary schedule ID for updates
+const isPublicWebsiteInstalled = ref(false) // Tracks if public website (FileBrowser) is installed
 
 
 // Collapsible sections state - all start collapsed
@@ -143,6 +144,7 @@ const form = ref({
   include_n8n_config: true,
   include_ssl_certs: true,
   include_env_files: true,
+  include_public_website: true,
   // Notifications
   notify_on_success: false,
   notify_on_failure: true,
@@ -403,9 +405,22 @@ function tryEnableNotification(type) {
   }
 }
 
+async function checkPublicWebsiteInstalled() {
+  try {
+    const response = await api.get('/system/external-services')
+    const services = response.data || []
+    // Check if File Browser service exists (indicates public website is installed)
+    isPublicWebsiteInstalled.value = services.some(s => s.name === 'File Browser')
+  } catch (err) {
+    console.error('Failed to check public website status:', err)
+    isPublicWebsiteInstalled.value = false
+  }
+}
+
 onMounted(() => {
   loadConfiguration()
   loadNotificationChannels()
+  checkPublicWebsiteInstalled()
 })
 </script>
 
@@ -1219,6 +1234,13 @@ onMounted(() => {
               <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30">
                 <input v-model="form.include_env_files" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-500" />
                 <span class="text-sm text-primary">Include environment files (.env)</span>
+              </label>
+              <label v-if="isPublicWebsiteInstalled" class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                <input v-model="form.include_public_website" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-500" />
+                <div class="flex flex-col">
+                  <span class="text-sm text-primary">Include public website files</span>
+                  <span class="text-xs text-secondary">FileBrowser database and public_web_root volume</span>
+                </div>
               </label>
             </div>
           </div>
