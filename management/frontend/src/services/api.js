@@ -110,10 +110,10 @@ export const systemApi = {
   getHealth: () => api.get('/system/health'),
   getHealthFull: () => api.get('/system/health/full'),
   getInfo: () => api.get('/system/info'),
-  getNetwork: () => api.get('/system/network'),
+  getNetwork: (forceRefresh = false) => api.get('/system/network', { params: { force_refresh: forceRefresh } }),
   getSsl: () => api.get('/system/ssl'),
-  getCloudflare: () => api.get('/system/cloudflare'),
-  getTailscale: () => api.get('/system/tailscale'),
+  getCloudflare: (forceRefresh = false) => api.get('/system/cloudflare', { params: { force_refresh: forceRefresh } }),
+  getTailscale: (forceRefresh = false) => api.get('/system/tailscale', { params: { force_refresh: forceRefresh } }),
   getTerminalTargets: () => api.get('/system/terminal/targets'),
   getExternalServices: () => api.get('/system/external-services'),
   getDebug: () => api.get('/system/debug'),
@@ -134,9 +134,10 @@ export const backupsApi = {
 }
 
 export const containersApi = {
-  list: (all = true) => api.get('/containers/', { params: { all } }),
+  list: (all = true, forceRefresh = false) => api.get('/containers/', { params: { all, force_refresh: forceRefresh } }),
   get: (name) => api.get(`/containers/${name}`),
-  stats: () => api.get('/containers/stats'),
+  stats: (forceRefresh = false) => api.get('/containers/stats', { params: { force_refresh: forceRefresh } }),
+  health: (forceRefresh = false) => api.get('/containers/health', { params: { force_refresh: forceRefresh } }),
   health: () => api.get('/containers/health'),
   start: (name) => api.post(`/containers/${name}/start`),
   stop: (name) => api.post(`/containers/${name}/stop`),

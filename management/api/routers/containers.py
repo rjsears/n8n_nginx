@@ -15,40 +15,121 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any
+import logging
 
 from api.database import get_db
 from api.dependencies import get_current_user
 from api.services.container_service import ContainerService
 from api.schemas.common import SuccessResponse
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("/", response_model=List[Dict[str, Any]])
 async def list_containers(
     all: bool = True,
+    force_refresh: bool = False,
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all project containers."""
+    """List all project containers.
+
+    Uses Redis cache from n8n_status collector for fast response.
+    Falls back to direct collection if cache unavailable.
+
+    Args:
+        all: Include stopped containers
+        force_refresh: If True, bypass cache and collect directly
+    """
+    # Try Redis cache first (unless force_refresh)
+    if not force_refresh:
+        try:
+            from api.services.redis_cache_service import get_redis_cache
+            redis_cache = await get_redis_cache()
+            cached = await redis_cache.get_cached("containers:list")
+            if cached and "data" in cached:
+                data = cached["data"]
+                # Add cache metadata to each item
+                for item in data:
+                    item["_cached"] = True
+                    item["_cached_at"] = cached.get("collected_at")
+                    item["_age_seconds"] = cached.get("age_seconds")
+                return data
+        except Exception as e:
+            logger.debug(f"Redis cache miss for containers:list: {e}")
+
+    # Fallback: Direct collection
     service = ContainerService(db)
     return await service.list_containers(all=all)
 
 
 @router.get("/stats", response_model=List[Dict[str, Any]])
 async def get_container_stats(
+    force_refresh: bool = False,
     _=Depends(get_current_user),
 ):
-    """Get resource usage stats for all containers."""
+    """Get resource usage stats for all containers.
+
+    Uses Redis cache from n8n_status collector for fast response.
+    Falls back to direct collection if cache unavailable.
+
+    Args:
+        force_refresh: If True, bypass cache and collect directly
+    """
+    # Try Redis cache first (unless force_refresh)
+    if not force_refresh:
+        try:
+            from api.services.redis_cache_service import get_redis_cache
+            redis_cache = await get_redis_cache()
+            cached = await redis_cache.get_cached("containers:stats")
+            if cached and "data" in cached:
+                data = cached["data"]
+                # Add cache metadata to each item
+                for item in data:
+                    item["_cached"] = True
+                    item["_cached_at"] = cached.get("collected_at")
+                    item["_age_seconds"] = cached.get("age_seconds")
+                return data
+        except Exception as e:
+            logger.debug(f"Redis cache miss for containers:stats: {e}")
+
+    # Fallback: Direct collection
     service = ContainerService()
     return await service.get_stats()
 
 
 @router.get("/health")
 async def check_containers_health(
+    force_refresh: bool = False,
     _=Depends(get_current_user),
 ):
-    """Check health of all project containers."""
+    """Check health of all project containers.
+
+    Uses Redis cache from n8n_status collector for fast response.
+    Falls back to direct collection if cache unavailable.
+
+    Args:
+        force_refresh: If True, bypass cache and collect directly
+    """
+    # Try Redis cache first (unless force_refresh)
+    if not force_refresh:
+        try:
+            from api.services.redis_cache_service import get_redis_cache
+            redis_cache = await get_redis_cache()
+            cached = await redis_cache.get_cached("containers:health")
+            if cached and "data" in cached:
+                data = cached["data"]
+                return {
+                    **data,
+                    "_cached": True,
+                    "_cached_at": cached.get("collected_at"),
+                    "_age_seconds": cached.get("age_seconds"),
+                }
+        except Exception as e:
+            logger.debug(f"Redis cache miss for containers:health: {e}")
+
+    # Fallback: Direct collection
     service = ContainerService()
     return await service.check_health()
 

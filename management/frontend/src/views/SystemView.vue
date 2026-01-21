@@ -25,6 +25,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import HeartbeatLoader from '../components/common/HeartbeatLoader.vue'
 import DnaHelixLoader from '../components/common/DnaHelixLoader.vue'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
+import CacheStatus from '../components/common/CacheStatus.vue'
 import FileBrowserView from './FileBrowserView.vue'
 import {
   CpuChipIcon,
@@ -236,8 +237,13 @@ const networkInfo = ref({
   interfaces: [],
   gateway: null,
   dns_servers: [],
+  // Cache metadata from Redis
+  source: null,
+  cached_at: null,
+  age_seconds: null,
 })
 const networkLoading = ref(false)
+const networkRefreshing = ref(false) // For force refresh indicator
 
 // SSL info state
 const sslInfo = ref({
@@ -519,27 +525,37 @@ usePoll(loadData, POLLING.DASHBOARD_METRICS, false)
 // Poll health data every minute
 usePoll(loadHealthData, 60000, false)
 
-async function loadNetworkInfo() {
-  networkLoading.value = true
-
-  // Shuffle messages and start cycling
-  shuffleNetworkMessages()
-  networkLoadingMessageIndex.value = 0
-  if (networkLoadingInterval) clearInterval(networkLoadingInterval)
-  networkLoadingInterval = setInterval(() => {
-    networkLoadingMessageIndex.value = (networkLoadingMessageIndex.value + 1) % networkLoadingMessages.value.length
-  }, 2000)
+async function loadNetworkInfo(forceRefresh = false) {
+  // Use different loading state for force refresh vs initial load
+  if (forceRefresh) {
+    networkRefreshing.value = true
+  } else {
+    networkLoading.value = true
+    // Shuffle messages and start cycling
+    shuffleNetworkMessages()
+    networkLoadingMessageIndex.value = 0
+    if (networkLoadingInterval) clearInterval(networkLoadingInterval)
+    networkLoadingInterval = setInterval(() => {
+      networkLoadingMessageIndex.value = (networkLoadingMessageIndex.value + 1) % networkLoadingMessages.value.length
+    }, 2000)
+  }
 
   try {
     // Load network, cloudflare, and tailscale info in parallel
+    // Add force_refresh param if requested
     const [networkRes, cloudflareRes, tailscaleRes] = await Promise.all([
-      systemApi.getNetwork(),
-      systemApi.getCloudflare().catch(() => ({ data: { error: 'Not available' } })),
-      systemApi.getTailscale().catch(() => ({ data: { error: 'Not available' } })),
+      systemApi.getNetwork(forceRefresh),
+      systemApi.getCloudflare(forceRefresh).catch(() => ({ data: { error: 'Not available' } })),
+      systemApi.getTailscale(forceRefresh).catch(() => ({ data: { error: 'Not available' } })),
     ])
     networkInfo.value = networkRes.data
     cloudflareInfo.value = cloudflareRes.data
     tailscaleInfo.value = tailscaleRes.data
+
+    // Show notification on force refresh
+    if (forceRefresh) {
+      notificationStore.success('Network data refreshed from source')
+    }
   } catch (error) {
     console.error('Network info load failed:', error.response?.data || error.message)
     const detail = error.response?.data?.detail
@@ -547,6 +563,7 @@ async function loadNetworkInfo() {
   } finally {
     if (networkLoadingInterval) clearInterval(networkLoadingInterval)
     networkLoading.value = false
+    networkRefreshing.value = false
   }
 }
 
@@ -1749,10 +1766,25 @@ onUnmounted(() => {
           <Card :padding="false">
             <template #header>
               <div class="flex items-center justify-between w-full px-4 py-3">
-                <h3 class="font-semibold text-primary">Network Configuration</h3>
-                <span class="px-3 py-1 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded-full text-sm font-mono">
-                  {{ networkInfo.hostname || 'unknown' }}
-                </span>
+                <div class="flex items-center gap-3">
+                  <h3 class="font-semibold text-primary">Network Configuration</h3>
+                  <!-- Cache status indicator -->
+                  <CacheStatus :cacheStatus="{ source: networkInfo.source, age_seconds: networkInfo.age_seconds }" />
+                </div>
+                <div class="flex items-center gap-2">
+                  <!-- Force refresh button -->
+                  <button
+                    @click="loadNetworkInfo(true)"
+                    :disabled="networkRefreshing"
+                    class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    :title="networkRefreshing ? 'Refreshing...' : 'Force refresh from source'"
+                  >
+                    <ArrowPathIcon :class="['h-4 w-4 text-gray-500', { 'animate-spin': networkRefreshing }]" />
+                  </button>
+                  <span class="px-3 py-1 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded-full text-sm font-mono">
+                    {{ networkInfo.hostname || 'unknown' }}
+                  </span>
+                </div>
               </div>
             </template>
             <div class="p-4 space-y-4">

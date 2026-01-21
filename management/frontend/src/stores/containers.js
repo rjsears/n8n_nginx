@@ -20,8 +20,10 @@ export const useContainerStore = defineStore('containers', () => {
   const containers = ref([])
   const stats = ref([])
   const loading = ref(false)
+  const refreshing = ref(false) // For force refresh indicator
   const error = ref(null)
   const lastUpdated = ref(null)
+  const cacheStatus = ref({ source: null, cached_at: null, age_seconds: null })
 
   // Getters - with defensive array checks
   const containerList = computed(() =>
@@ -47,26 +49,44 @@ export const useContainerStore = defineStore('containers', () => {
   )
 
   // Actions
-  async function fetchContainers() {
-    loading.value = true
+  async function fetchContainers(forceRefresh = false) {
+    if (forceRefresh) {
+      refreshing.value = true
+    } else {
+      loading.value = true
+    }
     error.value = null
 
     try {
       // Explicitly pass all=true to include stopped containers
-      const response = await api.get('/containers/', { params: { all: true } })
-      containers.value = Array.isArray(response.data) ? response.data : []
+      const response = await api.get('/containers/', { params: { all: true, force_refresh: forceRefresh } })
+      const data = Array.isArray(response.data) ? response.data : []
+      containers.value = data
+
+      // Extract cache status from first item if available
+      if (data.length > 0 && data[0]._cached !== undefined) {
+        cacheStatus.value = {
+          source: 'cache',
+          cached_at: data[0]._cached_at,
+          age_seconds: data[0]._age_seconds,
+        }
+      } else {
+        cacheStatus.value = { source: 'direct', cached_at: null, age_seconds: null }
+      }
+
       lastUpdated.value = new Date()
     } catch (err) {
       error.value = err.response?.data?.detail || 'Failed to fetch containers'
       containers.value = []
     } finally {
       loading.value = false
+      refreshing.value = false
     }
   }
 
-  async function fetchStats() {
+  async function fetchStats(forceRefresh = false) {
     try {
-      const response = await api.get('/containers/stats')
+      const response = await api.get('/containers/stats', { params: { force_refresh: forceRefresh } })
       stats.value = response.data
     } catch (err) {
       console.error('Failed to fetch container stats:', err)
@@ -168,9 +188,12 @@ export const useContainerStore = defineStore('containers', () => {
     containers,
     stats,
     loading,
+    refreshing,
     error,
     lastUpdated,
+    cacheStatus,
     // Getters
+    containerList,
     runningCount,
     stoppedCount,
     unhealthyCount,
