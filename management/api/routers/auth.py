@@ -41,6 +41,7 @@ router = APIRouter()
 @router.post("/login", response_model=LoginResponse)
 async def login(
     request: Request,
+    response: Response,
     credentials: LoginRequest,
     db: AsyncSession = Depends(get_db),
     _: None = Depends(rate_limit_login),
@@ -48,6 +49,7 @@ async def login(
     """
     Authenticate user and create session.
     Returns session token for subsequent requests.
+    Also sets a session cookie for nginx auth_request (used by iframes).
     """
     client_ip = await get_client_ip(request)
     user_agent = request.headers.get("User-Agent")
@@ -75,6 +77,20 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Set session cookie for nginx auth_request (used by iframes like File Browser)
+    # httponly=False allows JavaScript to read it if needed, but it's also sent with requests
+    # secure=True ensures it's only sent over HTTPS
+    # samesite="lax" allows the cookie to be sent with same-site requests and top-level navigations
+    response.set_cookie(
+        key="session",
+        value=session.token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=int((session.expires_at - session.created_at).total_seconds()),
+        path="/",
+    )
+
     return LoginResponse(
         token=session.token,
         expires_at=session.expires_at,
@@ -84,12 +100,17 @@ async def login(
 
 @router.post("/logout", response_model=SuccessResponse)
 async def logout(
+    response: Response,
     session=Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
-    """Invalidate current session."""
+    """Invalidate current session and clear session cookie."""
     auth_service = AuthService(db)
     await auth_service.logout(session.token)
+
+    # Clear the session cookie
+    response.delete_cookie(key="session", path="/")
+
     return SuccessResponse(message="Logged out successfully")
 
 
