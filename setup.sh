@@ -3400,6 +3400,10 @@ EOF
     image: filebrowser/filebrowser:latest
     container_name: n8n_filebrowser
     restart: unless-stopped
+    command:
+      - --baseurl=/files
+      - --database=/database.db
+      - --root=/srv
     volumes:
       - public_web_root:/srv
       - ./filebrowser.db:/database.db
@@ -3781,7 +3785,8 @@ EOF
             # Authenticate via internal API
             auth_request /management/api/auth/verify;
 
-            proxy_pass http://n8n_filebrowser:80/;
+            # Keep /files/ prefix since filebrowser uses --baseurl=/files
+            proxy_pass http://n8n_filebrowser:80;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -5014,6 +5019,7 @@ initialize_public_website() {
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
     <title>Welcome | Powered by n8n Management</title>
+    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff6d5a'/%3E%3Cstop offset='100%25' stop-color='%23d84a38'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Cpath d='M10 20V12a2 2 0 012-2h0a2 2 0 012 2v8M18 20V14a2 2 0 012-2h0a2 2 0 012 2v6' stroke='white' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E\">
     <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
     <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
     <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap\" rel=\"stylesheet\">
