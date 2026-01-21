@@ -280,6 +280,16 @@ export const systemNotificationsApi = {
   updateGlobalSettings: (data) => api.put('/system-notifications/global-settings', data),
 }
 
+// Cache API (Redis status and n8n_status collector)
+export const cacheApi = {
+  getStatus: () => api.get('/cache/status'),
+  getKeys: (pattern = '*') => api.get('/cache/keys', { params: { pattern } }),
+  getKey: (keyName) => api.get(`/cache/key/${encodeURIComponent(keyName)}`),
+  deleteKey: (keyName) => api.delete(`/cache/key/${encodeURIComponent(keyName)}`),
+  flushCache: (pattern = null) => api.post('/cache/flush', null, { params: pattern ? { pattern } : {} }),
+  getCollectorMetrics: () => api.get('/cache/collector/metrics'),
+}
+
 // Attach APIs to the main instance for api.xxx.method() pattern compatibility
 api.auth = authApi
 api.system = {
@@ -323,3 +333,4 @@ api.settings = {
 }
 api.ntfy = ntfyApi
 api.systemNotifications = systemNotificationsApi
+api.cache = cacheApi
