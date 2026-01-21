@@ -64,8 +64,35 @@ class NetworkCollector(BaseCollector):
             return self._get_hostname()
 
     def _get_interfaces(self) -> list[dict]:
-        """Get network interfaces and their addresses."""
+        """Get network interfaces and their addresses.
+
+        Filters out virtual interfaces (Docker bridges, veth pairs, etc.)
+        to show only physical and important interfaces.
+        """
         interfaces = []
+
+        # Patterns for virtual interfaces to skip
+        virtual_prefixes = (
+            "veth",      # Docker veth pairs
+            "br-",       # Docker bridge networks
+            "docker",    # Docker default bridge
+            "virbr",     # libvirt bridges
+            "vlan",      # VLAN interfaces
+            "bond",      # Bonding interfaces (usually virtual)
+            "dummy",     # Dummy interfaces
+            "tunl",      # Tunnel interfaces
+            "gre",       # GRE tunnels
+            "sit",       # IPv6-in-IPv4 tunnels
+            "isatap",    # ISATAP tunnels
+            "ip6tnl",    # IPv6 tunnels
+            "ip6gre",    # IPv6 GRE tunnels
+            "cali",      # Calico interfaces
+            "flannel",   # Flannel interfaces
+            "cni",       # CNI interfaces
+            "podman",    # Podman interfaces
+            "lxc",       # LXC interfaces
+            "vxlan",     # VXLAN interfaces
+        )
 
         try:
             addrs = psutil.net_if_addrs()
@@ -74,6 +101,11 @@ class NetworkCollector(BaseCollector):
             for iface_name, addr_list in addrs.items():
                 # Skip loopback
                 if iface_name == "lo":
+                    continue
+
+                # Skip virtual interfaces (but keep tailscale for VPN visibility)
+                iface_lower = iface_name.lower()
+                if any(iface_lower.startswith(prefix) for prefix in virtual_prefixes):
                     continue
 
                 iface_info = {
