@@ -3395,6 +3395,10 @@ EOF
     image: filebrowser/filebrowser:latest
     container_name: n8n_filebrowser
     restart: unless-stopped
+    command:
+      - --baseurl=/files
+      - --database=/database.db
+      - --root=/srv
     volumes:
       - public_web_root:/srv
       - ./filebrowser.db:/database.db
@@ -3776,7 +3780,8 @@ EOF
             # Authenticate via internal API
             auth_request /management/api/auth/verify;
 
-            proxy_pass http://n8n_filebrowser:80/;
+            # Keep /files/ prefix since filebrowser uses --baseurl=/files
+            proxy_pass http://n8n_filebrowser:80;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
