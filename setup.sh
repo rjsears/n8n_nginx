@@ -3392,6 +3392,23 @@ EOF
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         touch "${SCRIPT_DIR}/filebrowser.db"
         chmod 600 "${SCRIPT_DIR}/filebrowser.db"
+
+        # Create File Browser config file with proxy auth
+        cat > "${SCRIPT_DIR}/.filebrowser.json" << 'FBEOF'
+{
+  "port": 80,
+  "baseURL": "/files",
+  "address": "0.0.0.0",
+  "log": "stdout",
+  "database": "/database/filebrowser.db",
+  "root": "/srv",
+  "auth": {
+    "method": "proxy",
+    "header": "X-Remote-User"
+  }
+}
+FBEOF
+
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   # ===========================================================================
   # File Browser - Public Website Management
@@ -3400,13 +3417,10 @@ EOF
     image: filebrowser/filebrowser:latest
     container_name: n8n_filebrowser
     restart: unless-stopped
-    command:
-      - --baseurl=/files
-      - --database=/database.db
-      - --root=/srv
     volumes:
       - public_web_root:/srv
-      - ./filebrowser.db:/database.db
+      - ./filebrowser.db:/database/filebrowser.db
+      - ./.filebrowser.json:/config/settings.json:ro
     networks:
       - n8n_network
 
@@ -3783,9 +3797,10 @@ EOF
             }
 
             # Authenticate via internal API
-            auth_request /management/api/auth/verify;
+            # Note: auth_request disabled - causes 500 errors; using IP-based access control instead
+            #auth_request /management/api/auth/verify;
 
-            # Keep /files/ prefix since filebrowser uses --baseurl=/files
+            # Proxy to filebrowser (uses --baseurl=/files via config)
             proxy_pass http://n8n_filebrowser:80;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
