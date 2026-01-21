@@ -68,12 +68,13 @@ class CloudflareCollector(BaseCollector):
                     logger.debug(f"Failed to get cloudflared logs: {e}")
 
             return {
-                "available": True,
+                "installed": True,
+                "running": is_running,
                 "container_name": container_name,
                 "container_status": status,
                 "container_health": health,
-                "is_running": is_running,
                 "tunnel_status": tunnel_status,
+                "connected": tunnel_status == "connected",
                 "connection_count": connection_count,
                 "last_error": last_error,
                 "healthy": is_running and tunnel_status == "connected",
@@ -81,7 +82,8 @@ class CloudflareCollector(BaseCollector):
 
         except NotFound:
             return {
-                "available": False,
+                "installed": False,
+                "running": False,
                 "container_name": container_name,
                 "error": "Container not found",
                 "healthy": False,
@@ -89,7 +91,8 @@ class CloudflareCollector(BaseCollector):
         except DockerException as e:
             logger.error(f"Docker error checking Cloudflare: {e}")
             return {
-                "available": False,
+                "installed": False,
+                "running": False,
                 "container_name": container_name,
                 "error": str(e),
                 "healthy": False,

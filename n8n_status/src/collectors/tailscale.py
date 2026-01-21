@@ -55,11 +55,11 @@ class TailscaleCollector(BaseCollector):
 
             if not is_running:
                 return {
-                    "available": True,
+                    "installed": True,
+                    "running": False,
+                    "logged_in": False,
                     "container_name": container_name,
                     "container_status": status,
-                    "is_running": False,
-                    "connected": False,
                     "healthy": False,
                 }
 
@@ -77,11 +77,11 @@ class TailscaleCollector(BaseCollector):
                 else:
                     error_msg = stderr.decode("utf-8") if stderr else "Unknown error"
                     return {
-                        "available": True,
+                        "installed": True,
+                        "running": True,
+                        "logged_in": False,
                         "container_name": container_name,
                         "container_status": status,
-                        "is_running": True,
-                        "connected": False,
                         "error": error_msg,
                         "healthy": False,
                     }
@@ -89,18 +89,20 @@ class TailscaleCollector(BaseCollector):
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse Tailscale status JSON: {e}")
                 return {
-                    "available": True,
+                    "installed": True,
+                    "running": True,
+                    "logged_in": False,
                     "container_name": container_name,
                     "container_status": status,
-                    "is_running": True,
-                    "connected": False,
                     "error": f"Invalid JSON: {e}",
                     "healthy": False,
                 }
 
         except NotFound:
             return {
-                "available": False,
+                "installed": False,
+                "running": False,
+                "logged_in": False,
                 "container_name": container_name,
                 "error": "Container not found",
                 "healthy": False,
@@ -108,7 +110,9 @@ class TailscaleCollector(BaseCollector):
         except DockerException as e:
             logger.error(f"Docker error checking Tailscale: {e}")
             return {
-                "available": False,
+                "installed": False,
+                "running": False,
+                "logged_in": False,
                 "container_name": container_name,
                 "error": str(e),
                 "healthy": False,
@@ -137,18 +141,20 @@ class TailscaleCollector(BaseCollector):
             magic_dns_suffix = ts_status.get("MagicDNSSuffix", "")
 
             return {
-                "available": True,
+                "installed": True,
+                "running": True,
+                "logged_in": is_connected and online,
                 "container_name": container_name,
                 "container_status": container_status,
-                "is_running": True,
-                "connected": is_connected,
                 "backend_state": backend_state,
+                "tailscale_ip": tailscale_ips[0] if tailscale_ips else None,
                 "tailscale_ips": tailscale_ips,
                 "hostname": hostname,
                 "dns_name": dns_name,
                 "online": online,
                 "peer_count": peer_count,
                 "online_peers": online_peers,
+                "peers": [],  # Empty list, frontend populates from API if needed
                 "magic_dns_suffix": magic_dns_suffix,
                 "healthy": is_connected and online,
             }
@@ -156,11 +162,11 @@ class TailscaleCollector(BaseCollector):
         except Exception as e:
             logger.warning(f"Failed to parse Tailscale status: {e}")
             return {
-                "available": True,
+                "installed": True,
+                "running": True,
+                "logged_in": False,
                 "container_name": container_name,
                 "container_status": container_status,
-                "is_running": True,
-                "connected": False,
                 "error": str(e),
                 "healthy": False,
             }
