@@ -5022,13 +5022,16 @@ initialize_public_website() {
         return 0
     fi
 
-    # Copy the default landing page from the example file
+    # Copy the default landing page from the example file with domain substitution
     if [ -f "${SCRIPT_DIR}/public.index.html.example" ]; then
+        # Substitute {{N8N_DOMAIN}} placeholder with actual domain
+        sed "s/{{N8N_DOMAIN}}/${N8N_DOMAIN}/g" "${SCRIPT_DIR}/public.index.html.example" > "${SCRIPT_DIR}/.public_index_temp.html"
         $DOCKER_SUDO docker run --rm \
-            -v "${SCRIPT_DIR}/public.index.html.example:/src/index.html:ro" \
+            -v "${SCRIPT_DIR}/.public_index_temp.html:/src/index.html:ro" \
             -v "${volume_name}:/var/www/public" \
             alpine \
             cp /src/index.html /var/www/public/index.html
+        rm -f "${SCRIPT_DIR}/.public_index_temp.html"
     else
         # Fallback: create a minimal placeholder if example file is missing
         $DOCKER_SUDO docker run --rm \
