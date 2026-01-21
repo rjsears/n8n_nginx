@@ -5005,9 +5005,14 @@ initialize_public_website() {
     # This prevents 403 errors when the volume is empty
     print_info "Initializing public website with default landing page..."
 
+    # Get the Docker Compose project name (used as volume prefix)
+    # Default is the directory name, but can be overridden by COMPOSE_PROJECT_NAME
+    local project_name="${COMPOSE_PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
+    local volume_name="${project_name}_public_web_root"
+
     # Check if index.html already exists in the volume
     local index_exists=$($DOCKER_SUDO docker run --rm \
-        -v public_web_root:/var/www/public \
+        -v "${volume_name}:/var/www/public" \
         alpine \
         sh -c "[ -f /var/www/public/index.html ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
 
@@ -5018,7 +5023,7 @@ initialize_public_website() {
 
     # Create a modern animated landing page
     $DOCKER_SUDO docker run --rm \
-        -v public_web_root:/var/www/public \
+        -v "${volume_name}:/var/www/public" \
         alpine \
         sh -c 'cat > /var/www/public/index.html << '\''INDEXEOF'\''
 <!DOCTYPE html>
