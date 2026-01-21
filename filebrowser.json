@@ -3,7 +3,7 @@
   "baseURL": "/files",
   "address": "0.0.0.0",
   "log": "stdout",
-  "database": "/database.db",
+  "database": "/database/filebrowser.db",
   "root": "/srv",
   "auth": {
     "method": "proxy",
