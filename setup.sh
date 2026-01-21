@@ -3117,6 +3117,8 @@ EOF
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8000/api/health || exit 1']
       interval: 30s
@@ -3125,6 +3127,53 @@ EOF
       start_period: 30s
     networks:
       - n8n_network
+
+  # ===========================================================================
+  # Redis - Cache for status data (collected by n8n_status)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: n8n_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - n8n_network
+
+  # ===========================================================================
+  # Status Collector - Caches system metrics in Redis
+  # ===========================================================================
+  n8n_status:
+    build:
+      context: ./n8n_status
+      dockerfile: Dockerfile
+    container_name: n8n_status
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - REDIS_HOST=127.0.0.1
+      - REDIS_PORT=6379
+      - POLL_INTERVAL_METRICS=5
+      - POLL_INTERVAL_NETWORK=30
+      - POLL_INTERVAL_CONTAINERS=5
+      - POLL_INTERVAL_EXTERNAL=15
+      - TZ=\${TIMEZONE:-America/Los_Angeles}
+      # Container names for status checks
+      - CLOUDFLARE_CONTAINER=\${CLOUDFLARE_CONTAINER:-n8n_cloudflared}
+      - TAILSCALE_CONTAINER=\${TAILSCALE_CONTAINER:-n8n_tailscale}
+      - NTFY_CONTAINER=\${NTFY_CONTAINER:-n8n_ntfy}
+      - NTFY_URL=http://127.0.0.1:8083
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      redis:
+        condition: service_healthy
 
 EOF
 
@@ -3374,6 +3423,8 @@ volumes:
   letsencrypt:
     external: true
   certbot_data:
+    driver: local
+  redis_data:
     driver: local
 EOF
 
