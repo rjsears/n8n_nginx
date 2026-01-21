@@ -3337,7 +3337,26 @@ EOF
     # Add File Browser if configured (Public Website)
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         touch "${SCRIPT_DIR}/filebrowser.db"
-        chmod 600 "${SCRIPT_DIR}/filebrowser.db"
+        chmod 666 "${SCRIPT_DIR}/filebrowser.db"
+        # Copy filebrowser config if it exists in repo, otherwise create it
+        if [ -f "${SCRIPT_DIR}/filebrowser.json" ]; then
+            cp "${SCRIPT_DIR}/filebrowser.json" "${SCRIPT_DIR}/.filebrowser.json"
+        else
+            cat > "${SCRIPT_DIR}/.filebrowser.json" << 'FBEOF'
+{
+  "port": 80,
+  "baseURL": "/files",
+  "address": "0.0.0.0",
+  "log": "stdout",
+  "database": "/database.db",
+  "root": "/srv",
+  "auth": {
+    "method": "proxy",
+    "header": "X-Remote-User"
+  }
+}
+FBEOF
+        fi
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   # ===========================================================================
   # File Browser - Public Website Management
@@ -3346,13 +3365,10 @@ EOF
     image: filebrowser/filebrowser:latest
     container_name: n8n_filebrowser
     restart: unless-stopped
-    command: ["--baseURL=/files"]
-    environment:
-      - FB_AUTH_METHOD=proxy
-      - FB_AUTH_HEADER=X-Remote-User
     volumes:
       - public_web_root:/srv
       - ./filebrowser.db:/database.db
+      - ./.filebrowser.json:/.filebrowser.json:ro
     networks:
       - n8n_network
 
