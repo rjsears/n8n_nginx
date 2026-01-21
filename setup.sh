@@ -2199,6 +2199,9 @@ run_migration_v2_to_v3() {
     # Generate new docker-compose.yaml with management services
     generate_docker_compose_v3
 
+    # Determine SSL cert domain before generating nginx config
+    determine_ssl_cert_domain
+
     # Update nginx.conf with management port
     generate_nginx_conf_v3
 
@@ -4984,6 +4987,78 @@ deploy_stack() {
 # SSL CERTIFICATE MANAGEMENT
 # =============================================================================
 
+determine_ssl_cert_domain() {
+    # Determine the SSL certificate domain BEFORE generating nginx.conf
+    # This is critical for wildcard certificates where the cert is stored
+    # under the root domain (e.g., example.com) but nginx serves subdomains
+    # (e.g., n8n.example.com)
+    #
+    # This function should be called BEFORE generate_nginx_conf_v3()
+
+    # Extract root domain (e.g. n8n.example.com -> example.com)
+    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+
+    # If SSL_CERT_DOMAIN was already loaded from config/state file, validate it
+    if [ -n "$SSL_CERT_DOMAIN" ] && [ "$SSL_CERT_DOMAIN" != "" ] && [ "$SSL_CERT_DOMAIN" != "$N8N_DOMAIN" ]; then
+        print_info "Using configured SSL certificate domain: $SSL_CERT_DOMAIN"
+        return 0
+    fi
+
+    # Also check SAVED_SSL_CERT_DOMAIN from state file
+    if [ -n "$SAVED_SSL_CERT_DOMAIN" ] && [ "$SAVED_SSL_CERT_DOMAIN" != "" ]; then
+        SSL_CERT_DOMAIN="$SAVED_SSL_CERT_DOMAIN"
+        print_info "Using saved SSL certificate domain: $SSL_CERT_DOMAIN"
+        return 0
+    fi
+
+    # Default to the N8N_DOMAIN
+    SSL_CERT_DOMAIN="$N8N_DOMAIN"
+
+    # Check if Public Website is enabled - this requires a wildcard cert
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        SSL_CERT_DOMAIN="$root_domain"
+        print_info "Public Website enabled - using wildcard certificate domain: $SSL_CERT_DOMAIN"
+        return 0
+    fi
+
+    # Check if a wildcard certificate already exists (for root domain)
+    if [ "$root_domain" != "$N8N_DOMAIN" ]; then
+        if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
+            # Check if cert exists under root domain first (wildcard cert)
+            local cert_check=$($DOCKER_SUDO docker run --rm \
+                -v letsencrypt:/etc/letsencrypt:ro \
+                alpine \
+                sh -c "[ -f /etc/letsencrypt/live/${root_domain}/fullchain.pem ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
+
+            if [ "$cert_check" = "exists" ]; then
+                SSL_CERT_DOMAIN="$root_domain"
+                print_info "Found existing wildcard certificate for: $SSL_CERT_DOMAIN"
+                return 0
+            fi
+
+            # Also check if cert exists under N8N_DOMAIN (single-domain cert)
+            cert_check=$($DOCKER_SUDO docker run --rm \
+                -v letsencrypt:/etc/letsencrypt:ro \
+                alpine \
+                sh -c "[ -f /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
+
+            if [ "$cert_check" = "exists" ]; then
+                SSL_CERT_DOMAIN="$N8N_DOMAIN"
+                print_info "Found existing certificate for: $SSL_CERT_DOMAIN"
+                return 0
+            fi
+        fi
+    fi
+
+    # In preconfig mode, if we're going to get a wildcard cert, set the domain now
+    if [ "$PRECONFIG_MODE" = "true" ] && [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        SSL_CERT_DOMAIN="$root_domain"
+    fi
+
+    print_info "SSL certificate domain set to: $SSL_CERT_DOMAIN"
+    return 0
+}
+
 check_existing_ssl_certificate() {
     # Check if valid SSL certificate already exists in the letsencrypt volume
     # Returns 0 if valid certificate exists, 1 otherwise
@@ -5498,6 +5573,7 @@ update_access_control() {
 
         # Regenerate nginx.conf
         print_info "Regenerating nginx configuration..."
+        determine_ssl_cert_domain
         generate_nginx_conf_v3
 
         # Reload nginx if running
@@ -5786,6 +5862,7 @@ main() {
             generate_env_file
             generate_tool_auth_files
             generate_docker_compose_v3
+            determine_ssl_cert_domain
             generate_nginx_conf_v3
 
             print_success "Configuration files regenerated!"
@@ -5901,6 +5978,9 @@ main() {
         generate_env_file
         generate_tool_auth_files
         generate_docker_compose_v3
+        # Determine SSL certificate domain BEFORE generating nginx.conf
+        # This is critical for wildcard certificates
+        determine_ssl_cert_domain
         generate_nginx_conf_v3
         create_letsencrypt_volume
 
@@ -5915,6 +5995,7 @@ N8N_CONTAINER=${N8N_CONTAINER}
 NGINX_CONTAINER=${NGINX_CONTAINER}
 CERTBOT_CONTAINER=${CERTBOT_CONTAINER}
 LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+SSL_CERT_DOMAIN=${SSL_CERT_DOMAIN}
 N8N_TIMEZONE=${N8N_TIMEZONE}
 PORTAINER_ENABLED=${INSTALL_PORTAINER}
 PORTAINER_AGENT_ENABLED=${INSTALL_PORTAINER_AGENT}
