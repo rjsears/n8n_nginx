@@ -5,6 +5,8 @@
   "log": "stdout",
   "database": "/database/filebrowser.db",
   "root": "/srv",
-  "authMethod": "proxy",
-  "header": "X-Remote-User"
+  "auth": {
+    "method": "proxy",
+    "header": "X-Remote-User"
+  }
 }
