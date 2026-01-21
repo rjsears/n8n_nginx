@@ -2235,9 +2235,7 @@ onUnmounted(() => {
 
     <!-- Files Tab -->
     <template v-if="activeTab === 'files'">
-      <div class="h-[calc(100vh-200px)] min-h-[600px]">
-        <FileBrowserView />
-      </div>
+      <FileBrowserView />
     </template>
 
     <!-- Cloudflare Token Modal -->
