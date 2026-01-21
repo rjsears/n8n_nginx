@@ -3057,6 +3057,9 @@ services:
       - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
       - POSTGRES_USER=${POSTGRES_USER:-n8n}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # Redis connection (for status caching)
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
 EOF
 
     # Add notification environment variables if configured
@@ -3117,6 +3120,8 @@ EOF
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8000/api/health || exit 1']
       interval: 30s
@@ -3125,6 +3130,55 @@ EOF
       start_period: 30s
     networks:
       - n8n_network
+
+  # ===========================================================================
+  # Redis - Cache for status data (collected by n8n_status)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: n8n_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - n8n_network
+
+  # ===========================================================================
+  # Status Collector - Caches system metrics in Redis
+  # ===========================================================================
+  n8n_status:
+    build:
+      context: ./n8n_status
+      dockerfile: Dockerfile
+    container_name: n8n_status
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - REDIS_HOST=127.0.0.1
+      - REDIS_PORT=6379
+      - POLL_INTERVAL_METRICS=5
+      - POLL_INTERVAL_NETWORK=30
+      - POLL_INTERVAL_CONTAINERS=5
+      - POLL_INTERVAL_EXTERNAL=15
+      - TZ=\${TIMEZONE:-America/Los_Angeles}
+      # Container names for status checks
+      - CLOUDFLARE_CONTAINER=\${CLOUDFLARE_CONTAINER:-n8n_cloudflared}
+      - TAILSCALE_CONTAINER=\${TAILSCALE_CONTAINER:-n8n_tailscale}
+      - NTFY_CONTAINER=\${NTFY_CONTAINER:-n8n_ntfy}
+      - NTFY_URL=http://127.0.0.1:8083
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      redis:
+        condition: service_healthy
 
 EOF
 
@@ -3337,26 +3391,7 @@ EOF
     # Add File Browser if configured (Public Website)
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         touch "${SCRIPT_DIR}/filebrowser.db"
-        chmod 666 "${SCRIPT_DIR}/filebrowser.db"
-        # Copy filebrowser config if it exists in repo, otherwise create it
-        if [ -f "${SCRIPT_DIR}/filebrowser.json" ]; then
-            cp "${SCRIPT_DIR}/filebrowser.json" "${SCRIPT_DIR}/.filebrowser.json"
-        else
-            cat > "${SCRIPT_DIR}/.filebrowser.json" << 'FBEOF'
-{
-  "port": 80,
-  "baseURL": "/files",
-  "address": "0.0.0.0",
-  "log": "stdout",
-  "database": "/database.db",
-  "root": "/srv",
-  "auth": {
-    "method": "proxy",
-    "header": "X-Remote-User"
-  }
-}
-FBEOF
-        fi
+        chmod 600 "${SCRIPT_DIR}/filebrowser.db"
         cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   # ===========================================================================
   # File Browser - Public Website Management
@@ -3368,7 +3403,6 @@ FBEOF
     volumes:
       - public_web_root:/srv
       - ./filebrowser.db:/database.db
-      - ./.filebrowser.json:/.filebrowser.json:ro
     networks:
       - n8n_network
 
@@ -3394,6 +3428,8 @@ volumes:
   letsencrypt:
     external: true
   certbot_data:
+    driver: local
+  redis_data:
     driver: local
 EOF
 
@@ -3533,57 +3569,10 @@ EOF
     # ===========================================================================
 EOF
 
-    # Public Website Server Block
-    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        # Use saved variables if available (from interactive setup)
-        # Fallback to calculated defaults for non-interactive/legacy runs
-        local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
-        
-        # Build server_name directive - only use the configured public domain (e.g. www)
-        # Cloudflare Tunnel routing requires exact hostname match
-        local server_names="$public_domain"
-
-        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
-
-    # ===========================================================================
-    # Public Website (${server_names})
-    # ===========================================================================
-    server {
-        listen 443 ssl;
-        http2 on;
-        server_name ${server_names};
-
-        # Reuse the same wildcard certificate
-        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/privkey.pem;
-
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-        ssl_prefer_server_ciphers off;
-
-        # Serve static files
-        root /var/www/public;
-        index index.html;
-
-        location / {
-            try_files \$uri \$uri/ =404;
-        }
-
-        # Health check endpoint
-        location /healthz {
-            access_log off;
-            return 200 "healthy\n";
-        }
-    }
-EOF
-    fi
-
     cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
 
     # ===========================================================================
     # Main n8n HTTPS Server (Port 443)
-    # This is the default server - handles all requests that don't match other server_names
-    # IMPORTANT: default_server ensures ECH/TLS connections use this certificate
     # ===========================================================================
     server {
         listen 443 ssl default_server;
@@ -3792,7 +3781,7 @@ EOF
             # Authenticate via internal API
             auth_request /management/api/auth/verify;
 
-            proxy_pass http://n8n_filebrowser:80;
+            proxy_pass http://n8n_filebrowser:80/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -3869,6 +3858,51 @@ EOF
             proxy_buffering off;
         }
     }
+EOF
+
+    # Public Website Server Block (added AFTER main n8n server)
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        # Use saved variables if available (from interactive setup)
+        local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
+        local server_names="$public_domain"
+
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+    # ===========================================================================
+    # Public Website (${server_names})
+    # ===========================================================================
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name ${server_names};
+
+        # Reuse the same wildcard certificate
+        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+
+        # Serve static files
+        root /var/www/public;
+        index index.html;
+
+        location / {
+            try_files \$uri \$uri/ =404;
+        }
+
+        # Health check endpoint for tunnel/proxy health checks
+        location /healthz {
+            access_log off;
+            return 200 "healthy\\n";
+        }
+    }
+EOF
+    fi
+
+    # Close the http block
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 }
 EOF
 
@@ -4954,6 +4988,301 @@ create_letsencrypt_volume() {
     fi
 }
 
+initialize_public_website() {
+    # Initialize the public website with a default landing page
+    # Only runs if public_web_root volume is empty
+
+    print_info "Initializing public website..."
+
+    # Check if index.html already exists
+    local has_index=$($DOCKER_SUDO docker run --rm -v public_web_root:/data:ro alpine sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
+
+    if [ "$has_index" = "yes" ]; then
+        print_info "Public website already has content, skipping initialization"
+        return 0
+    fi
+
+    # Extract root domain for display
+    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+    local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
+
+    # Create the default landing page
+    $DOCKER_SUDO docker run --rm -v public_web_root:/data alpine sh -c "cat > /data/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>Welcome | Powered by n8n Management</title>
+    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
+    <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
+    <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap\" rel=\"stylesheet\">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f0f23 100%);
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+        }
+
+        .bg-glow {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        .glow-1 {
+            top: -200px;
+            left: -200px;
+            background: #ff6b6b;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .glow-2 {
+            bottom: -200px;
+            right: -200px;
+            background: #4ecdc4;
+            animation: float 25s ease-in-out infinite reverse;
+        }
+
+        .glow-3 {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #a855f7;
+            animation: pulse 10s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(50px, 50px); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.1; transform: translate(-50%, -50%) scale(1); }
+            50% { opacity: 0.2; transform: translate(-50%, -50%) scale(1.1); }
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 3rem 4rem;
+            max-width: 600px;
+            text-align: center;
+            box-shadow:
+                0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 2rem;
+            background: linear-gradient(135deg, #ff6b6b, #a855f7, #4ecdc4);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            box-shadow: 0 10px 40px rgba(168, 85, 247, 0.3);
+            animation: logoFloat 6s ease-in-out infinite;
+        }
+
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #ffffff, #a0a0a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            background: rgba(78, 205, 196, 0.1);
+            border: 1px solid rgba(78, 205, 196, 0.3);
+            border-radius: 50px;
+            font-size: 0.9rem;
+            color: #4ecdc4;
+            margin-bottom: 2rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #4ecdc4;
+            border-radius: 50%;
+            animation: blink 2s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .feature {
+            text-align: center;
+        }
+
+        .feature-icon {
+            width: 40px;
+            height: 40px;
+            margin: 0 auto 0.75rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .feature-label {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.5);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .footer {
+            margin-top: 3rem;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        .footer a {
+            color: rgba(255, 255, 255, 0.5);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .footer a:hover {
+            color: #a855f7;
+        }
+
+        @media (max-width: 640px) {
+            .card {
+                padding: 2rem;
+            }
+            h1 {
+                font-size: 1.75rem;
+            }
+            .features {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class=\"bg-grid\"></div>
+    <div class=\"bg-glow glow-1\"></div>
+    <div class=\"bg-glow glow-2\"></div>
+    <div class=\"bg-glow glow-3\"></div>
+
+    <div class=\"container\">
+        <div class=\"card\">
+            <div class=\"logo\">n8n</div>
+            <h1>Welcome</h1>
+            <p class=\"subtitle\">
+                This site is powered by n8n Management Console.
+                Upload your content using File Browser to customize this page.
+            </p>
+            <div class=\"status\">
+                <span class=\"status-dot\"></span>
+                System Online
+            </div>
+            <div class=\"features\">
+                <div class=\"feature\">
+                    <div class=\"feature-icon\">⚡</div>
+                    <div class=\"feature-label\">Fast</div>
+                </div>
+                <div class=\"feature\">
+                    <div class=\"feature-icon\">🔒</div>
+                    <div class=\"feature-label\">Secure</div>
+                </div>
+                <div class=\"feature\">
+                    <div class=\"feature-icon\">🚀</div>
+                    <div class=\"feature-label\">Scalable</div>
+                </div>
+            </div>
+        </div>
+        <p class=\"footer\">
+            Powered by <a href=\"https://github.com/rjsears/n8n_nginx\" target=\"_blank\">n8n Management</a>
+        </p>
+    </div>
+</body>
+</html>
+HTMLEOF"
+
+    # Set proper permissions
+    $DOCKER_SUDO docker run --rm -v public_web_root:/data alpine chmod -R 755 /data
+
+    print_success "Public website initialized with default landing page"
+}
+
 deploy_stack() {
     print_section "Deploying n8n Stack v3.0"
 
@@ -5000,7 +5329,7 @@ deploy_stack() {
     sleep 10
     print_success "All services started"
 
-    # Initialize public website with default landing page if enabled
+    # Initialize public website with default index if enabled
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         initialize_public_website
     fi
@@ -5014,56 +5343,6 @@ deploy_stack() {
     backup_existing_config
 
     show_final_summary_v3
-}
-
-# =============================================================================
-# PUBLIC WEBSITE INITIALIZATION
-# =============================================================================
-
-initialize_public_website() {
-    # Initialize the public_web_root volume with a default landing page
-    # This prevents 403 errors when the volume is empty
-    print_info "Initializing public website with default landing page..."
-
-    # Get the Docker Compose project name (used as volume prefix)
-    # Default is the directory name, but can be overridden by COMPOSE_PROJECT_NAME
-    local project_name="${COMPOSE_PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
-    local volume_name="${project_name}_public_web_root"
-
-    # Check if index.html already exists in the volume
-    local index_exists=$($DOCKER_SUDO docker run --rm \
-        -v "${volume_name}:/var/www/public" \
-        alpine \
-        sh -c "[ -f /var/www/public/index.html ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
-
-    if [ "$index_exists" = "exists" ]; then
-        print_info "Public website already has content - skipping initialization"
-        return 0
-    fi
-
-    # Copy the default landing page from the example file with domain substitution
-    if [ -f "${SCRIPT_DIR}/public.index.html.example" ]; then
-        # Substitute {{N8N_DOMAIN}} placeholder with actual domain
-        sed "s/{{N8N_DOMAIN}}/${N8N_DOMAIN}/g" "${SCRIPT_DIR}/public.index.html.example" > "${SCRIPT_DIR}/.public_index_temp.html"
-        $DOCKER_SUDO docker run --rm \
-            -v "${SCRIPT_DIR}/.public_index_temp.html:/src/index.html:ro" \
-            -v "${volume_name}:/var/www/public" \
-            alpine \
-            cp /src/index.html /var/www/public/index.html
-        rm -f "${SCRIPT_DIR}/.public_index_temp.html"
-    else
-        # Fallback: create a minimal placeholder if example file is missing
-        $DOCKER_SUDO docker run --rm \
-            -v "${volume_name}:/var/www/public" \
-            alpine \
-            sh -c 'echo "<!DOCTYPE html><html><head><title>Public Website</title></head><body><h1>Welcome</h1><p>Upload your content via File Browser in the management console.</p></body></html>" > /var/www/public/index.html'
-    fi
-
-    if [ $? -eq 0 ]; then
-        print_success "Public website initialized with default landing page"
-    else
-        print_warning "Failed to initialize public website - volume may need manual setup"
-    fi
 }
 
 # =============================================================================
