@@ -3346,7 +3346,7 @@ EOF
     image: filebrowser/filebrowser:latest
     container_name: n8n_filebrowser
     restart: unless-stopped
-    command: ["--baseurl=/files", "--database=/database.db", "--root=/srv"]
+    command: ["--baseURL=/files", "--auth.method=proxy", "--auth.header=X-Remote-User"]
     volumes:
       - public_web_root:/srv
       - ./filebrowser.db:/database.db
