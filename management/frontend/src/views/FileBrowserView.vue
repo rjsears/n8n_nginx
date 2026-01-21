@@ -36,7 +36,7 @@ function refreshIframe() {
 </script>
 
 <template>
-  <div class="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
+  <div class="space-y-6 h-full flex flex-col">
     <!-- Header -->
     <div class="flex items-center justify-between flex-shrink-0">
       <div>
