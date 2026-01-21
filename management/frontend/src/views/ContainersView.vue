@@ -393,8 +393,8 @@ async function confirmDangerStop() {
     await containerStore.stopContainer(container.name)
     notificationStore.success(`Container ${container.name} stopped`)
     dangerStopDialog.value.open = false
-    // Refresh data
-    await loadData()
+    // Refresh data with force refresh to bypass cache
+    await loadData(true)
   } catch (error) {
     notificationStore.error(`Failed to stop container: ${error.response?.data?.detail || error.message}`)
   } finally {
@@ -423,8 +423,8 @@ async function confirmAction() {
         break
     }
     actionDialog.value.open = false
-    // Refresh data
-    await loadData()
+    // Refresh data with force refresh to bypass cache
+    await loadData(true)
   } catch (error) {
     notificationStore.error(`Failed to ${action} container`)
   } finally {
