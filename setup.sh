@@ -3391,7 +3391,8 @@ EOF
     # Add File Browser if configured (Public Website)
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         touch "${SCRIPT_DIR}/filebrowser.db"
-        chmod 600 "${SCRIPT_DIR}/filebrowser.db"
+        # filebrowser runs as non-root (UID 1000), needs write access
+        chmod 666 "${SCRIPT_DIR}/filebrowser.db"
 
         # Create File Browser config file with proxy auth
         cat > "${SCRIPT_DIR}/.filebrowser.json" << 'FBEOF'
