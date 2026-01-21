@@ -2238,11 +2238,6 @@ onUnmounted(() => {
       <FileBrowserView />
     </template>
 
-    <!-- Files Tab -->
-    <template v-if="activeTab === 'files'">
-      <FileBrowserView />
-    </template>
-
     <!-- Cloudflare Token Modal -->
     <Teleport to="body">
       <div
