@@ -737,8 +737,8 @@ async function confirmTailscaleReset() {
     notificationStore.success('Tailscale container restarted with new auth key')
     tailscaleResetDialog.value.open = false
 
-    // Reload Tailscale info after a delay
-    setTimeout(() => loadNetworkInfo(), 5000)
+    // Reload Tailscale info after a delay with force refresh to bypass cache
+    setTimeout(() => loadNetworkInfo(true), 5000)
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to reset Tailscale container')
   } finally {
@@ -770,9 +770,9 @@ async function confirmRestart() {
     await settingsApi.restartContainer(containerName, 'Manual restart from System page')
     notificationStore.success(`${displayName} restarted successfully`)
 
-    // Reload the relevant info after restart
+    // Reload the relevant info after restart with force refresh to bypass cache
     if (containerName === 'n8n_cloudflared' || containerName === 'n8n_tailscale') {
-      setTimeout(() => loadNetworkInfo(), 3000)
+      setTimeout(() => loadNetworkInfo(true), 3000)
     }
     restartDialog.value.open = false
   } catch (error) {
