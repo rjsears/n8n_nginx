@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-01-21
+
+### Added
+
+#### Redis Status Caching System
+- New `n8n_status` container for continuous system metrics collection
+- New `n8n_redis` container (Redis 7 Alpine) for status caching
+- Cache Status page in System view showing Redis health and cached keys
+- Sub-50ms response times for Network, Health, and Container tabs (previously 2-8 seconds)
+- Automatic fallback to direct collection when cache unavailable
+- Force refresh buttons on cached data views
+
+#### Public Website & File Browser
+- File Browser integration for managing public website files
+- Public website hosting support (www subdomain)
+- `update_public_index.sh` script for updating public landing page
+- Light-themed landing page with favicon
+
+### Changed
+- Network collector now filters virtual interfaces (veth, docker bridges, etc.)
+- Status collectors use consistent field names matching frontend expectations
+- File Browser uses config file (`.filebrowser.json`) instead of command-line args
+- Redis port exposed on localhost (127.0.0.1:6379) for n8n_status connectivity
+
+### Fixed
+- Cloudflare/Tailscale cards showing incorrect status due to field name mismatch (#325)
+- Network page showing 30+ virtual interfaces instead of physical ones (#325)
+- File Browser proxy authentication not working without CLI configuration (#324)
+- File Browser iframe height too small in management console (#322)
+- File Browser assets not loading correctly due to missing baseurl (#320)
+- Redis connectivity for n8n_status with network_mode: host (#323, #318)
+- nginx default_server and public website initialization (#317)
+
+---
+
 ## [3.0.0] - 2026-01
 
 ### Added

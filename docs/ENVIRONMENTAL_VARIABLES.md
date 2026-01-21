@@ -240,7 +240,53 @@ See [NOTIFICATIONS.md](./NOTIFICATIONS.md) for NTFY configuration details.
 
 ---
 
-### 10. n8n API Integration (`n8n_api`)
+### 10. Redis Status Cache (`redis`)
+
+Configuration for the Redis status caching system used by n8n_status.
+
+| Variable | Description | Default | Required | Sensitive |
+|----------|-------------|---------|----------|-----------|
+| `REDIS_HOST` | Hostname of the Redis server | `redis` (or `127.0.0.1` for n8n_status) | No | No |
+| `REDIS_PORT` | Port number for Redis | `6379` | No | No |
+| `REDIS_ENABLED` | Enable/disable Redis caching in management console | `true` | No | No |
+
+**Note:** The `n8n_status` container runs with `network_mode: host` and connects to Redis via `127.0.0.1:6379`. The management console connects via the Docker network using `redis:6379`.
+
+**Example:**
+```bash
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_ENABLED=true
+```
+
+---
+
+### 11. n8n_status Collector (`n8n_status`)
+
+Configuration for the status collection service.
+
+| Variable | Description | Default | Required | Sensitive |
+|----------|-------------|---------|----------|-----------|
+| `POLL_INTERVAL_METRICS` | Seconds between host metrics collection | `5` | No | No |
+| `POLL_INTERVAL_NETWORK` | Seconds between network info collection | `30` | No | No |
+| `POLL_INTERVAL_CONTAINERS` | Seconds between container stats collection | `5` | No | No |
+| `POLL_INTERVAL_EXTERNAL` | Seconds between external service checks | `15` | No | No |
+| `CLOUDFLARE_CONTAINER` | Name of Cloudflare tunnel container | `n8n_cloudflared` | No | No |
+| `TAILSCALE_CONTAINER` | Name of Tailscale container | `n8n_tailscale` | No | No |
+| `NTFY_CONTAINER` | Name of NTFY container | `n8n_ntfy` | No | No |
+| `NTFY_URL` | URL for NTFY health checks | `http://127.0.0.1:8083` | No | No |
+
+**Example:**
+```bash
+POLL_INTERVAL_METRICS=5
+POLL_INTERVAL_NETWORK=30
+POLL_INTERVAL_CONTAINERS=5
+POLL_INTERVAL_EXTERNAL=15
+```
+
+---
+
+### 12. n8n API Integration (`n8n_api`)
 
 Settings for n8n API access from the management console.
 
@@ -326,6 +372,11 @@ NTFY_PUBLIC_URL=
 
 # n8n API (Optional)
 N8N_API_KEY=
+
+# Redis Status Cache
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_ENABLED=true
 ```
 
 ---

@@ -13,6 +13,9 @@ This guide covers common issues and their solutions for n8n_nginx v3.0.
 5. [Network Issues](#network-issues)
 6. [Backup Issues](#backup-issues)
 7. [Management Console Issues](#management-console-issues)
+8. [Redis & Status Cache Issues](#redis--status-cache-issues)
+9. [File Browser Issues](#file-browser-issues)
+10. [Performance Issues](#performance-issues)
 
 ### Other Documentation
 
@@ -511,6 +514,208 @@ docker exec n8n_management mount -t nfs nfs-server:/path /mnt/test
 curl -X PUT https://your-domain.com/management/api/settings \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"session_timeout_hours": 48}'
+```
+
+---
+
+## Redis & Status Cache Issues
+
+### Redis Container Won't Start
+
+**Symptoms:** n8n_redis container fails to start or keeps restarting
+
+**Diagnosis:**
+```bash
+docker logs n8n_redis --tail 50
+docker inspect n8n_redis
+```
+
+**Solutions:**
+
+1. **Check port conflict:**
+   ```bash
+   # Redis uses port 6379
+   ss -tlpn | grep 6379
+   ```
+
+2. **Check volume permissions:**
+   ```bash
+   docker volume inspect redis_data
+   ```
+
+3. **Restart Redis:**
+   ```bash
+   docker compose restart redis
+   ```
+
+### n8n_status Container Keeps Restarting
+
+**Symptoms:** n8n_status container restarts continuously
+
+**Diagnosis:**
+```bash
+docker logs n8n_status --tail 50
+```
+
+**Common Causes & Solutions:**
+
+1. **Redis not accessible (most common):**
+   ```bash
+   # n8n_status uses network_mode: host, so Redis must expose port to localhost
+   # Check Redis port is exposed:
+   docker compose ps redis
+   # Should show: 127.0.0.1:6379->6379/tcp
+
+   # Test Redis connectivity:
+   redis-cli ping
+   ```
+
+2. **Docker socket not mounted:**
+   ```bash
+   # Check n8n_status can access Docker
+   docker exec n8n_status docker ps 2>/dev/null || echo "Docker socket not accessible"
+   ```
+
+### Slow Tab Loading Despite Redis
+
+**Symptoms:** Network/Health tabs still slow even with Redis running
+
+**Diagnosis:**
+```bash
+# Check if data is being cached
+redis-cli KEYS "system:*"
+redis-cli KEYS "containers:*"
+
+# Check data freshness
+redis-cli GET system:network | jq '.collected_at'
+```
+
+**Solutions:**
+
+1. **Verify n8n_status is collecting:**
+   ```bash
+   docker logs n8n_status --tail 20
+   # Should show "Collect X executed successfully"
+   ```
+
+2. **Check management console Redis connection:**
+   ```bash
+   curl -s https://your-domain.com/management/api/system/cache-status | jq
+   ```
+
+3. **Force refresh from UI:**
+   - Click the refresh button on the affected tab
+   - This bypasses cache and triggers direct collection
+
+### Cloudflare/Tailscale Showing as Down
+
+**Symptoms:** Cards show services as down when they're actually running
+
+**Solutions:**
+
+1. **Rebuild n8n_status with latest code:**
+   ```bash
+   docker compose build n8n_status
+   docker compose up -d n8n_status
+   ```
+
+2. **Clear Redis cache:**
+   ```bash
+   redis-cli DEL system:cloudflare system:tailscale
+   ```
+
+3. **Check field name compatibility:**
+   The cached data must use field names: `installed`, `running`, `logged_in`
+   (not `available`, `is_running`, `connected`)
+
+---
+
+## File Browser Issues
+
+### File Browser Showing Login Prompt
+
+**Symptoms:** File Browser asks for username/password despite proxy auth
+
+**Diagnosis:**
+```bash
+# Check File Browser config
+docker exec n8n_filebrowser cat /config/settings.json
+```
+
+**Solutions:**
+
+1. **Verify config file has proxy auth:**
+   ```json
+   {
+     "auth": {
+       "method": "proxy",
+       "header": "X-Remote-User"
+     }
+   }
+   ```
+
+2. **Rebuild with correct config:**
+   ```bash
+   # Check .filebrowser.json exists with correct format
+   cat .filebrowser.json
+
+   # Restart File Browser
+   docker compose restart filebrowser
+   ```
+
+### File Browser 500 Error
+
+**Symptoms:** Accessing /files/ returns 500 Internal Server Error
+
+**Cause:** Usually the `auth_request` directive in nginx failing
+
+**Solutions:**
+
+1. **Check nginx logs:**
+   ```bash
+   docker logs n8n_nginx --tail 50 | grep files
+   ```
+
+2. **Verify auth_request is commented out:**
+   ```bash
+   docker exec n8n_nginx cat /etc/nginx/nginx.conf | grep -A5 "location /files"
+   # Should show: #auth_request /management/api/auth/verify;
+   ```
+
+3. **Reload nginx config:**
+   ```bash
+   docker exec n8n_nginx nginx -s reload
+   ```
+
+### File Browser Assets Not Loading
+
+**Symptoms:** File Browser UI partially loads, CSS/JS missing
+
+**Diagnosis:**
+```bash
+# Check baseURL is set
+docker exec n8n_filebrowser cat /config/settings.json | grep baseURL
+```
+
+**Solution:**
+Ensure `.filebrowser.json` has `"baseURL": "/files"`:
+```json
+{
+  "baseURL": "/files",
+  ...
+}
+```
+
+### File Browser iframe Too Small
+
+**Symptoms:** File Browser appears in a tiny frame in management console
+
+**Solution:**
+This was fixed in PR #322. Update to latest version:
+```bash
+git pull
+docker compose build n8n_management
+docker compose up -d n8n_management
 ```
 
 ---

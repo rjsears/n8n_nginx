@@ -1,12 +1,16 @@
-# Redis Status Cache Implementation Plan
+# Redis Status Cache Implementation
+
+> **Status: ✅ IMPLEMENTED** (January 21, 2026)
+>
+> This feature has been fully implemented and merged. This document is retained for architectural reference.
 
 ## Overview
 
-This document outlines the comprehensive plan to implement a dedicated `n8n_status` container that continuously polls system data and caches it in Redis, eliminating slow tab load times caused by container spawning and external API calls.
+This document describes the `n8n_status` container that continuously polls system data and caches it in Redis, eliminating slow tab load times caused by container spawning and external API calls.
 
-**Branch:** `feature/redis-status-cache`
-**Base Branch:** `refactor/frontend-optimization-v2`
-**Created:** January 20, 2026
+**Original Branch:** `feature/redis-status-cache`
+**Merged to:** `refactor/frontend-optimization-v2`
+**Implementation Date:** January 20-21, 2026
 
 ---
 
@@ -263,10 +267,10 @@ n8n_status:
 ```
 
 **Deliverables:**
-- [ ] Redis container added and working
-- [ ] n8n_status container structure created
-- [ ] Basic health check endpoint in n8n_status
-- [ ] Containers start and communicate
+- [x] Redis container added and working
+- [x] n8n_status container structure created
+- [x] Basic health check endpoint in n8n_status
+- [x] Containers start and communicate
 
 ---
 
@@ -334,10 +338,10 @@ class ContainerCollector(BaseCollector):
 ```
 
 **Deliverables:**
-- [ ] Host metrics collector working
-- [ ] Network info collector working
-- [ ] Container stats collector working
-- [ ] Data visible in Redis (`redis-cli GET system:host_metrics`)
+- [x] Host metrics collector working
+- [x] Network info collector working
+- [x] Container stats collector working
+- [x] Data visible in Redis (`redis-cli GET system:host_metrics`)
 
 ---
 
@@ -406,11 +410,11 @@ class Settings:
 ```
 
 **Deliverables:**
-- [ ] RedisService created and tested
-- [ ] `/api/system/network` reads from cache
-- [ ] `/api/system/health-full` reads from cache
-- [ ] `/api/containers/stats` reads from cache
-- [ ] Graceful fallback when Redis unavailable
+- [x] RedisService created and tested
+- [x] `/api/system/network` reads from cache
+- [x] `/api/system/health-full` reads from cache
+- [x] `/api/containers/stats` reads from cache
+- [x] Graceful fallback when Redis unavailable
 
 ---
 
@@ -458,10 +462,10 @@ class NtfyCollector(BaseCollector):
 ```
 
 **Deliverables:**
-- [ ] Cloudflare collector working
-- [ ] Tailscale collector working
-- [ ] NTFY collector working
-- [ ] API endpoints updated to use cache
+- [x] Cloudflare collector working
+- [x] Tailscale collector working
+- [x] NTFY collector working
+- [x] API endpoints updated to use cache
 
 ---
 
@@ -499,10 +503,10 @@ interface CachedResponse<T> {
 ```
 
 **Deliverables:**
-- [ ] API responses include cache metadata
-- [ ] UI shows "last updated" timestamps
-- [ ] Force refresh buttons work
-- [ ] Loading states remain appropriate
+- [x] API responses include cache metadata
+- [x] UI shows "last updated" timestamps
+- [x] Force refresh buttons work
+- [x] Loading states remain appropriate
 
 ---
 
@@ -549,10 +553,10 @@ def health():
 - Log warnings but don't fail requests
 
 **Deliverables:**
-- [ ] n8n_status has /health endpoint
-- [ ] Management API reports Redis status
-- [ ] Graceful fallback tested
-- [ ] Logging/alerting in place
+- [x] n8n_status has /health endpoint
+- [x] Management API reports Redis status
+- [x] Graceful fallback tested
+- [x] Logging/alerting in place
 
 ---
 
