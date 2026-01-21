@@ -185,7 +185,7 @@
             <ol class="steps">
                 <li><span class="step-num">1</span><span>Open the <span class="highlight">Management Console</span></span></li>
                 <li><span class="step-num">2</span><span>Log in with your credentials</span></li>
-                <li><span class="step-num">3</span><span>Click <span class="highlight">Files</span> in the sidebar</span></li>
+                <li><span class="step-num">3</span><span>Go to <span class="highlight">System</span> → <span class="highlight">Files</span></span></li>
                 <li><span class="step-num">4</span><span>Upload your website files</span></li>
             </ol>
         </div>
