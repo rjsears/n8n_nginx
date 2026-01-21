@@ -3513,52 +3513,13 @@ EOF
     # ===========================================================================
 EOF
 
-    # Public Website Server Block
-    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        # Use saved variables if available (from interactive setup)
-        # Fallback to calculated defaults for non-interactive/legacy runs
-        local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
-        
-        # Build server_name directive - only use the configured public domain (e.g. www)
-        # Cloudflare Tunnel routing requires exact hostname match
-        local server_names="$public_domain"
-
-        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
-
-    # ===========================================================================
-    # Public Website (${server_names})
-    # ===========================================================================
-    server {
-        listen 443 ssl;
-        http2 on;
-        server_name ${server_names};
-
-        # Reuse the same wildcard certificate
-        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/privkey.pem;
-
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-        ssl_prefer_server_ciphers off;
-
-        # Serve static files
-        root /var/www/public;
-        index index.html;
-
-        location / {
-            try_files \$uri \$uri/ =404;
-        }
-    }
-EOF
-    fi
-
     cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
 
     # ===========================================================================
     # Main n8n HTTPS Server (Port 443)
     # ===========================================================================
     server {
-        listen 443 ssl;
+        listen 443 ssl default_server;
         http2 on;
         server_name ${N8N_DOMAIN};
 
@@ -3841,6 +3802,51 @@ EOF
             proxy_buffering off;
         }
     }
+EOF
+
+    # Public Website Server Block (added AFTER main n8n server)
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        # Use saved variables if available (from interactive setup)
+        local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
+        local server_names="$public_domain"
+
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+    # ===========================================================================
+    # Public Website (${server_names})
+    # ===========================================================================
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name ${server_names};
+
+        # Reuse the same wildcard certificate
+        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+
+        # Serve static files
+        root /var/www/public;
+        index index.html;
+
+        location / {
+            try_files \$uri \$uri/ =404;
+        }
+
+        # Health check endpoint for tunnel/proxy health checks
+        location /healthz {
+            access_log off;
+            return 200 "healthy\\n";
+        }
+    }
+EOF
+    fi
+
+    # Close the http block
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 }
 EOF
 
@@ -4926,6 +4932,301 @@ create_letsencrypt_volume() {
     fi
 }
 
+initialize_public_website() {
+    # Initialize the public website with a default landing page
+    # Only runs if public_web_root volume is empty
+
+    print_info "Initializing public website..."
+
+    # Check if index.html already exists
+    local has_index=$($DOCKER_SUDO docker run --rm -v public_web_root:/data:ro alpine sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
+
+    if [ "$has_index" = "yes" ]; then
+        print_info "Public website already has content, skipping initialization"
+        return 0
+    fi
+
+    # Extract root domain for display
+    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+    local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
+
+    # Create the default landing page
+    $DOCKER_SUDO docker run --rm -v public_web_root:/data alpine sh -c "cat > /data/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>Welcome | Powered by n8n Management</title>
+    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
+    <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
+    <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap\" rel=\"stylesheet\">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f0f23 100%);
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+        }
+
+        .bg-glow {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        .glow-1 {
+            top: -200px;
+            left: -200px;
+            background: #ff6b6b;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .glow-2 {
+            bottom: -200px;
+            right: -200px;
+            background: #4ecdc4;
+            animation: float 25s ease-in-out infinite reverse;
+        }
+
+        .glow-3 {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #a855f7;
+            animation: pulse 10s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(50px, 50px); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.1; transform: translate(-50%, -50%) scale(1); }
+            50% { opacity: 0.2; transform: translate(-50%, -50%) scale(1.1); }
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 3rem 4rem;
+            max-width: 600px;
+            text-align: center;
+            box-shadow:
+                0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 2rem;
+            background: linear-gradient(135deg, #ff6b6b, #a855f7, #4ecdc4);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            box-shadow: 0 10px 40px rgba(168, 85, 247, 0.3);
+            animation: logoFloat 6s ease-in-out infinite;
+        }
+
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #ffffff, #a0a0a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            background: rgba(78, 205, 196, 0.1);
+            border: 1px solid rgba(78, 205, 196, 0.3);
+            border-radius: 50px;
+            font-size: 0.9rem;
+            color: #4ecdc4;
+            margin-bottom: 2rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #4ecdc4;
+            border-radius: 50%;
+            animation: blink 2s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .feature {
+            text-align: center;
+        }
+
+        .feature-icon {
+            width: 40px;
+            height: 40px;
+            margin: 0 auto 0.75rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .feature-label {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.5);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .footer {
+            margin-top: 3rem;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        .footer a {
+            color: rgba(255, 255, 255, 0.5);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .footer a:hover {
+            color: #a855f7;
+        }
+
+        @media (max-width: 640px) {
+            .card {
+                padding: 2rem;
+            }
+            h1 {
+                font-size: 1.75rem;
+            }
+            .features {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class=\"bg-grid\"></div>
+    <div class=\"bg-glow glow-1\"></div>
+    <div class=\"bg-glow glow-2\"></div>
+    <div class=\"bg-glow glow-3\"></div>
+
+    <div class=\"container\">
+        <div class=\"card\">
+            <div class=\"logo\">n8n</div>
+            <h1>Welcome</h1>
+            <p class=\"subtitle\">
+                This site is powered by n8n Management Console.
+                Upload your content using File Browser to customize this page.
+            </p>
+            <div class=\"status\">
+                <span class=\"status-dot\"></span>
+                System Online
+            </div>
+            <div class=\"features\">
+                <div class=\"feature\">
+                    <div class=\"feature-icon\">⚡</div>
+                    <div class=\"feature-label\">Fast</div>
+                </div>
+                <div class=\"feature\">
+                    <div class=\"feature-icon\">🔒</div>
+                    <div class=\"feature-label\">Secure</div>
+                </div>
+                <div class=\"feature\">
+                    <div class=\"feature-icon\">🚀</div>
+                    <div class=\"feature-label\">Scalable</div>
+                </div>
+            </div>
+        </div>
+        <p class=\"footer\">
+            Powered by <a href=\"https://github.com/rjsears/n8n_nginx\" target=\"_blank\">n8n Management</a>
+        </p>
+    </div>
+</body>
+</html>
+HTMLEOF"
+
+    # Set proper permissions
+    $DOCKER_SUDO docker run --rm -v public_web_root:/data alpine chmod -R 755 /data
+
+    print_success "Public website initialized with default landing page"
+}
+
 deploy_stack() {
     print_section "Deploying n8n Stack v3.0"
 
@@ -4971,6 +5272,11 @@ deploy_stack() {
     $docker_compose_cmd up -d
     sleep 10
     print_success "All services started"
+
+    # Initialize public website with default index if enabled
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        initialize_public_website
+    fi
 
     # Verify
     print_step "4" "4" "Verifying services"
