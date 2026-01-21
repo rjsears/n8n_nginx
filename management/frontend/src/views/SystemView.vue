@@ -2235,7 +2235,7 @@ onUnmounted(() => {
 
     <!-- Files Tab -->
     <template v-if="activeTab === 'files'">
-      <div class="h-[calc(100vh-14rem)]">
+      <div class="h-[calc(100vh-200px)] min-h-[600px]">
         <FileBrowserView />
       </div>
     </template>
