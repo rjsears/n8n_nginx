@@ -3548,6 +3548,12 @@ EOF
         location / {
             try_files \$uri \$uri/ =404;
         }
+
+        # Health check endpoint
+        location /healthz {
+            access_log off;
+            return 200 "healthy\n";
+        }
     }
 EOF
     fi
@@ -3556,9 +3562,11 @@ EOF
 
     # ===========================================================================
     # Main n8n HTTPS Server (Port 443)
+    # This is the default server - handles all requests that don't match other server_names
+    # IMPORTANT: default_server ensures ECH/TLS connections use this certificate
     # ===========================================================================
     server {
-        listen 443 ssl;
+        listen 443 ssl default_server;
         http2 on;
         server_name ${N8N_DOMAIN};
 
@@ -4972,6 +4980,11 @@ deploy_stack() {
     sleep 10
     print_success "All services started"
 
+    # Initialize public website with default landing page if enabled
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        initialize_public_website
+    fi
+
     # Verify
     print_step "4" "4" "Verifying services"
     verify_services_v3
@@ -4981,6 +4994,143 @@ deploy_stack() {
     backup_existing_config
 
     show_final_summary_v3
+}
+
+# =============================================================================
+# PUBLIC WEBSITE INITIALIZATION
+# =============================================================================
+
+initialize_public_website() {
+    # Initialize the public_web_root volume with a default landing page
+    # This prevents 403 errors when the volume is empty
+    print_info "Initializing public website with default landing page..."
+
+    # Check if index.html already exists in the volume
+    local index_exists=$($DOCKER_SUDO docker run --rm \
+        -v public_web_root:/var/www/public \
+        alpine \
+        sh -c "[ -f /var/www/public/index.html ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
+
+    if [ "$index_exists" = "exists" ]; then
+        print_info "Public website already has content - skipping initialization"
+        return 0
+    fi
+
+    # Create a modern animated landing page
+    $DOCKER_SUDO docker run --rm \
+        -v public_web_root:/var/www/public \
+        alpine \
+        sh -c 'cat > /var/www/public/index.html << '\''INDEXEOF'\''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome | n8n Management</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+            animation: fadeIn 1s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .logo {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 2rem;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            border-radius: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            color: white;
+            box-shadow: 0 20px 60px rgba(238, 90, 36, 0.3);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        h1 {
+            color: #ffffff;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-shadow: 0 2px 20px rgba(0,0,0,0.3);
+        }
+        p {
+            color: #94a3b8;
+            font-size: 1.1rem;
+            max-width: 400px;
+            line-height: 1.6;
+        }
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: -1;
+        }
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 50%;
+            animation: float 15s infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-100vh) rotate(720deg); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="particles" id="particles"></div>
+    <div class="container">
+        <div class="logo">n8n</div>
+        <h1>Welcome</h1>
+        <p>Your public website is ready. Upload your content using File Browser to replace this page.</p>
+    </div>
+    <script>
+        const particles = document.getElementById("particles");
+        for (let i = 0; i < 50; i++) {
+            const p = document.createElement("div");
+            p.className = "particle";
+            p.style.left = Math.random() * 100 + "%";
+            p.style.animationDelay = Math.random() * 15 + "s";
+            p.style.animationDuration = (10 + Math.random() * 10) + "s";
+            particles.appendChild(p);
+        }
+    </script>
+</body>
+</html>
+INDEXEOF'
+
+    if [ $? -eq 0 ]; then
+        print_success "Public website initialized with default landing page"
+    else
+        print_warning "Failed to initialize public website - volume may need manual setup"
+    fi
 }
 
 # =============================================================================
