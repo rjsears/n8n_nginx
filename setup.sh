@@ -5015,8 +5015,12 @@ initialize_public_website() {
 
     print_info "Initializing public website..."
 
+    # Get the docker compose project name (defaults to directory name)
+    local project_name=$(basename "${SCRIPT_DIR}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
+    local volume_name="${project_name}_public_web_root"
+
     # Check if index.html already exists
-    local has_index=$($DOCKER_SUDO docker run --rm -v public_web_root:/data:ro alpine sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
+    local has_index=$($DOCKER_SUDO docker run --rm -v "${volume_name}:/data:ro" alpine sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
 
     if [ "$has_index" = "yes" ]; then
         print_info "Public website already has content, skipping initialization"
@@ -5028,7 +5032,7 @@ initialize_public_website() {
     local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
 
     # Create the default landing page
-    $DOCKER_SUDO docker run --rm -v public_web_root:/data alpine sh -c "cat > /data/index.html << 'HTMLEOF'
+    $DOCKER_SUDO docker run --rm -v "${volume_name}:/data" alpine sh -c "cat > /data/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang=\"en\">
 <head>
@@ -5300,7 +5304,7 @@ initialize_public_website() {
 HTMLEOF"
 
     # Set proper permissions
-    $DOCKER_SUDO docker run --rm -v public_web_root:/data alpine chmod -R 755 /data
+    $DOCKER_SUDO docker run --rm -v "${volume_name}:/data" alpine chmod -R 755 /data
 
     print_success "Public website initialized with default landing page"
 }
