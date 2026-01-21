@@ -5014,6 +5014,7 @@ initialize_public_website() {
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
     <title>Welcome | Powered by n8n Management</title>
+    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff6d5a'/%3E%3Cstop offset='100%25' stop-color='%23d84a38'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Cpath d='M10 20V12a2 2 0 012-2h0a2 2 0 012 2v8M18 20V14a2 2 0 012-2h0a2 2 0 012 2v6' stroke='white' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E\">
     <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
     <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
     <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap\" rel=\"stylesheet\">
