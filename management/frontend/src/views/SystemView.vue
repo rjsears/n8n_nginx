@@ -26,6 +26,7 @@ import HeartbeatLoader from '../components/common/HeartbeatLoader.vue'
 import DnaHelixLoader from '../components/common/DnaHelixLoader.vue'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import CacheStatus from '../components/common/CacheStatus.vue'
+import CacheStatusView from '../components/system/CacheStatusView.vue'
 import FileBrowserView from './FileBrowserView.vue'
 import {
   CpuChipIcon,
@@ -61,6 +62,7 @@ import {
   EyeIcon,
   EyeSlashIcon,
   FolderIcon,
+  FireIcon,
 } from '@heroicons/vue/24/outline'
 import { Line } from 'vue-chartjs'
 import {
@@ -100,6 +102,7 @@ const isFileBrowserEnabled = ref(false)
 const tabs = computed(() => {
   const t = [
     { id: 'health', name: 'Health', icon: SignalIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
+    { id: 'cache', name: 'Cache', icon: FireIcon, iconColor: 'text-red-500', bgActive: 'bg-red-500/15 dark:bg-red-500/20', textActive: 'text-red-700 dark:text-red-400', borderActive: 'border-red-500/30' },
     { id: 'network', name: 'Network', icon: GlobeAltIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
     { id: 'terminal', name: 'Terminal', icon: CommandLineIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
   ]
@@ -1716,6 +1719,11 @@ onUnmounted(() => {
         </div>
 
       </template>
+    </template>
+
+    <!-- Cache Tab -->
+    <template v-if="activeTab === 'cache'">
+      <CacheStatusView />
     </template>
 
     <!-- Network Tab -->

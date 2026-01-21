@@ -22,6 +22,7 @@ from api.routers import flows
 from api.routers import ntfy
 from api.routers import system_notifications
 from api.routers import env_config
+from api.routers import cache
 
 __all__ = [
     "auth",
@@ -35,4 +36,5 @@ __all__ = [
     "ntfy",
     "system_notifications",
     "env_config",
+    "cache",
 ]
