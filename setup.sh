@@ -3057,6 +3057,9 @@ services:
       - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
       - POSTGRES_USER=${POSTGRES_USER:-n8n}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # Redis connection (for status caching)
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
 EOF
 
     # Add notification environment variables if configured
@@ -3136,6 +3139,8 @@ EOF
     container_name: n8n_redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
