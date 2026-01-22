@@ -1,0 +1,131 @@
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# .github/workflows/docker-build-management.yml
+#
+# Builds and pushes n8n_management Docker image
+# to Docker Hub when management/ files change
+#
+# Richard J. Sears
+# richard@n8nmanagement.net
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+name: Build Management Console Docker Image
+
+on:
+  # Trigger on push to main branch when management files change
+  push:
+    branches:
+      - main
+      - refactor/frontend-optimization-v2  # v3 development branch
+    paths:
+      - 'management/**'
+      - '.github/workflows/docker-build-management.yml'
+
+  # Allow manual trigger from Actions tab
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (default: latest)'
+        required: false
+        default: 'latest'
+      platforms:
+        description: 'Target platforms'
+        required: false
+        default: 'linux/amd64,linux/arm64'
+
+  # Trigger on release
+  release:
+    types: [published]
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: rjsears/n8n_management
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # =========================================
+      # Checkout repository
+      # =========================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # =========================================
+      # Set up QEMU for multi-arch builds
+      # =========================================
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # =========================================
+      # Set up Docker Buildx
+      # =========================================
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # =========================================
+      # Login to Docker Hub
+      # =========================================
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # =========================================
+      # Extract metadata for Docker
+      # =========================================
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            # Set latest tag for main branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            # Set tag from manual input
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            # Set tag from release version
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+            # Set sha tag for traceability
+            type=sha,prefix=sha-
+
+      # =========================================
+      # Build and push Docker image
+      # =========================================
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./management
+          file: ./management/Dockerfile
+          push: true
+          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Build args if needed
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+
+      # =========================================
+      # Output image digest
+      # =========================================
+      - name: Output image digest
+        run: |
+          echo "## Docker Image Built Successfully! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** \`${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}\`" >> $GITHUB_STEP_SUMMARY
