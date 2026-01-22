@@ -75,6 +75,12 @@ INSTALL_PORTAINER_AGENT=false
 INSTALL_NTFY=false
 NTFY_BASE_URL=""
 NTFY_PUBLIC_URL=""
+
+# Management console image settings
+# true = use pre-built image from Docker Hub (faster)
+# false = build locally from source (for customization)
+USE_PREBUILT_MANAGEMENT=true
+MANAGEMENT_IMAGE="rjsears/n8n_management:latest"
 NTFY_INTERNAL_URL=""
 INSTALL_PUBLIC_WEBSITE=false
 
@@ -1058,6 +1064,11 @@ load_preconfig() {
     INSTALL_DOZZLE="${DOZZLE_ENABLED:-false}"
     INSTALL_PORTAINER="${PORTAINER_ENABLED:-false}"
     INSTALL_PORTAINER_AGENT="${PORTAINER_AGENT_ENABLED:-false}"
+
+    # Management console image configuration
+    # USE_PREBUILT_MANAGEMENT defaults to true if not specified
+    USE_PREBUILT_MANAGEMENT="${USE_PREBUILT_MANAGEMENT:-true}"
+    MANAGEMENT_IMAGE="${MANAGEMENT_IMAGE:-rjsears/n8n_management:latest}"
 
     # NFS configuration
     if [ -n "$NFS_SERVER" ] && [ "$NFS_SERVER" != "" ]; then
@@ -3051,9 +3062,23 @@ services:
   # Management Console (NEW in v3.0)
   # ===========================================================================
   n8n_management:
+EOF
+
+    # Add either pre-built image or build context based on user preference
+    if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    image: ${MANAGEMENT_IMAGE}
+EOF
+    else
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
     build:
       context: ./management
       dockerfile: Dockerfile
+EOF
+    fi
+
+    # Continue with the rest of management service configuration
+    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
     container_name: ${MANAGEMENT_CONTAINER:-n8n_management}
     restart: always
     environment:
@@ -4649,6 +4674,11 @@ configure_optional_services() {
         [ "$INSTALL_DOZZLE" = "true" ] && print_success "  Dozzle: enabled"
         [ "$INSTALL_NTFY" = "true" ] && print_success "  NTFY: enabled"
         [ "$INSTALL_PUBLIC_WEBSITE" = "true" ] && print_success "  Public Website: enabled"
+        if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
+            print_success "  Management Console: using pre-built image"
+        else
+            print_success "  Management Console: building locally"
+        fi
         return
     fi
 
@@ -4712,6 +4742,9 @@ configure_optional_services() {
         print_info "Skipping optional services. You can add them later by running setup again."
     fi
 
+    # Configure management console image source
+    configure_management_image
+
     # Validate public website + Cloudflare Tunnel requirement
     validate_public_website_requirements
 }
@@ -4757,6 +4790,51 @@ validate_public_website_requirements() {
         fi
         echo ""
     fi
+}
+
+# ===========================================================================
+# Configure Management Console Image Source
+# ===========================================================================
+# Users can choose between:
+# - Pre-built image from Docker Hub (faster, recommended for most users)
+# - Build locally from source (for customization or development)
+# ===========================================================================
+configure_management_image() {
+    # Skip in preconfig mode - handled by preconfig variables
+    if [ "$PRECONFIG_MODE" = "true" ]; then
+        return
+    fi
+
+    print_subsection
+    echo -e "${WHITE}  Management Console Image${NC}"
+    echo ""
+    echo -e "  ${GRAY}The Management Console can be deployed using:${NC}"
+    echo ""
+    echo -e "    ${CYAN}1)${NC} Pre-built image from Docker Hub (faster, recommended)"
+    echo -e "       ${GRAY}Downloads ready-to-run image (~300MB)${NC}"
+    echo ""
+    echo -e "    ${CYAN}2)${NC} Build locally from source"
+    echo -e "       ${GRAY}Builds image on this machine (slower, for customization)${NC}"
+    echo ""
+
+    local choice=""
+    while [[ ! "$choice" =~ ^[1-2]$ ]]; do
+        echo -ne "${WHITE}  Enter your choice [1-2] (default: 1)${NC}: "
+        read choice
+        choice=${choice:-1}
+    done
+
+    case $choice in
+        1)
+            USE_PREBUILT_MANAGEMENT=true
+            print_success "Using pre-built image: ${MANAGEMENT_IMAGE}"
+            ;;
+        2)
+            USE_PREBUILT_MANAGEMENT=false
+            print_info "Will build management console locally during deployment"
+            ;;
+    esac
+    echo ""
 }
 
 configure_public_website() {
