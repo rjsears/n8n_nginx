@@ -1385,46 +1385,36 @@ EOF
         fi
     fi
 
-    # Validate public website + Cloudflare Tunnel requirement
+    # Warn about public website without Cloudflare Tunnel
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ] && [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
-        print_error "Public Website requires Cloudflare Tunnel"
+        print_warning "Public Website enabled without Cloudflare Tunnel"
         echo ""
-        echo -e "  ${YELLOW}The Public Website feature requires Cloudflare Tunnel to be enabled.${NC}"
-        echo -e "  ${GRAY}This is because running multiple SSL server blocks in a single nginx${NC}"
-        echo -e "  ${GRAY}causes browser ECH errors. The solution uses two separate nginx containers.${NC}"
+        echo -e "  ${YELLOW}The public website runs in a separate nginx container (n8n_nginx_public)${NC}"
+        echo -e "  ${GRAY}which requires hostname-based routing to be accessible.${NC}"
+        echo -e "  ${GRAY}Without Cloudflare Tunnel, you will need manual DNS/proxy configuration.${NC}"
         echo ""
         if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
-            print_error "Cannot continue in auto-confirm mode without Cloudflare Tunnel"
-            print_error "Either add CLOUDFLARE_TUNNEL_TOKEN to your config or set PUBLIC_WEBSITE_ENABLED=false"
-            exit 1
-        fi
-        echo -e "  ${WHITE}Options:${NC}"
-        echo -e "    ${CYAN}1)${NC} Enter Cloudflare Tunnel token now"
-        echo -e "    ${CYAN}2)${NC} Disable Public Website feature"
-        echo ""
-        local pw_choice=""
-        while [[ ! "$pw_choice" =~ ^[1-2]$ ]]; do
-            echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
-            read pw_choice
-        done
-        case $pw_choice in
-            1)
+            print_warning "Continuing in auto-confirm mode without Cloudflare Tunnel"
+            print_info "Public website container will be created but may not be accessible"
+            print_info "without additional manual configuration"
+        else
+            if confirm_prompt "Would you like to enter a Cloudflare Tunnel token now?" "n"; then
                 echo -ne "${WHITE}  Enter your Cloudflare Tunnel token${NC}: "
                 read -s CLOUDFLARE_TUNNEL_TOKEN
                 echo ""
                 if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
                     INSTALL_CLOUDFLARE_TUNNEL=true
-                    print_success "Cloudflare Tunnel enabled"
+                    print_success "Cloudflare Tunnel enabled - Public Website will work correctly"
                 else
-                    print_warning "No token provided - disabling Public Website"
-                    INSTALL_PUBLIC_WEBSITE=false
+                    print_warning "No token provided"
+                    print_info "Public website container will be created but may not be accessible"
                 fi
-                ;;
-            2)
-                print_warning "Disabling Public Website feature"
-                INSTALL_PUBLIC_WEBSITE=false
-                ;;
-        esac
+            else
+                print_info "Public website container will be created but may not be accessible"
+                print_info "without additional manual configuration"
+            fi
+        fi
+        echo ""
     fi
 
     print_success "Configuration loaded and validated successfully"
@@ -4729,53 +4719,43 @@ configure_optional_services() {
 # ===========================================================================
 # Validate Public Website Requirements
 # ===========================================================================
-# Public website feature requires Cloudflare Tunnel for proper operation.
-# This is because running two SSL server blocks in a single nginx causes
-# ERR_ECH_FALLBACK_CERTIFICATE_INVALID errors with Encrypted Client Hello.
-# The solution is to use two separate nginx containers, with Cloudflare
-# Tunnel routing traffic to the public website nginx.
+# Public website works best with Cloudflare Tunnel for proper hostname routing.
+# Without it, accessing the public website requires advanced configuration
+# (manual DNS/routing setup). The install will continue but with a warning.
 # ===========================================================================
 validate_public_website_requirements() {
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ] && [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
         echo ""
-        print_error "Public Website requires Cloudflare Tunnel"
+        print_warning "Public Website without Cloudflare Tunnel"
         echo ""
-        echo -e "  ${YELLOW}The Public Website feature requires Cloudflare Tunnel to be enabled.${NC}"
+        echo -e "  ${YELLOW}You have enabled Public Website but not Cloudflare Tunnel.${NC}"
         echo ""
-        echo -e "  ${GRAY}Technical Reason:${NC}"
-        echo -e "  ${GRAY}Running multiple SSL server blocks in a single nginx causes${NC}"
-        echo -e "  ${GRAY}ERR_ECH_FALLBACK_CERTIFICATE_INVALID errors with modern browsers.${NC}"
-        echo -e "  ${GRAY}The solution uses two separate nginx containers, with Cloudflare${NC}"
-        echo -e "  ${GRAY}Tunnel routing traffic to each based on hostname.${NC}"
+        echo -e "  ${GRAY}The public website runs in a separate nginx container (n8n_nginx_public)${NC}"
+        echo -e "  ${GRAY}which requires hostname-based routing to be accessible.${NC}"
         echo ""
-        echo -e "  ${WHITE}Options:${NC}"
-        echo -e "    ${CYAN}1)${NC} Enable Cloudflare Tunnel now (recommended)"
-        echo -e "    ${CYAN}2)${NC} Disable Public Website feature"
+        echo -e "  ${GRAY}Without Cloudflare Tunnel, you will need to manually configure:${NC}"
+        echo -e "    • DNS routing to direct traffic to the correct container"
+        echo -e "    • A reverse proxy or load balancer for hostname-based routing"
+        echo -e "    • Port mapping if accessing directly"
+        echo ""
+        echo -e "  ${WHITE}Recommended: Enable Cloudflare Tunnel for automatic routing.${NC}"
         echo ""
 
-        local choice=""
-        while [[ ! "$choice" =~ ^[1-2]$ ]]; do
-            echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
-            read choice
-        done
-
-        case $choice in
-            1)
-                print_info "Configuring Cloudflare Tunnel..."
-                configure_cloudflare_tunnel
-                if [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
-                    print_error "Cloudflare Tunnel configuration failed or was cancelled"
-                    print_warning "Disabling Public Website feature"
-                    INSTALL_PUBLIC_WEBSITE=false
-                else
-                    print_success "Cloudflare Tunnel enabled - Public Website will work correctly"
-                fi
-                ;;
-            2)
-                print_warning "Disabling Public Website feature"
-                INSTALL_PUBLIC_WEBSITE=false
-                ;;
-        esac
+        if confirm_prompt "Would you like to configure Cloudflare Tunnel now?" "y"; then
+            configure_cloudflare_tunnel
+            if [ "$INSTALL_CLOUDFLARE_TUNNEL" = "true" ]; then
+                print_success "Cloudflare Tunnel enabled - Public Website will work correctly"
+            else
+                print_warning "Cloudflare Tunnel not configured"
+                print_info "Public website container will be created but may not be accessible"
+                print_info "without additional manual configuration"
+            fi
+        else
+            print_warning "Continuing without Cloudflare Tunnel"
+            print_info "Public website container will be created but may not be accessible"
+            print_info "without additional manual configuration"
+        fi
+        echo ""
     fi
 }
 
