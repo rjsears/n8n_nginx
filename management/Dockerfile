@@ -39,9 +39,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     dnsutils \
     jq \
-    # Required for psycopg2
+    # Required for psycopg2 and psutil compilation
     libpq-dev \
     gcc \
+    python3-dev \
+    libc-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PostgreSQL 16 client (MUST match n8n_postgres version exactly)
@@ -63,8 +65,8 @@ RUN ARCH=$(dpkg --print-architecture) \
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Remove gcc after pip install (no longer needed)
-RUN apt-get purge -y gcc && apt-get autoremove -y
+# Remove build dependencies after pip install (no longer needed)
+RUN apt-get purge -y gcc python3-dev libc-dev && apt-get autoremove -y
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Build Frontend (separate stage for smaller final image)
