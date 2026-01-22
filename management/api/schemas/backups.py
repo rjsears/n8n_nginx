@@ -245,6 +245,16 @@ class ConfigFileManifestItem(BaseModel):
     modified_at: Optional[datetime] = None
 
 
+class PublicWebsiteFileManifestItem(BaseModel):
+    """Individual public website file in backup manifest."""
+    name: str
+    path: str
+    size: int
+    checksum: str
+    checksum_algorithm: str = "sha256"
+    modified_at: Optional[datetime] = None
+
+
 class DatabaseTableInfo(BaseModel):
     """Database table information."""
     name: str
@@ -266,10 +276,12 @@ class BackupContentsResponse(BaseModel):
     workflow_count: int
     credential_count: int
     config_file_count: int
+    public_website_file_count: int = 0
     workflows_manifest: Optional[List[WorkflowManifestItem]] = None
     credentials_manifest: Optional[List[CredentialManifestItem]] = None
     config_files_manifest: Optional[List[ConfigFileManifestItem]] = None
     database_schema_manifest: Optional[List[DatabaseManifestItem]] = None
+    public_website_manifest: Optional[List[PublicWebsiteFileManifestItem]] = None
     created_at: datetime
 
     class Config:

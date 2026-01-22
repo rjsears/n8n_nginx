@@ -66,10 +66,36 @@ CONFIG_FILES = [
     {"name": "filebrowser.db", "host_path": "/app/host_project/filebrowser.db", "archive_path": "config/filebrowser.db"},
 ]
 
-# Public website Docker volume name
-PUBLIC_WEBSITE_VOLUME = "public_web_root"
+# Public website Docker volume name (from settings, defaults to "public_web_root")
+PUBLIC_WEBSITE_VOLUME = settings.public_website_volume
 # Path to check if public website is installed
 PUBLIC_WEBSITE_INDICATOR = "/app/host_project/filebrowser.db"
+
+
+def calculate_file_checksum(filepath: str, algorithm: str = None) -> str:
+    """
+    Calculate file checksum using configured algorithm.
+
+    Args:
+        filepath: Path to the file
+        algorithm: Override algorithm ('sha256' or 'md5'), defaults to settings.public_website_checksum_algorithm
+
+    Returns:
+        Hex digest of the file checksum
+    """
+    if algorithm is None:
+        algorithm = settings.public_website_checksum_algorithm
+
+    if algorithm.lower() == "md5":
+        hasher = hashlib.md5()
+    else:
+        hasher = hashlib.sha256()
+
+    with open(filepath, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            hasher.update(chunk)
+
+    return hasher.hexdigest()
 
 # SSL certificate paths
 SSL_CERT_PATH = "/etc/letsencrypt/live"
@@ -1043,6 +1069,55 @@ class BackupService:
 
         return schema_manifest
 
+    async def capture_public_website_manifest(self, public_website_dir: str) -> Tuple[int, List[Dict[str, Any]]]:
+        """
+        Capture public website file manifest with checksums.
+        Scans the backed-up public website directory and creates a manifest
+        of all files with their metadata and checksums.
+
+        Args:
+            public_website_dir: Path to the backed-up public website files
+
+        Returns:
+            Tuple of (file_count, manifest_list)
+        """
+        manifest = []
+
+        if not os.path.exists(public_website_dir):
+            logger.warning(f"Public website directory does not exist: {public_website_dir}")
+            return 0, []
+
+        try:
+            algorithm = settings.public_website_checksum_algorithm
+
+            for root, dirs, files in os.walk(public_website_dir):
+                for filename in files:
+                    file_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(file_path, public_website_dir)
+
+                    try:
+                        file_stat = os.stat(file_path)
+                        checksum = calculate_file_checksum(file_path, algorithm)
+                        modified_at = datetime.fromtimestamp(file_stat.st_mtime, tz=UTC)
+
+                        manifest.append({
+                            "name": filename,
+                            "path": rel_path,
+                            "size": file_stat.st_size,
+                            "checksum": checksum,
+                            "checksum_algorithm": algorithm,
+                            "modified_at": modified_at.isoformat(),
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to process public website file {rel_path}: {e}")
+
+            logger.info(f"Captured manifest for {len(manifest)} public website files")
+            return len(manifest), manifest
+
+        except Exception as e:
+            logger.error(f"Failed to capture public website manifest: {e}")
+            return 0, []
+
     async def create_complete_archive(
         self,
         backup_type: str,
@@ -1156,6 +1231,14 @@ class BackupService:
             await update_progress(70, "Capturing database schema manifest")
             schema_manifest = await self.capture_database_schema_manifest(databases)
 
+            # 4.5. Capture public website manifest if files were backed up (72-75%)
+            public_website_manifest = []
+            if public_website_included:
+                await update_progress(72, "Capturing public website manifest")
+                public_website_dir = os.path.join(temp_dir, "public_website")
+                public_website_file_count, public_website_manifest = await self.capture_public_website_manifest(public_website_dir)
+                metadata["public_website_file_count"] = public_website_file_count
+
             metadata["workflow_count"] = workflow_count
             metadata["credential_count"] = credential_count
             metadata["config_file_count"] = config_count
@@ -1163,6 +1246,7 @@ class BackupService:
             metadata["credentials_manifest"] = credentials_manifest
             metadata["config_files_manifest"] = config_manifest
             metadata["database_schema_manifest"] = schema_manifest
+            metadata["public_website_manifest"] = public_website_manifest
 
             # 5. Write metadata.json (75-80%)
             await update_progress(75, "Writing metadata")
@@ -2629,10 +2713,12 @@ exit 0
                     workflow_count=metadata.get("workflow_count", 0),
                     credential_count=metadata.get("credential_count", 0),
                     config_file_count=metadata.get("config_file_count", 0),
+                    public_website_file_count=metadata.get("public_website_file_count", 0),
                     workflows_manifest=metadata.get("workflows_manifest"),
                     credentials_manifest=metadata.get("credentials_manifest"),
                     config_files_manifest=metadata.get("config_files_manifest"),
                     database_schema_manifest=metadata.get("database_schema_manifest"),
+                    public_website_manifest=metadata.get("public_website_manifest"),
                     verification_checksums={
                         "archive": checksum,
                         "created_at": datetime.now(UTC).isoformat(),
