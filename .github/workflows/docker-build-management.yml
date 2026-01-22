@@ -11,11 +11,12 @@
 name: Build Management Console Docker Image
 
 on:
-  # Trigger on push to main branch when management files change
+  # Trigger on push to v3 development branch when management files change
+  # NOTE: main branch does NOT have management/ directory yet
+  # Update this to include 'main' after v3.0 is merged to main
   push:
     branches:
-      - main
-      - refactor/frontend-optimization-v2  # v3 development branch
+      - refactor/frontend-optimization-v2  # v3 development branch (has management/)
     paths:
       - 'management/**'
       - '.github/workflows/docker-build-management.yml'
@@ -32,9 +33,9 @@ on:
         required: false
         default: 'linux/amd64,linux/arm64'
 
-  # Trigger on release
-  release:
-    types: [published]
+  # Trigger on release (only after v3.0 is merged to main)
+  # release:
+  #   types: [published]
 
 env:
   REGISTRY: docker.io
@@ -85,13 +86,10 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            # Set latest tag for main branch
-            type=raw,value=latest,enable={{is_default_branch}}
-            # Set tag from manual input
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
-            # Set tag from release version
-            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+            # Always set latest tag (v3 branch is the source of truth for now)
+            type=raw,value=latest
+            # Set tag from manual input (for workflow_dispatch)
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != 'latest' }}
             # Set sha tag for traceability
             type=sha,prefix=sha-
 
