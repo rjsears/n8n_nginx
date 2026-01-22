@@ -1551,6 +1551,31 @@ async def get_full_health_check(
             services_details["nginx"] = f"error ({type(e).__name__})"
             services_status = "error"
 
+        # Check Public Website Nginx (if it exists)
+        try:
+            nginx_public_container = None
+            for c in client.containers.list(all=True):
+                if c.name == "n8n_nginx_public":
+                    nginx_public_container = c
+                    break
+
+            if nginx_public_container:
+                if nginx_public_container.status == "running":
+                    exit_code, output = nginx_public_container.exec_run("nginx -t", demux=True)
+                    if exit_code == 0:
+                        services_details["nginx_public"] = "ok"
+                    else:
+                        stderr = output[1].decode("utf-8").strip() if output[1] else "unknown error"
+                        services_details["nginx_public"] = f"error ({stderr[:50]})"
+                        services_status = "warning"  # Not critical - public website is optional
+                else:
+                    services_details["nginx_public"] = f"stopped ({nginx_public_container.status})"
+                    services_status = "warning"
+            # Don't set error if container doesn't exist - it's optional
+        except Exception as e:
+            services_details["nginx_public"] = f"error ({type(e).__name__})"
+            # Don't change overall status - public nginx is optional
+
         # Management API (we're running, so it's ok)
         services_details["management"] = "ok"
 
