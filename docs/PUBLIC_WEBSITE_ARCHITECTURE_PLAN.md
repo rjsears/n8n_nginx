@@ -145,6 +145,55 @@ n8n_nginx_public:
   - `n8n_nginx` (via File Browser for management)
   - `n8n_nginx_public` (for serving static files)
 
+#### 2.4 Public Website Initialization
+
+The `initialize_public_website()` function must correctly copy the default `index.html` to the shared volume.
+
+**Current Issue (to be fixed):**
+Docker Compose prefixes volume names with the project name (e.g., `n8n_nginx_public_web_root` instead of `public_web_root`). The function must use the correct prefixed volume name.
+
+**Updated Function Logic:**
+```bash
+initialize_public_website() {
+    print_info "Initializing public website..."
+
+    # Get the docker compose project name (defaults to directory name)
+    local project_name=$(basename "${SCRIPT_DIR}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
+    local volume_name="${project_name}_public_web_root"
+
+    # Check if index.html already exists
+    local has_index=$($DOCKER_SUDO docker run --rm -v "${volume_name}:/data:ro" alpine sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
+
+    if [ "$has_index" = "yes" ]; then
+        print_info "Public website already has content, skipping initialization"
+        return 0
+    fi
+
+    # Copy default index.html to volume
+    # ... (create default landing page content)
+
+    # Set proper permissions
+    $DOCKER_SUDO docker run --rm -v "${volume_name}:/data" alpine chmod -R 755 /data
+
+    print_success "Public website initialized with default landing page"
+}
+```
+
+**Key Requirements:**
+1. Use correct volume name with project prefix
+2. Copy `public_index.html` (or generate default) to volume
+3. Set proper permissions (755) for nginx to read
+4. Run AFTER docker compose creates the volume
+5. Verify file exists in volume before considering success
+
+**Alternative Approach - Use Running Container:**
+Instead of mounting the volume directly, copy through the running `n8n_nginx_public` container:
+```bash
+# Copy via running container (more reliable)
+docker cp public_index.html n8n_nginx_public:/var/www/public/index.html
+docker exec n8n_nginx_public chmod 644 /var/www/public/index.html
+```
+
 ### 3. Nginx Configuration Files
 
 #### 3.1 Main Nginx (`nginx.conf`) - Updated
