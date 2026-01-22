@@ -629,6 +629,127 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
+  // ============================================================================
+  // Public Website Restore
+  // ============================================================================
+
+  const publicWebsiteMountStatus = ref({ mounted: false, backup_id: null, mount_dir: null })
+  const publicWebsiteFiles = ref([])
+  const publicWebsitePagination = ref({
+    total: 0,
+    limit: 100,
+    offset: 0,
+    hasMore: false,
+  })
+
+  async function mountPublicWebsiteFiles(backupId) {
+    try {
+      const response = await api.post(`/backups/restore/${backupId}/public-website/mount`)
+      if (response.data.status === 'success' || response.data.status === 'already_mounted') {
+        publicWebsiteMountStatus.value = {
+          mounted: true,
+          backup_id: backupId,
+          mount_dir: response.data.mount_dir,
+          file_count: response.data.file_count,
+        }
+      }
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to mount public website files'
+      throw err
+    }
+  }
+
+  async function unmountPublicWebsiteFiles() {
+    try {
+      const response = await api.post('/backups/restore/public-website/unmount')
+      publicWebsiteMountStatus.value = { mounted: false, backup_id: null, mount_dir: null }
+      publicWebsiteFiles.value = []
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to unmount public website files'
+      throw err
+    }
+  }
+
+  async function fetchPublicWebsiteMountStatus() {
+    try {
+      const response = await api.get('/backups/restore/public-website/status')
+      publicWebsiteMountStatus.value = response.data
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to fetch public website mount status'
+      throw err
+    }
+  }
+
+  async function listPublicWebsiteFiles(backupId, params = {}) {
+    try {
+      const queryParams = {
+        limit: params.limit ?? publicWebsitePagination.value.limit,
+        offset: params.offset ?? publicWebsitePagination.value.offset,
+      }
+      if (params.search) {
+        queryParams.search = params.search
+      }
+
+      const response = await api.get(`/backups/restore/${backupId}/public-website/files`, {
+        params: queryParams,
+      })
+
+      publicWebsiteFiles.value = response.data.files || []
+      publicWebsitePagination.value = {
+        total: response.data.total,
+        limit: response.data.limit,
+        offset: response.data.offset,
+        hasMore: response.data.has_more,
+      }
+
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to list public website files'
+      throw err
+    }
+  }
+
+  async function previewPublicWebsiteFile(backupId, filePath) {
+    try {
+      const response = await api.get(`/backups/restore/${backupId}/public-website/preview`, {
+        params: { path: filePath },
+      })
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to preview file'
+      throw err
+    }
+  }
+
+  function getPublicWebsiteFileDownloadUrl(backupId, filePath) {
+    return `/api/backups/restore/${backupId}/public-website/download?path=${encodeURIComponent(filePath)}`
+  }
+
+  async function checkPublicWebsiteRestore(backupId) {
+    try {
+      const response = await api.post(`/backups/restore/${backupId}/public-website/check`)
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to check public website restore'
+      throw err
+    }
+  }
+
+  async function restorePublicWebsiteFiles(backupId, filePaths = null) {
+    try {
+      const response = await api.post(`/backups/restore/${backupId}/public-website/restore`, filePaths, {
+        timeout: 600000, // 10 minute timeout for large restores
+      })
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to restore public website files'
+      throw err
+    }
+  }
+
   return {
     // State
     schedules,
@@ -706,5 +827,17 @@ export const useBackupStore = defineStore('backups', () => {
     updateConfiguration,
     validateStoragePath,
     detectStorageLocations,
+    // Public Website Restore
+    publicWebsiteMountStatus,
+    publicWebsiteFiles,
+    publicWebsitePagination,
+    mountPublicWebsiteFiles,
+    unmountPublicWebsiteFiles,
+    fetchPublicWebsiteMountStatus,
+    listPublicWebsiteFiles,
+    previewPublicWebsiteFile,
+    getPublicWebsiteFileDownloadUrl,
+    checkPublicWebsiteRestore,
+    restorePublicWebsiteFiles,
   }
 })

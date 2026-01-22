@@ -1804,3 +1804,202 @@ async def detect_storage_locations(
             "nfs_configured": bool(settings.nfs_server),
         }
     }
+
+
+# ============================================================================
+# Public Website Restore Endpoints
+# ============================================================================
+
+@router.post("/restore/{backup_id}/public-website/mount")
+async def mount_public_website_files(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Mount public website files from a backup for browsing/restore.
+    This extracts the public_website directory from the backup archive to a temp location.
+    """
+    from api.services.restore_service import RestoreService
+
+    service = RestoreService(db)
+    result = await service.mount_public_website_files(backup_id)
+
+    if result["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Failed to mount public website files"),
+        )
+
+    return result
+
+
+@router.post("/restore/public-website/unmount")
+async def unmount_public_website_files(
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unmount (cleanup) the currently mounted public website files."""
+    from api.services.restore_service import RestoreService
+
+    service = RestoreService(db)
+    result = await service.unmount_public_website_files()
+
+    return result
+
+
+@router.get("/restore/public-website/status")
+async def get_public_website_mount_status(
+    _=Depends(get_current_user),
+):
+    """Get the current public website files mount status."""
+    from api.services.restore_service import get_public_website_mount_status
+
+    return get_public_website_mount_status()
+
+
+@router.get("/restore/{backup_id}/public-website/files")
+async def list_public_website_files(
+    backup_id: int,
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    search: Optional[str] = Query(default=None, description="Filter files by name/path"),
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List files in the mounted public website backup with pagination.
+    The backup must be mounted first using the mount endpoint.
+    """
+    from api.services.restore_service import RestoreService
+
+    service = RestoreService(db)
+    result = await service.list_public_website_files(
+        backup_id=backup_id,
+        limit=limit,
+        offset=offset,
+        search=search,
+    )
+
+    if result["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Failed to list files"),
+        )
+
+    return result
+
+
+@router.get("/restore/{backup_id}/public-website/preview")
+async def preview_public_website_file(
+    backup_id: int,
+    path: str = Query(..., description="Relative path to the file"),
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Preview the content of a public website file from the mounted backup.
+    Returns text content directly or base64-encoded binary content.
+    """
+    from api.services.restore_service import RestoreService
+
+    service = RestoreService(db)
+    result = await service.preview_public_website_file(backup_id, path)
+
+    if result["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Failed to preview file"),
+        )
+
+    return result
+
+
+@router.get("/restore/{backup_id}/public-website/download")
+async def download_public_website_file(
+    backup_id: int,
+    path: str = Query(..., description="Relative path to the file"),
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Download a single file from the mounted public website backup.
+    Returns the file as a downloadable attachment.
+    """
+    from api.services.restore_service import RestoreService
+
+    service = RestoreService(db)
+    file_path = await service.get_public_website_file_path(backup_id, path)
+
+    if not file_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found or backup not mounted",
+        )
+
+    return FileResponse(
+        path=file_path,
+        filename=os.path.basename(path),
+        media_type="application/octet-stream",
+    )
+
+
+@router.post("/restore/{backup_id}/public-website/check")
+async def check_public_website_restore(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Dry-run check for public website restore.
+    Compares backup files against the current live volume to identify:
+    - Files that will be added (new)
+    - Files that will be overwritten (changed)
+    - Files that are unchanged
+
+    This does NOT make any changes - it's a preview of what would happen.
+    """
+    from api.services.restore_service import RestoreService
+
+    service = RestoreService(db)
+    result = await service.check_public_website_restore(backup_id)
+
+    if result["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Failed to check restore"),
+        )
+
+    return result
+
+
+@router.post("/restore/{backup_id}/public-website/restore")
+async def restore_public_website_files(
+    backup_id: int,
+    file_paths: Optional[List[str]] = None,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Restore public website files from a mounted backup to the live Docker volume.
+
+    Args:
+        backup_id: The backup to restore from (must be mounted first)
+        file_paths: Optional list of specific file paths to restore.
+                    If not provided, restores ALL files.
+
+    Returns:
+        Restore results including count of restored/failed files.
+    """
+    from api.services.restore_service import RestoreService
+
+    service = RestoreService(db)
+    result = await service.restore_public_website_files(backup_id, file_paths)
+
+    if result["status"] == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Failed to restore files"),
+        )
+
+    return result

@@ -79,6 +79,24 @@ class Settings(BaseSettings):
     docker_socket: str = Field(default="/var/run/docker.sock", description="Docker socket path")
     container_prefix: str = Field(default="n8n_", description="Container name prefix for this project")
 
+    # Public Website Backup/Restore
+    public_website_volume: str = Field(
+        default="public_web_root",
+        description="Docker volume name for public website files"
+    )
+    public_website_checksum_algorithm: str = Field(
+        default="sha256",
+        description="Checksum algorithm for file integrity: sha256 or md5"
+    )
+    public_website_batch_size: int = Field(
+        default=100,
+        description="Number of files to restore per batch operation"
+    )
+    public_website_mount_dir: str = Field(
+        default="/tmp/public_website_restore",
+        description="Temporary directory for mounting public website backup archives"
+    )
+
     # Domain configuration
     domain: Optional[str] = Field(
         default=None,

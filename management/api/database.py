@@ -232,6 +232,9 @@ async def run_schema_migrations() -> None:
         ("backup_configuration", "verify_frequency", "INTEGER DEFAULT 1"),
         # backup_configuration public website backup setting
         ("backup_configuration", "include_public_website", "BOOLEAN DEFAULT TRUE"),
+        # backup_contents public website manifest columns
+        ("backup_contents", "public_website_file_count", "INTEGER DEFAULT 0"),
+        ("backup_contents", "public_website_manifest", "JSONB"),
     ]
 
     async with engine.begin() as conn:

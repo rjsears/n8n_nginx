@@ -39,13 +39,21 @@ RESTORE_DB_USER = "restore_user"
 RESTORE_DB_PASSWORD = "restore_temp_password"
 RESTORE_DB_NAME = "n8n_restore"
 
-# Module-level state for mounted backup
+# Module-level state for mounted backup (database restore container)
 _mounted_backup_id: Optional[int] = None
 _mounted_backup_info: Optional[Dict[str, Any]] = None
 
 # File path for caching mounted workflow data
 MOUNTED_WORKFLOWS_CACHE = "/tmp/n8n_mounted_workflows.json"
 MOUNTED_CREDENTIALS_CACHE = "/tmp/n8n_mounted_credentials.json"
+
+# Module-level state for public website file mounting (separate from database mounting)
+_public_website_mounted_backup_id: Optional[int] = None
+_public_website_mount_dir: Optional[str] = None
+_public_website_restore_lock = asyncio.Lock()
+
+# Cache file for public website file list
+PUBLIC_WEBSITE_FILES_CACHE = "/tmp/n8n_public_website_files.json"
 
 
 def get_mounted_backup_status() -> Dict[str, Any]:
@@ -58,6 +66,18 @@ def get_mounted_backup_status() -> Dict[str, Any]:
             "backup_info": _mounted_backup_info,
         }
     return {"mounted": False, "backup_id": None, "backup_info": None}
+
+
+def get_public_website_mount_status() -> Dict[str, Any]:
+    """Get the current public website files mount status."""
+    global _public_website_mounted_backup_id, _public_website_mount_dir
+    if _public_website_mounted_backup_id is not None and _public_website_mount_dir is not None:
+        return {
+            "mounted": True,
+            "backup_id": _public_website_mounted_backup_id,
+            "mount_dir": _public_website_mount_dir,
+        }
+    return {"mounted": False, "backup_id": None, "mount_dir": None}
 
 
 def _save_workflows_to_cache(workflows: List[Dict[str, Any]], backup_id: int) -> bool:
@@ -1791,3 +1811,558 @@ class RestoreService:
 
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    # ============================================================================
+    # Public Website File Restore Functions
+    # ============================================================================
+
+    async def mount_public_website_files(self, backup_id: int) -> Dict[str, Any]:
+        """
+        Mount a backup's public website files by extracting them to a temp directory.
+        This is separate from the database mounting system.
+
+        Args:
+            backup_id: The backup ID to mount
+
+        Returns:
+            Dict with mount status and file count
+        """
+        global _public_website_mounted_backup_id, _public_website_mount_dir
+
+        # Check if already mounted
+        if _public_website_mounted_backup_id == backup_id and _public_website_mount_dir:
+            if os.path.exists(_public_website_mount_dir):
+                return {
+                    "status": "already_mounted",
+                    "backup_id": backup_id,
+                    "mount_dir": _public_website_mount_dir,
+                    "message": "Public website files are already mounted",
+                }
+
+        # Clean up any existing mount
+        if _public_website_mount_dir and os.path.exists(_public_website_mount_dir):
+            try:
+                shutil.rmtree(_public_website_mount_dir)
+            except Exception as e:
+                logger.warning(f"Failed to clean up existing mount: {e}")
+
+        try:
+            # Get backup record
+            backup_service = BackupService(self.db)
+            backup = await backup_service.get_backup(backup_id)
+            if not backup:
+                return {"status": "failed", "error": f"Backup {backup_id} not found"}
+
+            if backup.status != "success":
+                return {"status": "failed", "error": f"Backup {backup_id} is not successful"}
+
+            # Create temp directory for mounting
+            mount_dir = settings.public_website_mount_dir
+            os.makedirs(mount_dir, exist_ok=True)
+
+            # Extract public_website directory from archive
+            archive_path = backup.filepath
+            if not os.path.exists(archive_path):
+                return {"status": "failed", "error": f"Backup file not found: {archive_path}"}
+
+            file_count = 0
+            with tarfile.open(archive_path, "r:gz") as tar:
+                # Find and extract only the public_website directory
+                for member in tar.getmembers():
+                    if member.name.startswith("public_website/"):
+                        # Adjust the extraction path to remove the public_website prefix
+                        member_copy = tarfile.TarInfo(member.name)
+                        member_copy.size = member.size
+                        member_copy.mode = member.mode
+                        member_copy.mtime = member.mtime
+
+                        if member.isfile():
+                            # Extract file
+                            rel_path = member.name[len("public_website/"):]
+                            if rel_path:  # Skip the directory itself
+                                dest_path = os.path.join(mount_dir, rel_path)
+                                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                                with tar.extractfile(member) as src:
+                                    if src:
+                                        with open(dest_path, 'wb') as dst:
+                                            shutil.copyfileobj(src, dst)
+                                        file_count += 1
+                        elif member.isdir():
+                            rel_path = member.name[len("public_website/"):]
+                            if rel_path:
+                                os.makedirs(os.path.join(mount_dir, rel_path), exist_ok=True)
+
+            if file_count == 0:
+                # Clean up empty mount
+                shutil.rmtree(mount_dir, ignore_errors=True)
+                return {
+                    "status": "failed",
+                    "error": "No public website files found in backup",
+                }
+
+            # Update global state
+            _public_website_mounted_backup_id = backup_id
+            _public_website_mount_dir = mount_dir
+
+            logger.info(f"Mounted public website files from backup {backup_id}: {file_count} files")
+            return {
+                "status": "success",
+                "backup_id": backup_id,
+                "mount_dir": mount_dir,
+                "file_count": file_count,
+                "message": f"Mounted {file_count} public website files",
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to mount public website files: {e}")
+            return {"status": "failed", "error": str(e)}
+
+    async def unmount_public_website_files(self) -> Dict[str, Any]:
+        """
+        Unmount (clean up) the public website files mount.
+        """
+        global _public_website_mounted_backup_id, _public_website_mount_dir
+
+        if not _public_website_mounted_backup_id:
+            return {"status": "not_mounted", "message": "No public website files are mounted"}
+
+        backup_id = _public_website_mounted_backup_id
+
+        try:
+            # Clean up mount directory
+            if _public_website_mount_dir and os.path.exists(_public_website_mount_dir):
+                shutil.rmtree(_public_website_mount_dir)
+
+            # Clean up cache file
+            if os.path.exists(PUBLIC_WEBSITE_FILES_CACHE):
+                os.remove(PUBLIC_WEBSITE_FILES_CACHE)
+
+            # Reset state
+            _public_website_mounted_backup_id = None
+            _public_website_mount_dir = None
+
+            logger.info(f"Unmounted public website files from backup {backup_id}")
+            return {
+                "status": "success",
+                "backup_id": backup_id,
+                "message": "Public website files unmounted",
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to unmount public website files: {e}")
+            return {"status": "failed", "error": str(e)}
+
+    def is_public_website_mounted(self, backup_id: int = None) -> bool:
+        """
+        Check if public website files are mounted.
+
+        Args:
+            backup_id: If provided, check if this specific backup is mounted
+
+        Returns:
+            True if mounted (and matches backup_id if provided)
+        """
+        global _public_website_mounted_backup_id, _public_website_mount_dir
+
+        if _public_website_mounted_backup_id is None or _public_website_mount_dir is None:
+            return False
+
+        if not os.path.exists(_public_website_mount_dir):
+            return False
+
+        if backup_id is not None:
+            return _public_website_mounted_backup_id == backup_id
+
+        return True
+
+    async def list_public_website_files(
+        self,
+        backup_id: int,
+        limit: int = 100,
+        offset: int = 0,
+        search: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        List files from mounted public website backup with pagination.
+
+        Args:
+            backup_id: The backup ID to list files from
+            limit: Maximum number of files to return
+            offset: Number of files to skip
+            search: Optional search filter for filenames
+
+        Returns:
+            Dict with files list, total count, and pagination info
+        """
+        global _public_website_mounted_backup_id, _public_website_mount_dir
+
+        # Check if mounted
+        if not self.is_public_website_mounted(backup_id):
+            return {
+                "status": "failed",
+                "error": "Public website files not mounted for this backup",
+                "files": [],
+                "total": 0,
+            }
+
+        try:
+            all_files = []
+            mount_dir = _public_website_mount_dir
+
+            # Walk the directory and collect file info
+            for root, dirs, files in os.walk(mount_dir):
+                for filename in files:
+                    file_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(file_path, mount_dir)
+
+                    # Apply search filter
+                    if search and search.lower() not in rel_path.lower():
+                        continue
+
+                    try:
+                        stat = os.stat(file_path)
+                        all_files.append({
+                            "name": filename,
+                            "path": rel_path,
+                            "size": stat.st_size,
+                            "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to stat file {rel_path}: {e}")
+
+            # Sort by path for consistent ordering
+            all_files.sort(key=lambda x: x["path"])
+
+            # Apply pagination
+            total = len(all_files)
+            paginated_files = all_files[offset:offset + limit]
+
+            return {
+                "status": "success",
+                "files": paginated_files,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "has_more": offset + limit < total,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to list public website files: {e}")
+            return {"status": "failed", "error": str(e), "files": [], "total": 0}
+
+    async def preview_public_website_file(
+        self,
+        backup_id: int,
+        file_path: str,
+        max_size: int = 1024 * 1024,  # 1MB default
+    ) -> Dict[str, Any]:
+        """
+        Preview a public website file content.
+
+        Args:
+            backup_id: The backup ID
+            file_path: Relative path to the file
+            max_size: Maximum size to read (default 1MB)
+
+        Returns:
+            Dict with file content (base64 for binary, text for text files)
+        """
+        global _public_website_mount_dir
+
+        if not self.is_public_website_mounted(backup_id):
+            return {"status": "failed", "error": "Public website files not mounted"}
+
+        try:
+            full_path = os.path.join(_public_website_mount_dir, file_path)
+
+            # Security check - prevent path traversal
+            if not os.path.realpath(full_path).startswith(os.path.realpath(_public_website_mount_dir)):
+                return {"status": "failed", "error": "Invalid file path"}
+
+            if not os.path.exists(full_path):
+                return {"status": "failed", "error": "File not found"}
+
+            stat = os.stat(full_path)
+            if stat.st_size > max_size:
+                return {
+                    "status": "failed",
+                    "error": f"File too large ({stat.st_size} bytes, max {max_size})",
+                }
+
+            # Determine if file is text or binary
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(file_path)
+            is_text = mime_type and mime_type.startswith("text/")
+
+            if is_text:
+                with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                return {
+                    "status": "success",
+                    "path": file_path,
+                    "size": stat.st_size,
+                    "mime_type": mime_type,
+                    "is_text": True,
+                    "content": content,
+                }
+            else:
+                import base64
+                with open(full_path, 'rb') as f:
+                    content = base64.b64encode(f.read()).decode('ascii')
+                return {
+                    "status": "success",
+                    "path": file_path,
+                    "size": stat.st_size,
+                    "mime_type": mime_type or "application/octet-stream",
+                    "is_text": False,
+                    "content_base64": content,
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to preview public website file: {e}")
+            return {"status": "failed", "error": str(e)}
+
+    async def get_public_website_file_path(self, backup_id: int, file_path: str) -> Optional[str]:
+        """
+        Get the full filesystem path to a mounted public website file.
+        Used for downloading files.
+
+        Args:
+            backup_id: The backup ID
+            file_path: Relative path to the file
+
+        Returns:
+            Full path to the file, or None if not found/not mounted
+        """
+        global _public_website_mount_dir
+
+        if not self.is_public_website_mounted(backup_id):
+            return None
+
+        full_path = os.path.join(_public_website_mount_dir, file_path)
+
+        # Security check
+        if not os.path.realpath(full_path).startswith(os.path.realpath(_public_website_mount_dir)):
+            return None
+
+        if not os.path.exists(full_path):
+            return None
+
+        return full_path
+
+    async def check_public_website_restore(self, backup_id: int) -> Dict[str, Any]:
+        """
+        Dry-run check for public website restore.
+        Compares backup files against current live volume to identify:
+        - Files that will be added (new)
+        - Files that will be overwritten (different checksum)
+        - Files that are unchanged (same checksum)
+
+        Args:
+            backup_id: The backup ID to check
+
+        Returns:
+            Dict with comparison results
+        """
+        global _public_website_mount_dir
+
+        if not self.is_public_website_mounted(backup_id):
+            return {"status": "failed", "error": "Public website files not mounted"}
+
+        try:
+            from api.services.backup_service import calculate_file_checksum, PUBLIC_WEBSITE_VOLUME
+
+            # Get list of files from mounted backup
+            backup_files = {}
+            for root, dirs, files in os.walk(_public_website_mount_dir):
+                for filename in files:
+                    file_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(file_path, _public_website_mount_dir)
+                    backup_files[rel_path] = {
+                        "size": os.path.getsize(file_path),
+                        "checksum": calculate_file_checksum(file_path),
+                    }
+
+            # Create temp directory to extract current volume contents
+            live_files = {}
+            with tempfile.TemporaryDirectory() as live_temp:
+                # Extract current volume contents using Docker
+                result = subprocess.run(
+                    [
+                        "docker", "run", "--rm",
+                        "-v", f"{PUBLIC_WEBSITE_VOLUME}:/source:ro",
+                        "-v", f"{live_temp}:/dest",
+                        "alpine",
+                        "sh", "-c", "cp -r /source/. /dest/"
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+
+                if result.returncode == 0:
+                    for root, dirs, files in os.walk(live_temp):
+                        for filename in files:
+                            file_path = os.path.join(root, filename)
+                            rel_path = os.path.relpath(file_path, live_temp)
+                            live_files[rel_path] = {
+                                "size": os.path.getsize(file_path),
+                                "checksum": calculate_file_checksum(file_path),
+                            }
+
+            # Compare
+            to_add = []
+            to_overwrite = []
+            unchanged = []
+
+            for path, info in backup_files.items():
+                if path not in live_files:
+                    to_add.append({"path": path, "size": info["size"]})
+                elif live_files[path]["checksum"] != info["checksum"]:
+                    to_overwrite.append({
+                        "path": path,
+                        "backup_size": info["size"],
+                        "live_size": live_files[path]["size"],
+                    })
+                else:
+                    unchanged.append({"path": path, "size": info["size"]})
+
+            return {
+                "status": "success",
+                "backup_id": backup_id,
+                "total_backup_files": len(backup_files),
+                "total_live_files": len(live_files),
+                "to_add": to_add,
+                "to_overwrite": to_overwrite,
+                "unchanged": unchanged,
+                "summary": {
+                    "new_files": len(to_add),
+                    "overwrite_files": len(to_overwrite),
+                    "unchanged_files": len(unchanged),
+                },
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to check public website restore: {e}")
+            return {"status": "failed", "error": str(e)}
+
+    async def restore_public_website_files(
+        self,
+        backup_id: int,
+        file_paths: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Restore public website files from backup to the live Docker volume.
+        Uses batched processing with a single Docker container for efficiency.
+
+        Args:
+            backup_id: The backup ID to restore from
+            file_paths: Optional list of specific files to restore. If None, restores all.
+
+        Returns:
+            Dict with restore results
+        """
+        global _public_website_mount_dir, _public_website_restore_lock
+
+        if not self.is_public_website_mounted(backup_id):
+            return {"status": "failed", "error": "Public website files not mounted"}
+
+        # Use lock to prevent concurrent restore operations
+        async with _public_website_restore_lock:
+            try:
+                from api.services.backup_service import PUBLIC_WEBSITE_VOLUME
+
+                mount_dir = _public_website_mount_dir
+                batch_size = settings.public_website_batch_size
+
+                # Determine files to restore
+                if file_paths:
+                    files_to_restore = []
+                    for path in file_paths:
+                        full_path = os.path.join(mount_dir, path)
+                        if os.path.exists(full_path) and os.path.isfile(full_path):
+                            files_to_restore.append(path)
+                else:
+                    # Restore all files
+                    files_to_restore = []
+                    for root, dirs, files in os.walk(mount_dir):
+                        for filename in files:
+                            full_path = os.path.join(root, filename)
+                            rel_path = os.path.relpath(full_path, mount_dir)
+                            files_to_restore.append(rel_path)
+
+                if not files_to_restore:
+                    return {"status": "failed", "error": "No files to restore"}
+
+                total_files = len(files_to_restore)
+                restored_count = 0
+                failed_files = []
+
+                # Process in batches using single Docker container with shell script
+                for i in range(0, total_files, batch_size):
+                    batch = files_to_restore[i:i + batch_size]
+
+                    # Create shell script for batch copy
+                    script_lines = ["#!/bin/sh", "set -e"]
+                    for file_path in batch:
+                        # Ensure destination directory exists and copy file
+                        dest_dir = os.path.dirname(file_path)
+                        if dest_dir:
+                            script_lines.append(f'mkdir -p "/dest/{dest_dir}"')
+                        script_lines.append(f'cp "/source/{file_path}" "/dest/{file_path}"')
+
+                    script_content = "\n".join(script_lines)
+
+                    # Run batch restore via Docker
+                    result = subprocess.run(
+                        [
+                            "docker", "run", "--rm",
+                            "-v", f"{mount_dir}:/source:ro",
+                            "-v", f"{PUBLIC_WEBSITE_VOLUME}:/dest",
+                            "alpine",
+                            "sh", "-c", script_content,
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    if result.returncode == 0:
+                        restored_count += len(batch)
+                        logger.info(f"Restored batch of {len(batch)} files ({restored_count}/{total_files})")
+                    else:
+                        # If batch fails, try individual files
+                        for file_path in batch:
+                            dest_dir = os.path.dirname(file_path)
+                            mkdir_cmd = f'mkdir -p "/dest/{dest_dir}" && ' if dest_dir else ""
+                            individual_result = subprocess.run(
+                                [
+                                    "docker", "run", "--rm",
+                                    "-v", f"{mount_dir}:/source:ro",
+                                    "-v", f"{PUBLIC_WEBSITE_VOLUME}:/dest",
+                                    "alpine",
+                                    "sh", "-c", f'{mkdir_cmd}cp "/source/{file_path}" "/dest/{file_path}"',
+                                ],
+                                capture_output=True,
+                                text=True,
+                            )
+                            if individual_result.returncode == 0:
+                                restored_count += 1
+                            else:
+                                failed_files.append({
+                                    "path": file_path,
+                                    "error": individual_result.stderr,
+                                })
+
+                status = "success" if not failed_files else ("partial" if restored_count > 0 else "failed")
+
+                return {
+                    "status": status,
+                    "backup_id": backup_id,
+                    "restored_count": restored_count,
+                    "total_files": total_files,
+                    "failed_files": failed_files,
+                    "message": f"Restored {restored_count}/{total_files} files",
+                }
+
+            except Exception as e:
+                logger.error(f"Failed to restore public website files: {e}")
+                return {"status": "failed", "error": str(e)}
