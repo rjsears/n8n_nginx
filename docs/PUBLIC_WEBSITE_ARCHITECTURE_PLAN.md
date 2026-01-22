@@ -91,18 +91,17 @@ Internet ──────────►│                                   
 
 #### 1.1 Validation Logic
 ```bash
-# If public website enabled, require Cloudflare tunnel
+# If public website enabled without Cloudflare tunnel, show warning (not error)
 if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ] && [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
-    print_error "Public website requires Cloudflare Tunnel"
-    print_info "The public website feature routes traffic through Cloudflare Tunnel"
-    print_info "to separate it from the internal management services."
-    print_info ""
-    print_info "Options:"
-    print_info "  1. Enable Cloudflare Tunnel (recommended)"
-    print_info "  2. Disable public website feature"
-    exit 1
+    print_warning "Public Website enabled without Cloudflare Tunnel"
+    # Explain that manual configuration will be needed
+    # Offer to configure Cloudflare Tunnel now
+    # Allow install to continue regardless - container will be created
+    # but may not be accessible without additional manual configuration
 fi
 ```
+
+**Note:** This is a warning, not a blocking error. The install continues and the public website container is created. Without Cloudflare Tunnel, the user will need to manually configure DNS/proxy routing to access the public website.
 
 #### 1.2 New Functions Required
 - `generate_public_nginx_conf()` - Generate nginx.conf for public website container
