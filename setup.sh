@@ -1385,6 +1385,48 @@ EOF
         fi
     fi
 
+    # Validate public website + Cloudflare Tunnel requirement
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ] && [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
+        print_error "Public Website requires Cloudflare Tunnel"
+        echo ""
+        echo -e "  ${YELLOW}The Public Website feature requires Cloudflare Tunnel to be enabled.${NC}"
+        echo -e "  ${GRAY}This is because running multiple SSL server blocks in a single nginx${NC}"
+        echo -e "  ${GRAY}causes browser ECH errors. The solution uses two separate nginx containers.${NC}"
+        echo ""
+        if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+            print_error "Cannot continue in auto-confirm mode without Cloudflare Tunnel"
+            print_error "Either add CLOUDFLARE_TUNNEL_TOKEN to your config or set PUBLIC_WEBSITE_ENABLED=false"
+            exit 1
+        fi
+        echo -e "  ${WHITE}Options:${NC}"
+        echo -e "    ${CYAN}1)${NC} Enter Cloudflare Tunnel token now"
+        echo -e "    ${CYAN}2)${NC} Disable Public Website feature"
+        echo ""
+        local pw_choice=""
+        while [[ ! "$pw_choice" =~ ^[1-2]$ ]]; do
+            echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
+            read pw_choice
+        done
+        case $pw_choice in
+            1)
+                echo -ne "${WHITE}  Enter your Cloudflare Tunnel token${NC}: "
+                read -s CLOUDFLARE_TUNNEL_TOKEN
+                echo ""
+                if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
+                    INSTALL_CLOUDFLARE_TUNNEL=true
+                    print_success "Cloudflare Tunnel enabled"
+                else
+                    print_warning "No token provided - disabling Public Website"
+                    INSTALL_PUBLIC_WEBSITE=false
+                fi
+                ;;
+            2)
+                print_warning "Disabling Public Website feature"
+                INSTALL_PUBLIC_WEBSITE=false
+                ;;
+        esac
+    fi
+
     print_success "Configuration loaded and validated successfully"
     echo ""
 
@@ -2204,6 +2246,7 @@ run_migration_v2_to_v3() {
 
     # Update nginx.conf with management port
     generate_nginx_conf_v3
+    generate_public_nginx_conf
 
     # Phase 5: Build and start new services
     print_section "Phase 5: Starting v3.0 Services"
@@ -3425,6 +3468,28 @@ FBEOF
     networks:
       - n8n_network
 
+  # ===========================================================================
+  # Public Website Nginx (separate from main nginx)
+  # ===========================================================================
+  # This container serves ONLY the public website. Traffic is routed here
+  # via Cloudflare Tunnel based on hostname. No external ports exposed.
+  nginx_public:
+    image: nginx:alpine
+    container_name: n8n_nginx_public
+    restart: unless-stopped
+    volumes:
+      - ./nginx-public.conf:/etc/nginx/nginx.conf:ro
+      - public_web_root:/var/www/public:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - n8n_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --no-check-certificate https://localhost/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 EOF
     fi
 
@@ -3594,7 +3659,7 @@ EOF
     # Main n8n HTTPS Server (Port 443)
     # ===========================================================================
     server {
-        listen 443 ssl default_server;
+        listen 443 ssl;
         http2 on;
         server_name ${N8N_DOMAIN};
 
@@ -3881,46 +3946,9 @@ EOF
     }
 EOF
 
-    # Public Website Server Block (added AFTER main n8n server)
-    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        # Use saved variables if available (from interactive setup)
-        local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
-        local server_names="$public_domain"
-
-        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
-
-    # ===========================================================================
-    # Public Website (${server_names})
-    # ===========================================================================
-    server {
-        listen 443 ssl;
-        http2 on;
-        server_name ${server_names};
-
-        # Reuse the same wildcard certificate
-        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$N8N_DOMAIN}/privkey.pem;
-
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-        ssl_prefer_server_ciphers off;
-
-        # Serve static files
-        root /var/www/public;
-        index index.html;
-
-        location / {
-            try_files \$uri \$uri/ =404;
-        }
-
-        # Health check endpoint for tunnel/proxy health checks
-        location /healthz {
-            access_log off;
-            return 200 "healthy\\n";
-        }
-    }
-EOF
-    fi
+    # NOTE: Public Website server block has been moved to nginx-public.conf
+    # which is served by the separate n8n_nginx_public container.
+    # This ensures proper ECH handling (no multiple server blocks on same nginx).
 
     # Close the http block
     cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
@@ -3928,6 +3956,115 @@ EOF
 EOF
 
     print_success "nginx.conf generated for v3.0"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PUBLIC WEBSITE NGINX CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Generates nginx-public.conf for the separate public website nginx container.
+# This container serves ONLY the public website, with no access to internal
+# services. It's accessed exclusively via Cloudflare Tunnel.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+generate_public_nginx_conf() {
+    if [ "$INSTALL_PUBLIC_WEBSITE" != "true" ]; then
+        return 0
+    fi
+
+    print_info "Generating nginx-public.conf for public website container..."
+
+    # Extract root domain for public website config
+    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+    local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
+
+    cat > "${SCRIPT_DIR}/nginx-public.conf" << EOF
+# ═══════════════════════════════════════════════════════════════════════════════
+# Public Website Nginx Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+# This nginx instance serves ONLY the public website.
+# It has no access to n8n, management console, or other internal services.
+# Traffic is routed here via Cloudflare Tunnel based on hostname.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+events {
+    worker_connections 256;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Performance optimizations
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    # Logging
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name ${public_domain};
+
+        # SSL Certificate (shared wildcard certificate)
+        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        # Serve static files from public website root
+        root /var/www/public;
+        index index.html index.htm;
+
+        # Security headers
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # Main location - serve static files
+        location / {
+            try_files \$uri \$uri/ =404;
+        }
+
+        # Health check endpoint for Cloudflare Tunnel
+        location /healthz {
+            access_log off;
+            return 200 "healthy\\n";
+            add_header Content-Type text/plain;
+        }
+
+        # Block access to hidden files (except .well-known)
+        location ~ /\\.(?!well-known) {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        # Custom error pages
+        error_page 404 /404.html;
+        error_page 500 502 503 504 /50x.html;
+        location = /50x.html {
+            root /usr/share/nginx/html;
+        }
+    }
+}
+EOF
+
+    print_success "nginx-public.conf generated for public website"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -4583,6 +4720,62 @@ configure_optional_services() {
         fi
     else
         print_info "Skipping optional services. You can add them later by running setup again."
+    fi
+
+    # Validate public website + Cloudflare Tunnel requirement
+    validate_public_website_requirements
+}
+
+# ===========================================================================
+# Validate Public Website Requirements
+# ===========================================================================
+# Public website feature requires Cloudflare Tunnel for proper operation.
+# This is because running two SSL server blocks in a single nginx causes
+# ERR_ECH_FALLBACK_CERTIFICATE_INVALID errors with Encrypted Client Hello.
+# The solution is to use two separate nginx containers, with Cloudflare
+# Tunnel routing traffic to the public website nginx.
+# ===========================================================================
+validate_public_website_requirements() {
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ] && [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
+        echo ""
+        print_error "Public Website requires Cloudflare Tunnel"
+        echo ""
+        echo -e "  ${YELLOW}The Public Website feature requires Cloudflare Tunnel to be enabled.${NC}"
+        echo ""
+        echo -e "  ${GRAY}Technical Reason:${NC}"
+        echo -e "  ${GRAY}Running multiple SSL server blocks in a single nginx causes${NC}"
+        echo -e "  ${GRAY}ERR_ECH_FALLBACK_CERTIFICATE_INVALID errors with modern browsers.${NC}"
+        echo -e "  ${GRAY}The solution uses two separate nginx containers, with Cloudflare${NC}"
+        echo -e "  ${GRAY}Tunnel routing traffic to each based on hostname.${NC}"
+        echo ""
+        echo -e "  ${WHITE}Options:${NC}"
+        echo -e "    ${CYAN}1)${NC} Enable Cloudflare Tunnel now (recommended)"
+        echo -e "    ${CYAN}2)${NC} Disable Public Website feature"
+        echo ""
+
+        local choice=""
+        while [[ ! "$choice" =~ ^[1-2]$ ]]; do
+            echo -ne "${WHITE}  Enter your choice [1-2]${NC}: "
+            read choice
+        done
+
+        case $choice in
+            1)
+                print_info "Configuring Cloudflare Tunnel..."
+                configure_cloudflare_tunnel
+                if [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
+                    print_error "Cloudflare Tunnel configuration failed or was cancelled"
+                    print_warning "Disabling Public Website feature"
+                    INSTALL_PUBLIC_WEBSITE=false
+                else
+                    print_success "Cloudflare Tunnel enabled - Public Website will work correctly"
+                fi
+                ;;
+            2)
+                print_warning "Disabling Public Website feature"
+                INSTALL_PUBLIC_WEBSITE=false
+                ;;
+        esac
     fi
 }
 
@@ -5797,14 +5990,26 @@ show_final_summary_v3() {
 
     # Cloudflare Tunnel public website hostname reminder
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ] && [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+        local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
+
         echo -e "  ${YELLOW}${BOLD}⚠ CLOUDFLARE ACTION REQUIRED:${NC}"
-        echo -e "    ${WHITE}You must add a Public Hostname for your website in Zero Trust:${NC}"
+        echo -e "    ${WHITE}You must add TWO Public Hostnames in Zero Trust:${NC}"
         echo ""
         echo -e "    1. Visit: ${CYAN}https://one.dash.cloudflare.com${NC}"
-        echo -e "    2. Networks > Tunnels > [Your Tunnel] > Configure > Public Hostname"
-        echo -e "    3. Add Hostname: ${CYAN}${PUBLIC_WEBSITE_DOMAIN:-www.${N8N_DOMAIN#*.}}${NC}"
-        echo -e "    4. Service: ${WHITE}HTTPS${NC} -> ${WHITE}n8n_nginx:443${NC}"
-        echo -e "    5. Settings: Enable ${WHITE}No TLS Verify${NC}"
+        echo -e "    2. Go to: Networks → Tunnels → [Your Tunnel] → Configure → Public Hostname"
+        echo ""
+        echo -e "    ${WHITE}Hostname 1 (n8n/Management):${NC}"
+        echo -e "      Hostname: ${CYAN}${N8N_DOMAIN}${NC}"
+        echo -e "      Service:  ${WHITE}HTTPS${NC} -> ${WHITE}n8n_nginx:443${NC}"
+        echo -e "      Settings: Enable ${WHITE}No TLS Verify${NC}"
+        echo ""
+        echo -e "    ${WHITE}Hostname 2 (Public Website):${NC}"
+        echo -e "      Hostname: ${CYAN}${public_domain}${NC}"
+        echo -e "      Service:  ${WHITE}HTTPS${NC} -> ${WHITE}n8n_nginx_public:443${NC}"
+        echo -e "      Settings: Enable ${WHITE}No TLS Verify${NC}"
+        echo ""
+        echo -e "    ${GRAY}Note: Both hostnames use separate nginx containers for proper routing.${NC}"
         echo ""
     fi
 
@@ -5963,6 +6168,7 @@ update_access_control() {
         print_info "Regenerating nginx configuration..."
         determine_ssl_cert_domain
         generate_nginx_conf_v3
+        generate_public_nginx_conf
 
         # Reload nginx if running
         local nginx_container="${NGINX_CONTAINER:-n8n_nginx}"
@@ -6252,6 +6458,7 @@ main() {
             generate_docker_compose_v3
             determine_ssl_cert_domain
             generate_nginx_conf_v3
+            generate_public_nginx_conf
 
             print_success "Configuration files regenerated!"
             echo ""
@@ -6370,6 +6577,7 @@ main() {
         # This is critical for wildcard certificates
         determine_ssl_cert_domain
         generate_nginx_conf_v3
+        generate_public_nginx_conf
         create_letsencrypt_volume
 
         # Save config

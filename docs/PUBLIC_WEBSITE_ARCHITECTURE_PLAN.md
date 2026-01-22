@@ -506,20 +506,32 @@ If issues arise, users can:
 
 ---
 
-## Open Questions
+## Implementation Progress
 
-1. **Port exposure for public nginx?**
-   - Currently: No external ports (Cloudflare tunnel only)
-   - Alternative: Expose port 8443 for direct access?
-   - Recommendation: Tunnel only (cleaner, more secure)
+| Task | Status | Notes |
+|------|--------|-------|
+| **Phase 1: Core Changes** | | |
+| 1. Update `setup.sh` validation logic | ✅ Complete | Added validation in both interactive and preconfig modes |
+| 2. Create `generate_public_nginx_conf()` function | ✅ Complete | Generates nginx-public.conf for public website container |
+| 3. Update `generate_docker_compose_v3()` for new container | ✅ Complete | Added n8n_nginx_public service |
+| 4. Update `generate_nginx_conf_v3()` to remove public server block | ✅ Complete | Removed public server block, removed default_server |
+| **Phase 2: Cloudflare Integration** | | |
+| 5. Update `configure_cloudflare_tunnel()` with dual hostname guidance | ✅ Complete | Updated final summary with both hostname instructions |
+| 6. Update final summary output | ✅ Complete | Merged with task 5 |
+| **Phase 3: Management Console** | | |
+| 7. Add health check for `n8n_nginx_public` container | ✅ Complete | Added to system.py health checks |
 
-2. **Health checks?**
-   - Should management console monitor public nginx health?
-   - Recommendation: Yes, add to System > Health page
+**Legend:** ⬜ Pending | ⏳ In Progress | ✅ Complete
 
-3. **Container naming?**
-   - `n8n_nginx_public` vs `n8n_public_nginx` vs `n8n_www`?
-   - Recommendation: `n8n_nginx_public` (consistent with existing pattern)
+---
+
+## Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| **Port exposure** | Tunnel only (no external ports) | Cleaner, more secure - public site accessed exclusively via Cloudflare Tunnel |
+| **Health checks** | Yes, monitor in management console | Add public nginx health status to System > Health page |
+| **Container naming** | `n8n_nginx_public` | Consistent with existing pattern (n8n_nginx, n8n_postgres, etc.) |
 
 ---
 
@@ -536,6 +548,7 @@ If issues arise, users can:
 
 ---
 
-*Document Version: 1.0*
+*Document Version: 1.2*
 *Created: January 2026*
-*Status: DRAFT - Pending Review*
+*Last Updated: January 21, 2026*
+*Status: IMPLEMENTATION COMPLETE - PR #330*
