@@ -2248,6 +2248,7 @@ run_migration_v2_to_v3() {
     # Update nginx.conf with management port
     generate_nginx_conf_v3
     generate_public_nginx_conf
+    generate_nginx_router_conf
 
     # Phase 5: Build and start new services
     print_section "Phase 5: Starting v3.0 Services"
@@ -3018,6 +3019,69 @@ services:
     networks:
       - n8n_network
 
+EOF
+
+    # ===========================================================================
+    # Nginx Configuration - conditional based on public website
+    # ===========================================================================
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        # With public website: nginx_router handles SSL and port 443
+        # n8n_nginx is internal only (port 80)
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+  # ===========================================================================
+  # Nginx Router (hostname-based routing for internal access)
+  # ===========================================================================
+  # This container ONLY routes traffic - it has no access to internal services.
+  # It allows internal network access without hairpinning through Cloudflare.
+  nginx_router:
+    image: nginx:alpine
+    container_name: n8n_nginx_router
+    restart: always
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx-router.conf:/etc/nginx/nginx.conf:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - nginx
+      - nginx_public
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider --no-check-certificate https://localhost/ || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - n8n_network
+
+  # ===========================================================================
+  # Nginx Reverse Proxy (internal - SSL terminated by router)
+  # ===========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: ${NGINX_CONTAINER:-n8n_nginx}
+    restart: always
+    expose:
+      - "80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot_data:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - n8n
+      - n8n_management
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost/healthz || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - n8n_network
+EOF
+    else
+        # Without public website: n8n_nginx handles SSL directly on port 443
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
   # ===========================================================================
   # Nginx Reverse Proxy (SSL termination)
   # ===========================================================================
@@ -3042,6 +3106,10 @@ services:
       start_period: 10s
     networks:
       - n8n_network
+EOF
+    fi
+
+    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
 
   # ===========================================================================
   # Certbot (SSL certificate management)
@@ -3492,14 +3560,15 @@ FBEOF
     image: nginx:alpine
     container_name: n8n_nginx_public
     restart: unless-stopped
+    expose:
+      - "80"
     volumes:
       - ./nginx-public.conf:/etc/nginx/nginx.conf:ro
       - public_web_root:/var/www/public:ro
-      - letsencrypt:/etc/letsencrypt:ro
     networks:
       - n8n_network
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider --no-check-certificate https://localhost/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/healthz || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -3668,7 +3737,23 @@ EOF
     # ===========================================================================
 EOF
 
-    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+    # When public website is enabled, nginx_router handles SSL termination
+    # and n8n_nginx listens on port 80. Otherwise, n8n_nginx handles SSL directly.
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+    # ===========================================================================
+    # Main n8n HTTP Server (Port 80) - SSL terminated by nginx_router
+    # ===========================================================================
+    server {
+        listen 80;
+        server_name ${N8N_DOMAIN};
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+EOF
+    else
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
 
     # ===========================================================================
     # Main n8n HTTPS Server (Port 443)
@@ -3689,6 +3774,10 @@ EOF
 
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
+EOF
+    fi
+
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
 
         # Webhook endpoint with CORS - PUBLICLY ACCESSIBLE
         location /webhook/ {
@@ -3998,7 +4087,13 @@ generate_public_nginx_conf() {
 # ═══════════════════════════════════════════════════════════════════════════════
 # This nginx instance serves ONLY the public website.
 # It has no access to n8n, management console, or other internal services.
-# Traffic is routed here via Cloudflare Tunnel based on hostname.
+#
+# Traffic routing:
+#   - Internal: nginx_router proxies www.* requests here
+#   - External: Cloudflare Tunnel routes www.* requests here
+#
+# This container listens on port 80 (HTTP) internally.
+# SSL termination is handled by nginx_router or Cloudflare Tunnel.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 events {
@@ -4026,19 +4121,8 @@ http {
     error_log /var/log/nginx/error.log;
 
     server {
-        listen 443 ssl;
-        http2 on;
+        listen 80;
         server_name ${public_domain};
-
-        # SSL Certificate (shared wildcard certificate)
-        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/privkey.pem;
-
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
-        ssl_prefer_server_ciphers off;
-        ssl_session_cache shared:SSL:10m;
-        ssl_session_timeout 10m;
 
         # Serve static files from public website root
         root /var/www/public;
@@ -4046,7 +4130,7 @@ http {
 
         # Security headers
         add_header X-Content-Type-Options "nosniff" always;
-        add_header X-Frame-Options "DENY" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
         add_header X-XSS-Protection "1; mode=block" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
@@ -4055,7 +4139,7 @@ http {
             try_files \$uri \$uri/ =404;
         }
 
-        # Health check endpoint for Cloudflare Tunnel
+        # Health check endpoint
         location /healthz {
             access_log off;
             return 200 "healthy\\n";
@@ -4080,6 +4164,146 @@ http {
 EOF
 
     print_success "nginx-public.conf generated for public website"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NGINX ROUTER CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Generates nginx-router.conf for hostname-based routing.
+# This container ONLY routes traffic - it has no access to internal services.
+#
+# Architecture:
+#   External traffic → Cloudflare Tunnel → n8n_nginx / nginx_public
+#   Internal traffic → nginx_router:443 → n8n_nginx / nginx_public
+#
+# This container is ONLY added when public website is enabled.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+generate_nginx_router_conf() {
+    if [ "$INSTALL_PUBLIC_WEBSITE" != "true" ]; then
+        return 0
+    fi
+
+    print_info "Generating nginx-router.conf for hostname-based routing..."
+
+    # Extract root domain
+    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+    local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
+
+    cat > "${SCRIPT_DIR}/nginx-router.conf" << EOF
+# ═══════════════════════════════════════════════════════════════════════════════
+# Nginx Router Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+# This nginx instance ONLY routes traffic based on hostname.
+# It has NO access to internal services, databases, or sensitive data.
+#
+# Purpose: Allows internal network access to both n8n services and public
+# website without hairpinning through Cloudflare Tunnel.
+#
+# Architecture:
+#   External traffic → Cloudflare Tunnel → n8n_nginx / nginx_public
+#   Internal traffic → nginx_router:443 → n8n_nginx / nginx_public
+#
+# This container is ONLY added when public website is enabled.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    # Docker internal DNS resolver
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    resolver_timeout 5s;
+
+    # Logging
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    # Buffer sizes
+    client_max_body_size 50M;
+    proxy_connect_timeout 600s;
+    proxy_send_timeout 600s;
+    proxy_read_timeout 600s;
+
+    # ===========================================================================
+    # Internal Services (n8n, management, adminer, dozzle, portainer, ntfy, files)
+    # Routes to n8n_nginx which handles access control and proxying
+    # ===========================================================================
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name ${N8N_DOMAIN} ~^(management|adminer|dozzle|portainer|ntfy|files)\\.${root_domain//./\\.}\$;
+
+        # SSL Certificate (wildcard)
+        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        location / {
+            proxy_pass http://n8n_nginx:80;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
+        }
+    }
+
+    # ===========================================================================
+    # Public Website (www.*)
+    # Routes to nginx_public which serves static files
+    # ===========================================================================
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name ${public_domain};
+
+        # SSL Certificate (wildcard)
+        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        location / {
+            proxy_pass http://nginx_public:80;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_http_version 1.1;
+            proxy_buffering off;
+        }
+    }
+
+    # ===========================================================================
+    # Default - Return 444 for unrecognized hostnames
+    # ===========================================================================
+    server {
+        listen 443 ssl default_server;
+        server_name _;
+
+        ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/privkey.pem;
+
+        return 444;
+    }
+}
+EOF
+
+    print_success "nginx-router.conf generated for hostname-based routing"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -6059,15 +6283,13 @@ show_final_summary_v3() {
         echo ""
         echo -e "    ${WHITE}Hostname 1 (n8n/Management):${NC}"
         echo -e "      Hostname: ${CYAN}${N8N_DOMAIN}${NC}"
-        echo -e "      Service:  ${WHITE}HTTPS${NC} -> ${WHITE}n8n_nginx:443${NC}"
-        echo -e "      Settings: Enable ${WHITE}No TLS Verify${NC}"
+        echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}n8n_nginx:80${NC}"
         echo ""
         echo -e "    ${WHITE}Hostname 2 (Public Website):${NC}"
         echo -e "      Hostname: ${CYAN}${public_domain}${NC}"
-        echo -e "      Service:  ${WHITE}HTTPS${NC} -> ${WHITE}n8n_nginx_public:443${NC}"
-        echo -e "      Settings: Enable ${WHITE}No TLS Verify${NC}"
+        echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}nginx_public:80${NC}"
         echo ""
-        echo -e "    ${GRAY}Note: Both hostnames use separate nginx containers for proper routing.${NC}"
+        echo -e "    ${GRAY}Note: Both use HTTP internally. SSL is terminated by Cloudflare.${NC}"
         echo ""
     fi
 
@@ -6227,6 +6449,7 @@ update_access_control() {
         determine_ssl_cert_domain
         generate_nginx_conf_v3
         generate_public_nginx_conf
+        generate_nginx_router_conf
 
         # Reload nginx if running
         local nginx_container="${NGINX_CONTAINER:-n8n_nginx}"
@@ -6517,6 +6740,7 @@ main() {
             determine_ssl_cert_domain
             generate_nginx_conf_v3
             generate_public_nginx_conf
+            generate_nginx_router_conf
 
             print_success "Configuration files regenerated!"
             echo ""
@@ -6636,6 +6860,7 @@ main() {
         determine_ssl_cert_domain
         generate_nginx_conf_v3
         generate_public_nginx_conf
+        generate_nginx_router_conf
         create_letsencrypt_volume
 
         # Save config
