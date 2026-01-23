@@ -3046,7 +3046,7 @@ EOF
       - nginx
       - nginx_public
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q --spider --no-check-certificate https://localhost/ || exit 1']
+      test: ['CMD-SHELL', 'wget -q --spider --no-check-certificate https://localhost/healthz || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -4289,7 +4289,7 @@ http {
     }
 
     # ===========================================================================
-    # Default - Return 444 for unrecognized hostnames
+    # Default - Health check endpoint and 444 for unrecognized hostnames
     # ===========================================================================
     server {
         listen 443 ssl default_server;
@@ -4298,7 +4298,17 @@ http {
         ssl_certificate /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/${SSL_CERT_DOMAIN:-$root_domain}/privkey.pem;
 
-        return 444;
+        # Health check endpoint for Docker
+        location /healthz {
+            access_log off;
+            return 200 "healthy\\n";
+            add_header Content-Type text/plain;
+        }
+
+        # Reject all other requests to unrecognized hostnames
+        location / {
+            return 444;
+        }
     }
 }
 EOF
