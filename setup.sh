@@ -5506,273 +5506,206 @@ initialize_public_website() {
     local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
     local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
 
-    # Create the default landing page
+    # Create the default landing page (WHITE template - matches public_index.html)
     $DOCKER_SUDO docker run --rm -v "${volume_name}:/data" alpine sh -c "cat > /data/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang=\"en\">
 <head>
     <meta charset=\"UTF-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>Welcome | Powered by n8n Management</title>
+    <title>Public Website | n8n Management</title>
     <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23ff6d5a'/%3E%3Cstop offset='100%25' stop-color='%23d84a38'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Cpath d='M10 20V12a2 2 0 012-2h0a2 2 0 012 2v8M18 20V14a2 2 0 012-2h0a2 2 0 012 2v6' stroke='white' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E\">
     <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">
     <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>
-    <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap\" rel=\"stylesheet\">
+    <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap\" rel=\"stylesheet\">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            min-height: 100vh;
-            background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f0f23 100%);
-            color: #ffffff;
-            overflow-x: hidden;
-        }
-
-        .bg-grid {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-image:
-                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-            background-size: 50px 50px;
-            pointer-events: none;
-        }
-
-        .bg-glow {
-            position: fixed;
-            width: 600px;
-            height: 600px;
-            border-radius: 50%;
-            filter: blur(120px);
-            opacity: 0.15;
-            pointer-events: none;
-        }
-
-        .glow-1 {
-            top: -200px;
-            left: -200px;
-            background: #ff6b6b;
-            animation: float 20s ease-in-out infinite;
-        }
-
-        .glow-2 {
-            bottom: -200px;
-            right: -200px;
-            background: #4ecdc4;
-            animation: float 25s ease-in-out infinite reverse;
-        }
-
-        .glow-3 {
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #a855f7;
-            animation: pulse 10s ease-in-out infinite;
-        }
-
-        @keyframes float {
-            0%, 100% { transform: translate(0, 0); }
-            50% { transform: translate(50px, 50px); }
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 0.1; transform: translate(-50%, -50%) scale(1); }
-            50% { opacity: 0.2; transform: translate(-50%, -50%) scale(1.1); }
-        }
-
-        .container {
-            position: relative;
-            z-index: 1;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;
+            background: #ffffff;
+            color: #1e293b;
             min-height: 100vh;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
             padding: 2rem;
         }
-
-        .card {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 24px;
-            padding: 3rem 4rem;
-            max-width: 600px;
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+        }
+        .container {
             text-align: center;
-            box-shadow:
-                0 25px 50px -12px rgba(0, 0, 0, 0.5),
-                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            max-width: 700px;
+            animation: fadeUp 0.6s ease-out;
         }
-
-        .logo {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 2rem;
-            background: linear-gradient(135deg, #ff6b6b, #a855f7, #4ecdc4);
-            border-radius: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2.5rem;
-            font-weight: 700;
-            box-shadow: 0 10px 40px rgba(168, 85, 247, 0.3);
-            animation: logoFloat 6s ease-in-out infinite;
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-
-        @keyframes logoFloat {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
+        .hero-graphic {
+            margin-bottom: 2.5rem;
+            position: relative;
         }
-
+        .hero-graphic svg {
+            width: 180px;
+            height: 180px;
+            filter: drop-shadow(0 20px 40px rgba(249, 115, 22, 0.2));
+        }
         h1 {
             font-size: 2.5rem;
             font-weight: 700;
+            color: #0f172a;
             margin-bottom: 1rem;
-            background: linear-gradient(135deg, #ffffff, #a0a0a0);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
-
         .subtitle {
+            color: #64748b;
+            font-size: 1.15rem;
+            line-height: 1.7;
+            margin-bottom: 2.5rem;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 20px;
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+        }
+        .card-title {
             font-size: 1.1rem;
-            color: rgba(255, 255, 255, 0.6);
-            margin-bottom: 2rem;
-            line-height: 1.6;
-        }
-
-        .status {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1.5rem;
-            background: rgba(78, 205, 196, 0.1);
-            border: 1px solid rgba(78, 205, 196, 0.3);
-            border-radius: 50px;
-            font-size: 0.9rem;
-            color: #4ecdc4;
-            margin-bottom: 2rem;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            background: #4ecdc4;
-            border-radius: 50%;
-            animation: blink 2s ease-in-out infinite;
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-        }
-
-        .features {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-            margin-top: 2rem;
-            padding-top: 2rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .feature {
-            text-align: center;
-        }
-
-        .feature-icon {
-            width: 40px;
-            height: 40px;
-            margin: 0 auto 0.75rem;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 1.5rem;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.25rem;
+            gap: 0.75rem;
         }
-
-        .feature-label {
-            font-size: 0.8rem;
-            color: rgba(255, 255, 255, 0.5);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+        .card-title svg {
+            width: 24px;
+            height: 24px;
+            fill: #f97316;
         }
-
-        .footer {
-            margin-top: 3rem;
-            font-size: 0.85rem;
-            color: rgba(255, 255, 255, 0.3);
+        .steps {
+            list-style: none;
+            text-align: left;
+            max-width: 400px;
+            margin: 0 auto;
         }
-
-        .footer a {
-            color: rgba(255, 255, 255, 0.5);
+        .steps li {
+            color: #475569;
+            padding: 1rem 0;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 1rem;
+        }
+        .steps li:last-child { border-bottom: none; }
+        .step-num {
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .highlight {
+            color: #f97316;
+            font-weight: 600;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            padding: 1rem 2rem;
+            border-radius: 12px;
             text-decoration: none;
-            transition: color 0.2s;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(249, 115, 22, 0.3);
         }
-
-        .footer a:hover {
-            color: #a855f7;
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(249, 115, 22, 0.4);
         }
-
-        @media (max-width: 640px) {
-            .card {
-                padding: 2rem;
-            }
-            h1 {
-                font-size: 1.75rem;
-            }
-            .features {
-                grid-template-columns: 1fr;
-                gap: 1rem;
-            }
+        .btn svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
         }
+        .footer {
+            margin-top: 2rem;
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+        .footer a {
+            color: #f97316;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .footer a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class=\"bg-grid\"></div>
-    <div class=\"bg-glow glow-1\"></div>
-    <div class=\"bg-glow glow-2\"></div>
-    <div class=\"bg-glow glow-3\"></div>
-
     <div class=\"container\">
-        <div class=\"card\">
-            <div class=\"logo\">n8n</div>
-            <h1>Welcome</h1>
-            <p class=\"subtitle\">
-                This site is powered by n8n Management Console.
-                Upload your content using File Browser to customize this page.
-            </p>
-            <div class=\"status\">
-                <span class=\"status-dot\"></span>
-                System Online
-            </div>
-            <div class=\"features\">
-                <div class=\"feature\">
-                    <div class=\"feature-icon\">⚡</div>
-                    <div class=\"feature-label\">Fast</div>
-                </div>
-                <div class=\"feature\">
-                    <div class=\"feature-icon\">🔒</div>
-                    <div class=\"feature-label\">Secure</div>
-                </div>
-                <div class=\"feature\">
-                    <div class=\"feature-icon\">🚀</div>
-                    <div class=\"feature-label\">Scalable</div>
-                </div>
-            </div>
+        <div class=\"hero-graphic\">
+            <svg viewBox=\"0 0 180 180\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">
+                <rect x=\"20\" y=\"20\" width=\"140\" height=\"140\" rx=\"28\" fill=\"url(#grad1)\"/>
+                <rect x=\"45\" y=\"55\" width=\"90\" height=\"12\" rx=\"6\" fill=\"white\" opacity=\"0.9\"/>
+                <rect x=\"45\" y=\"75\" width=\"70\" height=\"12\" rx=\"6\" fill=\"white\" opacity=\"0.7\"/>
+                <rect x=\"45\" y=\"95\" width=\"80\" height=\"12\" rx=\"6\" fill=\"white\" opacity=\"0.5\"/>
+                <rect x=\"45\" y=\"115\" width=\"50\" height=\"12\" rx=\"6\" fill=\"white\" opacity=\"0.3\"/>
+                <circle cx=\"140\" cy=\"140\" r=\"30\" fill=\"white\" stroke=\"url(#grad1)\" stroke-width=\"4\"/>
+                <path d=\"M130 140L137 147L152 132\" stroke=\"url(#grad1)\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>
+                <defs>
+                    <linearGradient id=\"grad1\" x1=\"0\" y1=\"0\" x2=\"180\" y2=\"180\" gradientUnits=\"userSpaceOnUse\">
+                        <stop stop-color=\"#f97316\"/>
+                        <stop offset=\"1\" stop-color=\"#ea580c\"/>
+                    </linearGradient>
+                </defs>
+            </svg>
         </div>
-        <p class=\"footer\">
-            Powered by <a href=\"https://github.com/rjsears/n8n_nginx\" target=\"_blank\">n8n Management</a>
-        </p>
+        <h1>Your Website is Ready!</h1>
+        <p class=\"subtitle\">This is your public-facing website. Customize it by uploading your own content through the management console.</p>
+
+        <div class=\"card\">
+            <div class=\"card-title\">
+                <svg viewBox=\"0 0 24 24\"><path d=\"M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z\"/></svg>
+                Quick Start Guide
+            </div>
+            <ol class=\"steps\">
+                <li><span class=\"step-num\">1</span><span>Open the <span class=\"highlight\">Management Console</span></span></li>
+                <li><span class=\"step-num\">2</span><span>Log in with your credentials</span></li>
+                <li><span class=\"step-num\">3</span><span>Click <span class=\"highlight\">System</span> &rarr; <span class=\"highlight\">Files</span></span></li>
+                <li><span class=\"step-num\">4</span><span>Upload your website files</span></li>
+            </ol>
+        </div>
+
+        <a href=\"/management/\" class=\"btn\">
+            <svg viewBox=\"0 0 24 24\"><path d=\"M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z\"/></svg>
+            Open Management Console
+        </a>
+
+        <p class=\"footer\">Powered by <a href=\"https://github.com/rjsears/n8n_nginx\" target=\"_blank\">n8n Management</a></p>
     </div>
 </body>
 </html>
