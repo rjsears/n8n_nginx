@@ -1326,30 +1326,16 @@ class BackupService:
         return os.environ.get("N8N_VERSION", "unknown")
 
     def _is_public_website_installed(self) -> bool:
-        """Check if public website feature is installed.
-
-        Checks multiple indicators:
-        1. filebrowser.db file exists (created by setup.sh)
-        2. public_web_root Docker volume exists
-        """
-        # Check for indicator file first
-        if os.path.exists(PUBLIC_WEBSITE_INDICATOR):
-            return True
-
-        # Fall back to checking if the Docker volume exists
+        """Check if public website feature is installed by checking if Docker volume exists."""
         try:
             result = subprocess.run(
                 ["docker", "volume", "inspect", PUBLIC_WEBSITE_VOLUME],
                 capture_output=True,
                 text=True,
             )
-            if result.returncode == 0:
-                logger.info("Public website detected via Docker volume")
-                return True
-        except Exception as e:
-            logger.debug(f"Error checking Docker volume: {e}")
-
-        return False
+            return result.returncode == 0
+        except Exception:
+            return False
 
     async def _backup_public_website_volume(self, temp_dir: str) -> Tuple[bool, int]:
         """
