@@ -2882,6 +2882,11 @@ TAILSCALE_HOSTNAME=${TAILSCALE_HOSTNAME:-n8n-server}
 TAILSCALE_ROUTES=${TAILSCALE_ROUTES:-}
 
 # ===========================================
+# Optional: Public Website
+# ===========================================
+PUBLIC_SITE_ENABLE=${INSTALL_PUBLIC_WEBSITE}
+
+# ===========================================
 # Container Names (generally don't change)
 # ===========================================
 POSTGRES_CONTAINER=${POSTGRES_CONTAINER}
