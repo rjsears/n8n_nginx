@@ -186,6 +186,8 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_ENABLED=true
+      # Public website backup/restore
+      - PUBLIC_SITE_ENABLE=${PUBLIC_SITE_ENABLE:-false}
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
