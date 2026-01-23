@@ -17,6 +17,7 @@ import { useNotificationStore } from '../../stores/notifications'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
 import StatusBadge from '../common/StatusBadge.vue'
 import WorkflowRestoreDialog from './WorkflowRestoreDialog.vue'
+import PublicWebsiteRestoreDialog from './PublicWebsiteRestoreDialog.vue'
 import {
   XMarkIcon,
   CircleStackIcon,
@@ -29,6 +30,7 @@ import {
   ArrowDownTrayIcon,
   ArrowPathIcon,
   ShieldCheckIcon,
+  GlobeAltIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -46,13 +48,22 @@ const contents = ref(null)
 const activeTab = ref('workflows')
 const searchQuery = ref('')
 const restoreDialog = ref({ open: false, workflow: null })
+const publicWebsiteRestoreOpen = ref(false)
 
-// Tabs configuration
-const tabs = [
+// Tabs configuration - computed to conditionally show public website tab
+const baseTabs = [
   { id: 'workflows', label: 'Workflows', icon: CircleStackIcon },
   { id: 'config', label: 'Config Files', icon: Cog6ToothIcon },
   { id: 'database', label: 'Database', icon: TableCellsIcon },
 ]
+
+// Show public website tab only if backup has public website files
+const tabs = computed(() => {
+  if (contents.value?.public_website_file_count > 0) {
+    return [...baseTabs, { id: 'public_website', label: 'Public Website', icon: GlobeAltIcon }]
+  }
+  return baseTabs
+})
 
 // Load contents when dialog opens
 watch(() => props.open, async (isOpen) => {
@@ -124,6 +135,11 @@ function handleRestored(data) {
   emit('restore-workflow', { backup: props.backup, ...data })
 }
 
+function handlePublicWebsiteRestored(data) {
+  publicWebsiteRestoreOpen.value = false
+  // Notification is handled by the restore dialog itself
+}
+
 function close() {
   emit('close')
 }
@@ -174,7 +190,7 @@ function close() {
           <template v-else-if="contents">
             <!-- Summary Stats -->
             <div class="px-6 py-4 bg-gray-50 dark:bg-gray-750 border-b border-gray-400 dark:border-gray-700">
-              <div class="grid grid-cols-3 gap-4">
+              <div :class="['grid gap-4', contents.public_website_file_count > 0 ? 'grid-cols-4' : 'grid-cols-3']">
                 <div class="text-center">
                   <p class="text-2xl font-bold text-primary">{{ contents.workflow_count }}</p>
                   <p class="text-sm text-secondary">Workflows</p>
@@ -186,6 +202,10 @@ function close() {
                 <div class="text-center">
                   <p class="text-2xl font-bold text-primary">{{ contents.config_file_count }}</p>
                   <p class="text-sm text-secondary">Config Files</p>
+                </div>
+                <div v-if="contents.public_website_file_count > 0" class="text-center">
+                  <p class="text-2xl font-bold text-primary">{{ contents.public_website_file_count }}</p>
+                  <p class="text-sm text-secondary">Website Files</p>
                 </div>
               </div>
             </div>
@@ -350,6 +370,70 @@ function close() {
                   </div>
                 </div>
               </div>
+
+              <!-- Public Website Tab -->
+              <div v-else-if="activeTab === 'public_website'" class="space-y-4">
+                <div v-if="!contents.public_website_manifest?.length" class="text-center py-8 text-secondary">
+                  <GlobeAltIcon class="h-12 w-12 mx-auto mb-2 text-muted" />
+                  <p>No public website files in this backup</p>
+                </div>
+
+                <div v-else class="space-y-4">
+                  <!-- Info and Action -->
+                  <div class="flex items-center justify-between p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                    <div class="flex items-center gap-3">
+                      <GlobeAltIcon class="h-6 w-6 text-green-600 dark:text-green-400" />
+                      <div>
+                        <p class="font-medium text-green-800 dark:text-green-200">
+                          {{ contents.public_website_file_count }} public website files available
+                        </p>
+                        <p class="text-sm text-green-700 dark:text-green-300">
+                          Click "Restore Files" to browse and restore individual files
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      @click="publicWebsiteRestoreOpen = true"
+                      class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <ArrowPathIcon class="h-4 w-4" />
+                      Restore Files
+                    </button>
+                  </div>
+
+                  <!-- File List Preview -->
+                  <div class="space-y-2">
+                    <h4 class="text-sm font-medium text-secondary">File Preview (first 10 files)</h4>
+                    <div
+                      v-for="file in contents.public_website_manifest.slice(0, 10)"
+                      :key="file.path"
+                      class="flex items-center justify-between p-3 rounded-lg bg-surface-hover border border-gray-300 dark:border-gray-600"
+                    >
+                      <div class="flex items-center gap-3">
+                        <div class="p-2 rounded-lg bg-green-100 dark:bg-green-500/20">
+                          <GlobeAltIcon class="h-5 w-5 text-green-500" />
+                        </div>
+                        <div>
+                          <p class="font-medium text-primary">{{ file.name }}</p>
+                          <p class="text-xs text-secondary">
+                            {{ formatBytes(file.size) }}
+                            <span v-if="file.modified_at"> &bull; Modified {{ formatDate(file.modified_at) }}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs text-muted font-mono" :title="file.checksum_algorithm + ' checksum'">
+                          {{ file.checksum?.substring(0, 8) }}...
+                        </span>
+                        <CheckCircleIcon class="h-4 w-4 text-emerald-500" title="Checksum verified" />
+                      </div>
+                    </div>
+                    <p v-if="contents.public_website_manifest.length > 10" class="text-sm text-secondary text-center py-2">
+                      ... and {{ contents.public_website_manifest.length - 10 }} more files
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </template>
 
@@ -381,6 +465,14 @@ function close() {
       :workflow="restoreDialog.workflow"
       @close="closeRestoreDialog"
       @restored="handleRestored"
+    />
+
+    <!-- Public Website Restore Dialog -->
+    <PublicWebsiteRestoreDialog
+      :open="publicWebsiteRestoreOpen"
+      :backup="backup"
+      @close="publicWebsiteRestoreOpen = false"
+      @restored="handlePublicWebsiteRestored"
     />
   </Teleport>
 </template>
