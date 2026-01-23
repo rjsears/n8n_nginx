@@ -3191,6 +3191,8 @@ EOF
       # Redis connection (for status caching)
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Public website backup/restore
+      - PUBLIC_SITE_ENABLE=${INSTALL_PUBLIC_WEBSITE}
 EOF
 
     # Add notification environment variables if configured
