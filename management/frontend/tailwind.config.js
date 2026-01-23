@@ -17,6 +17,10 @@ export default {
     "./index.html",
     "./src/**/*.{vue,js,ts,jsx,tsx}",
   ],
+  safelist: [
+    'h-[calc(100vh-200px)]',
+    'min-h-[600px]',
+  ],
   darkMode: 'class',
   theme: {
     extend: {

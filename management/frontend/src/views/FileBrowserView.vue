@@ -36,7 +36,7 @@ function refreshIframe() {
 </script>
 
 <template>
-  <div class="space-y-6 h-full flex flex-col">
+  <div class="space-y-4" style="height: 100%; display: flex; flex-direction: column;">
     <!-- Header -->
     <div class="flex items-center justify-between flex-shrink-0">
       <div>
@@ -55,19 +55,20 @@ function refreshIframe() {
     </div>
 
     <!-- Iframe Card -->
-    <Card :padding="false" class="flex-1 flex flex-col overflow-hidden border border-gray-400 dark:border-black shadow-sm">
-      <div class="relative w-full h-full bg-white dark:bg-gray-900">
-        <LoadingSpinner 
-          v-if="loading" 
-          text="Loading File Browser..." 
-          class="absolute inset-0 z-10 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm" 
+    <Card :padding="false" :flex="true" class="overflow-hidden border border-gray-400 dark:border-black shadow-sm" style="flex: 1; min-height: 0;">
+      <div class="relative w-full bg-white dark:bg-gray-900" style="height: 100%;">
+        <LoadingSpinner
+          v-if="loading"
+          text="Loading File Browser..."
+          class="absolute inset-0 z-10 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm"
         />
-        
+
         <iframe
           ref="iframeRef"
           v-if="iframeSrc"
           :src="iframeSrc"
-          class="w-full h-full border-0"
+          class="w-full border-0"
+          style="height: 100%;"
           @load="onIframeLoad"
         ></iframe>
       </div>
