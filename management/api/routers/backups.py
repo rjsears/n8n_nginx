@@ -547,7 +547,11 @@ async def get_backup_contents(
             detail="Backup contents not found. This backup may not have metadata.",
         )
 
-    return BackupContentsResponse.model_validate(contents)
+    # Build response with public_website_available flag (runtime check)
+    response = BackupContentsResponse.model_validate(contents)
+    # Check if public website feature is currently installed
+    response.public_website_available = service._is_public_website_installed()
+    return response
 
 
 @router.get("/contents/{backup_id}/workflows")
@@ -1804,3 +1808,160 @@ async def detect_storage_locations(
             "nfs_configured": bool(settings.nfs_server),
         }
     }
+
+
+# =========================================================================
+# Public Website Restore Endpoints
+# =========================================================================
+
+@router.get(
+    "/restore/{backup_id}/public-website-files",
+    summary="List public website files in backup",
+    response_description="List of files available for restore"
+)
+async def list_public_website_files_endpoint(
+    backup_id: int,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List all public website files available in a backup.
+
+    **Prerequisites:**
+    - Public website feature must be installed
+
+    **Returns:**
+    - file_count: Total number of files
+    - files: Array of file objects with path, size, modified_at
+    """
+    service = RestoreService(db)
+
+    try:
+        files = await service.list_public_website_files(backup_id)
+        return {
+            "backup_id": backup_id,
+            "public_website_installed": True,
+            "file_count": len(files),
+            "files": files
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error listing public website files: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list public website files")
+
+
+@router.get(
+    "/restore/{backup_id}/public-website/{file_path:path}/download",
+    summary="Download a public website file from backup",
+    response_description="File content"
+)
+async def download_public_website_file_endpoint(
+    backup_id: int,
+    file_path: str,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Download a specific file from the public website backup.
+
+    **Prerequisites:**
+    - Public website feature must be installed
+
+    **Path parameter:**
+    - file_path: Relative path to file (e.g., "css/style.css" or "images/logo.png")
+    """
+    from fastapi.responses import Response
+    import mimetypes
+
+    service = RestoreService(db)
+
+    try:
+        content, filename = await service.download_public_website_file(backup_id, file_path)
+
+        if content is None:
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(filename)
+        if content_type is None:
+            content_type = "application/octet-stream"
+
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(content))
+            }
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error downloading public website file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download file")
+
+
+from pydantic import BaseModel, Field
+
+
+class PublicWebsiteRestoreRequest(BaseModel):
+    """Request schema for restoring public website files."""
+    file_paths: Optional[List[str]] = Field(
+        default=None,
+        description="List of file paths to restore. If null/empty, ALL files are restored."
+    )
+    overwrite: bool = Field(
+        default=False,
+        description="If true, overwrite existing files. If false, skip existing files."
+    )
+
+
+@router.post(
+    "/restore/{backup_id}/public-website",
+    summary="Restore public website files from backup",
+    response_description="Restore operation results"
+)
+async def restore_public_website_files_endpoint(
+    backup_id: int,
+    request: PublicWebsiteRestoreRequest,
+    _=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Restore public website files from a backup to the live volume.
+
+    **Prerequisites:**
+    - Public website feature must be installed
+
+    **Request body:**
+    - file_paths: List of specific files to restore, or null to restore ALL files
+    - overwrite: Whether to overwrite existing files (default: false)
+
+    **Returns:**
+    - restored: List of successfully restored file paths
+    - restored_count: Number of files restored
+    - skipped: List of files skipped (if overwrite=false and file exists)
+    - skipped_count: Number of files skipped
+    - errors: List of errors encountered
+    - error_count: Number of errors
+    """
+    service = RestoreService(db)
+
+    try:
+        result = await service.restore_public_website_files(
+            backup_id,
+            file_paths=request.file_paths,
+            overwrite=request.overwrite
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error restoring public website files: {e}")
+        raise HTTPException(status_code=500, detail="Failed to restore public website files")

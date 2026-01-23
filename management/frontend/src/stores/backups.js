@@ -629,6 +629,46 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
+  // =========================================================================
+  // Public Website Restore
+  // =========================================================================
+
+  async function listPublicWebsiteFiles(backupId) {
+    try {
+      const response = await api.get(`/backups/restore/${backupId}/public-website-files`)
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to list public website files'
+      throw err
+    }
+  }
+
+  async function downloadPublicWebsiteFile(backupId, filePath) {
+    try {
+      const response = await api.get(
+        `/backups/restore/${backupId}/public-website/${encodeURIComponent(filePath)}/download`,
+        { responseType: 'blob' }
+      )
+      return response
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to download public website file'
+      throw err
+    }
+  }
+
+  async function restorePublicWebsiteFiles(backupId, filePaths = null, overwrite = false) {
+    try {
+      const response = await api.post(`/backups/restore/${backupId}/public-website`, {
+        file_paths: filePaths,
+        overwrite: overwrite
+      })
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.detail || 'Failed to restore public website files'
+      throw err
+    }
+  }
+
   return {
     // State
     schedules,
@@ -706,5 +746,9 @@ export const useBackupStore = defineStore('backups', () => {
     updateConfiguration,
     validateStoragePath,
     detectStorageLocations,
+    // Public Website Restore
+    listPublicWebsiteFiles,
+    downloadPublicWebsiteFile,
+    restorePublicWebsiteFiles,
   }
 })

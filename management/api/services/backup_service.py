@@ -1043,6 +1043,92 @@ class BackupService:
 
         return schema_manifest
 
+    async def capture_public_website_manifest(self, temp_dir: str) -> Tuple[int, List[Dict[str, Any]]]:
+        """
+        Capture manifest of public website files from the backup.
+
+        This function scans the public_website directory in the backup temp folder
+        and creates a manifest of all files with their metadata.
+
+        Only called if:
+        1. Public website feature is installed (_is_public_website_installed() returns True)
+        2. Public website was successfully backed up (public_website_included is True)
+
+        Args:
+            temp_dir: Path to the temporary backup directory
+
+        Returns:
+            Tuple of (file_count, manifest_list)
+            manifest_list format: [
+                {
+                    "path": "relative/path/to/file.ext",
+                    "size": 1234,  # bytes
+                    "modified_at": "2026-01-22T12:00:00Z",
+                    "checksum": "md5hash",  # only for files < 10MB
+                    "mime_type": "text/html"
+                },
+                ...
+            ]
+        """
+        public_website_dir = os.path.join(temp_dir, "public_website")
+
+        if not os.path.exists(public_website_dir):
+            logger.info("No public website directory in backup - skipping manifest capture")
+            return 0, []
+
+        manifest = []
+        file_count = 0
+
+        try:
+            for root, dirs, files in os.walk(public_website_dir):
+                # Skip hidden directories
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+
+                for filename in files:
+                    # Skip hidden files
+                    if filename.startswith('.'):
+                        continue
+
+                    file_path = os.path.join(root, filename)
+                    relative_path = os.path.relpath(file_path, public_website_dir)
+
+                    try:
+                        stat = os.stat(file_path)
+
+                        # Calculate MD5 checksum for files under 10MB
+                        checksum = None
+                        if stat.st_size < 10 * 1024 * 1024:  # 10MB
+                            import hashlib
+                            with open(file_path, 'rb') as f:
+                                checksum = hashlib.md5(f.read()).hexdigest()
+
+                        # Determine file type for UI display
+                        import mimetypes
+                        mime_type, _ = mimetypes.guess_type(filename)
+
+                        manifest.append({
+                            "path": relative_path,
+                            "size": stat.st_size,
+                            "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                            "checksum": checksum,
+                            "mime_type": mime_type or "application/octet-stream"
+                        })
+                        file_count += 1
+
+                    except Exception as e:
+                        logger.warning(f"Error capturing manifest for {relative_path}: {e}")
+                        continue
+
+            # Sort by path for consistent ordering
+            manifest.sort(key=lambda x: x["path"])
+            logger.info(f"Captured public website manifest: {file_count} files")
+
+        except Exception as e:
+            logger.error(f"Error walking public website directory: {e}")
+            return 0, []
+
+        return file_count, manifest
+
     async def create_complete_archive(
         self,
         backup_type: str,
@@ -1156,13 +1242,23 @@ class BackupService:
             await update_progress(70, "Capturing database schema manifest")
             schema_manifest = await self.capture_database_schema_manifest(databases)
 
+            # Capture public website manifest if files were backed up
+            public_website_manifest = []
+            public_website_manifest_count = 0
+            if public_website_included and public_website_file_count > 0:
+                await update_progress(72, "Capturing public website manifest")
+                public_website_manifest_count, public_website_manifest = await self.capture_public_website_manifest(temp_dir)
+                logger.info(f"Public website manifest: {public_website_manifest_count} files catalogued")
+
             metadata["workflow_count"] = workflow_count
             metadata["credential_count"] = credential_count
             metadata["config_file_count"] = config_count
+            metadata["public_website_manifest_count"] = public_website_manifest_count
             metadata["workflows_manifest"] = workflows_manifest
             metadata["credentials_manifest"] = credentials_manifest
             metadata["config_files_manifest"] = config_manifest
             metadata["database_schema_manifest"] = schema_manifest
+            metadata["public_website_manifest"] = public_website_manifest
 
             # 5. Write metadata.json (75-80%)
             await update_progress(75, "Writing metadata")
@@ -2629,10 +2725,12 @@ exit 0
                     workflow_count=metadata.get("workflow_count", 0),
                     credential_count=metadata.get("credential_count", 0),
                     config_file_count=metadata.get("config_file_count", 0),
+                    public_website_file_count=metadata.get("public_website_manifest_count", 0),
                     workflows_manifest=metadata.get("workflows_manifest"),
                     credentials_manifest=metadata.get("credentials_manifest"),
                     config_files_manifest=metadata.get("config_files_manifest"),
                     database_schema_manifest=metadata.get("database_schema_manifest"),
+                    public_website_manifest=metadata.get("public_website_manifest"),
                     verification_checksums={
                         "archive": checksum,
                         "created_at": datetime.now(UTC).isoformat(),

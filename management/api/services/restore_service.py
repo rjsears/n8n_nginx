@@ -1791,3 +1791,279 @@ class RestoreService:
 
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    # =========================================================================
+    # Public Website Restore Methods
+    # =========================================================================
+
+    async def list_public_website_files(self, backup_id: int) -> List[Dict[str, Any]]:
+        """
+        List public website files available in a backup.
+
+        Uses the manifest stored in BackupContents if available (fast path),
+        otherwise extracts the backup archive and scans the directory.
+
+        Args:
+            backup_id: The backup ID to list files from
+
+        Returns:
+            List of file dictionaries with path, size, modified_at
+
+        Raises:
+            ValueError: If public website feature is not installed
+        """
+        # Check if public website feature is installed
+        public_website_indicator = "/app/host_project/filebrowser.db"
+        if not os.path.exists(public_website_indicator):
+            raise ValueError("Public website feature is not installed")
+
+        # First try to get the manifest from BackupContents (fast path)
+        try:
+            from api.models.backups import BackupContents
+            from sqlalchemy import select
+
+            result = await self.db.execute(
+                select(BackupContents).where(BackupContents.backup_id == backup_id)
+            )
+            contents = result.scalar_one_or_none()
+
+            if contents and contents.public_website_manifest:
+                logger.info(f"Using cached manifest for backup {backup_id}: {contents.public_website_file_count} files")
+                return contents.public_website_manifest
+        except Exception as e:
+            logger.warning(f"Could not get manifest from database: {e}")
+
+        # Fallback: extract archive and scan (slow path)
+        logger.info(f"Extracting backup {backup_id} to list public website files")
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            return []
+
+        try:
+            public_website_dir = os.path.join(temp_dir, "public_website")
+
+            if not os.path.exists(public_website_dir):
+                logger.info(f"No public website directory in backup {backup_id}")
+                return []
+
+            files = []
+            for root, dirs, filenames in os.walk(public_website_dir):
+                # Skip hidden directories
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+
+                for filename in filenames:
+                    if filename.startswith('.'):
+                        continue
+
+                    file_path = os.path.join(root, filename)
+                    relative_path = os.path.relpath(file_path, public_website_dir)
+
+                    try:
+                        stat = os.stat(file_path)
+                        files.append({
+                            "path": relative_path,
+                            "size": stat.st_size,
+                            "modified_at": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat()
+                        })
+                    except Exception as e:
+                        logger.warning(f"Error getting stats for {relative_path}: {e}")
+
+            return sorted(files, key=lambda x: x["path"])
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def download_public_website_file(
+        self,
+        backup_id: int,
+        file_path: str
+    ) -> Tuple[Optional[bytes], Optional[str]]:
+        """
+        Download a specific public website file from a backup archive.
+
+        Args:
+            backup_id: The backup ID
+            file_path: Relative path within public_website directory (e.g., "images/logo.png")
+
+        Returns:
+            Tuple of (file_content_bytes, filename) or (None, None) if not found
+
+        Raises:
+            ValueError: If public website not installed or invalid path
+            FileNotFoundError: If file doesn't exist in backup
+        """
+        # Check if public website feature is installed
+        public_website_indicator = "/app/host_project/filebrowser.db"
+        if not os.path.exists(public_website_indicator):
+            raise ValueError("Public website feature is not installed")
+
+        # Security: Prevent path traversal attacks
+        safe_path = os.path.normpath(file_path)
+        if safe_path.startswith('..') or safe_path.startswith('/'):
+            raise ValueError(f"Invalid file path: {file_path}")
+
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            logger.error(f"Failed to extract backup archive for download")
+            return None, None
+
+        try:
+            full_path = os.path.join(temp_dir, "public_website", safe_path)
+
+            # Verify path is still within public_website directory
+            public_website_dir = os.path.join(temp_dir, "public_website")
+            if not os.path.realpath(full_path).startswith(os.path.realpath(public_website_dir)):
+                raise ValueError(f"Path traversal attempt detected: {file_path}")
+
+            if not os.path.exists(full_path):
+                raise FileNotFoundError(f"File not found in backup: {file_path}")
+
+            if not os.path.isfile(full_path):
+                raise ValueError(f"Not a file: {file_path}")
+
+            with open(full_path, 'rb') as f:
+                content = f.read()
+
+            return content, os.path.basename(file_path)
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def restore_public_website_files(
+        self,
+        backup_id: int,
+        file_paths: Optional[List[str]] = None,
+        overwrite: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Restore public website files from a backup to the live public_web_root volume.
+
+        Args:
+            backup_id: The backup ID
+            file_paths: Optional list of specific file paths to restore.
+                       If None or empty, ALL files are restored.
+            overwrite: If True, overwrite existing files. If False, skip existing files.
+
+        Returns:
+            Dictionary with results:
+            {
+                "restored": ["file1.html", "css/style.css", ...],
+                "restored_count": 15,
+                "skipped": ["existing_file.html", ...],
+                "skipped_count": 2,
+                "errors": [{"path": "bad_file.txt", "error": "Permission denied"}],
+                "error_count": 1
+            }
+
+        Raises:
+            ValueError: If public website not installed
+        """
+        # Check if public website feature is installed
+        public_website_indicator = "/app/host_project/filebrowser.db"
+        if not os.path.exists(public_website_indicator):
+            raise ValueError("Public website feature is not installed")
+
+        temp_dir, metadata = await self.extract_backup_archive(backup_id)
+        if not temp_dir:
+            return {"status": "failed", "error": "Failed to extract backup archive"}
+
+        try:
+            source_dir = os.path.join(temp_dir, "public_website")
+
+            if not os.path.exists(source_dir):
+                return {"status": "failed", "error": "No public website files in this backup"}
+
+            restored = []
+            skipped = []
+            errors = []
+
+            # Build list of files to restore
+            if not file_paths:
+                # Restore all files
+                files_to_restore = []
+                for root, dirs, filenames in os.walk(source_dir):
+                    dirs[:] = [d for d in dirs if not d.startswith('.')]
+                    for filename in filenames:
+                        if not filename.startswith('.'):
+                            full_path = os.path.join(root, filename)
+                            relative_path = os.path.relpath(full_path, source_dir)
+                            files_to_restore.append(relative_path)
+            else:
+                files_to_restore = file_paths
+
+            logger.info(f"Restoring {len(files_to_restore)} public website files from backup {backup_id}")
+
+            for file_path in files_to_restore:
+                try:
+                    # Security: Prevent path traversal
+                    safe_path = os.path.normpath(file_path)
+                    if safe_path.startswith('..') or safe_path.startswith('/'):
+                        errors.append({"path": file_path, "error": "Invalid path - path traversal attempt"})
+                        continue
+
+                    source_file = os.path.join(source_dir, safe_path)
+
+                    if not os.path.exists(source_file):
+                        errors.append({"path": file_path, "error": "File not found in backup"})
+                        continue
+
+                    # Check if file exists in destination (if not overwriting)
+                    if not overwrite:
+                        check_result = subprocess.run([
+                            "docker", "run", "--rm",
+                            "-v", "public_web_root:/dest:ro",
+                            "alpine",
+                            "test", "-f", f"/dest/{safe_path}"
+                        ], capture_output=True)
+
+                        if check_result.returncode == 0:
+                            skipped.append(file_path)
+                            continue
+
+                    # Ensure destination directory exists
+                    dest_dir = os.path.dirname(safe_path)
+                    if dest_dir:
+                        subprocess.run([
+                            "docker", "run", "--rm",
+                            "-v", "public_web_root:/dest",
+                            "alpine",
+                            "mkdir", "-p", f"/dest/{dest_dir}"
+                        ], check=True, capture_output=True)
+
+                    # Copy file to volume using docker
+                    # Mount the temp source directory and copy the specific file
+                    subprocess.run([
+                        "docker", "run", "--rm",
+                        "-v", f"{source_dir}:/source:ro",
+                        "-v", "public_web_root:/dest",
+                        "alpine",
+                        "cp", f"/source/{safe_path}", f"/dest/{safe_path}"
+                    ], check=True, capture_output=True)
+
+                    restored.append(file_path)
+                    logger.debug(f"Restored: {file_path}")
+
+                except subprocess.CalledProcessError as e:
+                    error_msg = e.stderr.decode() if e.stderr else str(e)
+                    errors.append({"path": file_path, "error": error_msg})
+                    logger.error(f"Failed to restore {file_path}: {error_msg}")
+
+                except Exception as e:
+                    errors.append({"path": file_path, "error": str(e)})
+                    logger.error(f"Failed to restore {file_path}: {e}")
+
+            result = {
+                "status": "success" if not errors else ("partial" if restored else "failed"),
+                "restored": restored,
+                "restored_count": len(restored),
+                "skipped": skipped,
+                "skipped_count": len(skipped),
+                "errors": errors,
+                "error_count": len(errors)
+            }
+
+            logger.info(f"Public website restore complete: {len(restored)} restored, {len(skipped)} skipped, {len(errors)} errors")
+            return result
+
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)

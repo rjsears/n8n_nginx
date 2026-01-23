@@ -259,6 +259,15 @@ class DatabaseManifestItem(BaseModel):
     total_rows: int = 0
 
 
+class PublicWebsiteManifestItem(BaseModel):
+    """Public website file manifest item."""
+    path: str
+    size: int
+    modified_at: Optional[str] = None
+    checksum: Optional[str] = None
+    mime_type: Optional[str] = None
+
+
 class BackupContentsResponse(BaseModel):
     """Response for backup contents (browsing without loading)."""
     id: int
@@ -266,10 +275,14 @@ class BackupContentsResponse(BaseModel):
     workflow_count: int
     credential_count: int
     config_file_count: int
+    public_website_file_count: int = 0
+    # Flag indicating if public website feature is currently installed
+    public_website_available: bool = False
     workflows_manifest: Optional[List[WorkflowManifestItem]] = None
     credentials_manifest: Optional[List[CredentialManifestItem]] = None
     config_files_manifest: Optional[List[ConfigFileManifestItem]] = None
     database_schema_manifest: Optional[List[DatabaseManifestItem]] = None
+    public_website_manifest: Optional[List[PublicWebsiteManifestItem]] = None
     created_at: datetime
 
     class Config:

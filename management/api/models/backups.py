@@ -235,6 +235,7 @@ class BackupContents(Base):
     workflow_count = Column(Integer, default=0)
     credential_count = Column(Integer, default=0)
     config_file_count = Column(Integer, default=0)
+    public_website_file_count = Column(Integer, default=0)  # Public website files
 
     # JSON manifests for detailed contents
     # workflows_manifest: [{id, name, active, created_at, updated_at, checksum, tags}, ...]
@@ -245,6 +246,8 @@ class BackupContents(Base):
     config_files_manifest = Column(JSONB, nullable=True)
     # database_schema_manifest: [{database, tables: [{name, row_count, columns}]}, ...]
     database_schema_manifest = Column(JSONB, nullable=True)
+    # public_website_manifest: [{path, size, modified_at, checksum, mime_type}, ...]
+    public_website_manifest = Column(JSONB, nullable=True)
 
     # Verification checksums for integrity validation
     # {workflow_id: checksum, ...}
