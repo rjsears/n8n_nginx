@@ -237,6 +237,7 @@ async def get_system_info(
 ):
     """Get system information."""
     import platform
+    from api.config import settings
 
     # Get uptime
     boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=UTC)
@@ -253,6 +254,7 @@ async def get_system_info(
         "boot_time": boot_time.isoformat(),
         "uptime_seconds": int(uptime.total_seconds()),
         "uptime_human": str(uptime).split(".")[0],  # Remove microseconds
+        "public_site_enable": settings.public_site_enable,
     }
 
 
