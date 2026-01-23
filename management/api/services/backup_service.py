@@ -1326,18 +1326,36 @@ class BackupService:
         return os.environ.get("N8N_VERSION", "unknown")
 
     def _is_public_website_installed(self) -> bool:
-        """Check if public website feature is installed by looking for filebrowser.db."""
-        return os.path.exists(PUBLIC_WEBSITE_INDICATOR)
+        """Check if public website feature is installed.
+
+        Checks multiple indicators:
+        1. filebrowser.db file exists (created by setup.sh)
+        2. public_web_root Docker volume exists
+        """
+        # Check for indicator file first
+        if os.path.exists(PUBLIC_WEBSITE_INDICATOR):
+            return True
+
+        # Fall back to checking if the Docker volume exists
+        try:
+            result = subprocess.run(
+                ["docker", "volume", "inspect", PUBLIC_WEBSITE_VOLUME],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                logger.info("Public website detected via Docker volume")
+                return True
+        except Exception as e:
+            logger.debug(f"Error checking Docker volume: {e}")
+
+        return False
 
     async def _backup_public_website_volume(self, temp_dir: str) -> Tuple[bool, int]:
         """
         Back up public_web_root Docker volume contents.
         Returns (success, file_count).
         """
-        if not self._is_public_website_installed():
-            logger.info("Public website not installed - skipping volume backup")
-            return False, 0
-
         try:
             # Check if the volume exists
             result = subprocess.run(
