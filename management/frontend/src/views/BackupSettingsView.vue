@@ -62,7 +62,7 @@ const notificationServices = ref([])
 const notificationGroups = ref([])
 const loadingChannels = ref(false)
 const primaryScheduleId = ref(null) // Track the primary schedule ID for updates
-const isPublicWebsiteInstalled = ref(false) // Tracks if public website (FileBrowser) is installed
+const isPublicWebsiteInstalled = ref(false) // Tracks if public website is enabled via PUBLIC_SITE_ENABLE env var
 
 
 // Collapsible sections state - all start collapsed
@@ -407,10 +407,9 @@ function tryEnableNotification(type) {
 
 async function checkPublicWebsiteInstalled() {
   try {
-    const response = await api.get('/system/external-services')
-    const services = response.data || []
-    // Check if File Browser service exists (indicates public website is installed)
-    isPublicWebsiteInstalled.value = services.some(s => s.name === 'File Browser')
+    const response = await api.get('/system/info')
+    // Check PUBLIC_SITE_ENABLE env var via system info endpoint
+    isPublicWebsiteInstalled.value = response.data?.public_site_enable === true
   } catch (err) {
     console.error('Failed to check public website status:', err)
     isPublicWebsiteInstalled.value = false

@@ -1016,13 +1016,12 @@ watch(activeTab, async (newTab) => {
 onMounted(async () => {
   await loadData()
 
-  // Check for File Browser service to enable Files tab
+  // Check PUBLIC_SITE_ENABLE env var to enable Files tab
   try {
-    const response = await systemApi.getExternalServices()
-    const services = response.data.services || []
-    isFileBrowserEnabled.value = services.some(s => s.name === 'File Browser')
+    const response = await systemApi.getInfo()
+    isFileBrowserEnabled.value = response.data?.public_site_enable === true
   } catch (error) {
-    console.error('Failed to check services:', error)
+    console.error('Failed to check public site status:', error)
   }
 
   // Check for query params to set initial tab and target
