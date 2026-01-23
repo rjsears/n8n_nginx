@@ -3046,7 +3046,7 @@ EOF
       - nginx
       - nginx_public
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q --spider --no-check-certificate https://localhost/healthz || exit 1']
+      test: ['CMD-SHELL', 'curl -sf --insecure https://localhost/healthz || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
