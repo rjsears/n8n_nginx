@@ -1326,16 +1326,8 @@ class BackupService:
         return os.environ.get("N8N_VERSION", "unknown")
 
     def _is_public_website_installed(self) -> bool:
-        """Check if public website feature is installed by checking if Docker volume exists."""
-        try:
-            result = subprocess.run(
-                ["docker", "volume", "inspect", PUBLIC_WEBSITE_VOLUME],
-                capture_output=True,
-                text=True,
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
+        """Check if public website feature is enabled via PUBLIC_SITE_ENABLE env var."""
+        return settings.public_site_enable
 
     async def _backup_public_website_volume(self, temp_dir: str) -> Tuple[bool, int]:
         """

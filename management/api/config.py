@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     container_prefix: str = Field(default="n8n_", description="Container name prefix for this project")
 
     # Public Website Backup/Restore
+    public_site_enable: bool = Field(
+        default=False,
+        description="Enable public website backup/restore features"
+    )
     public_website_volume: str = Field(
         default="public_web_root",
         description="Docker volume name for public website files"
