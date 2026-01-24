@@ -157,6 +157,7 @@ const form = ref({
 const tabs = [
   { id: 'storage', name: 'Storage', icon: FolderIcon, iconColor: 'text-blue-500', bgActive: 'bg-blue-500/15 dark:bg-blue-500/20', textActive: 'text-blue-700 dark:text-blue-400', borderActive: 'border-blue-500/30' },
   { id: 'schedule', name: 'Schedule', icon: ClockIcon, iconColor: 'text-emerald-500', bgActive: 'bg-emerald-500/15 dark:bg-emerald-500/20', textActive: 'text-emerald-700 dark:text-emerald-400', borderActive: 'border-emerald-500/30' },
+  { id: 'contents', name: 'Contents', icon: DocumentTextIcon, iconColor: 'text-indigo-500', bgActive: 'bg-indigo-500/15 dark:bg-indigo-500/20', textActive: 'text-indigo-700 dark:text-indigo-400', borderActive: 'border-indigo-500/30' },
   { id: 'retention', name: 'Retention', icon: TrashIcon, iconColor: 'text-amber-500', bgActive: 'bg-amber-500/15 dark:bg-amber-500/20', textActive: 'text-amber-700 dark:text-amber-400', borderActive: 'border-amber-500/30' },
   { id: 'compression', name: 'Compression', icon: ServerIcon, iconColor: 'text-purple-500', bgActive: 'bg-purple-500/15 dark:bg-purple-500/20', textActive: 'text-purple-700 dark:text-purple-400', borderActive: 'border-purple-500/30' },
   { id: 'verification', name: 'Verification', icon: ShieldCheckIcon, iconColor: 'text-cyan-500', bgActive: 'bg-cyan-500/15 dark:bg-cyan-500/20', textActive: 'text-cyan-700 dark:text-cyan-400', borderActive: 'border-cyan-500/30' },
@@ -1192,52 +1193,84 @@ onMounted(() => {
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- Backup Contents -->
+      <!-- Contents Tab -->
+      <div v-if="activeTab === 'contents'" class="space-y-4">
+        <!-- Header Banner -->
+        <div class="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-violet-500 p-6 text-white shadow-lg">
+          <div class="absolute inset-0 bg-black/10"></div>
+          <div class="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10 blur-2xl"></div>
+          <div class="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/10 blur-2xl"></div>
+          <div class="relative flex items-center gap-4">
+            <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+              <DocumentTextIcon class="h-8 w-8" />
+            </div>
+            <div>
+              <h2 class="text-2xl font-bold">Backup Contents</h2>
+              <p class="text-white/80">Configure what to include in your backups</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Backup Type Selection -->
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            @click="toggleSection('backupContents')"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30">
-                <DocumentTextIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          <div class="p-5">
+            <div class="flex items-center gap-3 mb-4">
+              <div class="p-2.5 rounded-xl bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30">
+                <CircleStackIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Backup Contents</h3>
-                <p class="text-sm text-secondary">What to include in backups</p>
+              <div>
+                <h3 class="font-semibold text-primary">Database Backup Type</h3>
+                <p class="text-sm text-secondary">Select which databases to include</p>
               </div>
             </div>
-            <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', sections.backupContents ? 'rotate-180' : '']" />
-          </button>
+            <select v-model="form.default_backup_type" class="input-field w-full">
+              <option value="postgres_full">Full PostgreSQL Backup (n8n + management)</option>
+              <option value="postgres_n8n">n8n Database Only</option>
+              <option value="postgres_mgmt">Management Database Only</option>
+            </select>
+          </div>
+        </div>
 
-          <div v-if="sections.backupContents" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
-            <div class="mt-4">
-              <label class="block text-sm font-medium text-primary mb-2">Default Backup Type</label>
-              <select v-model="form.default_backup_type" class="input-field w-full">
-                <option value="postgres_full">Full PostgreSQL Backup (n8n + management)</option>
-                <option value="postgres_n8n">n8n Database Only</option>
-                <option value="postgres_mgmt">Management Database Only</option>
-              </select>
+        <!-- Additional Files -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div class="p-5">
+            <div class="flex items-center gap-3 mb-4">
+              <div class="p-2.5 rounded-xl bg-gradient-to-br from-violet-100 to-purple-100 dark:from-violet-900/30 dark:to-purple-900/30">
+                <FolderIcon class="h-5 w-5 text-violet-600 dark:text-violet-400" />
+              </div>
+              <div>
+                <h3 class="font-semibold text-primary">Additional Files</h3>
+                <p class="text-sm text-secondary">Configuration and certificate files to include</p>
+              </div>
             </div>
-
-            <div class="mt-4 space-y-3">
-              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                <input v-model="form.include_n8n_config" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-500" />
-                <span class="text-sm text-primary">Include n8n configuration files</span>
-              </label>
-              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                <input v-model="form.include_ssl_certs" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-500" />
-                <span class="text-sm text-primary">Include SSL certificates</span>
-              </label>
-              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                <input v-model="form.include_env_files" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-500" />
-                <span class="text-sm text-primary">Include environment files (.env)</span>
-              </label>
-              <label v-if="isPublicWebsiteInstalled" class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                <input v-model="form.include_public_website" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-500" />
+            <div class="space-y-3">
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30 border border-gray-100 dark:border-gray-700">
+                <input v-model="form.include_n8n_config" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-500" />
                 <div class="flex flex-col">
-                  <span class="text-sm text-primary">Include public website files</span>
+                  <span class="text-sm text-primary font-medium">n8n Configuration Files</span>
+                  <span class="text-xs text-secondary">Workflow settings and node configurations</span>
+                </div>
+              </label>
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30 border border-gray-100 dark:border-gray-700">
+                <input v-model="form.include_ssl_certs" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-500" />
+                <div class="flex flex-col">
+                  <span class="text-sm text-primary font-medium">SSL Certificates</span>
+                  <span class="text-xs text-secondary">Let's Encrypt certificates and keys</span>
+                </div>
+              </label>
+              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30 border border-gray-100 dark:border-gray-700">
+                <input v-model="form.include_env_files" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-500" />
+                <div class="flex flex-col">
+                  <span class="text-sm text-primary font-medium">Environment Files</span>
+                  <span class="text-xs text-secondary">.env files with configuration variables</span>
+                </div>
+              </label>
+              <label v-if="isPublicWebsiteInstalled" class="flex items-center gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30 border border-gray-100 dark:border-gray-700">
+                <input v-model="form.include_public_website" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-500" />
+                <div class="flex flex-col">
+                  <span class="text-sm text-primary font-medium">Public Website Files</span>
                   <span class="text-xs text-secondary">FileBrowser database and public_web_root volume</span>
                 </div>
               </label>
