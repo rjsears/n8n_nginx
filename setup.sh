@@ -3567,7 +3567,7 @@ FBEOF
   # This container serves ONLY the public website. Traffic is routed here
   # via Cloudflare Tunnel based on hostname. No external ports exposed.
   nginx_public:
-    image: nginx:alpine
+    image: rjsears/nginx-public:latest
     container_name: n8n_nginx_public
     restart: unless-stopped
     expose:
@@ -4105,6 +4105,11 @@ generate_public_nginx_conf() {
 # This container listens on port 80 (HTTP) internally.
 # SSL termination is handled by nginx_router or Cloudflare Tunnel.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# Run workers as fbuser (uid 1000, same as filebrowser) to read uploaded files
+# nginx master starts as root to bind port 80, workers run as fbuser
+# The fbuser is created by the container entrypoint
+user fbuser;
 
 events {
     worker_connections 256;
