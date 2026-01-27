@@ -24,7 +24,9 @@ class TailscaleCollector(BaseCollector):
     Checks:
     - Container running status
     - Tailscale connection status via `tailscale status --json`
-    - IP address and peer count
+    - IP address, hostname, DNS name
+    - Peer list with online status
+    - Tailnet name
     """
 
     key = "system:tailscale"
@@ -127,18 +129,52 @@ class TailscaleCollector(BaseCollector):
             hostname = self_info.get("HostName", "")
             dns_name = self_info.get("DNSName", "")
             online = self_info.get("Online", False)
+            user_id = self_info.get("UserID", 0)
 
             # Get backend state
             backend_state = ts_status.get("BackendState", "Unknown")
             is_connected = backend_state == "Running"
 
-            # Count peers
-            peers = ts_status.get("Peer", {})
-            peer_count = len(peers)
-            online_peers = sum(1 for p in peers.values() if p.get("Online", False))
-
-            # Get magicDNS suffix
+            # Get magicDNS suffix and derive tailnet name
             magic_dns_suffix = ts_status.get("MagicDNSSuffix", "")
+            # Tailnet is derived from MagicDNSSuffix (e.g., "tailnet-name.ts.net" -> "tailnet-name")
+            tailnet = None
+            if magic_dns_suffix:
+                # Remove .ts.net or similar suffix
+                tailnet = magic_dns_suffix.replace(".ts.net", "").replace(".beta.tailscale.net", "")
+
+            # Also try CurrentTailnet if available
+            current_tailnet = ts_status.get("CurrentTailnet", {})
+            if current_tailnet:
+                tailnet = current_tailnet.get("Name", tailnet)
+
+            # Count and collect peers
+            peers_raw = ts_status.get("Peer", {})
+            peer_count = len(peers_raw)
+            online_peers = 0
+            peers = []
+
+            for peer_id, peer_info in peers_raw.items():
+                peer_online = peer_info.get("Online", False)
+                if peer_online:
+                    online_peers += 1
+
+                # Build peer entry for frontend
+                peer_entry = {
+                    "id": peer_id,
+                    "hostname": peer_info.get("HostName", ""),
+                    "dns_name": peer_info.get("DNSName", ""),
+                    "tailscale_ips": peer_info.get("TailscaleIPs", []),
+                    "online": peer_online,
+                    "os": peer_info.get("OS", ""),
+                    "last_seen": peer_info.get("LastSeen", ""),
+                    "exit_node": peer_info.get("ExitNode", False),
+                    "exit_node_option": peer_info.get("ExitNodeOption", False),
+                }
+                peers.append(peer_entry)
+
+            # Sort peers: online first, then by hostname
+            peers.sort(key=lambda p: (not p["online"], p["hostname"].lower()))
 
             return {
                 "installed": True,
@@ -151,11 +187,13 @@ class TailscaleCollector(BaseCollector):
                 "tailscale_ips": tailscale_ips,
                 "hostname": hostname,
                 "dns_name": dns_name,
+                "tailnet": tailnet,
                 "online": online,
                 "peer_count": peer_count,
                 "online_peers": online_peers,
-                "peers": [],  # Empty list, frontend populates from API if needed
+                "peers": peers,
                 "magic_dns_suffix": magic_dns_suffix,
+                "user_id": user_id,
                 "healthy": is_connected and online,
             }
 
