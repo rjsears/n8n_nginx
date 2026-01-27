@@ -55,7 +55,7 @@ class TargetBase(BaseModel):
 
 
 class TargetCreate(TargetBase):
-    pass
+    escalation_timeout_minutes: Optional[int] = Field(default=None, ge=1)
 
 
 class TargetResponse(TargetBase):
