@@ -77,6 +77,7 @@ const deleteDialog = ref({ open: false, backup: null, loading: false })
 const protectedDeleteDialog = ref({ open: false, backup: null, loading: false })
 const unprotectDialog = ref({ open: false, backup: null, loading: false })
 const backupConfirmDialog = ref({ open: false, verifyAfterBackup: false })
+const isPublicWebsiteInstalled = ref(false)
 
 // Progress Modal State
 const progressModal = ref({
@@ -945,7 +946,17 @@ async function loadData() {
   }
 }
 
-onMounted(loadData)
+onMounted(async () => {
+  await loadData()
+
+  // Check PUBLIC_SITE_ENABLE env var for backup dialog content
+  try {
+    const response = await api.get('/system/info')
+    isPublicWebsiteInstalled.value = response.data?.public_site_enable === true
+  } catch (error) {
+    console.error('Failed to check public site status:', error)
+  }
+})
 </script>
 
 <template>
@@ -2266,7 +2277,11 @@ onMounted(loadData)
                 </li>
                 <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                   <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
-                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Management</span> configuration files</span>
+                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Management</span> configuration files and databases</span>
+                </li>
+                <li v-if="isPublicWebsiteInstalled" class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">All Public Web Files</span> (if selected in settings)</span>
                 </li>
               </ul>
               <div class="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700">
