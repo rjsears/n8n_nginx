@@ -137,6 +137,12 @@ class Settings(BaseSettings):
     redis_db: int = Field(default=0, description="Redis database number")
     redis_enabled: bool = Field(default=True, description="Enable Redis caching for status data")
 
+    # Status collector settings (n8n_status service)
+    status_collector_url: str = Field(
+        default="http://host.docker.internal:8080",
+        description="URL of the n8n_status collector service. Use host.docker.internal for Docker Desktop, or the actual host IP for Linux."
+    )
+
     # Debug
     debug: bool = Field(default=False, description="Enable debug mode")
     log_level: str = Field(default="INFO", description="Logging level")

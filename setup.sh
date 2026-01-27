@@ -3222,6 +3222,14 @@ EOF
 EOF
     fi
 
+    # Status collector URL - needed for Cache tab to reach n8n_status service
+    # n8n_status runs on host network, so we need to use host.docker.internal (Docker Desktop)
+    # or the Docker gateway IP (Linux). Users can override via STATUS_COLLECTOR_URL env var.
+    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+      # Status Collector (n8n_status service on host network)
+      - STATUS_COLLECTOR_URL=${STATUS_COLLECTOR_URL:-http://host.docker.internal:8080}
+EOF
+
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     volumes:
       # Docker socket for container management (read-only)
@@ -3250,6 +3258,9 @@ EOF
     cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
     expose:
       - "80"
+    extra_hosts:
+      # Enable host.docker.internal on Linux (already works on Docker Desktop)
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
