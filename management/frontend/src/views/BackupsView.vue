@@ -2267,27 +2267,58 @@ onMounted(async () => {
 
             <!-- Content -->
             <div class="px-6 py-5 bg-white dark:bg-gray-800">
-              <p class="text-gray-700 dark:text-gray-300 text-center">
-                This backup system only backs up:
+              <p class="text-gray-700 dark:text-gray-300 text-center mb-1">
+                Based on your current configuration, this backup will include:
               </p>
               <ul class="mt-3 space-y-2 text-sm">
+                <!-- Always included: Workflows and credentials (database) -->
                 <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                   <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
                   <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Workflows</span> and credentials</span>
                 </li>
+                <!-- Always included: Management database -->
                 <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                   <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
-                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Management</span> configuration files and databases</span>
+                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">N8N Management</span> database</span>
                 </li>
+                <!-- N8N Config files - based on config -->
+                <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <CheckCircleIcon v-if="backupConfig?.include_n8n_config !== false" class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <XCircleIcon v-else class="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  <span :class="backupConfig?.include_n8n_config !== false ? '' : 'line-through opacity-60'">
+                    <span class="font-semibold text-gray-800 dark:text-gray-200">N8N Configuration</span> files
+                  </span>
+                </li>
+                <!-- SSL Certificates - based on config -->
+                <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <CheckCircleIcon v-if="backupConfig?.include_ssl_certs !== false" class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <XCircleIcon v-else class="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  <span :class="backupConfig?.include_ssl_certs !== false ? '' : 'line-through opacity-60'">
+                    <span class="font-semibold text-gray-800 dark:text-gray-200">SSL Certificates</span>
+                  </span>
+                </li>
+                <!-- Environment files - based on config -->
+                <li class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <CheckCircleIcon v-if="backupConfig?.include_env_files !== false" class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <XCircleIcon v-else class="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  <span :class="backupConfig?.include_env_files !== false ? '' : 'line-through opacity-60'">
+                    <span class="font-semibold text-gray-800 dark:text-gray-200">Environment</span> files
+                  </span>
+                </li>
+                <!-- Public Website files - only show if public site is installed -->
                 <li v-if="isPublicWebsiteInstalled" class="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                  <CheckCircleIcon class="h-5 w-5 text-emerald-500 flex-shrink-0" />
-                  <span><span class="font-semibold text-gray-800 dark:text-gray-200">All Public Web Files</span> (if selected in settings)</span>
+                  <CheckCircleIcon v-if="backupConfig?.include_public_website !== false" class="h-5 w-5 text-emerald-500 flex-shrink-0" />
+                  <XCircleIcon v-else class="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  <span :class="backupConfig?.include_public_website !== false ? '' : 'line-through opacity-60'">
+                    <span class="font-semibold text-gray-800 dark:text-gray-200">Public Website</span> files
+                  </span>
                 </li>
               </ul>
-              <div class="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700">
-                <p class="text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
-                  <XCircleIcon class="h-5 w-5 flex-shrink-0 mt-0.5" />
-                  <span>Does <span class="font-bold">NOT</span> backup other data, additional containers, or custom configuration files you may have added.</span>
+
+              <!-- Settings link -->
+              <div class="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600">
+                <p class="text-xs text-gray-600 dark:text-gray-400 text-center">
+                  To change what's included, go to <button @click="backupConfirmDialog.open = false; router.push('/backup-settings')" class="text-blue-600 dark:text-blue-400 hover:underline font-medium">Backup Settings</button> → Contents tab.
                 </p>
               </div>
 
