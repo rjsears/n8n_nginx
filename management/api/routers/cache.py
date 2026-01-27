@@ -175,8 +175,9 @@ async def get_cache_status(
     # Check n8n_status collector health
     try:
         async with httpx.AsyncClient(timeout=5.0) as http_client:
-            # n8n_status runs on host network at port 8080
-            response = await http_client.get("http://127.0.0.1:8080/health")
+            # n8n_status runs on host network, URL configurable via STATUS_COLLECTOR_URL
+            collector_url = settings.status_collector_url.rstrip('/')
+            response = await http_client.get(f"{collector_url}/health")
             if response.status_code == 200:
                 collector_data = response.json()
                 result["collector"]["available"] = True
@@ -322,7 +323,8 @@ async def get_collector_metrics(
     """Get current metrics from n8n_status collector via its /metrics endpoint."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as http_client:
-            response = await http_client.get("http://127.0.0.1:8080/metrics")
+            collector_url = settings.status_collector_url.rstrip('/')
+            response = await http_client.get(f"{collector_url}/metrics")
             if response.status_code == 200:
                 return response.json()
             else:
