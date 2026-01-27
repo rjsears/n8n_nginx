@@ -38,6 +38,7 @@ import {
   FireIcon,
   DocumentTextIcon,
   EyeIcon,
+  ChevronDownIcon,
 } from '@heroicons/vue/24/outline'
 
 const notificationStore = useNotificationStore()
@@ -52,6 +53,7 @@ const keyDetailLoading = ref(false)
 const keyDetailData = ref(null)
 const deleteDialog = ref({ open: false, keyName: '', loading: false })
 const flushDialog = ref({ open: false, loading: false })
+const showCachedKeys = ref(true)
 
 // Loading messages
 const loadingMessages = [
@@ -579,20 +581,23 @@ onUnmounted(() => {
       <!-- Cached Keys Section -->
       <div class="mt-6">
         <Card :padding="false">
-          <div class="p-4 border-b border-gray-200 dark:border-gray-700">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
-                  <KeyIcon class="h-5 w-5 text-amber-500" />
-                </div>
-                <div>
-                  <h3 class="font-semibold text-primary">Cached Keys</h3>
-                  <p class="text-xs text-muted">{{ cacheData?.cached_data?.total_keys || 0 }} total keys in cache</p>
-                </div>
+          <button
+            @click="showCachedKeys = !showCachedKeys"
+            class="w-full p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors rounded-t-xl"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20">
+                <KeyIcon class="h-5 w-5 text-amber-500" />
               </div>
+              <div class="text-left">
+                <h3 class="font-semibold text-primary">Cached Keys</h3>
+                <p class="text-xs text-muted">{{ cacheData?.cached_data?.total_keys || 0 }} total keys in cache</p>
+              </div>
+            </div>
 
+            <div class="flex items-center gap-3">
               <!-- Category Badges -->
-              <div class="flex gap-2">
+              <div class="hidden sm:flex gap-2">
                 <span
                   v-for="(data, category) in cacheData?.cached_data?.categories"
                   :key="category"
@@ -605,10 +610,11 @@ onUnmounted(() => {
                   {{ category }}: {{ data.count }}
                 </span>
               </div>
+              <ChevronDownIcon :class="['h-5 w-5 text-gray-400 transition-transform', showCachedKeys ? 'rotate-180' : '']" />
             </div>
-          </div>
+          </button>
 
-          <div class="divide-y divide-gray-200 dark:divide-gray-700">
+          <div v-if="showCachedKeys" class="divide-y divide-gray-200 dark:divide-gray-700 border-t border-gray-200 dark:border-gray-700">
             <div
               v-for="key in cacheData?.cached_data?.keys"
               :key="key.key"
