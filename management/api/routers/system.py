@@ -572,12 +572,16 @@ async def get_ssl_info(
         import docker
         client = docker.from_env()
 
-        # Find nginx container
+        # Find nginx container (prioritize router, then main nginx)
+        # Skip n8n_nginx_public as it has no SSL config
         nginx_container = None
-        for container in client.containers.list():
-            if "nginx" in container.name.lower():
-                nginx_container = container
-                break
+        try:
+            nginx_container = client.containers.get("n8n_nginx_router")
+        except Exception:
+            try:
+                nginx_container = client.containers.get("n8n_nginx")
+            except Exception:
+                pass
 
         if nginx_container:
             # First, list certificate directories
@@ -1506,12 +1510,16 @@ async def get_full_health_check(
         services_details = {}
         services_status = "healthy"
 
-        # Find nginx container for checks
+        # Find nginx container for checks (prioritize router, then main nginx)
+        # Skip n8n_nginx_public as it has no SSL
         nginx_container = None
-        for c in client.containers.list():
-            if "nginx" in c.name.lower():
-                nginx_container = c
-                break
+        try:
+            nginx_container = client.containers.get("n8n_nginx_router")
+        except Exception:
+            try:
+                nginx_container = client.containers.get("n8n_nginx")
+            except Exception:
+                pass
 
         # Check n8n API (with timeout)
         try:

@@ -1499,6 +1499,12 @@ onUnmounted(() => {
                     <span class="text-secondary">Expires</span>
                     <span class="font-medium text-primary text-xs">{{ cert.expires }}</span>
                   </div>
+                  <!-- Wildcard certificate note -->
+                  <div v-if="cert.domain?.startsWith('*.')" class="mt-3 p-2 rounded bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20">
+                    <p class="text-xs text-blue-700 dark:text-blue-400">
+                      This wildcard certificate covers both the public website and management console.
+                    </p>
+                  </div>
                 </div>
               </div>
               <!-- Fallback: show from ssl details if no certificates array but domain exists -->
