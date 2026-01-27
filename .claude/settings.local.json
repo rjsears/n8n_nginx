@@ -59,7 +59,8 @@
       "Bash(npm run build:*)",
       "Bash(npm install)",
       "Bash(docker run:*)",
-      "WebFetch(domain:www.reddit.com)"
+      "WebFetch(domain:www.reddit.com)",
+      "Bash(console\" shows when public website is configured.\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
