@@ -3553,7 +3553,7 @@ FBEOF
     restart: unless-stopped
     # Set umask 022 so files are created with world-readable permissions (644)
     # This allows nginx_public to serve files uploaded via File Browser
-    entrypoint: ["/bin/sh", "-c", "umask 022 && exec /filebrowser -c /config/settings.json"]
+    entrypoint: ["/bin/sh", "-c", "umask 022 && exec /bin/filebrowser -c /config/settings.json"]
     volumes:
       - public_web_root:/srv
       - ./filebrowser.db:/database/filebrowser.db
