@@ -73,6 +73,7 @@ const showMaintenanceModal = ref(false)
 const showQuietHoursModal = ref(false)
 const showAddTargetModal = ref(false)
 const selectedEventForTarget = ref(null)
+const addingTarget = ref(false)
 const expandedRateLimiting = ref(false)
 const expandedDailyDigest = ref(false)
 
@@ -574,6 +575,24 @@ function openAddTargetModal(event) {
 }
 
 async function addTarget(eventId, targetType, targetId, level, escalationTimeout = 30) {
+  // Prevent multiple clicks
+  if (addingTarget.value) return
+
+  // Check for duplicate locally before API call
+  const event = events.value.find(e => e.id === eventId)
+  if (event?.targets) {
+    const existingTarget = event.targets.find(t =>
+      t.target_type === targetType &&
+      (targetType === 'channel' ? t.channel_id === targetId : t.group_id === targetId) &&
+      t.escalation_level === level
+    )
+    if (existingTarget) {
+      notificationStore.warning('This target already exists for this event at the same escalation level')
+      return
+    }
+  }
+
+  addingTarget.value = true
   try {
     const data = {
       target_type: targetType,
@@ -600,6 +619,8 @@ async function addTarget(eventId, targetType, targetId, level, escalationTimeout
   } catch (error) {
     console.error('Failed to add target:', error)
     notificationStore.error(error.response?.data?.detail || 'Failed to add notification target')
+  } finally {
+    addingTarget.value = false
   }
 }
 
@@ -1735,15 +1756,22 @@ onMounted(() => {
             </div>
 
             <div class="flex justify-end gap-3 pt-4">
-              <button @click="showAddTargetModal = false" class="btn-secondary">
+              <button @click="showAddTargetModal = false" :disabled="addingTarget" class="btn-secondary">
                 Cancel
               </button>
               <button
                 @click="addTarget(selectedEventForTarget.id, newTargetType, newTargetId, newTargetLevel, newTargetEscalationTimeout)"
-                :disabled="!newTargetId"
+                :disabled="!newTargetId || addingTarget"
                 class="btn-primary"
               >
-                Add Target
+                <span v-if="addingTarget" class="flex items-center gap-2">
+                  <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Adding...
+                </span>
+                <span v-else>Add Target</span>
               </button>
             </div>
           </div>

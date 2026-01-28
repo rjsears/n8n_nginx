@@ -342,6 +342,7 @@ async def add_target(
         channel_id=data.channel_id,
         group_id=data.group_id,
         escalation_level=data.escalation_level,
+        escalation_timeout_minutes=data.escalation_timeout_minutes,
     )
     db.add(target)
     await db.commit()
