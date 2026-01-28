@@ -74,6 +74,59 @@ class RedisCacheService:
             self._connected = False
             return False
 
+    async def set_cached(self, key: str, data: Any, ttl: int = 300) -> bool:
+        """
+        Store data in Redis cache with TTL.
+
+        Args:
+            key: Redis key
+            data: Data to cache (will be JSON serialized)
+            ttl: Time to live in seconds (default 5 minutes)
+
+        Returns:
+            True if stored successfully, False otherwise
+        """
+        if not settings.redis_enabled or not self._client:
+            return False
+
+        try:
+            cache_entry = {
+                "data": data,
+                "collected_at": datetime.now(UTC).isoformat(),
+            }
+            await self._client.setex(key, ttl, json.dumps(cache_entry))
+            return True
+
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection error setting {key}: {e}")
+            self._connected = False
+            return False
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to serialize data for Redis key {key}: {e}")
+            return False
+
+    async def delete_cached(self, key: str) -> bool:
+        """
+        Delete a cached key from Redis.
+
+        Args:
+            key: Redis key to delete
+
+        Returns:
+            True if deleted (or didn't exist), False on error
+        """
+        if not settings.redis_enabled or not self._client:
+            return False
+
+        try:
+            await self._client.delete(key)
+            return True
+
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection error deleting {key}: {e}")
+            self._connected = False
+            return False
+
     async def get_cached(self, key: str) -> Optional[dict]:
         """
         Get cached data from Redis.
