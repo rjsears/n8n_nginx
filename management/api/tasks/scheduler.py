@@ -445,8 +445,9 @@ async def _run_scheduled_backup(schedule_id: int) -> None:
     """Execute a scheduled backup."""
     from api.database import async_session_maker, n8n_session_maker
     from api.services.backup_service import BackupService
-    from api.models.backups import BackupSchedule
-    from sqlalchemy import select, update
+    from api.models.backups import BackupSchedule, BackupHistory
+    from sqlalchemy import select, update, desc
+    from datetime import timedelta
 
     logger.info(f"Running scheduled backup {schedule_id}")
 
@@ -459,6 +460,24 @@ async def _run_scheduled_backup(schedule_id: int) -> None:
 
         if not schedule or not schedule.enabled:
             logger.warning(f"Schedule {schedule_id} not found or disabled")
+            return
+
+        # Deduplication check: skip if a backup for this schedule ran in the last 5 minutes
+        # This prevents duplicate backups from scheduler timing issues or container restarts
+        dedup_window = timedelta(minutes=5)
+        recent_backup = await db.execute(
+            select(BackupHistory)
+            .where(BackupHistory.schedule_id == schedule_id)
+            .where(BackupHistory.created_at > datetime.now(UTC) - dedup_window)
+            .where(BackupHistory.status.in_(["success", "running"]))
+            .order_by(desc(BackupHistory.created_at))
+            .limit(1)
+        )
+        if recent_backup.scalar_one_or_none():
+            logger.warning(
+                f"Skipping duplicate scheduled backup {schedule_id} - "
+                f"backup already ran within last {dedup_window.total_seconds() / 60:.0f} minutes"
+            )
             return
 
         # Run backup with metadata (same as manual backup)
