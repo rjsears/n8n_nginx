@@ -48,6 +48,20 @@ from api.schemas.system_notifications import (
 )
 from api.schemas.common import SuccessResponse
 
+# Cache key for system notification events
+EVENTS_CACHE_KEY = "system_notifications:events"
+EVENTS_CACHE_TTL = 300  # 5 minutes
+
+
+async def invalidate_events_cache():
+    """Invalidate the events cache after modifications."""
+    try:
+        from api.services.redis_cache_service import get_redis_cache
+        redis_cache = await get_redis_cache()
+        await redis_cache.delete_cached(EVENTS_CACHE_KEY)
+    except Exception as e:
+        logger.debug(f"Failed to invalidate events cache: {e}")
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -134,6 +148,20 @@ async def list_events(
     db: AsyncSession = Depends(get_db),
 ):
     """List all system notification events."""
+    # Try Redis cache for default (unfiltered) requests
+    use_cache = not category and not enabled_only
+    if use_cache:
+        try:
+            from api.services.redis_cache_service import get_redis_cache
+            redis_cache = await get_redis_cache()
+            cached = await redis_cache.get_cached(EVENTS_CACHE_KEY)
+            if cached and "data" in cached:
+                logger.debug("Returning cached system notification events")
+                return cached["data"]
+        except Exception as e:
+            logger.debug(f"Redis cache miss for events: {e}")
+
+    # Query database
     query = select(SystemNotificationEvent).options(
         selectinload(SystemNotificationEvent.targets)
     )
@@ -147,12 +175,54 @@ async def list_events(
     result = await db.execute(query)
     events = result.scalars().all()
 
-    # Enrich with target details
+    # Pre-load all channels and groups in bulk to avoid N+1 queries
+    channel_ids = set()
+    group_ids = set()
+    for event in events:
+        for target in event.targets:
+            if target.channel_id:
+                channel_ids.add(target.channel_id)
+            if target.group_id:
+                group_ids.add(target.group_id)
+
+    channels_map = {}
+    groups_map = {}
+
+    if channel_ids:
+        channels_result = await db.execute(
+            select(NotificationService).where(NotificationService.id.in_(channel_ids))
+        )
+        for channel in channels_result.scalars().all():
+            channels_map[channel.id] = {"name": channel.name, "slug": channel.slug}
+
+    if group_ids:
+        groups_result = await db.execute(
+            select(NotificationGroup).where(NotificationGroup.id.in_(group_ids))
+        )
+        for group in groups_result.scalars().all():
+            groups_map[group.id] = {"name": group.name, "slug": group.slug}
+
+    # Build responses with pre-loaded data
     responses = []
     for event in events:
         enriched_targets = []
         for target in event.targets:
-            enriched_targets.append(await enrich_target_response(db, target))
+            channel_info = channels_map.get(target.channel_id, {})
+            group_info = groups_map.get(target.group_id, {})
+
+            enriched_targets.append(TargetResponse(
+                id=target.id,
+                event_id=target.event_id,
+                target_type=target.target_type,
+                channel_id=target.channel_id,
+                group_id=target.group_id,
+                escalation_level=target.escalation_level,
+                channel_name=channel_info.get("name"),
+                channel_slug=channel_info.get("slug"),
+                group_name=group_info.get("name"),
+                group_slug=group_info.get("slug"),
+                created_at=target.created_at,
+            ))
 
         responses.append(EventResponse(
             id=event.id,
@@ -178,6 +248,17 @@ async def list_events(
             updated_at=event.updated_at,
             targets=enriched_targets,
         ))
+
+    # Cache the result for unfiltered requests
+    if use_cache:
+        try:
+            from api.services.redis_cache_service import get_redis_cache
+            redis_cache = await get_redis_cache()
+            # Convert to dict for caching
+            cache_data = [r.model_dump(mode='json') for r in responses]
+            await redis_cache.set_cached(EVENTS_CACHE_KEY, cache_data, ttl=EVENTS_CACHE_TTL)
+        except Exception as e:
+            logger.debug(f"Failed to cache events: {e}")
 
     return responses
 
@@ -241,6 +322,9 @@ async def update_event(
     event.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(event)
+
+    # Invalidate cache
+    await invalidate_events_cache()
 
     # Get enriched targets
     enriched_targets = []
@@ -348,6 +432,9 @@ async def add_target(
     await db.commit()
     await db.refresh(target)
 
+    # Invalidate cache
+    await invalidate_events_cache()
+
     return await enrich_target_response(db, target)
 
 
@@ -375,6 +462,9 @@ async def remove_target(
 
     await db.delete(target)
     await db.commit()
+
+    # Invalidate cache
+    await invalidate_events_cache()
 
     return SuccessResponse(message="Target removed")
 
