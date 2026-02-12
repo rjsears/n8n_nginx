@@ -1,0 +1,80 @@
+# n8n Management System - Python Project Configuration
+# This file configures development tools for the API
+
+[project]
+name = "n8n-management-api"
+version = "3.0.0"
+description = "N8N Management System API"
+requires-python = ">=3.11"
+
+[tool.ruff]
+# Target Python 3.11+
+target-version = "py311"
+
+# Line length to match the project style
+line-length = 120
+
+# Exclude common directories
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    "alembic/versions",
+    "*.pyc"
+]
+
+[tool.ruff.lint]
+# Enable rules - focus on errors, not style
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes (catches real bugs like undefined names)
+    "B",      # flake8-bugbear (catches likely bugs)
+    "C4",     # flake8-comprehensions
+]
+
+# Ignore specific rules
+ignore = [
+    "E402",   # module level import not at top of file (FastAPI pattern)
+    "E501",   # line too long (handled by line-length)
+    "E712",   # comparison to True (common in SQLAlchemy queries)
+    "B007",   # loop control variable not used (common with os.walk)
+    "B008",   # do not perform function calls in argument defaults (FastAPI uses this)
+    "B904",   # raise without from (too strict for this codebase)
+    "F401",   # unused imports (many false positives with side effects and re-exports)
+    "F541",   # f-string without placeholders (harmless)
+    "F811",   # redefinition of unused name (parameter shadowing import is ok)
+    "F841",   # local variable assigned but never used (common patterns)
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+# Allow unused imports in __init__.py files
+"__init__.py" = ["F401"]
+# Allow print statements in scripts
+"scripts/*.py" = ["T201"]
+# Allow unused imports in database.py (imports for model registration side effects)
+"api/database.py" = ["F401"]
+# Allow unused imports in dependencies.py (may be re-exported or used dynamically)
+"api/dependencies.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+# Configure isort behavior
+known-first-party = ["api"]
+force-single-line = false
+combine-as-imports = true
+
+[tool.ruff.format]
+# Use double quotes for strings
+quote-style = "double"
+# Use spaces for indentation
+indent-style = "space"
+# Respect magic trailing commas
+skip-magic-trailing-comma = false
+# Use Unix line endings
+line-ending = "lf"

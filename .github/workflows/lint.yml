@@ -1,0 +1,90 @@
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# .github/workflows/lint.yml
+#
+# Runs linting checks on PRs and pushes
+# for both frontend (ESLint) and backend (Ruff)
+#
+# Richard J. Sears
+# richard@n8nmanagement.net
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+name: Lint
+
+on:
+  push:
+    branches:
+      - main
+      - refactor/frontend-optimization-v2
+    paths:
+      - 'management/**'
+      - '.github/workflows/lint.yml'
+  pull_request:
+    branches:
+      - main
+      - refactor/frontend-optimization-v2
+    paths:
+      - 'management/**'
+      - '.github/workflows/lint.yml'
+
+jobs:
+  # =========================================
+  # Frontend Linting (ESLint + Prettier)
+  # =========================================
+  frontend-lint:
+    name: Frontend Lint
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./management/frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint
+        run: npm run lint:check
+
+      # Prettier formatting check disabled for now - requires reformatting 58 files
+      # Enable after running: npm run format
+      # - name: Check Prettier formatting
+      #   run: npm run format:check
+
+  # =========================================
+  # Backend Linting (Ruff)
+  # =========================================
+  backend-lint:
+    name: Backend Lint
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./management
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Run Ruff linter
+        run: ruff check api/
+
+      # Ruff formatting check disabled for now - requires reformatting codebase
+      # Enable after running: ruff format api/
+      # - name: Check Ruff formatting
+      #   run: ruff format --check api/

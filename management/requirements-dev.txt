@@ -1,0 +1,11 @@
+# n8n Management System - Development Dependencies
+# These are NOT needed for production, only for development
+
+# Linting and formatting
+ruff>=0.3.0
+
+# Testing (for future use)
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+httpx>=0.26.0  # Already in requirements.txt, listed for test client usage

@@ -1,0 +1,195 @@
+# n8n Management System v3.0 - Pre-Configuration File
+# =============================================================================
+# Use this file for unattended/automated installations.
+#
+# Usage:
+#   1. Copy to 'setup-config': cp setup-config.example setup-config
+#   2. Edit with your values
+#   3. Run: ./setup.sh --config setup-config
+#
+# Notes:
+#   - Lines starting with # are comments
+#   - Leave values blank to use defaults or auto-generate (where applicable)
+#   - Services like Tailscale, Cloudflare Tunnel, and NTFY are automatically
+#     enabled when their auth keys/tokens are provided
+# =============================================================================
+
+
+# =============================================================================
+# REQUIRED SETTINGS
+# =============================================================================
+
+# Your n8n domain (e.g., n8n.example.com)
+DOMAIN=
+
+# SSL Certificate Configuration
+# Options: certbot, existing, none
+#   certbot  - Obtain certificates from Let's Encrypt (requires DNS provider)
+#   existing - Use existing certificates (set SSL_CERT_PATH and SSL_KEY_PATH)
+#   none     - No SSL (not recommended for production)
+SSL_METHOD=certbot
+
+# Email for Let's Encrypt notifications (required if SSL_METHOD=certbot)
+LETSENCRYPT_EMAIL=
+
+
+# =============================================================================
+# DNS PROVIDER (Required for SSL_METHOD=certbot)
+# =============================================================================
+
+# DNS provider for Let's Encrypt DNS-01 challenge
+# Options: cloudflare, route53, google, digitalocean, manual
+DNS_PROVIDER=cloudflare
+
+# Cloudflare API token (Zone:DNS:Edit permission)
+# Get from: https://dash.cloudflare.com/profile/api-tokens
+CLOUDFLARE_API_TOKEN=
+
+# AWS Route53 credentials (if DNS_PROVIDER=route53)
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+
+# Google Cloud DNS (if DNS_PROVIDER=google)
+# Path to service account JSON key file
+GOOGLE_CREDENTIALS_FILE=
+
+# DigitalOcean token (if DNS_PROVIDER=digitalocean)
+DIGITALOCEAN_TOKEN=
+
+
+# =============================================================================
+# EXISTING SSL CERTIFICATES (Only if SSL_METHOD=existing)
+# =============================================================================
+
+SSL_CERT_PATH=
+SSL_KEY_PATH=
+
+
+# =============================================================================
+# SECURITY CREDENTIALS (Leave blank to auto-generate)
+# =============================================================================
+
+# PostgreSQL password (auto-generated if blank)
+POSTGRES_PASSWORD=
+
+# n8n encryption key (auto-generated if blank)
+N8N_ENCRYPTION_KEY=
+
+# Management console secret key (auto-generated if blank)
+MGMT_SECRET_KEY=
+
+
+# =============================================================================
+# ADMIN USER (Management Console)
+# =============================================================================
+
+ADMIN_USER=admin
+ADMIN_PASS=
+ADMIN_EMAIL=admin@localhost
+
+
+# =============================================================================
+# DATABASE SETTINGS (defaults work for most setups)
+# =============================================================================
+
+DB_NAME=n8n
+DB_USER=n8n
+
+
+# =============================================================================
+# TIMEZONE
+# =============================================================================
+
+N8N_TIMEZONE=America/Los_Angeles
+
+
+# =============================================================================
+# TAILSCALE VPN
+# Providing an auth key automatically enables Tailscale
+# =============================================================================
+
+# Tailscale auth key (get from: https://login.tailscale.com/admin/settings/keys)
+# Leave blank to skip Tailscale installation
+TAILSCALE_AUTH_KEY=
+
+# Tailscale hostname (default: n8n-tailscale)
+TAILSCALE_HOSTNAME=n8n-tailscale
+
+# Docker host IP for TS_ROUTES (auto-detected if blank)
+TAILSCALE_HOST_IP=
+
+
+# =============================================================================
+# CLOUDFLARE TUNNEL
+# Providing a token automatically enables Cloudflare Tunnel
+# =============================================================================
+
+# Cloudflare Tunnel token (from Zero Trust dashboard)
+# Leave blank to skip Cloudflare Tunnel installation
+CLOUDFLARE_TUNNEL_TOKEN=
+
+
+# =============================================================================
+# NTFY PUSH NOTIFICATIONS
+# Providing a public URL automatically enables NTFY
+# =============================================================================
+
+# NTFY public URL (e.g., https://ntfy.example.com)
+# Leave blank to skip NTFY installation
+# Default if enabled: https://ntfy.${DOMAIN}
+NTFY_PUBLIC_URL=
+
+
+# =============================================================================
+# DATABASE TOOLS
+# =============================================================================
+
+# Adminer (database management web UI)
+ADMINER_ENABLED=false
+
+# Dozzle (container log viewer)
+DOZZLE_ENABLED=false
+
+
+# =============================================================================
+# PORTAINER
+# =============================================================================
+
+# Portainer full installation
+PORTAINER_ENABLED=false
+
+# Portainer Agent only (for remote Portainer server)
+PORTAINER_AGENT_ENABLED=false
+
+
+# =============================================================================
+# NFS BACKUP STORAGE
+# =============================================================================
+
+# NFS server hostname or IP (leave blank for local storage)
+NFS_SERVER=
+
+# NFS export path (e.g., /exports/n8n-backups)
+NFS_PATH=
+
+
+# =============================================================================
+# ACCESS CONTROL
+# =============================================================================
+
+# Internal IP ranges with full access (space-separated CIDR blocks)
+INTERNAL_IP_RANGES=100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16
+
+# Additional custom IPs to allow full access
+CUSTOM_INTERNAL_IPS=
+
+
+# =============================================================================
+# INSTALLATION OPTIONS
+# =============================================================================
+
+# Skip deployment (just generate config files)
+SKIP_DEPLOY=false
+
+# Auto-confirm all prompts (fully unattended)
+AUTO_CONFIRM=false

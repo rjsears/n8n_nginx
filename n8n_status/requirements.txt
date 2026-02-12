@@ -1,0 +1,30 @@
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# n8n_status/requirements.txt
+#
+# Dependencies for the status collector service
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# Redis client
+redis>=5.0.0
+
+# Docker SDK for Python
+docker>=7.0.0
+
+# System metrics
+psutil>=5.9.0
+
+# HTTP server for health endpoint
+fastapi>=0.109.0
+uvicorn>=0.27.0
+
+# HTTP client for external service checks
+httpx>=0.26.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# Timezone handling
+pytz>=2024.1
+
+# Date parsing
+python-dateutil>=2.8.0
