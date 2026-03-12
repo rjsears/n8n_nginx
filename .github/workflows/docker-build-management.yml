@@ -11,12 +11,10 @@
 name: Build Management Console Docker Image
 
 on:
-  # Trigger on push to v3 development branch when management files change
-  # NOTE: main branch does NOT have management/ directory yet
-  # Update this to include 'main' after v3.0 is merged to main
+  # Trigger on push to main when management files change
   push:
     branches:
-      - refactor/frontend-optimization-v2  # v3 development branch (has management/)
+      - main
     paths:
       - 'management/**'
       - '.github/workflows/docker-build-management.yml'
@@ -33,9 +31,9 @@ on:
         required: false
         default: 'linux/amd64,linux/arm64'
 
-  # Trigger on release (only after v3.0 is merged to main)
-  # release:
-  #   types: [published]
+  # Trigger on release
+  release:
+    types: [published]
 
 env:
   REGISTRY: docker.io
@@ -86,7 +84,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            # Always set latest tag (v3 branch is the source of truth for now)
+            # Always set latest tag on main branch pushes
             type=raw,value=latest
             # Set tag from manual input (for workflow_dispatch)
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != 'latest' }}
