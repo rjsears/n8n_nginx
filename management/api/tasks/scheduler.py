@@ -18,6 +18,7 @@ from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, UTC
 from typing import Optional
 import logging
+import docker
 
 from api.config import settings
 
@@ -682,40 +683,32 @@ def _run_alpine_container(docker_client, command: list, **kwargs) -> bytes:
     """
     Run an alpine container with guaranteed cleanup.
 
-    Uses detach mode with manual cleanup to ensure containers don't get orphaned
-    even if remove=True fails due to exceptions or timeouts.
+    Uses synchronous execution with Docker's auto-remove feature.
+    This is more reliable than detached mode with manual cleanup because:
+    - Docker daemon handles removal automatically when container exits
+    - No race conditions between container completion and removal
+    - Containers can't get stuck in "Created" state
     """
-    container = None
     try:
-        # Don't use remove=True - we'll handle cleanup manually
-        kwargs.pop("remove", None)
-
-        container = docker_client.containers.run(
+        # Run synchronously (no detach) with auto-remove
+        # Docker daemon handles cleanup automatically when container exits
+        output = docker_client.containers.run(
             "alpine:latest",
             command=command,
-            detach=True,
+            remove=True,
             **kwargs
         )
-
-        # Wait for container to complete (timeout after 30 seconds)
-        result = container.wait(timeout=30)
-
-        # Get logs before removing
-        output = container.logs(stdout=True, stderr=False)
-
         return output
+
+    except docker.errors.ContainerError as e:
+        # Container ran but command returned non-zero exit code
+        # Container is still removed automatically with remove=True
+        logger.debug(f"Alpine container command failed: {e}")
+        raise
 
     except Exception as e:
         logger.debug(f"Alpine container error: {e}")
         raise
-
-    finally:
-        # Always try to clean up the container
-        if container:
-            try:
-                container.remove(force=True)
-            except Exception as cleanup_err:
-                logger.debug(f"Failed to remove container {container.short_id}: {cleanup_err}")
 
 
 async def _cleanup_orphaned_alpine_containers() -> None:
@@ -724,8 +717,6 @@ async def _cleanup_orphaned_alpine_containers() -> None:
     This runs periodically to catch any containers that slipped through.
     Handles 'exited', 'created', 'dead', and long-running 'running' containers.
     """
-    import docker
-
     try:
         client = docker.from_env()
 
@@ -830,7 +821,6 @@ async def _collect_host_metrics() -> None:
     import psutil
     import platform
     import socket
-    import docker
     from api.database import async_session_maker
     from api.models.audit import HostMetricsSnapshot
 
