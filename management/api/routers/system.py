@@ -694,9 +694,10 @@ async def force_renew_ssl_certificate(
             )
 
         # Run certbot renew --force-renewal
+        # Skip random sleep (up to 5 min) to avoid web interface timeout
         logger.info("Starting forced SSL certificate renewal...")
         exec_result = certbot_container.exec_run(
-            cmd="certbot renew --force-renewal",
+            cmd="certbot renew --force-renewal --no-random-sleep-on-renew",
             demux=True,
         )
 
