@@ -36,68 +36,34 @@ def _run_alpine_container_sync(docker_client, command: list, **kwargs) -> bytes:
     """
     Run an alpine container with guaranteed cleanup.
 
-    Uses detach mode with manual cleanup to ensure containers don't get orphaned
-    even if remove=True fails due to exceptions or timeouts.
+    Uses synchronous execution with Docker's auto-remove feature.
+    This is more reliable than detached mode with manual cleanup because:
+    - Docker daemon handles removal automatically when container exits
+    - No race conditions between container completion and removal
+    - Containers can't get stuck in "Created" state
     """
-    container = None
-    container_id = None
-    try:
-        # Don't use remove=True - we'll handle cleanup manually
-        kwargs.pop("remove", None)
+    import docker as docker_lib
 
-        container = docker_client.containers.run(
+    try:
+        # Run synchronously (no detach) with auto-remove
+        # Docker daemon handles cleanup automatically when container exits
+        output = docker_client.containers.run(
             "alpine:latest",
             command=command,
-            detach=True,
+            remove=True,
             **kwargs
         )
-        container_id = container.id
-
-        # Wait for container to complete (timeout after 30 seconds)
-        result = container.wait(timeout=30)
-
-        # Get logs before removing
-        output = container.logs(stdout=True, stderr=False)
-
         return output
+
+    except docker_lib.errors.ContainerError as e:
+        # Container ran but command returned non-zero exit code
+        # Container is still removed automatically with remove=True
+        logger.debug(f"Alpine container command failed: {e}")
+        raise
 
     except Exception as e:
         logger.debug(f"Alpine container error: {e}")
         raise
-
-    finally:
-        # Always try to clean up the container - use multiple methods to ensure cleanup
-        cleanup_success = False
-
-        # Method 1: Try using the container object
-        if container:
-            try:
-                container.stop(timeout=1)
-            except Exception:
-                pass
-            try:
-                container.remove(force=True)
-                cleanup_success = True
-            except Exception as cleanup_err:
-                logger.debug(f"Failed to remove container via object: {cleanup_err}")
-
-        # Method 2: If we have the ID and first method failed, try direct API call
-        if not cleanup_success and container_id:
-            try:
-                # Refresh container reference and force remove
-                stale_container = docker_client.containers.get(container_id)
-                stale_container.remove(force=True)
-                cleanup_success = True
-            except Exception as e:
-                logger.debug(f"Failed to remove container via ID lookup: {e}")
-
-        # Method 3: Last resort - use low-level API
-        if not cleanup_success and container_id:
-            try:
-                docker_client.api.remove_container(container_id, force=True, v=True)
-                logger.debug(f"Removed container {container_id[:12]} via low-level API")
-            except Exception as e:
-                logger.warning(f"All cleanup methods failed for container {container_id[:12]}: {e}")
 
 
 @router.get("/health", response_model=HealthResponse)
