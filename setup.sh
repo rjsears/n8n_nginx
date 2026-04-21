@@ -2887,6 +2887,12 @@ TAILSCALE_ROUTES=${TAILSCALE_ROUTES:-}
 PUBLIC_SITE_ENABLE=${INSTALL_PUBLIC_WEBSITE}
 
 # ===========================================
+# DNS Provider / SSL Certificate Settings
+# ===========================================
+DNS_CERTBOT_IMAGE=${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
+DNS_CERTBOT_FLAGS=${DNS_CERTBOT_FLAGS:-}
+
+# ===========================================
 # Container Names (generally don't change)
 # ===========================================
 POSTGRES_CONTAINER=${POSTGRES_CONTAINER}
