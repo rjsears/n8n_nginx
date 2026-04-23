@@ -51,6 +51,7 @@ class TerminalSession:
                     pid_mode="host",
                     network_mode="host",
                     privileged=True,
+                    security_opt=["apparmor=unconfined"],
                     volumes={"/": {"bind": "/host", "mode": "rw"}},
                 )
                 # Wait for container to be ready
