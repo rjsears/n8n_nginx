@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker ps:*)",
+      "Bash(cd \"/Users/rsears/Google Drive/PycharmProjects/n8n_nginx\" && gh run list --limit 5)",
+      "Bash(pip3 install:*)",
+      "Bash(cd \"/Users/rsears/Google Drive/PycharmProjects/n8n_nginx/management\" && python3 -m ruff check api/)",
+      "Bash(cd \"/Users/rsears/Google Drive/PycharmProjects/n8n_nginx\" && gh run rerun 22982716448 --failed)",
+      "Bash(cd \"/Users/rsears/Google Drive/PycharmProjects/n8n_nginx\" && sleep 5 && gh pr checks 3)"
+    ]
+  }
+}
