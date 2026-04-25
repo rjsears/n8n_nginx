@@ -128,6 +128,7 @@ class VerificationService:
             create_cmd = [
                 "docker", "run", "-d",
                 "--name", VERIFY_CONTAINER_NAME,
+                "--security-opt", "apparmor=unconfined",
                 "-e", f"POSTGRES_USER={VERIFY_DB_USER}",
                 "-e", f"POSTGRES_PASSWORD={VERIFY_DB_PASSWORD}",
                 "-e", f"POSTGRES_DB={VERIFY_DB_NAME}",
