@@ -262,6 +262,7 @@ class RestoreService:
             create_cmd = [
                 "docker", "run", "-d",
                 "--name", RESTORE_CONTAINER_NAME,
+                "--security-opt", "apparmor=unconfined",
                 "-e", f"POSTGRES_USER={RESTORE_DB_USER}",
                 "-e", f"POSTGRES_PASSWORD={RESTORE_DB_PASSWORD}",
                 "-e", f"POSTGRES_DB={RESTORE_DB_NAME}",
@@ -2194,6 +2195,7 @@ class RestoreService:
                 result = subprocess.run(
                     [
                         "docker", "run", "--rm",
+                        "--security-opt", "apparmor=unconfined",
                         "-v", f"{PUBLIC_WEBSITE_VOLUME}:/source:ro",
                         "-v", f"{live_temp}:/dest",
                         "alpine",
@@ -2320,6 +2322,7 @@ class RestoreService:
                     result = subprocess.run(
                         [
                             "docker", "run", "--rm",
+                            "--security-opt", "apparmor=unconfined",
                             "-v", f"{mount_dir}:/source:ro",
                             "-v", f"{PUBLIC_WEBSITE_VOLUME}:/dest",
                             "alpine",
@@ -2340,6 +2343,7 @@ class RestoreService:
                             individual_result = subprocess.run(
                                 [
                                     "docker", "run", "--rm",
+                                    "--security-opt", "apparmor=unconfined",
                                     "-v", f"{mount_dir}:/source:ro",
                                     "-v", f"{PUBLIC_WEBSITE_VOLUME}:/dest",
                                     "alpine",

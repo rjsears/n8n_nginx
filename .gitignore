@@ -77,3 +77,10 @@ node_modules/
 dist/
 .npm
 .mcp.json
+
+n8n_management_comprehensive_documentation.txt
+
+.gemini
+.gemini/
+.claude
+.claude/
