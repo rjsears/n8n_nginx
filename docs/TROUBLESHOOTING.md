@@ -100,6 +100,36 @@ docker inspect <container_name>
    ./setup.sh
    ```
 
+### Alpine Containers Stuck in "Created" State (LXC/AppArmor)
+
+**Symptoms:** Many `alpine:latest` containers accumulate in `Created` state and never run. Common when running Docker inside an LXC container (e.g., Proxmox).
+
+**Diagnosis:**
+```bash
+# List orphaned alpine containers
+docker ps -a --filter "ancestor=alpine:latest"
+
+# Inspect a stuck container for the AppArmor error
+docker inspect <container_id> | grep -i error
+# Look for: "apparmor" or "operation not permitted"
+```
+
+**Root Cause:** The host's AppArmor profile blocks the alpine container from starting inside an unprivileged LXC. The container is created but cannot transition to running state.
+
+**Solution:** The Management Suite spawns short-lived alpine containers for system metrics collection and SSL renewal. As of the AppArmor fix, all such containers are launched with `security_opt=["apparmor=unconfined"]`. If you are running an older build, pull the latest image:
+
+```bash
+docker compose pull n8n_management
+docker compose up -d n8n_management
+```
+
+**Cleanup orphaned containers:**
+```bash
+# Remove all stuck alpine containers (safe — they have no running processes)
+docker ps -a --filter "ancestor=alpine:latest" --filter "status=created" -q | xargs -r docker rm -f
+docker ps -a --filter "ancestor=alpine:latest" --filter "status=exited" -q | xargs -r docker rm -f
+```
+
 ### Container Health Check Failing
 
 **Symptoms:** Container shows "unhealthy"
@@ -359,11 +389,13 @@ echo | openssl s_client -connect your-domain.com:443 2>/dev/null | openssl x509 
 
 **Solutions:**
 
-1. **Force renewal:**
+1. **Force renewal (recommended — disables random sleep delay):**
    ```bash
-   docker exec n8n_certbot certbot renew --force-renewal
+   docker exec n8n_certbot certbot renew --force-renewal --no-random-sleep-on-renew
    docker compose restart nginx
    ```
+
+   The `--no-random-sleep-on-renew` flag is important: by default certbot adds a random delay of up to 8 minutes before each renewal attempt, which causes the Management Console "Force Renewal" button to time out. The Management Console uses this flag automatically and waits up to 5 minutes for completion.
 
 2. **Check certbot logs:**
    ```bash
@@ -374,6 +406,36 @@ echo | openssl s_client -connect your-domain.com:443 2>/dev/null | openssl x509 
    ```bash
    cat cloudflare.ini  # or your DNS provider file
    ```
+
+### Force Renewal Times Out from Management Console
+
+**Symptoms:** Clicking "Force Renewal" in the Management Console returns a timeout error, but checking afterward shows the certificate was actually renewed.
+
+**Cause:** Certbot's default random sleep delay (up to 8 minutes) exceeded the previous web request timeout.
+
+**Solution:** This was fixed by adding `--no-random-sleep-on-renew` to the certbot command and increasing the frontend API timeout to 5 minutes. Pull the latest Management image:
+
+```bash
+docker compose pull n8n_management
+docker compose up -d n8n_management
+```
+
+### Certbot Missing DNS Plugin
+
+**Symptoms:** Renewal fails with `The requested dns-cloudflare plugin does not appear to be installed`.
+
+**Cause:** The certbot container is using the base `certbot/certbot` image instead of the DNS-provider variant.
+
+**Solution:** Check `.env` for the correct DNS image:
+```bash
+grep -i certbot .env
+# Should show: DNS_CERTBOT_IMAGE=certbot/dns-cloudflare
+```
+
+If missing or wrong, set it and recreate the container:
+```bash
+docker compose up -d --force-recreate certbot
+```
 
 ### Certificate Not Found
 
