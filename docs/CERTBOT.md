@@ -553,11 +553,15 @@ From the Management Console:
 1. Go to **System** → **SSL/TLS**
 2. Click **Force Renewal**
 
+The Management Console waits up to 5 minutes for the renewal to complete and uses `--no-random-sleep-on-renew` to skip certbot's default random delay.
+
 Or via command line:
 ```bash
-docker exec n8n_certbot certbot renew --force-renewal
+docker exec n8n_certbot certbot renew --force-renewal --no-random-sleep-on-renew
 docker exec n8n_nginx nginx -s reload
 ```
+
+> **Why `--no-random-sleep-on-renew`?** By default, certbot adds a random delay of up to 8 minutes before each renewal to spread load on Let's Encrypt's servers. For interactive force-renewals this causes long waits and HTTP timeouts, so the flag is included for on-demand renewals. The scheduled background renewal (every 12 hours) keeps the random delay enabled.
 
 ### View Certificate Details
 
@@ -613,6 +617,43 @@ docker logs n8n_certbot
 | `Rate limited` | Too many requests | Wait 1 hour, check rate limits |
 | `CAA record issue` | CAA DNS record blocks Let's Encrypt | Add `0 issue "letsencrypt.org"` |
 | `Timeout during connect` | Network issues | Check internet connectivity |
+| `The requested dns-cloudflare plugin does not appear to be installed` | Wrong certbot image | Set `DNS_CERTBOT_IMAGE=certbot/dns-cloudflare` in `.env` and recreate the certbot container |
+
+### Force Renewal Times Out in Management Console
+
+**Symptoms:** "Force Renewal" returns a timeout error in the UI, but the certificate was renewed successfully when checked manually.
+
+**Cause:** Older builds did not pass `--no-random-sleep-on-renew` to certbot, so the random delay (up to 8 minutes) exceeded the web request timeout.
+
+**Solution:** Pull the latest Management image — both the flag and a 5-minute frontend timeout are now included:
+```bash
+docker compose pull n8n_management
+docker compose up -d n8n_management
+```
+
+### Broken Certificate Symlinks After Manual Renewal
+
+**Symptoms:** nginx serves an expired certificate even after `certbot renew --force-renewal` reports success.
+
+**Cause:** `/etc/letsencrypt/live/<domain>/*.pem` are symlinks into `/etc/letsencrypt/archive/<domain>/`. If they point to an older `cert1.pem` instead of the freshly issued `cert2.pem`, nginx keeps serving the old cert.
+
+**Diagnosis:**
+```bash
+docker exec n8n_certbot ls -la /etc/letsencrypt/live/your-domain.com/
+docker exec n8n_certbot ls -la /etc/letsencrypt/archive/your-domain.com/
+```
+
+**Solution:** Recreate the symlinks to the highest-numbered file in `archive/`:
+```bash
+docker exec n8n_certbot sh -c '
+  cd /etc/letsencrypt/live/your-domain.com &&
+  ln -sf ../../archive/your-domain.com/cert2.pem cert.pem &&
+  ln -sf ../../archive/your-domain.com/chain2.pem chain.pem &&
+  ln -sf ../../archive/your-domain.com/fullchain2.pem fullchain.pem &&
+  ln -sf ../../archive/your-domain.com/privkey2.pem privkey.pem
+'
+docker exec n8n_nginx nginx -s reload
+```
 
 ### Certificate Not Updating in nginx
 
