@@ -84,3 +84,7 @@ n8n_management_comprehensive_documentation.txt
 .gemini/
 .claude
 .claude/
+docs/superpowers/
+
+# Internal planning docs (not for public repo)
+*_PLAN.md
