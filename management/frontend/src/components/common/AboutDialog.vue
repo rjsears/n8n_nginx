@@ -26,7 +26,7 @@ const emit = defineEmits(['close'])
 const appInfo = {
   name: 'n8n Management Console',
   version: '3.0.0',
-  versionDate: '2025-12-13',
+  versionDate: '2026-04-27',
   author: 'Richard J. Sears',
   email: 'richard@n8nmanagement.net',
   githubUrl: 'https://github.com/rjsears/n8n_nginx',
