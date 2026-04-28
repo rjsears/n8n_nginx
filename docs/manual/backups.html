@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backups — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="backups">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#header-actions">Configure &amp; Backup Now</a></li>
+        <li><a href="#summary-cards">Summary cards</a></li>
+        <li><a href="#config-summary">Configuration summary</a></li>
+        <li><a href="#schedule">Backup Schedule</a></li>
+        <li><a href="#history">Backup History</a></li>
+        <li><a href="#row-actions">Per-row actions</a></li>
+        <li><a href="#selective-restore">Selective Restore</a></li>
+        <li><a href="#bare-metal">Bare Metal</a></li>
+        <li><a href="#configure">Backup Configuration</a></li>
+        <li><a href="#config-storage">— Storage tab</a></li>
+        <li><a href="#config-schedule">— Schedule tab</a></li>
+        <li><a href="#config-contents">— Contents tab</a></li>
+        <li><a href="#config-retention">— Retention tab (GFS)</a></li>
+        <li><a href="#config-compression">— Compression tab</a></li>
+        <li><a href="#config-verification">— Verification tab</a></li>
+        <li><a href="#config-notifications">— Notifications tab</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>Backups</h1>
+      <p class="lede">The Backups area is the most consequential part of the management console. It captures and verifies database dumps, configuration files, certificates, and public-website data on a schedule, applies a Grandfather-Father-Son retention policy, and lets you trigger ad-hoc backups when something major is about to change.</p>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>The main Backups page is a dashboard view: header with two action buttons, four summary cards, a configuration summary panel, the active backup schedule, and an expandable backup history. Anything you change live (turn the schedule off, change retention, etc.) happens on the dedicated <strong>Backup Configuration</strong> sub-page, reached via the <strong>Configure</strong> button.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-01-overview.png" alt="Backups page showing the title with Configure and Backup Now buttons in the top-right, four summary cards (Total Backups, Successful, Failed, Total Size), a Backup Configuration Summary panel with three sub-cards (Destination, Workflow, Staging), an active Backup Schedule card with retention pills, and a collapsed Backup History card showing 88 backups available">
+          <figcaption>Figure 1: Backups page — full overview.</figcaption>
+        </figure>
+      </section>
+
+      <section id="header-actions">
+        <h2>Configure &amp; Backup Now</h2>
+        <p>Two buttons live in the top-right of the page header.</p>
+
+        <h3>Configure</h3>
+        <p>Opens the dedicated Backup Configuration page (<code>/management/backup-settings</code>). Every parameter that controls <em>how, when, and what</em> the backup engine does lives there, organized into seven tabs. See <a href="#configure">Backup Configuration</a> below for the full tour.</p>
+
+        <h3>Backup Now</h3>
+        <p>Triggers a one-off backup immediately, using the current configuration. The button changes to a progress indicator while the backup runs. The new backup then appears in the <a href="#history">Backup History</a> with status <code>Running</code> while it executes, then <code>Success</code> (and <code>Verified</code> if auto-verification is enabled) once complete.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Hit <strong>Backup Now</strong> before any major change — version upgrade, schema migration, certificate renewal — so you have a known-good restore point from <em>just before</em> the change.</div>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> Backup Now uses the same destination, contents, compression, and verification settings as scheduled backups. If your schedule is configured to back up only the n8n database but you need a full backup right now, change the <a href="#config-contents">Contents</a> first.</div>
+      </section>
+
+      <section id="summary-cards">
+        <h2>Summary cards</h2>
+        <p>Four cards across the top show backup counts and footprint at a glance.</p>
+        <table>
+          <thead><tr><th>Card</th><th>Counts</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Total Backups</strong></td><td>Every backup on disk regardless of status.</td></tr>
+            <tr><td><strong>Successful</strong></td><td>Backups whose run completed and (if auto-verification was enabled) verified clean. Lower than Total when some are still running, failed, or pending.</td></tr>
+            <tr><td><strong>Failed</strong></td><td>Backup runs that errored. <strong>Investigate immediately if non-zero.</strong></td></tr>
+            <tr><td><strong>Total Size</strong></td><td>On-disk footprint of all retained backups, in human-readable units.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="config-summary">
+        <h2>Configuration summary</h2>
+        <p>Below the stats, a read-only summary panel shows the three most important configuration choices side by side: <strong>DESTINATION</strong> (where backups land — local disk or NFS), <strong>WORKFLOW</strong> (Stage &amp; Copy vs. Direct), and <strong>STAGING</strong> (whether a temporary local staging area is in use).</p>
+
+        <div class="info-box note">📝 <strong>Note:</strong> This panel is read-only. To change any of these, click <strong>Configure</strong> at the top of the page.</div>
+      </section>
+
+      <section id="schedule">
+        <h2>Backup Schedule</h2>
+        <p>The Backup Schedule card displays the active cron schedule, the retention policy in effect (as <strong>Daily 7</strong> / <strong>Weekly 4</strong> / <strong>Monthly 6</strong> pills by default), and whether the schedule is currently enabled.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Disabling the schedule (in the Configure → Schedule tab) stops automatic backups but does <em>not</em> delete existing ones. Use this when running maintenance or test cycles.</div>
+      </section>
+
+      <section id="history">
+        <h2>Backup History</h2>
+        <p>The Backup History card lists every retained backup. Collapsed by default — click anywhere on the card to expand. When expanded, the panel exposes status filters (All Statuses / Successful / Failed / Running / Pending), date filters (From / To), a per-page selector (10 / 20 / 50 / 100), and a sort toggle (Date / Size).</p>
+
+        <p>Each row shows: type icon, backup type label (e.g., <code>postgres_full Backup</code>), status pill (Success / Failed / Running / Pending), verification badge (<code>Verified</code> if integrity-checked), date+time+size, and a chevron on the right that expands to per-backup actions.</p>
+      </section>
+
+      <section id="row-actions">
+        <h2>Per-row actions</h2>
+        <p>Clicking the chevron on a backup row reveals seven action buttons:</p>
+
+        <table>
+          <thead><tr><th>Action</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Verify</strong></td><td>Re-runs integrity checks against this specific backup. Validates archive integrity, confirms the database dump can be re-read by PostgreSQL, and compares stored checksums. The <code>Verified</code> badge on the row reflects the most recent verification result.</td></tr>
+            <tr><td><strong>Protect</strong></td><td>Marks this backup as "do not auto-delete." Even when retention policy would normally rotate this backup out, a protected backup stays put until you manually unprotect or delete it. Toggles state — clicking once protects, clicking again unprotects.</td></tr>
+            <tr><td><strong>View Backup Contents</strong></td><td>Opens an inline panel showing what's actually inside the backup archive — workflows, credentials, configuration files, and public website files — with sub-tabs for each category. Read-only inspection, no restore.</td></tr>
+            <tr><td><strong>Selective Restore</strong></td><td>Cherry-pick individual workflows, credentials, or config files from the backup. See <a href="#selective-restore">below</a> for the full flow.</td></tr>
+            <tr><td><strong>Download Backup</strong></td><td>Streams the entire compressed backup archive to your browser as a single <code>.tar.gz</code> file. Use this for off-site copies or laptop-side inspection.</td></tr>
+            <tr><td><strong>Bare Metal</strong></td><td>Downloads a complete recovery archive with a self-contained restore script. See <a href="#bare-metal">below</a>.</td></tr>
+            <tr><td><strong>Delete</strong></td><td>Removes the backup file from disk and the history record. Cannot be undone (the retention policy will eventually rotate old backups out automatically — only delete manually if you really need the disk space back right now).</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Run <strong>Verify</strong> on any backup you're about to restore from — especially if the backup is more than a few weeks old. Storage media bit-rots; verification is your last line of defense before pulling the trigger on a restore.</div>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Restoring a workflow, credential, or full snapshot <em>overwrites the live version</em>. Run a fresh <strong>Backup Now</strong> immediately before restoring so you have an emergency exit if the wrong backup is restored.</div>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> <strong>Delete</strong> is final. Deleted backups cannot be recovered through the UI. Deleting a <strong>protected</strong> backup requires you to unprotect it first.</div>
+      </section>
+
+      <section id="selective-restore">
+        <h2>Selective Restore</h2>
+        <p><strong>Selective Restore</strong> lets you cherry-pick individual workflows, credentials, or config files from a backup and restore just those, leaving the rest of your live data untouched. This is the safe option compared to a full restore.</p>
+
+        <h3>Step 1 — Mount the backup</h3>
+        <p>The first time you click Selective Restore, the panel asks you to <strong>Mount</strong> the backup. Mounting spins up a temporary <code>n8n_postgres_restore</code> container and extracts the archive into it so individual items can be browsed and restored. This is a one-time setup per restore session.</p>
+
+        <h3>Step 2 — Browse and restore</h3>
+        <p>Once mounted, the panel updates to show three accordion categories — <strong>Workflows</strong>, <strong>Credentials</strong>, <strong>Configuration Files</strong> — each with a live count. An <strong>Unmount Backup</strong> button appears in the top-right.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-22-selective-restore-mounted-overview.png" alt="Backup Mounted panel showing a green status pill with workflow count, an Unmount Backup button, and three collapsible accordion sections labeled Workflows, Credentials, and Configuration Files each with a count badge">
+          <figcaption>Figure 2: Selective Restore — Backup mounted, ready to browse.</figcaption>
+        </figure>
+
+        <p>Click any accordion to reveal individual items. Click any item row to surface its restore options.</p>
+
+        <h3>Step 3 — Unmount when finished</h3>
+        <p>When you're done restoring items, click <strong>Unmount Backup</strong> in the top-right. This stops and removes the temporary <code>n8n_postgres_restore</code> container and frees the resources it was holding.</p>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> Mounting takes 5–30 seconds depending on archive size and host I/O. If the spinner reverts to "Mount Backup" without progressing, see the AppArmor symptom signature in <a href="appendix.html#troubleshooting">Troubleshooting</a> — this was a real bug fixed in April 2026.</div>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Restoring a workflow or credential <em>overwrites the live version</em> if one with the same ID exists. Read the workflow contents in n8n first, or use n8n's export-to-JSON to keep your own snapshot before restoring an old one.</div>
+      </section>
+
+      <section id="bare-metal">
+        <h2>Bare Metal</h2>
+        <p><strong>Bare Metal</strong> generates and downloads a <em>complete recovery archive</em> — databases, configuration files, SSL certificates, and a self-contained <code>restore.sh</code> script — designed to rebuild your n8n stack on a fresh server from scratch. Use it when migrating to new hardware or recovering from total host loss.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-26-bare-metal-recovery.png" alt="Bare Metal Recovery panel describing that it downloads a complete recovery archive containing databases, configuration files, SSL certificates, and a self-contained restore.sh script, and showing a Download Recovery Archive button">
+          <figcaption>Figure 3: Bare Metal Recovery panel.</figcaption>
+        </figure>
+
+        <h3>What's in the archive</h3>
+        <ul>
+          <li>PostgreSQL dump for both databases (n8n + management).</li>
+          <li>n8n configuration files and workflow exports.</li>
+          <li>SSL certificates and private keys (Let's Encrypt volume contents).</li>
+          <li><code>.env</code> with deployment configuration.</li>
+          <li>Public website files if Public Website Files was enabled in <a href="#config-contents">Contents</a>.</li>
+          <li><code>restore.sh</code> — a self-contained shell script that takes a fresh host and rebuilds the stack.</li>
+        </ul>
+
+        <h3>Recovery procedure</h3>
+        <ol class="steps">
+          <li>Provision a fresh host with Docker installed.</li>
+          <li>Copy the downloaded archive to the host (scp, USB stick, etc.).</li>
+          <li>Extract: <code>tar -xzf bare-metal-recovery-&lt;date&gt;.tar.gz</code>.</li>
+          <li><code>cd</code> into the extracted directory.</li>
+          <li>Run <code>./restore.sh</code> — the script handles everything else.</li>
+        </ol>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> The archive contains your entire deployment including <em>secrets and SSL private keys</em>. Anyone with this file can stand up a fully functional clone of your stack. Encrypt at rest and treat with the same care as a password vault export.</div>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Run a Bare Metal download once a quarter and store off-site. Cloud-based backups are great until your billing card expires.</div>
+      </section>
+
+      <section id="configure">
+        <h2>Backup Configuration</h2>
+        <p>Clicking <strong>Configure</strong> opens a dedicated configuration page (<code>/management/backup-settings</code>) with seven tabs. Each tab gates a logical area of behavior. The buttons in the top-right are <strong>Detect Storage</strong> (auto-discover NFS mounts and local volumes) and <strong>Save Configuration</strong> (persist changes).</p>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Changes do not take effect until you click <strong>Save Configuration</strong>. Switching tabs preserves edits, so you can change settings across multiple tabs and save once at the end.</div>
+      </section>
+
+      <section id="config-storage">
+        <h3>Storage tab</h3>
+        <p>The Storage tab is the entry point — choose where backups go and how they get there.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-08-config-storage.png" alt="Backup Configuration Storage tab showing an Important Backup Information amber banner explaining what is and is not backed up, a Storage Configuration card with three numbered steps (Backup Destination, Backup Workflow, Local Staging Area), and a Configuration Summary panel below repeating the destination and staging values">
+          <figcaption>Figure 4: Backup Configuration → Storage tab.</figcaption>
+        </figure>
+
+        <div class="info-box warn">⚠️ <strong>Important Backup Information:</strong> The system backs up <strong>n8n workflows</strong>, <strong>n8n Management configuration files</strong>, and <strong>Public Website files</strong>. It does <strong>NOT</strong> back up arbitrary additional containers or files you may have layered onto the system yourself. If you've added custom services, plan separate backups for them.</div>
+
+        <h4>The three storage steps</h4>
+        <ol class="steps">
+          <li><strong>Backup Destination</strong> — pick between Local Storage and Network Storage (NFS). NFS requires the mount to already be configured (see <a href="settings.html#environment">Settings → Environment → NFS Backup Storage</a>).</li>
+          <li><strong>Backup Workflow</strong> — choose between <code>Stage &amp; Copy</code> (recommended; writes locally first, then transfers) and direct write. Stage &amp; Copy is safer because if NFS is briefly unreachable the backup still completes locally.</li>
+          <li><strong>Local Staging Area</strong> — points to a writable local path (default <code>/app/backups</code>) used as the staging location.</li>
+        </ol>
+      </section>
+
+      <section id="config-schedule">
+        <h3>Schedule tab</h3>
+        <p>The Schedule tab shows the active cron schedule and lets you toggle the automatic schedule on or off.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-09-config-schedule.png" alt="Backup Configuration Schedule tab showing the active schedule Daily at 2 AM with an Active status">
+          <figcaption>Figure 5: Backup Configuration → Schedule tab.</figcaption>
+        </figure>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> The schedule cron expression is set in your <code>.env</code> file (see <a href="settings.html#environment">Settings → Environment Variables</a>). The UI here is the on/off switch and a human-readable summary of what's configured.</div>
+      </section>
+
+      <section id="config-contents">
+        <h3>Contents tab</h3>
+        <p>The Contents tab is where you choose what goes <em>into</em> each backup. Two top-level groups: <strong>Database Backup Type</strong> and <strong>Additional Files</strong>.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-10-config-contents.png" alt="Backup Configuration Contents tab with Database Backup Type radio options (Full PostgreSQL Backup, n8n Database Only, Management Database Only) and Additional Files checkboxes (n8n Configuration Files, SSL Certificates, Environment Files, Public Website Files)">
+          <figcaption>Figure 6: Backup Configuration → Contents tab.</figcaption>
+        </figure>
+
+        <h4>Database Backup Type (radio)</h4>
+        <table>
+          <thead><tr><th>Option</th><th>Includes</th></tr></thead>
+          <tbody>
+            <tr><td>Full PostgreSQL Backup</td><td>Both the n8n and management databases — the standard choice.</td></tr>
+            <tr><td>n8n Database Only</td><td>Just n8n's database. Smaller, faster, but loses the management console's own state if restored.</td></tr>
+            <tr><td>Management Database Only</td><td>Only the management database. Useful for management-config-only restores.</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Additional Files (checkbox)</h4>
+        <table>
+          <thead><tr><th>Option</th><th>What it captures</th></tr></thead>
+          <tbody>
+            <tr><td>n8n Configuration Files</td><td>n8n's workflow settings and node configurations.</td></tr>
+            <tr><td>SSL Certificates</td><td>Let's Encrypt certs and private keys.</td></tr>
+            <tr><td>Environment Files</td><td>Your <code>.env</code> file and friends.</td></tr>
+            <tr><td>Public Website Files</td><td>FileBrowser database and the public_web_root volume.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Including SSL Certificates and Environment Files means the backup archive contains <em>secrets</em> (private keys, API tokens, database passwords). Treat backup files as sensitive — encrypt at rest, restrict access on the destination, never commit to git.</div>
+      </section>
+
+      <section id="config-retention">
+        <h3>Retention tab (GFS)</h3>
+        <p>Retention controls when backups age out. The console implements a <strong>GFS (Grandfather-Father-Son)</strong> retention policy: keep frequent backups recent, less-frequent backups longer.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-11-config-retention.png" alt="Backup Configuration Retention tab showing Tiered Retention Policy with an Automatic Retention toggle, an explanatory section about how GFS works, and three retention tiers (Daily Son, Weekly Father, Monthly Grandfather) each with a Keep for input field and current values 7 days 4 weeks 6 months">
+          <figcaption>Figure 7: Backup Configuration → Retention tab.</figcaption>
+        </figure>
+
+        <h4>The three GFS tiers</h4>
+        <table>
+          <thead><tr><th>Tier</th><th>Default</th><th>Use case</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Daily (Son)</strong></td><td>Keep 7 daily backups</td><td>Quick recovery from yesterday's mistake.</td></tr>
+            <tr><td><strong>Weekly (Father)</strong></td><td>Keep 4 weekly backups</td><td>Recover from issues discovered a week or two later.</td></tr>
+            <tr><td><strong>Monthly (Grandfather)</strong></td><td>Keep 6 monthly backups</td><td>Long-tail archives — quarterly audits, "I need to see what we had in March" requests.</td></tr>
+          </tbody>
+        </table>
+
+        <p>With defaults, the rotation keeps roughly: 7 days at daily granularity + 4 weeks at weekly + 6 months at monthly = ~6 months of usable history with about 17 backup files retained at any time, regardless of how many runs occur in between.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> If your destination has lots of space and you want longer history, raise Monthly to 12 (a year) before raising Daily — the marginal storage cost of one extra monthly file is much smaller than seven additional daily files.</div>
+      </section>
+
+      <section id="config-compression">
+        <h3>Compression tab</h3>
+        <p>Toggle compression on or off and (where exposed) pick a compression level. Active by default.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-12-config-compression.png" alt="Backup Configuration Compression tab showing Compression Settings with the toggle marked Active">
+          <figcaption>Figure 8: Backup Configuration → Compression tab.</figcaption>
+        </figure>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Leave compression on. PostgreSQL dumps compress extremely well (often 5–10× reduction). The CPU cost is negligible compared to the disk and network savings.</div>
+      </section>
+
+      <section id="config-verification">
+        <h3>Verification tab</h3>
+        <p>Auto-verification re-reads each backup after it's written and confirms it can be restored cleanly. Highly recommended.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-13-config-verification.png" alt="Backup Configuration Verification tab showing Auto-Verification toggle, Verification Frequency options (Every backup, Every 3rd, Every 5th, Every 10th, custom), and a What does verification do section explaining it validates archive integrity, verifies the database dump can be read by PostgreSQL, and confirms checksums">
+          <figcaption>Figure 9: Backup Configuration → Verification tab.</figcaption>
+        </figure>
+
+        <h4>Frequency presets</h4>
+        <ul>
+          <li><strong>Every backup</strong> — verify every run. Safest, double the I/O.</li>
+          <li><strong>Every 3rd / 5th / 10th</strong> — periodic spot-check. Good middle ground.</li>
+          <li><strong>Custom</strong> — set your own N.</li>
+        </ul>
+
+        <h4>What verification actually does</h4>
+        <ul>
+          <li>Validates archive integrity (decompresses without error, no corruption).</li>
+          <li>Confirms the database dump can be re-read by PostgreSQL.</li>
+          <li>Compares stored checksums against expected values.</li>
+        </ul>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> Verification is your only line of defense against silent corruption. An unverified backup can <em>seem</em> fine right up until you try to restore it on the worst possible day. Leave Auto-Verification on, even if you set frequency to every 5th.</div>
+      </section>
+
+      <section id="config-notifications">
+        <h3>Notifications tab</h3>
+        <p>This tab is a pointer rather than a configuration surface — it explains that backup notifications are routed through the global <a href="settings.html#sys-notifications">System Notifications</a> system and provides a button to open it.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/backups-14-config-notifications.png" alt="Backup Configuration Notifications tab with Backup Notifications heading, an explanatory paragraph about backup events, and an Open System Notifications button">
+          <figcaption>Figure 10: Backup Configuration → Notifications tab.</figcaption>
+        </figure>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Backup notifications use the same channels and rules as every other system event. Configure them once globally — see <a href="notifications.html">Notifications</a> and <a href="settings.html#sys-notifications">Settings → System Notifications</a>.</div>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="flows.html">← Flows</a>
+        <a class="next" href="notifications.html">Notifications →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>

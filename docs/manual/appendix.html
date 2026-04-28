@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Appendix — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="appendix">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+        <li><a href="#tb-mount-fail">— AppArmor / mount fails</a></li>
+        <li><a href="#tb-ssl">— SSL renewal timeouts</a></li>
+        <li><a href="#tb-stuck-alpine">— Stuck Alpine containers</a></li>
+        <li><a href="#tb-cache-stale">— Stale cached data</a></li>
+        <li><a href="#tb-auth-locked">— Locked out of the console</a></li>
+        <li><a href="#tb-filebrowser">— File Browser issues</a></li>
+        <li><a href="#tb-symptoms">— Symptom → section</a></li>
+        <li><a href="#security-index">Security Flag Index</a></li>
+        <li><a href="#quick-ref">Quick reference</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>Appendix</h1>
+      <p class="lede">Reference material: troubleshooting tables, the master index of every screenshot in this manual that requires blurring before publishing, and a few quick-reference sections.</p>
+
+      <section id="troubleshooting">
+        <h2>Troubleshooting</h2>
+        <p>This is the manual's quick-symptom triage table. Each entry points to the relevant page in the manual or to one of the canonical detail docs.</p>
+      </section>
+
+      <section id="tb-mount-fail">
+        <h3>"Failed to start restore container" / Selective Restore mount fails silently</h3>
+        <p><strong>Symptom:</strong> Clicking <strong>Selective Restore → Mount Backup</strong> spins for a few seconds and reverts to the "Mount Backup" prompt without an error toast (or with one that disappears too quickly to read). The verification or mount API call returns HTTP 200 with body <code>{"status":"failed","error":"Failed to start restore container"}</code>.</p>
+
+        <p><strong>Cause:</strong> The management container's Python code spawns a temporary helper container (PostgreSQL or Alpine) via a <code>docker run</code> shell call. When the management container itself runs inside an unprivileged LXC, Docker can't apply the default AppArmor profile to a child container — it needs <code>--security-opt apparmor=unconfined</code> on the spawn command. If a recently-added <code>docker run</code> shell call missed the flag, every helper-spawn fails.</p>
+
+        <p><strong>Fix:</strong> Search the management API codebase for missing flags:</p>
+        <pre><code>grep -rn '"docker", "run"' management/api/ --include="*.py"</code></pre>
+        <p>Each match should have <code>"--security-opt", "apparmor=unconfined",</code> in the args list. Affects: <code>restore_service.py</code>, <code>verification_service.py</code>, and (historically) <code>tasks/scheduler.py</code>, <code>routers/system.py</code>, <code>routers/terminal.py</code>.</p>
+
+        <p><strong>Where to look for the actual error:</strong> <code>docker logs n8n_management</code> only shows supervisord events. The Python traceback is in <code>/app/logs/uvicorn.log</code> inside the container:</p>
+        <pre><code>docker exec n8n_management tail -200 /app/logs/uvicorn.log</code></pre>
+      </section>
+
+      <section id="tb-ssl">
+        <h3>SSL Force Renewal times out from the UI</h3>
+        <p><strong>Symptom:</strong> Clicking <strong>Force Renew</strong> on the <a href="system.html#health-ssl">System → SSL Certificates</a> card returns a timeout error in the browser, but checking afterward shows the certificate was actually renewed.</p>
+
+        <p><strong>Cause:</strong> Certbot's default random sleep delay (up to 8 minutes) exceeded the previous web request timeout.</p>
+
+        <p><strong>Fix:</strong> The Management Console now uses <code>--no-random-sleep-on-renew</code> automatically and waits up to 5 minutes. Pull the latest management image:</p>
+        <pre><code>docker compose pull n8n_management
+docker compose up -d n8n_management</code></pre>
+
+        <p><strong>Related issues:</strong></p>
+        <ul>
+          <li><strong>Missing dns-cloudflare plugin</strong> — set <code>DNS_CERTBOT_IMAGE=certbot/dns-cloudflare</code> in <code>.env</code> and recreate the certbot container.</li>
+          <li><strong>Broken cert symlinks</strong> — after manual renewals the <code>/etc/letsencrypt/live/&lt;domain&gt;/*.pem</code> symlinks may point to an older archive version. Recreate them to point at the highest-numbered file in <code>archive/</code>.</li>
+        </ul>
+
+        <p>See the canonical <a href="../CERTBOT.md">Certbot guide</a> for the full rate-limit table and DNS provider setup details.</p>
+      </section>
+
+      <section id="tb-stuck-alpine">
+        <h3>Many Alpine containers stuck in "Created" state</h3>
+        <p><strong>Symptom:</strong> Running <code>docker ps -a --filter "ancestor=alpine:latest"</code> shows dozens of orphaned Alpine containers in <code>Created</code> state that never ran. Common when running Docker inside an LXC.</p>
+
+        <p><strong>Cause:</strong> The host's AppArmor profile blocks Alpine containers from starting inside an unprivileged LXC. The container is created but cannot transition to running state.</p>
+
+        <p><strong>Solution:</strong> The Management Suite spawns short-lived Alpine containers for system metrics collection and SSL renewal. As of the AppArmor fix, all such containers are launched with <code>security_opt=["apparmor=unconfined"]</code>. Pull the latest image and clean up orphans:</p>
+        <pre><code>docker compose pull n8n_management
+docker compose up -d n8n_management
+docker ps -a --filter "ancestor=alpine:latest" --filter "status=created" -q | xargs -r docker rm -f
+docker ps -a --filter "ancestor=alpine:latest" --filter "status=exited" -q | xargs -r docker rm -f</code></pre>
+      </section>
+
+      <section id="tb-cache-stale">
+        <h3>Stale data showing in tabs</h3>
+        <p><strong>Symptom:</strong> A container you just stopped still appears running. A backup that just completed isn't in the history yet. Network metrics not updating.</p>
+
+        <p><strong>Cause:</strong> The management console's data collectors pre-populate Redis with snapshots; tabs read from Redis. If a collector is stuck or Redis is in an odd state, you see a stale snapshot.</p>
+
+        <p><strong>Fix:</strong></p>
+        <ol class="steps">
+          <li>Go to <a href="system.html#cache">System → Cache</a> and check Data Collectors statuses.</li>
+          <li>If a specific collector is failing, restart the <code>n8n_status</code> container.</li>
+          <li>If the entire cache is suspect, click <strong>Flush</strong> on the Cache tab. The cache will rebuild within ~30 seconds.</li>
+          <li>For an immediate force-refresh on a single page, hit the page's Refresh button (typically top-right).</li>
+        </ol>
+      </section>
+
+      <section id="tb-auth-locked">
+        <h3>Locked out of the management console</h3>
+        <p><strong>Symptom:</strong> Login fails with valid-looking credentials, or the account is locked due to too many failed attempts.</p>
+
+        <p><strong>Recovery:</strong> Reset password via CLI inside the management container.</p>
+
+        <pre><code>docker exec n8n_management python -c "
+from core.database import SessionLocal
+from models.user import User
+from core.security import get_password_hash
+db = SessionLocal()
+user = db.query(User).filter(User.username == 'admin').first()
+user.hashed_password = get_password_hash('new-password-here')
+user.failed_login_attempts = 0
+user.locked_until = None
+db.commit()
+print('Password updated, account unlocked')
+"</code></pre>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> The management container only contains one user by design. If <em>that</em> account is the one locked, you must use this CLI path — there's no second admin to log in and reset for you.</div>
+      </section>
+
+      <section id="tb-filebrowser">
+        <h3>File Browser issues</h3>
+        <table>
+          <thead><tr><th>Symptom</th><th>Likely fix</th></tr></thead>
+          <tbody>
+            <tr><td>File Browser shows its own login prompt instead of using management console session</td><td>Confirm <code>.filebrowser.json</code> has <code>"auth": {"method": "proxy", "header": "X-Remote-User"}</code>.</td></tr>
+            <tr><td>500 error when opening <code>/files/</code></td><td>Check <code>docker logs n8n_nginx --tail 50 | grep files</code>. Often the <code>auth_request</code> directive is misconfigured.</td></tr>
+            <tr><td>UI partially loads, CSS/JS missing</td><td>Confirm <code>.filebrowser.json</code> has <code>"baseURL": "/files"</code>.</td></tr>
+            <tr><td>iframe too small in management console</td><td>Was fixed in PR #322. Pull latest <code>n8n_management</code> image and recreate.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="tb-symptoms">
+        <h3>Symptom → section</h3>
+        <table>
+          <thead><tr><th>You see this</th><th>Go here</th></tr></thead>
+          <tbody>
+            <tr><td>Backup history shows red Failed status</td><td><a href="backups.html#history">Backups → Backup History</a></td></tr>
+            <tr><td>Unhealthy count > 0 on Dashboard or Containers</td><td><a href="containers.html#health-badges">Containers → Health badges</a></td></tr>
+            <tr><td>Workflow toggle does nothing</td><td><a href="flows.html#api-integration">Flows → n8n API integration</a> (likely missing API key)</td></tr>
+            <tr><td>SSL Certificates card shows < 7 days valid</td><td><a href="system.html#health-ssl">System → SSL Certificates</a> (Force Renew or wait for auto-renewal)</td></tr>
+            <tr><td>Notifications not arriving</td><td><a href="notifications.html#channels">Notifications → Channels</a> (test the channel)</td></tr>
+            <tr><td>Page shows "loading" or blank tiles</td><td><a href="system.html#cache">System → Cache</a> (check collectors)</td></tr>
+            <tr><td>Need to recover from a corrupted host</td><td><a href="backups.html#bare-metal">Backups → Bare Metal</a></td></tr>
+            <tr><td>Want to roll back a single workflow</td><td><a href="backups.html#selective-restore">Backups → Selective Restore</a></td></tr>
+          </tbody>
+        </table>
+
+        <p>For symptoms not covered here, the canonical full troubleshooting document is <a href="../TROUBLESHOOTING.md">TROUBLESHOOTING.md</a>.</p>
+      </section>
+
+      <section id="security-index">
+        <h2>Security Flag Index</h2>
+        <p>Screenshots in this manual that contain sensitive data. Blur the indicated regions before publishing or sharing this manual outside your organization.</p>
+
+        <table>
+          <thead><tr><th>Page</th><th>Screenshot</th><th>What's exposed / what to blur</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><a href="notifications.html#ntfy">Notifications</a></td>
+              <td><code>notifications-07-ntfy-push-tab.png</code></td>
+              <td>NTFY topic name, NTFY server URL, any auth tokens visible under the Settings sub-tab.</td>
+            </tr>
+            <tr>
+              <td><a href="notifications.html#n8n-webhook">Notifications</a></td>
+              <td><code>notifications-14-n8n-webhook-expanded.png</code></td>
+              <td>Webhook URL (deployment hostname) and the API Key used to authenticate to it. The API Key is a credential — rotate it if leaked.</td>
+            </tr>
+            <tr>
+              <td><a href="settings.html#access-control">Settings</a></td>
+              <td><code>settings-04-access-control.png</code></td>
+              <td>Full nginx route inventory (every URL the stack serves) and direct-access CIDR allowlist (internal subnets).</td>
+            </tr>
+            <tr>
+              <td><a href="settings.html#api-debug">Settings</a></td>
+              <td><code>settings-07-n8n-api-debug.png</code></td>
+              <td>n8n API key (shown truncated but exposed in full via the Update API Key dialog).</td>
+            </tr>
+            <tr>
+              <td><a href="settings.html#env-editor">Settings</a></td>
+              <td><code>settings-08-environment-editor.png</code></td>
+              <td>Category structure of the environment editor. Variable values are revealed when categories are expanded.</td>
+            </tr>
+            <tr>
+              <td><a href="settings.html#env-editor">Settings</a></td>
+              <td><code>settings-09-environment-required-expanded.png</code></td>
+              <td><code>DOMAIN</code> and <code>N8N_MANAGEMENT_HOST_IP</code> values shown in plain text. Other categories (Database Configuration, Security &amp; Authentication, Cloudflare Tunnel, Tailscale VPN, n8n API Integration) expose <em>secrets</em> when expanded.</td>
+            </tr>
+            <tr>
+              <td><a href="system.html#network">System</a></td>
+              <td><code>system-05-network.png</code></td>
+              <td>Internal IPs, MAC addresses, Cloudflare tunnel ID, Tailscale node info (login email + tailnet IP), edge-location identifiers.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Inline security flags (the red badges below specific figures throughout the manual) are the source of truth for this index. If you add a new flagged figure, add a corresponding row here.</div>
+      </section>
+
+      <section id="quick-ref">
+        <h2>Quick reference</h2>
+
+        <h3>Default ports</h3>
+        <table>
+          <thead><tr><th>Port</th><th>Service</th></tr></thead>
+          <tbody>
+            <tr><td>80 / 443</td><td>nginx (public website + management console)</td></tr>
+            <tr><td>5678</td><td>n8n itself (proxied through nginx)</td></tr>
+            <tr><td>5432</td><td>PostgreSQL (n8n + management DBs)</td></tr>
+            <tr><td>6379</td><td>Redis (cache)</td></tr>
+            <tr><td>8000</td><td>Management API uvicorn (proxied through nginx as <code>/management/api/</code>)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Key paths inside the management container</h3>
+        <table>
+          <thead><tr><th>Path</th><th>Contents</th></tr></thead>
+          <tbody>
+            <tr><td><code>/app/api/</code></td><td>FastAPI Python source</td></tr>
+            <tr><td><code>/app/logs/uvicorn.log</code></td><td>Application stdout (FastAPI request logs and Python <code>print()</code>)</td></tr>
+            <tr><td><code>/app/logs/uvicorn_error.log</code></td><td>Application stderr (Python tracebacks)</td></tr>
+            <tr><td><code>/app/logs/supervisord.log</code></td><td>Supervisor lifecycle events</td></tr>
+            <tr><td><code>/app/backups/</code></td><td>Local backup staging area</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Useful one-liners</h3>
+        <pre><code># Tail application logs
+docker exec n8n_management tail -200 /app/logs/uvicorn.log
+
+# Find every docker run call in the API code (for AppArmor audit)
+grep -rn '"docker", "run"' management/api/ --include="*.py"
+
+# Force-refresh the Redis cache
+redis-cli FLUSHDB
+
+# Check certificate expiration
+docker exec n8n_nginx openssl x509 -in /etc/letsencrypt/live/your-domain.com/fullchain.pem -noout -dates
+
+# Clean orphaned Alpine containers
+docker ps -a --filter "ancestor=alpine:latest" --filter "status=exited" -q | xargs -r docker rm -f</code></pre>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="settings.html">← Settings</a>
+        <a class="next" href="index.html">Home →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>

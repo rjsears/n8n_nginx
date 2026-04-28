@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flows — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="flows">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#summary-cards">Summary cards</a></li>
+        <li><a href="#search-filters">Search &amp; filters</a></li>
+        <li><a href="#workflow-list">Workflow list</a></li>
+        <li><a href="#toggle">Toggling active/inactive</a></li>
+        <li><a href="#executions">Recent Executions</a></li>
+        <li><a href="#api-integration">n8n API integration</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>Flows</h1>
+      <p class="lede">The Flows page lets you see, filter, and toggle every n8n workflow without leaving the management console. It's a thin operational layer over n8n's API: read-only for inspection, plus an activate-toggle and an execute-now action for the workflows that support them.</p>
+
+      <div class="info-box note">📝 <strong>Note for the editor:</strong> The screenshot on this page was captured against a test deployment with all workflows inactive and zero executions. Several panels show empty/zero state. After activating workflows and running them on your deployment, re-capture <code>flows-01-overview.png</code> for production-quality visuals.</div>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>The page has four bands top to bottom: a header with title and Refresh button, a row of four summary cards, a search/filter bar, and the main listing — a collapsible Workflows panel and a collapsible Recent Executions panel. The screenshot below shows everything; subsequent sections describe each area.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/flows-01-overview.png" alt="Flows page showing the Workflows header, four summary cards (Total Workflows, Active, Inactive, Executions), a search bar with status filter pills, a Workflows list with three test notification workflows, a Recent Executions panel, and a blue informational note about n8n API integration">
+          <figcaption>Figure 1: Flows page — full overview.</figcaption>
+        </figure>
+      </section>
+
+      <section id="summary-cards">
+        <h2>Summary cards</h2>
+        <p>Four cards across the top show workflow counts at a glance:</p>
+        <table>
+          <thead><tr><th>Card</th><th>Counts</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Total Workflows</strong></td><td>Every workflow in n8n that the management console can see.</td></tr>
+            <tr><td><strong>Active</strong></td><td>Workflows currently in the active state — eligible to fire on triggers (cron, webhook, etc.).</td></tr>
+            <tr><td><strong>Inactive</strong></td><td>Workflows that exist but are toggled off.</td></tr>
+            <tr><td><strong>Executions</strong></td><td>Cumulative execution count across all workflows. Compare against the <strong>Recent Executions</strong> panel for the most recent activity.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="search-filters">
+        <h2>Search &amp; filters</h2>
+        <p>The search row offers a free-text search box and four state filter pills.</p>
+
+        <h3>Filter pills</h3>
+        <table>
+          <thead><tr><th>Pill</th><th>Shows</th></tr></thead>
+          <tbody>
+            <tr><td><strong>All</strong></td><td>Every workflow regardless of state (default).</td></tr>
+            <tr><td><strong>Active</strong></td><td>Only currently-active workflows.</td></tr>
+            <tr><td><strong>Inactive</strong></td><td>Only currently-inactive workflows.</td></tr>
+            <tr><td><strong>Archived</strong></td><td>Workflows that n8n has archived (soft-deleted). Available if your n8n version supports archiving.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Each pill shows a live count in parentheses. The numbers always sum to the <strong>Total Workflows</strong> card above.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Search and filters compose. Type a name fragment in the search box <em>and</em> click <strong>Active</strong> to find only the active workflows whose name matches.</div>
+      </section>
+
+      <section id="workflow-list">
+        <h2>Workflow list</h2>
+        <p>The Workflows panel renders matched workflows as rows with four columns:</p>
+        <table>
+          <thead><tr><th>Column</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Name</strong></td><td>The workflow's display name from n8n. Click anywhere on the row to expand for metadata.</td></tr>
+            <tr><td><strong>Status</strong></td><td>Pill showing <code>Active</code> (green) or <code>Inactive</code> (gray).</td></tr>
+            <tr><td><strong>ID</strong></td><td>n8n's internal workflow ID. Useful for API calls and webhook URL construction.</td></tr>
+            <tr><td><strong>Toggle</strong></td><td>Activate/deactivate switch — see the next section.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="toggle">
+        <h2>Toggling active/inactive</h2>
+        <p>The right-side <strong>Toggle</strong> switch flips the workflow between active and inactive without leaving the management console. Activation requires <code>N8N_API_KEY</code> to be set — see <a href="#api-integration">n8n API integration</a> below.</p>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Activating a workflow with a <strong>cron / scheduled trigger</strong> means it will fire at its scheduled time without further interaction. Make sure you've reviewed the workflow's nodes in n8n before flipping the toggle. Activating a workflow with a misconfigured destination (wrong API key, wrong webhook target) can produce unexpected side effects in downstream systems.</div>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> The management console's API integration may allow activating workflows that the n8n UI itself would reject as misconfigured. Always verify configuration in n8n first.</div>
+      </section>
+
+      <section id="executions">
+        <h2>Recent Executions</h2>
+        <p>Below the workflows panel is the Recent Executions card. It shows a count summary (e.g., <em>0 success, 0 total</em>) and a chevron to expand a per-execution list of the last 20 runs.</p>
+
+        <p>When expanded, each row in Recent Executions shows the workflow name, start time, duration, status (success / error / running), and any execution-level error message. Use this to spot recent failures without leaving the management console.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> For deeper inspection of a specific execution — node-by-node output, retry, manual run from a checkpoint — open the workflow in n8n itself. The management console's Recent Executions is a triage view, not a full debugger.</div>
+      </section>
+
+      <section id="api-integration">
+        <h2>n8n API integration</h2>
+        <p>The bottom of the page hosts an information panel describing the prerequisite for activate / execute features: a configured <code>N8N_API_KEY</code> in the management console's environment.</p>
+
+        <h3>What requires the API key</h3>
+        <ul>
+          <li>Activating / deactivating a workflow via the Toggle switch.</li>
+          <li>Executing a workflow on demand (the in-row Execute action, where supported).</li>
+        </ul>
+
+        <h3>What still works without it</h3>
+        <ul>
+          <li>Listing workflows.</li>
+          <li>Viewing workflow IDs and current status.</li>
+          <li>Reading recent execution history.</li>
+        </ul>
+
+        <h3>Webhook-triggered workflows</h3>
+        <p>Workflows whose first node is a Webhook trigger cannot be invoked via n8n's <code>execute</code> API — they must be triggered by hitting their webhook URL directly. The Execute action will be either disabled or non-functional for those. To trigger them, find the URL in n8n's webhook node configuration.</p>
+
+        <div class="info-box note">📝 <strong>Note:</strong> The <code>N8N_API_KEY</code> value lives in <code>.env</code> alongside the other deployment secrets. To rotate it, regenerate in n8n's Settings → API, update <code>.env</code>, and recreate the management container (see <a href="containers.html#actions">Containers → Per-container actions</a>).</div>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="containers.html">← Containers</a>
+        <a class="next" href="backups.html">Backups →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>

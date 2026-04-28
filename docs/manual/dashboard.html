@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="dashboard">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#header">The header bar</a></li>
+        <li><a href="#stats-cards">Stats cards</a></li>
+        <li><a href="#charts">History charts</a></li>
+        <li><a href="#docker-containers">Docker containers</a></li>
+        <li><a href="#network-io">Network I/O</a></li>
+        <li><a href="#theme-toggle">Light &amp; dark themes</a></li>
+        <li><a href="#help">Help &amp; Documentation</a></li>
+        <li><a href="#about">About</a></li>
+        <li><a href="#refresh-behavior">Refresh behavior</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>Dashboard</h1>
+      <p class="lede">The Dashboard is the home view after login. It surfaces the most-needed at-a-glance information about your n8n stack: real-time resource usage, history charts, container status, and network throughput. Use it as a starting point — drill into any section via the top navigation.</p>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>The Dashboard renders a single-screen "System Overview" panel: a row of four stats cards along the top (CPU, Memory, Disk, Uptime), CPU and Memory history charts below them, then a Docker Containers panel and a Network I/O panel, and finally Download / Upload history charts at the bottom.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/dashboard-01-overview.png" alt="Full Dashboard view showing System Overview heading, four stats cards across the top, CPU and Memory history charts, Docker Containers and Network I/O panels, and Download/Upload history charts at the bottom">
+          <figcaption>Figure 1: The full Dashboard view.</figcaption>
+        </figure>
+
+        <div class="info-box note">📝 <strong>Note:</strong> The Dashboard is read-only. To take action on a container, workflow, or backup, use the corresponding section from the top navigation.</div>
+      </section>
+
+      <section id="header">
+        <h2>The header bar</h2>
+        <p>The header is consistent across every page in the management console. It provides primary navigation and four utility actions in the top-right. You can see it at the very top of <a href="#overview">Figure 1</a> above.</p>
+
+        <h3>Sections (left to right)</h3>
+        <table>
+          <thead>
+            <tr><th>Item</th><th>Behavior</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>n8n Management</strong> logo</td><td>Click to return to the Dashboard from any page.</td></tr>
+            <tr><td>Dashboard / Backups / Notifications / Containers / Flows / System / Settings</td><td>Top-level section links. The active section is highlighted.</td></tr>
+            <tr><td>❓ <strong>Help &amp; Documentation</strong></td><td>Opens the Help modal — see <a href="#help">below</a>.</td></tr>
+            <tr><td>ℹ️ <strong>About</strong></td><td>Opens the About modal — see <a href="#about">below</a>.</td></tr>
+            <tr><td>🌙 / ☀️ <strong>Theme toggle</strong></td><td>Switches between light and dark themes — see <a href="#theme-toggle">Light &amp; dark themes</a>.</td></tr>
+            <tr><td>Username</td><td>Displays the currently logged-in user. Not interactive.</td></tr>
+            <tr><td>↪ <strong>Logout</strong></td><td>Ends the current session and returns to the login screen.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Clicking <strong>Logout</strong> immediately ends your session. There is no confirmation dialog. If you have unsaved work in another tab (e.g., an n8n editor), save it before logging out.</div>
+      </section>
+
+      <section id="stats-cards">
+        <h2>Stats cards</h2>
+        <p>The top row shows four real-time metric cards: <strong>CPU Usage</strong>, <strong>Memory Usage</strong>, <strong>Disk Usage</strong>, and <strong>Uptime</strong>. The first three render a percentage value with a horizontal progress bar that fills proportionally to current load; the fourth shows total host uptime since last reboot, formatted as days and hours.</p>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> <strong>Disk Usage</strong> tracks the filesystem the management container has access to — typically the host's root volume. If your backups land on a separate NFS mount, this gauge does <strong>not</strong> reflect NFS capacity. Check NFS status under <a href="settings.html#environment">Settings → Environment → NFS Backup Storage</a>.</div>
+      </section>
+
+      <section id="charts">
+        <h2>History charts</h2>
+        <p>Two pairs of line charts (CPU/Memory above, Download/Upload below) plot the corresponding metric over the last hour. Each data point is a sampling captured by the n8n_status data collector. The X-axis is time (HH:MM), the Y-axis is the metric value with appropriate units.</p>
+
+        <p>On a healthy host, CPU stays under 20% with brief spikes during workflow execution. Memory plots a relatively flat line. Network throughput is bursty — quiet for long stretches with sudden spikes during backups or webhook traffic.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Sustained high CPU often signals a workflow stuck in a tight loop. Cross-reference with the <a href="flows.html#executions">Executions list</a> to find the offending workflow, or use the <a href="containers.html">Containers page</a> to check per-container CPU.</div>
+
+        <div class="info-box note">📝 <strong>Note:</strong> The chart line represents <em>host</em> resources. Container-level metrics live on the <a href="containers.html#expanded-row">expanded container row</a>.</div>
+      </section>
+
+      <section id="docker-containers">
+        <h2>Docker containers</h2>
+        <p>The Docker Containers panel surfaces the count and health of every container the management console can see. The big number on the top-left is the total running count; below it, four sub-stats break the population down by state.</p>
+
+        <h3>Sub-stat behavior</h3>
+        <table>
+          <thead>
+            <tr><th>Sub-stat</th><th>Meaning</th><th>On click</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Running</strong></td><td>Containers in <code>running</code> state.</td><td>Jumps to <a href="containers.html">Containers</a> filtered by running state.</td></tr>
+            <tr><td><strong>Stopped</strong></td><td>Containers in <code>exited</code> or <code>stopped</code> state.</td><td>Jumps to Containers filtered by stopped state.</td></tr>
+            <tr><td><strong>Healthy</strong></td><td>Containers reporting healthy from their Docker healthcheck.</td><td>Jumps to Containers filtered by healthy.</td></tr>
+            <tr><td><strong>Unhealthy</strong></td><td>Containers reporting unhealthy or with a failing healthcheck.</td><td>Jumps to Containers filtered by unhealthy. Investigate immediately.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> An <strong>Unhealthy</strong> count above zero means at least one container's Docker healthcheck is failing. Click the sub-stat or visit <a href="containers.html">Containers</a> to identify which, then check its logs before restarting.</div>
+      </section>
+
+      <section id="network-io">
+        <h2>Network I/O</h2>
+        <p>Real-time download and upload throughput for the host's primary interface, with current values shown alongside the live history charts at the bottom of the dashboard. Throughput is shown in human-readable units (B/s, KB/s, MB/s as appropriate). Values update every few seconds.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> A sudden upload spike often correlates with a backup uploading to off-site storage. Cross-reference with <a href="backups.html#history">Backups → History</a> to confirm.</div>
+      </section>
+
+      <section id="theme-toggle">
+        <h2>Light &amp; dark themes</h2>
+        <p>The third icon button in the top-right corner of the header toggles between light and dark themes. The choice is persisted to your browser's local storage and survives navigation, refresh, and re-login.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/dashboard-14-dark-overview.png" alt="Full Dashboard view with the dark theme applied: dark backgrounds, light text, and dimmed chart colors">
+          <figcaption>Figure 2: The Dashboard rendered in dark theme.</figcaption>
+        </figure>
+
+        <div class="info-box note">📝 <strong>Note:</strong> The theme is per-browser, not per-user. Logging in from a different browser shows the default theme until toggled.</div>
+      </section>
+
+      <section id="help">
+        <h2>Help &amp; Documentation</h2>
+        <p>The Help button (❓ icon, fourth from left in the top-right group) opens a modal with curated links to API documentation, user guides, infrastructure docs, and project resources. Every link opens in a new browser tab.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/dashboard-19-help-modal.png" alt="Help and Documentation modal showing four sections of links: API Documentation (Swagger UI, ReDoc, OpenAPI Schema), User Guides (Backup Guide, API Reference, Notifications Setup, Troubleshooting), Infrastructure Docs (Cloudflare Setup, Tailscale Setup, Certbot SSL, Migration Guide), and Project Resources (GitHub Repository, README)">
+          <figcaption>Figure 3: Help &amp; Documentation modal.</figcaption>
+        </figure>
+
+        <h3>What's linked</h3>
+        <table>
+          <thead>
+            <tr><th>Group</th><th>Link</th><th>Goes to</th></tr>
+          </thead>
+          <tbody>
+            <tr><td rowspan="3">API Documentation</td><td>Swagger UI</td><td>Interactive API explorer with try-it-out</td></tr>
+            <tr><td>ReDoc</td><td>Clean, readable API reference</td></tr>
+            <tr><td>OpenAPI Schema</td><td>Raw OpenAPI JSON specification</td></tr>
+            <tr><td rowspan="4">User Guides</td><td>Backup Guide</td><td>Backup and restore documentation</td></tr>
+            <tr><td>API Reference</td><td>API endpoints and usage examples</td></tr>
+            <tr><td>Notifications Setup</td><td>Email and NTFY configuration</td></tr>
+            <tr><td>Troubleshooting</td><td>Common issues and solutions</td></tr>
+            <tr><td rowspan="4">Infrastructure Docs</td><td>Cloudflare Setup</td><td>Cloudflare tunnel and DNS configuration</td></tr>
+            <tr><td>Tailscale Setup</td><td>Tailscale VPN integration</td></tr>
+            <tr><td>Certbot SSL</td><td>SSL certificate management</td></tr>
+            <tr><td>Migration Guide</td><td>Upgrading from previous versions</td></tr>
+            <tr><td rowspan="2">Project Resources</td><td>GitHub Repository</td><td>Source code and issue tracker</td></tr>
+            <tr><td>README</td><td>Project overview and quick start</td></tr>
+          </tbody>
+        </table>
+
+        <p>To close the modal, click <strong>Close</strong> at the bottom, click outside the modal area, or press <kbd>Esc</kbd>.</p>
+
+        <div class="info-box note">📝 <strong>Note:</strong> The User Guides and Infrastructure Docs linked above (Backup Guide, API Reference, Notifications Setup, Troubleshooting, Cloudflare Setup, Tailscale Setup, Certbot SSL, Migration Guide) are being rebuilt as fully-styled extensions of <em>this</em> manual — same look, same navigation, same theme. As each one is converted, the link will point to its new home under <code>docs/manual/</code>. The API Documentation links (Swagger UI, ReDoc, OpenAPI Schema) will continue to point to the live FastAPI-generated endpoints since those are dynamic.</div>
+      </section>
+
+      <section id="about">
+        <h2>About</h2>
+        <p>The About button (ℹ️ icon, fifth from left in the top-right group) opens a modal showing the management console version, build date, developer credit, and a link to the GitHub project.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/dashboard-20-about-modal.png" alt="About modal showing application name n8n Management Console, version number v3.0.0, a build date, the developer's name and email address, and a View on GitHub link">
+          <figcaption>Figure 4: About modal — version 3.0.0.</figcaption>
+        </figure>
+      </section>
+
+      <section id="refresh-behavior">
+        <h2>Refresh behavior</h2>
+        <p>Every card on the Dashboard auto-refreshes at a configurable interval (default: 30 seconds). There is no explicit "Refresh" button on the Dashboard — data is always live within the auto-refresh window.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Need to force a snapshot right now? Reload the browser (<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>R</kbd>) — every panel re-fetches on page load.</div>
+
+        <p>The auto-refresh interval is set globally and applies across all sections of the management console. To change it, see <a href="settings.html">Settings</a>.</p>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> Lowering the refresh interval below 10 seconds increases load on both the host (resource sampling) and the management API. Only do so if you are actively investigating fast-moving behavior, then revert.</div>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="index.html">← Home</a>
+        <a class="next" href="containers.html">Containers →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>
