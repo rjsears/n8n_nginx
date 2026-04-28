@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>System — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="system">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#health">Health tab</a></li>
+        <li><a href="#health-ssl">— SSL &amp; Force Renew</a></li>
+        <li><a href="#cache">Cache tab</a></li>
+        <li><a href="#network">Network tab</a></li>
+        <li><a href="#terminal">Terminal tab</a></li>
+        <li><a href="#files">Files tab</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>System</h1>
+      <p class="lede">The System page is your operations dashboard for the host: health snapshot, Redis cache state, network and tunnel integrations, in-browser terminal access, and a quick file manager. Most of this is read-only — to <em>change</em> a setting use the <a href="settings.html">Settings</a> page; to <em>act on</em> a container use <a href="containers.html">Containers</a>.</p>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>The header is a short title strip ("System / Server health, network, and terminal access"). Below it sit five top-level tabs:</p>
+        <table>
+          <thead><tr><th>Tab</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Health</strong></td><td>Top-level health summary plus a 3×3 grid of system status cards. Default view.</td></tr>
+            <tr><td><strong>Cache</strong></td><td>Redis cache status and the n8n_status data-collector service.</td></tr>
+            <tr><td><strong>Network</strong></td><td>External services list, host network configuration, Cloudflare Tunnel, Tailscale.</td></tr>
+            <tr><td><strong>Terminal</strong></td><td>In-browser shell access to the host or any container.</td></tr>
+            <tr><td><strong>Files</strong></td><td>Embedded File Browser for the public website volume.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="health">
+        <h2>Health tab</h2>
+        <p>The default view. The whole tab is a snapshot — a top banner with overall status counts (HEALTHY / DEGRADED / ERROR with Passed / Warnings / Errors counters and a Refresh button), then 9 cards covering different subsystems.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/system-01-overview-health.png" alt="System page Health tab showing the System Health HEALTHY banner with passed warnings and errors counts plus a Refresh button, and a 3 by 3 grid of status cards (Docker Containers, Core Services, n8n Database, Host System Resources, SSL Certificates, Management DB, Backups, Recent Logs, Docker Storage)">
+          <figcaption>Figure 1: System page — Health tab.</figcaption>
+        </figure>
+
+        <h3>The nine status cards</h3>
+        <table>
+          <thead><tr><th>Card</th><th>Shows</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Docker Containers</strong></td><td>Running / Stopped / Unhealthy counts. Mirrors <a href="containers.html#summary-and-list">Containers → Summary cards</a>.</td></tr>
+            <tr><td><strong>Core Services</strong></td><td>Confirms each front-line service responds: N8n Api, Nginx, Nginx Public, Management.</td></tr>
+            <tr><td><strong>n8n Database</strong></td><td>PostgreSQL connection status, version, user, database name for the n8n workflow DB.</td></tr>
+            <tr><td><strong>Host System Resources</strong></td><td>Disk / Memory / CPU usage with progress bars. Same data as the <a href="dashboard.html#stats-cards">Dashboard stats cards</a>.</td></tr>
+            <tr><td><strong>SSL Certificates</strong></td><td>Domain, days valid, expiry date, plus a <strong>Force Renew</strong> button. See below.</td></tr>
+            <tr><td><strong>Management DB</strong></td><td>Same fields as the n8n Database card but for the management console's own PostgreSQL database.</td></tr>
+            <tr><td><strong>Backups</strong></td><td>Recent (24h / 30d) success counts plus the last backup timestamp and total size.</td></tr>
+            <tr><td><strong>Recent Logs</strong></td><td>Error and warning counts in the last hour, broken down by container — useful for spotting a noisy service.</td></tr>
+            <tr><td><strong>Docker Storage</strong></td><td>Total disk consumed by Docker — images, volumes, build cache.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box note">📝 <strong>Note:</strong> The rollup banner (HEALTHY / DEGRADED / ERROR) is computed from every card. A single card showing WARNING bumps the banner to DEGRADED; a single ERROR bumps it to ERROR. Drill into the cards above to find which subsystem flipped.</div>
+      </section>
+
+      <section id="health-ssl">
+        <h3>SSL Certificates &amp; Force Renew</h3>
+        <p>The SSL Certificates card is the most-touched card on this page. It shows the certificate's domain, days remaining until expiration, exact expiry timestamp, and a green <strong>Force Renew</strong> button.</p>
+
+        <h4>Force Renew behavior</h4>
+        <p>Clicking <strong>Force Renew</strong> triggers an immediate Let's Encrypt renewal via the certbot container, bypassing certbot's normal "expires in less than 30 days" gate. The browser request waits up to 5 minutes for the operation to complete because DNS-01 challenges have propagation delays. The button uses <code>--no-random-sleep-on-renew</code> to skip certbot's default random delay.</p>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Force Renew consumes one of your <strong>Let's Encrypt rate-limit allowances</strong> (50 per registered domain per week, with stricter sub-limits). Don't click it as a "test" — only when you actually need a fresh certificate. See the canonical <a href="../CERTBOT.md">Certbot guide</a> for the full rate-limit table.</div>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> If renewal fails repeatedly, check that your DNS provider credentials in <code>.env</code> are still valid, and that your certbot container image matches your DNS provider (e.g., <code>certbot/dns-cloudflare</code>). Common error symptoms are documented in <a href="../TROUBLESHOOTING.md#sslcertificate-issues">Troubleshooting → SSL Certificate Issues</a>.</div>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> The Certbot container also runs an automatic background renewal every 12 hours that catches anything within 30 days of expiry. You shouldn't need Force Renew unless something specific has gone wrong.</div>
+      </section>
+
+      <section id="cache">
+        <h2>Cache tab</h2>
+        <p>The Cache tab surfaces Redis health and the data-collector pipeline that keeps the management console fast. It's a status view — to flush keys or reconfigure Redis, edit the relevant variables under <a href="settings.html#environment">Settings → Environment</a>.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/system-04-cache.png" alt="System Cache tab with Cache Status HEALTHY banner, Hit Rate KEYS COLLECTORS counters, Refresh and Flush buttons, Redis Server card showing connected version uptime memory clients commands, Cache Hit Rate breakdown of hits and misses, Status Collector card listing scheduler running scheduled jobs and redis connected, Data Collectors list with status for Host Metrics Network Containers Cloudflare Tailscale and Ntfy, and a Cached Keys section">
+          <figcaption>Figure 2: System Cache tab.</figcaption>
+        </figure>
+
+        <h3>What's on this tab</h3>
+        <ul>
+          <li><strong>Cache Status banner</strong> — overall health (HEALTHY / DEGRADED), Redis version, total cached keys, top-line hit rate.</li>
+          <li><strong>Counters strip</strong> — Hit Rate (%) / KEYS / COLLECTORS, with <strong>Refresh</strong> and <strong>Flush</strong> buttons.</li>
+          <li><strong>Redis Server card</strong> — server URL, connection status, version, uptime, memory used, client count, total commands processed.</li>
+          <li><strong>Cache Hit Rate card</strong> — running tally of hits vs. misses.</li>
+          <li><strong>Status Collector card</strong> — health of the n8n_status sidecar service that populates the cache.</li>
+          <li><strong>Data Collectors list</strong> — one row per individual collector (Host Metrics, Network, Containers, Cloudflare, Tailscale, Ntfy) with a per-collector status pill.</li>
+          <li><strong>Cached Keys</strong> — list of currently-cached entries.</li>
+        </ul>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> <strong>Flush</strong> empties the entire Redis cache. The management console will rebuild the cache as collectors run, but for ~30 seconds afterwards everything is "cold" — pages that depend on cached data will be slower or show stale loading states.</div>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> If a particular tab shows stale data (e.g., a container you just stopped still appears running), find the corresponding collector and click its row to inspect — the issue is usually a stuck collector job rather than a broken cache.</div>
+      </section>
+
+      <section id="network">
+        <h2>Network tab</h2>
+        <p>The Network tab is the densest page in the entire console. Four sub-sections cover external services, host network configuration, the Cloudflare tunnel, and Tailscale.</p>
+
+        <figure class="screenshot has-security-flag">
+          <img src="../../images/screenshots/system-05-network.png" alt="System Network tab showing External Services list with Portainer Adminer Dozzle and File Browser, Network Configuration card showing hostname default gateway DNS servers and interfaces with IP addresses and MAC, Cloudflare Tunnel card with status running version connected and edge locations and tunnel ID, and a Tailscale section">
+          <figcaption>Figure 3: System Network tab — full view.</figcaption>
+          <div class="security-flag">SECURITY: This tab exposes internal IPs, MAC addresses, the Cloudflare tunnel ID, Tailscale node info, and edge-location identifiers. Blur all of it before publishing.</div>
+        </figure>
+
+        <h3>External Services</h3>
+        <p>A list of optional companion services that ship with the stack:</p>
+
+        <table>
+          <thead><tr><th>Service</th><th>Use it for</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Portainer</strong></td><td>Visual Docker management — image pulls, manual container ops, stack inspection. Lives at <code>/portainer/</code>.</td></tr>
+            <tr><td><strong>Adminer</strong></td><td>Direct PostgreSQL access for ad-hoc queries on either the n8n DB or the management DB. Lives at <code>/adminer/</code>.</td></tr>
+            <tr><td><strong>Dozzle</strong></td><td>Real-time log streaming across all containers — better for tailing many services at once than the per-container Logs viewer in <a href="containers.html#logs">Containers</a>.</td></tr>
+            <tr><td><strong>File Browser</strong></td><td>Web-based file manager scoped to the <code>public_web_root</code> volume. Same UI as the <a href="#files">Files tab</a> but standalone.</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Network Configuration</h3>
+        <p>Read-only view of the host's network state: hostname, default gateway, DNS servers, and per-interface details (name, IPv4, IPv6, MAC).</p>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> The IPv4 / IPv6 / MAC fields are <em>real network identifiers</em>. Don't share screenshots of this panel publicly.</div>
+
+        <h3>Cloudflare Tunnel</h3>
+        <p>If you've configured a Cloudflare Tunnel, this card shows tunnel state (Running / Stopped), the cloudflared version, current connectivity (Connected / Disconnected), tunnel ID, and the Cloudflare edge locations the tunnel is currently connected to. An <strong>API Key</strong> button reveals or copies the cloudflared API token. A <strong>Restart</strong> button restarts the cloudflared container without leaving the page.</p>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> The <strong>API Key</strong> button exposes a long-lived Cloudflare token with the tunnel's permissions. Do not click on a shared screen / over remote-control software unless you're certain no one's watching, and never paste the value into a chat.</div>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> The full Cloudflare Tunnel architecture and DNS setup is documented in <a href="../CLOUDFLARE.md">Cloudflare guide</a>. This card is operations only.</div>
+
+        <h3>Tailscale</h3>
+        <p>If Tailscale is enabled, the Tailscale card shows status (Connected / Disconnected), the assigned Tailscale IPv4 in your tailnet, hostname, OS, peer count, account/email of the logged-in tailnet user, and a <strong>Reset Auth Key</strong> button.</p>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Tailscale full setup, MagicDNS, and re-authentication flows are documented in <a href="../TAILSCALE.md">Tailscale guide</a>.</div>
+      </section>
+
+      <section id="terminal">
+        <h2>Terminal tab</h2>
+        <p>The Terminal tab gives you an in-browser shell — same engine as Containers' per-row Terminal button, but accessible directly here with a target picker. Targets include the <strong>Host System</strong> (a shell on the management host itself) and per-container shells.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/system-06-terminal.png" alt="System Terminal tab labeled Web Terminal showing a list of terminal targets including Host System and every container with their image name, ready to be connected to">
+          <figcaption>Figure 4: System Terminal tab — pick a target and connect.</figcaption>
+        </figure>
+
+        <h3>How it works</h3>
+        <p>Selecting a target sets the URL to <code>/management/system?tab=terminal&amp;target=&lt;id&gt;&amp;autoconnect=true</code> and the management API spawns a temporary shell-attachment via Docker exec, served over a websocket back to your browser.</p>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> The <strong>Host System</strong> target gives you direct shell access to the underlying server with whatever permissions the management container's bind-mounted <code>/host</code> filesystem allows (typically root). Treat each session as if you were SSH-ing in. Don't paste arbitrary commands; close the tab when you're done.</div>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Shell sessions inherit the AppArmor unconfined profile via <code>security_opt=["apparmor=unconfined"]</code> so they work inside LXC. If a session fails to start, the symptom and the canonical fix are documented in <a href="../TROUBLESHOOTING.md">Troubleshooting</a>.</div>
+      </section>
+
+      <section id="files">
+        <h2>Files tab</h2>
+        <p>The Files tab embeds the File Browser service inside the management console. It's scoped to the <code>public_web_root</code> Docker volume — the directory served by the public website nginx.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/system-07-files.png" alt="System Files tab labeled File Manager with subtitle Manage public website files and a Refresh button, showing an embedded File Browser interface">
+          <figcaption>Figure 5: System Files tab — embedded File Browser.</figcaption>
+        </figure>
+
+        <p>Use this for quick edits to public website assets without leaving the management console — uploads, renames, downloads, and inline text editing for HTML/CSS/JS files.</p>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Authentication is "proxy auth" — the embedded File Browser trusts the management console's session, so you don't see a separate login. If File Browser ever shows its own login prompt, check the <code>.filebrowser.json</code> config (covered in <a href="../TROUBLESHOOTING.md#file-browser-issues">Troubleshooting → File Browser</a>).</div>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="notifications.html">← Notifications</a>
+        <a class="next" href="settings.html">Settings →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>

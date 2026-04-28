@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="settings">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#appearance">Appearance</a></li>
+        <li><a href="#sys-notifications">System Notifications</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#access-control">Access Control</a></li>
+        <li><a href="#environment">Environment</a></li>
+        <li><a href="#env-warning">— Danger Zone gate</a></li>
+        <li><a href="#env-editor">— Variable editor</a></li>
+        <li><a href="#account">Account</a></li>
+        <li><a href="#api-debug">n8n API / Debug</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>Settings</h1>
+      <p class="lede">Settings holds every configuration knob for the management console itself: appearance, notification routing, session security, network access policies, environment variables, your admin account, and the n8n API integration. Seven tabs across the top, each documented below.</p>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>The page is a tabbed interface. The active tab's content fills the area below the tab strip. Most changes save automatically when you flip a toggle or pick an option; a few require an explicit Save button (called out where applicable).</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/settings-01-overview-appearance.png" alt="Settings page on the Appearance tab showing seven tabs across the top (Appearance selected, System Notifications, Security, Access Control, Environment, Account, n8n API / Debug) and a Theme card with two large preview tiles labeled Modern Light and Modern Dark each with Top and Side navigation toggle buttons">
+          <figcaption>Figure 1: Settings page — Appearance tab, default view.</figcaption>
+        </figure>
+
+        <h3>The seven tabs</h3>
+        <table>
+          <thead><tr><th>Tab</th><th>Scope</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Appearance</strong></td><td>Theme (Modern Light / Modern Dark) and navigation layout (Top / Side).</td></tr>
+            <tr><td><strong>System Notifications</strong></td><td>Which system events fire notifications and how aggressively. Routes through the global <a href="notifications.html">Notifications</a> system.</td></tr>
+            <tr><td><strong>Security</strong></td><td>Session timeout, max login attempts, lockout duration.</td></tr>
+            <tr><td><strong>Access Control</strong></td><td>Nginx route inventory and IP-range allowlist for direct (non-Cloudflare) access.</td></tr>
+            <tr><td><strong>Environment</strong></td><td>Direct editor for every variable in your <code>.env</code> file. Behind a Danger Zone warning gate.</td></tr>
+            <tr><td><strong>Account</strong></td><td>Your own admin account info and password change.</td></tr>
+            <tr><td><strong>n8n API / Debug</strong></td><td>n8n API key configuration and Debug Mode toggle.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="appearance">
+        <h2>Appearance</h2>
+        <p>The Appearance tab is the simplest. Two cards labeled <strong>Modern Light</strong> and <strong>Modern Dark</strong> show preview tiles of each theme. The currently-active theme has a check in its corner. Click a tile to switch.</p>
+        <p>Each tile also has a <strong>Top</strong> / <strong>Side</strong> toggle for navigation layout — top horizontal nav (default) or side vertical nav.</p>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Theme choice is persisted server-side per user account, so it follows you across browsers and devices. The toggle in the page header (the moon/sun icon) reflects the same setting.</div>
+      </section>
+
+      <section id="sys-notifications">
+        <h2>System Notifications</h2>
+        <p>The System Notifications tab is where you tell the management console <em>which events should fire alerts</em> and configure rate-limiting / quiet hours / digest behavior. Actual delivery channels (Slack, NTFY, email) live under <a href="notifications.html">Notifications</a> — this tab is purely about <em>when</em> and <em>what</em>, not <em>where</em>.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/settings-02-system-notifications.png" alt="Settings System Notifications tab showing a Maintenance toggle, Quiet Hours, four counter strip showing Events Enabled and This Hour totals, five event-category cards (Backup Events, Container Events, Security Events, SSL Certificate Events, Docker Host System Events) each with an enabled-of-total count, and a Global Settings section with Rate Limiting and Daily Digest options">
+          <figcaption>Figure 2: Settings → System Notifications tab.</figcaption>
+        </figure>
+
+        <h3>Top strip controls</h3>
+        <ul>
+          <li><strong>Maintenance</strong> — pause all notifications during scheduled work. Click to enable; while on, no events fire regardless of category settings.</li>
+          <li><strong>Quiet Hours</strong> — define a daily window during which only critical events fire. Click to configure start/end times and severity threshold.</li>
+          <li><strong>Events Enabled</strong> counter — current total enabled events out of available.</li>
+          <li><strong>This Hour</strong> counter — events fired in the last 60 minutes.</li>
+        </ul>
+
+        <h3>Event categories</h3>
+        <table>
+          <thead><tr><th>Category</th><th>Covers</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Backup Events</strong></td><td>Backup success / failure / verification / retention rotation.</td></tr>
+            <tr><td><strong>Container Events</strong></td><td>Health-check transitions, restarts, exit codes, resource thresholds.</td></tr>
+            <tr><td><strong>Security Events</strong></td><td>Failed logins, account lockouts, unauthorized API attempts.</td></tr>
+            <tr><td><strong>SSL Certificate Events</strong></td><td>Certificate expiration warnings, renewal success / failure.</td></tr>
+            <tr><td><strong>Docker Host System Events</strong></td><td>Host CPU / memory / disk threshold breaches.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Click any category to expand it and toggle individual events on/off. The "X/Y enabled" badge updates live.</p>
+
+        <h3>Global Settings</h3>
+        <ul>
+          <li><strong>Rate Limiting</strong> — caps total notifications per hour to prevent storms (default 50/hour).</li>
+          <li><strong>Daily Digest</strong> — batches low-priority events into a single daily summary instead of per-event firing.</li>
+        </ul>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Start by enabling only the Backup category and a couple of Container events. Add more after a week of operation, once you know what's signal vs. noise.</div>
+      </section>
+
+      <section id="security">
+        <h2>Security</h2>
+        <p>Session and login security policy. Every setting here applies to <em>every</em> management console user account.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/settings-03-security.png" alt="Settings Security tab showing Session Configuration section with Session Timeout slider showing 60 minutes, Max Login Attempts radio options (3, 5, 7, 10), Lockout Duration field, and additional security policy controls">
+          <figcaption>Figure 3: Settings → Security tab.</figcaption>
+        </figure>
+
+        <h3>Settings</h3>
+        <table>
+          <thead><tr><th>Setting</th><th>Effect</th><th>Recommended</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Session Timeout</strong></td><td>Auto-logout after this period of inactivity.</td><td>30–60 min for production; longer for trusted home networks.</td></tr>
+            <tr><td><strong>Max Login Attempts</strong></td><td>Failed logins before the account is temporarily locked.</td><td>5 — protects against brute force without locking out fat-fingers.</td></tr>
+            <tr><td><strong>Lockout Duration</strong></td><td>How long the account stays locked after exceeding the max.</td><td>15 min default; raise to hours for production.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> Setting Session Timeout extremely high (e.g., 24 hours) defeats the purpose of session expiry. Setting it extremely low (e.g., 5 min) generates frustrated users who just stay logged in via "remember me" workarounds. Pick a value you'll actually live with.</div>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> If you lock yourself out, the only recovery path is the CLI password reset documented in <a href="../TROUBLESHOOTING.md#authentication-issues">Troubleshooting → Authentication</a> — which requires shell access to the management container. Don't lock the only admin out.</div>
+      </section>
+
+      <section id="access-control">
+        <h2>Access Control</h2>
+        <p>Access Control governs <em>direct</em> network access to the management host (the IP-range allowlist that nginx enforces). Traffic arriving via Cloudflare Tunnel <em>bypasses</em> these rules — that's a feature, not a bug, and the page banner explains why.</p>
+
+        <figure class="screenshot has-security-flag">
+          <img src="../../images/screenshots/settings-04-access-control.png" alt="Settings Access Control tab showing an information banner about External Access via Cloudflare Tunnel explaining that external users bypass IP-based restrictions, a Nginx Routes panel showing 11 routes configured, and an IP Ranges (Direct Access) panel showing 5 active ranges">
+          <figcaption>Figure 4: Settings → Access Control tab.</figcaption>
+          <div class="security-flag">SECURITY: This panel exposes your full nginx route inventory (every URL the stack serves) and your direct-access CIDR allowlist (your internal subnets). Blur both before publishing.</div>
+        </figure>
+
+        <h3>Two panels</h3>
+        <ul>
+          <li><strong>Nginx Routes</strong> — read-only inventory of every URL prefix the stack serves (e.g., <code>/management/</code>, <code>/files/</code>, <code>/portainer/</code>) and its access level (public / authenticated / admin). Useful for verifying your routing layout matches your intent.</li>
+          <li><strong>IP Ranges (Direct Access)</strong> — editable list of CIDR ranges allowed to reach the host directly. Add / edit / delete IP ranges with descriptions. Click <strong>Reload Nginx</strong> to apply changes.</li>
+        </ul>
+
+        <h3>How it interacts with Cloudflare Tunnel</h3>
+        <p>When traffic arrives via the Cloudflare Tunnel (<code>cloudflared</code>), it appears to nginx as coming from the internal Docker network — which is always allowed. The IP-range allowlist therefore only restricts <em>direct</em> connections (e.g., from your office network or a Tailscale peer). Public-internet users always come through Cloudflare, where access control is enforced by Cloudflare Access policies, not these rules.</p>
+
+        <div class="info-box note">📝 <strong>Note:</strong> The allowlist defaults are RFC-1918 private ranges plus Tailscale's CGNAT range. To restrict further, narrow these or remove them entirely — but only if you've confirmed that Cloudflare Tunnel covers all your real users, otherwise you'll lock everyone out of direct access.</div>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Removing all IP ranges and then restarting cloudflared (or losing tunnel connectivity) leaves you locked out of the management UI. Always keep at least one range covering your management network.</div>
+      </section>
+
+      <section id="environment">
+        <h2>Environment</h2>
+        <p>The Environment tab is the direct editor for every variable in your deployment's <code>.env</code> file. It's behind a deliberate <em>Danger Zone</em> warning gate because changes here can break the stack catastrophically — wrong DB credentials, missing API keys, bad domain values all produce dead containers.</p>
+      </section>
+
+      <section id="env-warning">
+        <h3>Danger Zone gate</h3>
+        <p>First click on the Environment tab shows a warning page, not the editor. You must explicitly acknowledge the risk to proceed.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/settings-05-environment.png" alt="Settings Environment tab showing a Danger Zone warning panel with bold text Advanced Configuration Warning, explanatory paragraphs about how changes can cause system failure, and three buttons Continue to Environment Settings Recommended Download a Full Backup First and Back to Safety">
+          <figcaption>Figure 5: Environment tab — Danger Zone warning gate.</figcaption>
+        </figure>
+
+        <h4>Buttons on the warning</h4>
+        <ul>
+          <li><strong>Download Full Backup</strong> — strong recommendation: take a known-good backup before editing anything.</li>
+          <li><strong>How to Recover</strong> — opens the recovery procedure documentation.</li>
+          <li><strong>Back to Safety</strong> — abandons the edit attempt and returns you to a different tab.</li>
+          <li><strong>I understand the risks, Continue</strong> — bypasses the gate and reveals the editor below.</li>
+        </ul>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> The warning is not theatre. Setting <code>POSTGRES_PASSWORD</code> wrong locks every n8n workflow out of its DB. Setting <code>DOMAIN</code> wrong breaks SSL. Setting <code>N8N_MANAGEMENT_HOST_IP</code> wrong breaks Cloudflare Tunnel. Read the explanation, take a backup, then continue.</div>
+      </section>
+
+      <section id="env-editor">
+        <h3>Variable editor</h3>
+        <p>Past the gate, the editor shows every <code>.env</code> variable grouped by purpose. Top action bar: <strong>Validate Configuration</strong>, <strong>Reload Variables</strong>, <strong>Restore Previous .env</strong>, <strong>Add Custom Variable</strong>, plus a "Last modified" timestamp.</p>
+
+        <figure class="screenshot has-security-flag">
+          <img src="../../images/screenshots/settings-08-environment-editor.png" alt="Environment editor showing four action buttons Validate Configuration, Reload Variables, Restore Previous .env, Add Custom Variable, a last-modified timestamp, and 11 collapsed category panels each with a label, description, and variable count badge: Required Settings, Database Configuration, Security and Authentication, Management Console, NFS Backup Storage, Cloudflare Tunnel, Tailscale VPN, Container Names, NTFY Notifications, n8n API Integration, Custom Variables">
+          <figcaption>Figure 6: Environment variable editor — collapsed category view.</figcaption>
+          <div class="security-flag">SECURITY: This view shows category counts only. Once any category is expanded, the variable values become visible — see Figure 7 for the full warning.</div>
+        </figure>
+
+        <h4>The eleven categories</h4>
+        <table>
+          <thead><tr><th>Category</th><th>Contains</th></tr></thead>
+          <tbody>
+            <tr><td>Required Settings</td><td><code>DOMAIN</code>, <code>N8N_MANAGEMENT_HOST_IP</code> — must be set or system fails.</td></tr>
+            <tr><td>Database Configuration</td><td>PostgreSQL credentials and settings (<code>POSTGRES_USER</code>, <code>POSTGRES_PASSWORD</code>, ...).</td></tr>
+            <tr><td>Security &amp; Authentication</td><td>Encryption keys, admin credentials, JWT secrets.</td></tr>
+            <tr><td>Management Console</td><td>Console-specific settings (port, root path, log level).</td></tr>
+            <tr><td>NFS Backup Storage</td><td>NFS server address, export path, mount options.</td></tr>
+            <tr><td>Cloudflare Tunnel</td><td>Cloudflare credentials and tunnel ID.</td></tr>
+            <tr><td>Tailscale VPN</td><td>Tailscale auth keys and node config.</td></tr>
+            <tr><td>Container Names</td><td>Custom names for each container — change with care, breaks references.</td></tr>
+            <tr><td>NTFY Notifications</td><td>NTFY server URL and topic config.</td></tr>
+            <tr><td>n8n API Integration</td><td>n8n API key for the management console's outbound calls.</td></tr>
+            <tr><td>Custom Variables</td><td>User-defined variables added via <strong>Add Custom Variable</strong>.</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Top action bar</h4>
+        <table>
+          <thead><tr><th>Button</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Validate Configuration</strong></td><td>Runs the same syntactic + semantic checks the system runs at boot. Catches missing required values, invalid IP formats, broken cron expressions, etc.</td></tr>
+            <tr><td><strong>Reload Variables</strong></td><td>Re-reads <code>.env</code> from disk. Useful if you edited the file outside the UI.</td></tr>
+            <tr><td><strong>Restore Previous .env</strong></td><td>Rolls back to the last-saved version (the system keeps a backup before each save).</td></tr>
+            <tr><td><strong>Add Custom Variable</strong></td><td>Adds a new variable in the Custom Variables category.</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Expanded category</h4>
+        <p>Clicking a category expands it inline. Each variable shows: name, "Required" / "Optional" badge, plain-language description, and current value (or password-style mask for secrets).</p>
+
+        <figure class="screenshot has-security-flag">
+          <img src="../../images/screenshots/settings-09-environment-required-expanded.png" alt="Required Settings category expanded showing two variables: DOMAIN with Required badge and an explanation about being used for SSL certificates and URLs with the current domain value, and N8N_MANAGEMENT_HOST_IP with explanation that this is the internal IP address of the Docker management host and must internally resolve to the hostname above with the current internal IP value">
+          <figcaption>Figure 7: Required Settings category expanded.</figcaption>
+          <div class="security-flag">SECURITY: Variable values are visible in plain text in expanded category panels. This screenshot exposes the deployment <code>DOMAIN</code> and <code>N8N_MANAGEMENT_HOST_IP</code>. Other categories (Database Configuration, Security &amp; Authentication, Cloudflare Tunnel, Tailscale VPN, n8n API Integration) expose secrets when expanded — never share screenshots of those tabs externally without redaction.</div>
+        </figure>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> After saving any change, run <strong>Validate Configuration</strong> before leaving the page. If validation fails, fix the issue immediately — the system will boot from your <em>saved</em> values, not your last-validated set.</div>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> <strong>Restore Previous .env</strong> is your safety net but it only goes back one version. Always have a downloaded backup (Bare Metal archive — see <a href="backups.html#row-bare-metal">Backups → Bare Metal</a>) before making non-trivial changes.</div>
+      </section>
+
+      <section id="account">
+        <h2>Account</h2>
+        <p>Read-only view of your own account plus a Change Password form. Doesn't manage other users (this stack is single-admin by design).</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/settings-06-account.png" alt="Settings Account tab showing Account Information with username admin and role Administrator, then a Change Password section with three input fields (Current Password, New Password, Confirm New Password) and a Change Password button">
+          <figcaption>Figure 8: Settings → Account tab.</figcaption>
+        </figure>
+
+        <h3>Change Password</h3>
+        <p>Enter your current password, then your new password twice, then click <strong>Change Password</strong>. The change is immediate.</p>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> If you forget your password between this UI's reset and your next login, recovery requires CLI access to the management container. See <a href="../TROUBLESHOOTING.md#authentication-issues">Troubleshooting → Authentication</a> for the SQL-based reset procedure.</div>
+      </section>
+
+      <section id="api-debug">
+        <h2>n8n API / Debug</h2>
+        <p>Two unrelated controls bundled into one tab: the n8n API key (used by Flows + Notifications integrations) and a Debug Mode toggle.</p>
+
+        <figure class="screenshot has-security-flag">
+          <img src="../../images/screenshots/settings-07-n8n-api-debug.png" alt="Settings n8n API and Debug tab showing n8n API Key section with Status Configured, a Current Key field showing a truncated JWT-style token starting with eyJh and ending with BdwM, and Update API Key button. Below that a Debug Mode section with Enable Debug Mode toggle currently disabled and explanatory text">
+          <figcaption>Figure 9: Settings → n8n API / Debug tab.</figcaption>
+          <div class="security-flag">SECURITY: The n8n API key is shown truncated (<code>eyJh...BdwM</code>) but the full value is one click away via <strong>Update API Key</strong>. Treat this tab as a credential surface.</div>
+        </figure>
+
+        <h3>n8n API Key</h3>
+        <p>The management console uses this key to call n8n's REST API for two purposes:</p>
+        <ol>
+          <li>Toggling workflows active/inactive from the <a href="flows.html">Flows</a> page.</li>
+          <li>Triggering on-demand executions from <a href="flows.html#toggle">Flows</a>.</li>
+        </ol>
+
+        <p>Generate the key in n8n itself: <strong>n8n Settings → API → New API Key</strong>. Paste it via <strong>Update API Key</strong> here.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> If <strong>Status</strong> is <code>Not Configured</code>, the Flows page will still work in read-only mode (list, search, filter) but Toggle and Execute will be disabled. Adding the key unlocks them.</div>
+
+        <h3>Debug Mode</h3>
+        <p>When enabled, the management console prints detailed error messages and verbose logs to the browser console (DevTools) and to <code>uvicorn.log</code>. Useful when something's broken and you need diagnostic detail.</p>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> Debug logs may include sensitive data (request headers, query params, partial DB rows). Disable Debug Mode after troubleshooting — never leave it on in production for routine operation.</div>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="system.html">← System</a>
+        <a class="next" href="appendix.html">Appendix →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>

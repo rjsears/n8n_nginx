@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notifications — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="notifications">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#channels">Channels tab</a></li>
+        <li><a href="#groups">Groups tab</a></li>
+        <li><a href="#ntfy">NTFY Push tab</a></li>
+        <li><a href="#recent">Recent Notifications</a></li>
+        <li><a href="#n8n-webhook">n8n Webhook Integration</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>Notifications</h1>
+      <p class="lede">Notifications is the routing layer for everything that wants to alert a human: backup success/failure, container health changes, manual messages from your n8n workflows, and direct push messages via NTFY. The page has three top-level tabs — Channels (where alerts go), Groups (named bundles of channels), and NTFY Push (a self-hosted push service with its own message composer).</p>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>The Notifications page header has a title, a description, and a single <strong>Add Channel</strong> button (always visible regardless of which tab is active, since adding a channel is the most common action). Below the header sit three tabs.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/notifications-01-overview-channels.png" alt="Notifications page on the Channels tab showing Add Channel button, three tabs (Channels active, Groups, NTFY Push), four summary cards, a Notification Channels list with two rows, a Recent Notifications collapsed card, and an n8n Webhook Integration collapsed card">
+          <figcaption>Figure 1: Notifications page — Channels tab.</figcaption>
+        </figure>
+      </section>
+
+      <section id="channels">
+        <h2>Channels tab</h2>
+        <p>The Channels tab is the default view. A "channel" is a single delivery destination — a Slack webhook, a Discord webhook, an Apprise URL, an NTFY topic, an email address. Each channel is independent; channels can be combined into <a href="#groups">Groups</a> for targeted delivery.</p>
+
+        <h3>Summary cards</h3>
+        <table>
+          <thead><tr><th>Card</th><th>Counts</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Total Channels</strong></td><td>Every channel that exists, regardless of state.</td></tr>
+            <tr><td><strong>Active</strong></td><td>Channels with the toggle ON. Inactive channels stay in the list but never receive notifications.</td></tr>
+            <tr><td><strong>Webhook Enabled</strong></td><td>Channels that accept routing from the global n8n Webhook Integration endpoint (see <a href="#n8n-webhook">below</a>).</td></tr>
+            <tr><td><strong>Sent</strong></td><td>Cumulative count of notifications sent across all channels.</td></tr>
+          </tbody>
+        </table>
+
+        <h3>The channel list</h3>
+        <p>The Notification Channels list shows each channel as a row with six columns: NAME, CHANNEL SLUG, STATUS, WEBHOOK, TYPE, ACTIONS. Each row's ACTIONS column has four icon buttons + a toggle:</p>
+
+        <table>
+          <thead><tr><th>Action</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td>▶ <strong>Test send</strong></td><td>Sends a synthetic notification to that channel's destination right now.</td></tr>
+            <tr><td>✏ <strong>Edit</strong></td><td>Opens an edit dialog for the channel's config.</td></tr>
+            <tr><td>🗑 <strong>Delete</strong></td><td>Removes the channel and any rules that target it.</td></tr>
+            <tr><td>Toggle</td><td>Flips Active / Inactive without deleting.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> <strong>Delete</strong> removes the channel and any rules that target it. There is no soft-delete or restore. If you only want to stop receiving notifications temporarily, use the toggle instead.</div>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Always click <strong>Test send</strong> after creating or editing a channel. It sends a synthetic notification immediately so you can confirm the destination receives it before relying on it for production alerts.</div>
+      </section>
+
+      <section id="groups">
+        <h2>Groups tab</h2>
+        <p>Groups bundle channels under a single name so notifications can target many destinations at once. A group has a name, a slug (<code>group:&lt;name&gt;</code>), and a list of member channels.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/notifications-06-groups-tab.png" alt="Notifications Groups tab showing three summary cards, an Add Group button, a single group named DevOps with member count and slug, and a How to Target Groups explainer with example JSON">
+          <figcaption>Figure 2: Notifications page — Groups tab.</figcaption>
+        </figure>
+
+        <h3>Targeting groups from n8n</h3>
+        <p>The Groups tab includes an explainer block with example payloads showing how to address a group from an n8n workflow. The pattern is:</p>
+        <pre><code>{
+  "title": "DevOps Alert",
+  "message": "Deployment failed on prod",
+  "targets": ["group:devops"]
+}</code></pre>
+
+        <p>You can mix groups, individual channels, and the special <code>"all"</code> target in the same array — see <a href="#n8n-webhook">n8n Webhook Integration</a>.</p>
+      </section>
+
+      <section id="ntfy">
+        <h2>NTFY Push tab</h2>
+        <p>NTFY is a self-hosted push notification service (the <code>n8n_ntfy</code> container in the stack). The NTFY Push tab is a complete control surface for it — connection status at the top, then seven sub-tabs for every aspect of message lifecycle: Compose, Topics, Templates, Saved, History, Settings, Integrations.</p>
+
+        <figure class="screenshot has-security-flag">
+          <img src="../../images/screenshots/notifications-07-ntfy-push-tab.png" alt="NTFY Push tab default Compose sub-tab showing Status Connected indicator with topic and template counts, and a Compose Message form with fields for Topic, Title, Message, Markdown toggle, Priority selector, Tags and Emojis, Click URL, Action Buttons, Advanced Options, and Send Message Save Reset buttons">
+          <figcaption>Figure 3: NTFY Push tab (Compose sub-tab is the default view).</figcaption>
+          <div class="security-flag">SECURITY: NTFY Push exposes the configured topic and (under Settings) the NTFY server URL plus any auth tokens. Blur both before publishing externally.</div>
+        </figure>
+
+        <h3>The seven sub-tabs</h3>
+        <table>
+          <thead><tr><th>Sub-tab</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Compose</strong></td><td>Full message composer for sending an ad-hoc NTFY message right now (default view). Fields: Topic, Title, Message (with Markdown toggle), Priority (Min/Low/Default/High/Urgent), Tags &amp; Emojis, Click URL, Action Buttons, Advanced Options.</td></tr>
+            <tr><td><strong>Topics</strong></td><td>Lists your NTFY topics. Topics are namespaces — subscribers tune in to specific topics.</td></tr>
+            <tr><td><strong>Templates</strong></td><td>Reusable message templates with placeholders. Useful when you send the same shape of message repeatedly with different field values.</td></tr>
+            <tr><td><strong>Saved</strong></td><td>Messages you've saved from the Compose tab. Click any saved message to load it back into Compose for sending again.</td></tr>
+            <tr><td><strong>History</strong></td><td>Every NTFY message that has been sent — useful for audit and debugging.</td></tr>
+            <tr><td><strong>Settings</strong></td><td>NTFY server configuration: connection URL, base URL, authentication settings.</td></tr>
+            <tr><td><strong>Integrations</strong></td><td>Code-snippet examples for integrating NTFY with external systems — curl one-liners, Python, JavaScript, n8n HTTP Request node, etc.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Topics created here can be referenced by Channel-type "Ntfy" channels — pick the topic during channel creation. They can also be sent to directly from Compose.</div>
+      </section>
+
+      <section id="recent">
+        <h2>Recent Notifications</h2>
+        <p>Below the channels tab content sits a <strong>Recent Notifications</strong> card showing the most recent 20 messages sent across all channels. Collapsed by default; click to expand.</p>
+
+        <p>Each entry shows: title, channel that sent it, timestamp, delivery status. Common entries on a healthy stack include nightly <em>Backup Success</em> and <em>Backup Verification Passed</em> events.</p>
+      </section>
+
+      <section id="n8n-webhook">
+        <h2>n8n Webhook Integration</h2>
+        <p>The bottom card on the Channels tab is the most powerful: a single webhook endpoint that lets your n8n workflows push notifications through this entire system without re-implementing each channel's API. Click to expand.</p>
+
+        <figure class="screenshot has-security-flag">
+          <img src="../../images/screenshots/notifications-14-n8n-webhook-expanded.png" alt="n8n Webhook Integration panel expanded showing the Webhook URL, an API Key field with a refresh icon, a tip about creating a Header Auth credential in n8n, an n8n HTTP Request Node example with method POST, the full URL, Header Auth instructions, JSON body shape with title, message, priority, and targets fields, and Target Examples for all, specific channel, and group">
+          <figcaption>Figure 4: n8n Webhook Integration — expanded. Contains the live webhook endpoint and API key.</figcaption>
+          <div class="security-flag">SECURITY: This panel exposes the webhook URL (containing your deployment hostname) and the API Key used to authenticate to it. The API Key is a credential — anyone with it can post notifications through your stack. Blur the API Key value and the hostname portion of the URL before publishing this manual outside your organization. Use the refresh icon next to the API Key to rotate it if you suspect it's been leaked.</div>
+        </figure>
+
+        <h3>The webhook contract</h3>
+        <p>Send a JSON POST to the displayed URL with these fields:</p>
+        <pre><code>{
+  "title": "Alert Title",
+  "message": "Your notification message",
+  "priority": "normal",
+  "targets": ["all"]
+}</code></pre>
+
+        <h3>Authenticating</h3>
+        <p>The webhook requires the API Key shown in the panel as the <code>X-API-Key</code> header. The recommended n8n setup:</p>
+        <ol class="steps">
+          <li>In n8n, create a <strong>Header Auth</strong> credential. Name it something like "n8n Mgmt Webhook." Header name: <code>X-API-Key</code>. Header value: paste from this panel.</li>
+          <li>In your workflow, add an <strong>HTTP Request</strong> node. Method: <code>POST</code>. URL: paste from this panel. Authentication: <em>Generic Credential Type → Header Auth → your saved credential</em>.</li>
+          <li>Body content type: JSON. Body: the shape shown above.</li>
+        </ol>
+
+        <h3>Targets</h3>
+        <table>
+          <thead><tr><th>Target value</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>"all"</code></td><td>Sends to every channel that has Webhook routing enabled.</td></tr>
+            <tr><td><code>"channel:&lt;slug&gt;"</code></td><td>Sends only to the named channel. Slug is the value shown in the channel row's <strong>CHANNEL SLUG</strong> column.</td></tr>
+            <tr><td><code>"group:&lt;slug&gt;"</code></td><td>Sends to every channel in the named group.</td></tr>
+            <tr><td>Multiple values</td><td>Combine — e.g., <code>["channel:devops_slack", "group:oncall"]</code>.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Use the <strong>refresh icon</strong> next to the API Key field to rotate the key if it's ever exposed. Existing n8n credentials using the old key will need to be updated with the new value.</div>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> The API Key is a long-lived credential with the power to send notifications through every channel in your stack. Don't paste it into shared chat, screenshots, or git commits. Rotate immediately if it leaks.</div>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="backups.html">← Backups</a>
+        <a class="next" href="system.html">System →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>

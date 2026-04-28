@@ -1,0 +1,66 @@
+n8n Management Manual — Build Manifest
+Generated: 2026-04-25 19:26:58 PDT
+
+=== HTML pages ===
+docs/manual/appendix.html
+docs/manual/backups.html
+docs/manual/containers.html
+docs/manual/dashboard.html
+docs/manual/flows.html
+docs/manual/index.html
+docs/manual/notifications.html
+docs/manual/settings.html
+docs/manual/system.html
+
+=== Stylesheets / JS ===
+docs/manual/manual.js
+docs/manual/styles.css
+
+=== Screenshots (count: 38) ===
+images/screenshots/backups-01-overview.png
+images/screenshots/backups-08-config-storage.png
+images/screenshots/backups-09-config-schedule.png
+images/screenshots/backups-10-config-contents.png
+images/screenshots/backups-11-config-retention.png
+images/screenshots/backups-12-config-compression.png
+images/screenshots/backups-13-config-verification.png
+images/screenshots/backups-14-config-notifications.png
+images/screenshots/backups-22-selective-restore-mounted-overview.png
+images/screenshots/backups-26-bare-metal-recovery.png
+images/screenshots/containers-01-overview.png
+images/screenshots/containers-05-row-expanded.png
+images/screenshots/containers-06-logs-modal.png
+images/screenshots/containers-07-alerts-modal.png
+images/screenshots/dashboard-01-overview.png
+images/screenshots/dashboard-02-header.png
+images/screenshots/dashboard-14-dark-overview.png
+images/screenshots/dashboard-19-help-modal.png
+images/screenshots/dashboard-20-about-modal.png
+images/screenshots/flows-01-overview.png
+images/screenshots/notifications-01-overview-channels.png
+images/screenshots/notifications-06-groups-tab.png
+images/screenshots/notifications-07-ntfy-push-tab.png
+images/screenshots/notifications-14-n8n-webhook-expanded.png
+images/screenshots/settings-01-overview-appearance.png
+images/screenshots/settings-02-system-notifications.png
+images/screenshots/settings-03-security.png
+images/screenshots/settings-04-access-control.png
+images/screenshots/settings-05-environment.png
+images/screenshots/settings-06-account.png
+images/screenshots/settings-07-n8n-api-debug.png
+images/screenshots/settings-08-environment-editor.png
+images/screenshots/settings-09-environment-required-expanded.png
+images/screenshots/system-01-overview-health.png
+images/screenshots/system-04-cache.png
+images/screenshots/system-05-network.png
+images/screenshots/system-06-terminal.png
+images/screenshots/system-07-files.png
+
+=== Security-flagged screenshots ===
+notifications-07-ntfy-push-tab.png
+notifications-14-n8n-webhook-expanded.png
+settings-04-access-control.png
+settings-07-n8n-api-debug.png
+settings-08-environment-editor.png
+settings-09-environment-required-expanded.png
+system-05-network.png

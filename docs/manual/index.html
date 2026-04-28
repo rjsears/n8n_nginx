@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="home">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#welcome">Welcome</a></li>
+        <li><a href="#how-to-read">How to read this manual</a></li>
+        <li><a href="#part-1">Part 1: User Guide</a></li>
+        <li><a href="#part-2">Part 2: Administration</a></li>
+        <li><a href="#part-3">Part 3: Appendix</a></li>
+        <li><a href="#legend">Legend</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>n8n Management Suite — User Manual</h1>
+      <p class="lede">Comprehensive guide to operating the n8n Management Console after installation. Every UI option, every modal, every sub-tab.</p>
+
+      <section id="welcome">
+        <h2>Welcome</h2>
+        <p>This manual is intended for operators who have already installed and deployed the n8n Management Suite. It does not cover initial installation — see the project <a href="https://github.com/rjsears/n8n_nginx/blob/main/README.md">README</a> for setup, or the <a href="../MIGRATION.md">migration guide</a> if upgrading from v2.</p>
+        <p>The audience is the person who logs into the management console day-to-day: starting and stopping containers, running and verifying backups, configuring notifications, troubleshooting SSL, managing access. If that's you, you're in the right place.</p>
+      </section>
+
+      <section id="how-to-read">
+        <h2>How to read this manual</h2>
+        <p>The manual is organized in three parts. Read sequentially, or jump directly to the section you need via the navigation above.</p>
+        <p>Every page has a left-hand sidebar with anchors to its subsections. Use the prev/next links at the bottom of each page to step through in order.</p>
+        <div class="info-box note">📝 <strong>Note:</strong> Screenshots in this manual were captured from a live test deployment. Some screenshots contain sensitive data (API tokens, internal IPs, host names) which are flagged inline and indexed in the <a href="appendix.html#security-index">Security Flag Index</a>. Blur those images before publishing or sharing this manual outside your organization.</div>
+      </section>
+
+      <section id="part-1">
+        <h2>Part 1: User Guide</h2>
+        <p>Everyday operations. The pages most operators will visit most often.</p>
+        <ul class="card-list">
+          <li><a href="dashboard.html"><strong>Dashboard</strong> — system overview at a glance: container health, resource usage, recent activity</a></li>
+          <li><a href="containers.html"><strong>Containers</strong> — start, stop, restart Docker services; inspect logs and stats</a></li>
+          <li><a href="flows.html"><strong>Flows</strong> — view, toggle, and trigger n8n workflows; jump to n8n itself</a></li>
+          <li><a href="backups.html"><strong>Backups</strong> — schedule, run, verify, restore; configure retention and storage</a></li>
+          <li><a href="notifications.html"><strong>Notifications</strong> — channels, groups, rules, NTFY topics, n8n webhook integration</a></li>
+        </ul>
+      </section>
+
+      <section id="part-2">
+        <h2>Part 2: Administration</h2>
+        <p>System-level configuration and integration management. Less frequent but more consequential.</p>
+        <ul class="card-list">
+          <li><a href="system.html"><strong>System</strong> — health checks, SSL renewal, network, Cloudflare/Tailscale integrations</a></li>
+          <li><a href="settings.html"><strong>Settings</strong> — every configuration knob: NFS, access control, email, environment variables, Redis cache, and more</a></li>
+        </ul>
+      </section>
+
+      <section id="part-3">
+        <h2>Part 3: Appendix</h2>
+        <p>Reference material and the master security index.</p>
+        <ul class="card-list">
+          <li><a href="appendix.html#troubleshooting"><strong>Troubleshooting</strong> — symptom-to-section quick reference</a></li>
+          <li><a href="appendix.html#security-index"><strong>Security Flag Index</strong> — all screenshots requiring blur before publishing</a></li>
+        </ul>
+      </section>
+
+      <section id="legend">
+        <h2>Legend</h2>
+        <p>Throughout the manual, you'll see colored callout boxes. Their meaning is consistent:</p>
+        <div class="info-box note">📝 <strong>Note:</strong> additional context, not required reading.</div>
+        <div class="info-box tip">💡 <strong>Tip:</strong> a recommended approach or shortcut.</div>
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> behavior that may surprise you, or has caveats.</div>
+        <div class="info-box danger">🚫 <strong>Danger:</strong> destructive or irreversible action.</div>
+        <div class="info-box security">🔒 <strong>Security flag:</strong> screenshot contains sensitive data; blur before publishing.</div>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="index.html">← Home</a>
+        <a class="next" href="dashboard.html">Dashboard →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Containers — n8n Management Suite Manual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="containers">
+  <header class="topnav">
+    <a class="brand" href="index.html">n8n Management Manual</a>
+    <nav class="topnav-links">
+      <a href="index.html">Home</a>
+      <details class="topnav-dropdown">
+        <summary>Part 1: User Guide</summary>
+        <div class="dropdown-menu">
+          <a href="dashboard.html">Dashboard</a>
+          <a href="containers.html">Containers</a>
+          <a href="flows.html">Flows</a>
+          <a href="backups.html">Backups</a>
+          <a href="notifications.html">Notifications</a>
+        </div>
+      </details>
+      <details class="topnav-dropdown">
+        <summary>Part 2: Administration</summary>
+        <div class="dropdown-menu">
+          <a href="system.html">System</a>
+          <a href="settings.html">Settings</a>
+        </div>
+      </details>
+      <a href="appendix.html">Appendix</a>
+    </nav>
+    <button id="themeToggle" class="theme-toggle" type="button">🌙 Dark</button>
+    <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle sidebar">☰</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">On this page</h2>
+      <ul class="sidebar-toc">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#summary-and-list">Summary cards &amp; list</a></li>
+        <li><a href="#filter">Filtering and the list</a></li>
+        <li><a href="#health-badges">Health badges</a></li>
+        <li><a href="#expanded-row">Expanding a container</a></li>
+        <li><a href="#actions">Per-container actions</a></li>
+        <li><a href="#logs">Logs viewer</a></li>
+        <li><a href="#alerts">Alerts (per-container)</a></li>
+        <li><a href="#terminal">Terminal</a></li>
+        <li><a href="#refresh">Refresh &amp; caching</a></li>
+      </ul>
+    </aside>
+    <main class="content">
+      <h1>Containers</h1>
+      <p class="lede">The Containers page is your day-to-day control surface for the Docker stack that runs n8n: every container that the management console can see is listed, with one-click access to logs, restart, recreate, per-container alerts, and an in-browser terminal session.</p>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>The page is laid out in four bands, top to bottom: a header with title and a manual <strong>Refresh</strong> button, a row of four summary cards, a filter dropdown plus an <strong>Expand All</strong> control, and the container list itself rendered as a two-column grid of collapsible cards.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/containers-01-overview.png" alt="Containers page showing a header with Refresh button, four summary cards (Total, Running, Stopped, Unhealthy), a status filter dropdown, and a two-column grid listing every container with its name, image, and health badge">
+          <figcaption>Figure 1: Containers page — full overview.</figcaption>
+        </figure>
+      </section>
+
+      <section id="summary-and-list">
+        <h2>Summary cards &amp; list</h2>
+        <p>Four cards across the top mirror the Docker status numbers shown on the <a href="dashboard.html#docker-containers">Dashboard's Docker Containers panel</a> but break them down into independent counts.</p>
+        <table>
+          <thead><tr><th>Card</th><th>Counts</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Total</strong></td><td>Every container the management console can see, regardless of state.</td></tr>
+            <tr><td><strong>Running</strong></td><td>Containers in <code>running</code> state.</td></tr>
+            <tr><td><strong>Stopped</strong></td><td>Containers in <code>exited</code> or <code>stopped</code> state.</td></tr>
+            <tr><td><strong>Unhealthy</strong></td><td>Running containers reporting unhealthy from their Docker healthcheck. <strong>Unlike the Dashboard, this card does <em>not</em> count "healthy" — only failures.</strong></td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> An <strong>Unhealthy</strong> count above zero means at least one container's healthcheck is failing. Filter the list to <strong>Stopped Only</strong> first to see if anything has crashed; otherwise scan the list for the red unhealthy badge before restarting indiscriminately.</div>
+      </section>
+
+      <section id="filter">
+        <h2>Filtering and the list</h2>
+        <p>The filter dropdown ("All Statuses") narrows the list by container state. The "Showing X of Y containers" label updates live to reflect the filter. The <strong>Expand All</strong> button on the right opens every container's action panel at once — useful when you need to scan several containers' resource usage in one glance.</p>
+
+        <h3>Filter options</h3>
+        <ul>
+          <li><strong>All Statuses</strong> — every container (default).</li>
+          <li><strong>Running Only</strong> — hides anything not currently running.</li>
+          <li><strong>Stopped Only</strong> — only exited or stopped containers. Useful right after a host reboot or when investigating a crash.</li>
+        </ul>
+
+        <h3>List layout</h3>
+        <p>Each container is a card with: a chevron (▶) to expand, a green-check status icon, the container name, a colored state pill (e.g., <code>Running</code>), the image name in monospace below the name, and (for containers with a Docker healthcheck) a health badge on the right.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Click anywhere on a row to expand it — you don't need to hit the chevron precisely.</div>
+      </section>
+
+      <section id="health-badges">
+        <h2>Health badges</h2>
+        <p>The right-side badge reflects the container's Docker healthcheck status:</p>
+        <table>
+          <thead><tr><th>Badge</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:999px;font-size:0.8rem;">healthy</span></td><td>Healthcheck passing.</td></tr>
+            <tr><td><span style="background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:999px;font-size:0.8rem;">starting</span></td><td>Container started; healthcheck still in its grace period.</td></tr>
+            <tr><td><span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:999px;font-size:0.8rem;">unhealthy</span></td><td>Healthcheck failing repeatedly. <strong>Investigate immediately.</strong></td></tr>
+            <tr><td>(no badge)</td><td>The container's image does not declare a healthcheck. Not a problem on its own, but you have less visibility — consider reviewing logs periodically.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box note">📝 <strong>Note:</strong> Healthcheck definitions live in each image's Dockerfile or in the project's <code>docker-compose.yaml</code>. If a container you care about has no badge and you want one, add a <code>HEALTHCHECK</code> directive at the image level.</div>
+      </section>
+
+      <section id="expanded-row">
+        <h2>Expanding a container</h2>
+        <p>Clicking a row reveals the per-container action panel: a <strong>Recreate Container</strong> button at the top, four live resource readouts (Uptime, CPU, Memory, Network), a memory-usage percentage bar, and five action buttons across the bottom.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/containers-05-row-expanded.png" alt="Expanded container row showing the container header, a Recreate Container button, Uptime CPU Memory and Network stats, a memory usage percent indicator, and five action buttons: Stop, Restart, Alerts, Logs, Terminal">
+          <figcaption>Figure 2: A container's expanded action panel.</figcaption>
+        </figure>
+
+        <h3>Live readouts</h3>
+        <table>
+          <thead><tr><th>Field</th><th>Source</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Uptime</strong></td><td>Time since this container instance started.</td></tr>
+            <tr><td><strong>CPU</strong></td><td>Current CPU percentage of one core.</td></tr>
+            <tr><td><strong>Memory</strong></td><td>Resident memory in human-readable units.</td></tr>
+            <tr><td><strong>Network</strong></td><td>Cumulative network throughput since container start.</td></tr>
+            <tr><td><strong>Memory Usage %</strong></td><td>Memory as a percentage of the container's hard limit (or host RAM if no limit set).</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="actions">
+        <h2>Per-container actions</h2>
+        <p>Five action buttons sit below the live readouts: <strong>Stop</strong>, <strong>Restart</strong>, <strong>Alerts</strong>, <strong>Logs</strong>, <strong>Terminal</strong>. The full-width <strong>Recreate Container</strong> button at the top of the panel is the most aggressive option — used when configuration in <code>docker-compose.yaml</code> or in <code>.env</code> has changed and a simple restart is not enough.</p>
+
+        <h3>Stop &amp; Restart</h3>
+        <p><strong>Stop</strong> sends Docker's stop signal to the container. The container's process gets a graceful shutdown window (default 10 seconds) before being killed. <strong>Restart</strong> stops then starts the container without recreating it — same image, same config.</p>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> Stopping the <code>n8n_nginx</code> or <code>n8n_management</code> container ends your current session — you'll lose access to this UI until you restart it from the command line. There is no undo button on this page once nginx is stopped.</div>
+
+        <h3>Recreate Container</h3>
+        <p>Recreate stops the container, removes it, and starts a fresh instance using the same compose configuration. The new container picks up the latest values from <code>.env</code> and any compose-file changes.</p>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Recreate <em>destroys the running container</em>. Anything written inside the container that isn't on a mounted volume is lost. Verify your data is on a volume (it should be — n8n's PostgreSQL, the management database, and the n8n config all live on volumes by default) before recreating.</div>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> Restart is the right tool for "I changed an env var in the running container's mounted config file and need to pick it up." For changes to <code>.env</code> or <code>docker-compose.yaml</code>, use Recreate Container instead.</div>
+      </section>
+
+      <section id="logs">
+        <h2>Logs viewer</h2>
+        <p><strong>Logs</strong> opens an in-browser viewer for the container's stdout/stderr. The header lets you choose how many lines to fetch (50 / 100 / 200 / 500 / 1000 / All) and a "Since:" time filter. The <strong>Follow</strong> toggle keeps streaming new lines as they arrive; <strong>Refresh</strong> manually re-fetches the current window.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/containers-06-logs-modal.png" alt="Logs modal titled Logs colon n8n_adminer with a Lines selector showing options 50 100 200 500 1000 All, a Since time filter, Follow and Refresh buttons, a code-style pane showing log content with timestamps, a Showing 200 lines indicator, and a Close button">
+          <figcaption>Figure 3: Logs viewer for a single container.</figcaption>
+        </figure>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> For a unified view across all containers and persistent tailing, see the dedicated <strong>Dozzle</strong> service if you've enabled it (it ships with the stack). The in-app Logs view here is best for a quick targeted look.</div>
+      </section>
+
+      <section id="alerts">
+        <h2>Alerts (per-container)</h2>
+        <p><strong>Alerts</strong> opens the per-container Notification Settings modal. This is where you configure which container-level events should fire a notification, scoped <em>just to this container</em>. The global notification routing — channels, groups, rules — lives separately under <a href="notifications.html">Notifications</a>.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/containers-07-alerts-modal.png" alt="Notification Settings modal for n8n_adminer with a banner saying No notification targets configured, an Enable Notifications toggle, three Status Events checkboxes (Container Stopped, Health Check Failed, Container Restarted), two Resource Threshold options (High CPU Usage, High Memory Usage), and Cancel and Save Settings buttons">
+          <figcaption>Figure 4: Per-container alert configuration.</figcaption>
+        </figure>
+
+        <h3>Configurable events</h3>
+        <table>
+          <thead><tr><th>Group</th><th>Event</th><th>Trigger</th></tr></thead>
+          <tbody>
+            <tr><td rowspan="3">Status Events</td><td>Container Stopped</td><td>Container exits unexpectedly.</td></tr>
+            <tr><td>Health Check Failed</td><td>Healthcheck transitions to unhealthy. Disabled (and noted) if the image has no healthcheck.</td></tr>
+            <tr><td>Container Restarted</td><td>Docker auto-restarts the container.</td></tr>
+            <tr><td rowspan="2">Resource Thresholds</td><td>High CPU Usage</td><td>CPU exceeds a configurable threshold for a sustained period.</td></tr>
+            <tr><td>High Memory Usage</td><td>Memory exceeds a configurable threshold.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box warn">⚠️ <strong>Warning:</strong> If the modal shows "No notification targets configured," your alert toggles will save, but no actual notification will fire because there's nowhere to send it. Configure at least one channel under <a href="notifications.html">Notifications</a> first, then return here.</div>
+      </section>
+
+      <section id="terminal">
+        <h2>Terminal</h2>
+        <p><strong>Terminal</strong> opens an in-browser shell session inside the running container. Clicking the button navigates to the System page's Terminal tab with the container pre-selected and auto-connected — concretely, to <code>/management/system?tab=terminal&amp;target=&lt;container_id&gt;&amp;autoconnect=true</code>.</p>
+
+        <p>The Terminal feature is fully documented under <a href="system.html#terminal">System → Terminal</a>, since the management host's terminal lives in the same place. From here, just remember: clicking <strong>Terminal</strong> on a container is a deep-link shortcut.</p>
+
+        <div class="info-box danger">🚫 <strong>Danger:</strong> Anything you run in the Terminal executes <em>inside the container</em> as that container's user (often root). Destructive commands here can corrupt the container's state. Treat it like SSH-ing into a production box.</div>
+      </section>
+
+      <section id="refresh">
+        <h2>Refresh &amp; caching</h2>
+        <p>The page header shows a "<em>Cached Ns ago</em>" timestamp and a <strong>Refresh</strong> button. The container list is cached briefly to reduce load on the Docker daemon — by default the cache lives for ~30 seconds.</p>
+        <p>Click <strong>Refresh</strong> to bypass the cache and fetch fresh data immediately. The summary cards and per-row stats update at the same time.</p>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> If a container action you took (Start/Stop/Restart/Recreate) doesn't appear to have taken effect, hit Refresh — the new state is always already true on the host; you just may be looking at a slightly stale cache.</div>
+      </section>
+
+      <nav class="pagefoot">
+        <a class="prev" href="dashboard.html">← Dashboard</a>
+        <a class="next" href="flows.html">Flows →</a>
+      </nav>
+    </main>
+  </div>
+  <script src="manual.js"></script>
+</body>
+</html>
