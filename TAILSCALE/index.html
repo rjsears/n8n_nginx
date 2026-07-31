@@ -1,0 +1,2908 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted n8n with nginx SSL termination, PostgreSQL, and a full management console">
+      
+      
+        <meta name="author" content="Richard J. Sears">
+      
+      
+        <link rel="canonical" href="https://rjsears.github.io/n8n_nginx/TAILSCALE/">
+      
+      
+        <link rel="prev" href="../CLOUDFLARE/">
+      
+      
+        <link rel="next" href="../CERTBOT/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Tailscale VPN - n8n Management Suite</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tailscale-integration-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="n8n Management Suite" class="md-header__button md-logo" aria-label="n8n Management Suite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 2v6h2v3H5c-1.11 0-2 .89-2 2v3H1v6h6v-6H5v-3h6v3H9v6h6v-6h-2v-3h6v3h-2v6h6v-6h-2v-3c0-1.11-.89-2-2-2h-6V8h2V2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            n8n Management Suite
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tailscale VPN
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rjsears/n8n_nginx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rjsears/n8n_nginx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="n8n Management Suite" class="md-nav__button md-logo" aria-label="n8n Management Suite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 2v6h2v3H5c-1.11 0-2 .89-2 2v3H1v6h6v-6H5v-3h6v3H9v6h6v-6h-2v-3h6v3h-2v6h6v-6h-2v-3c0-1.11-.89-2-2-2h-6V8h2V2z"/></svg>
+
+    </a>
+    n8n Management Suite
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rjsears/n8n_nginx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rjsears/n8n_nginx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/requirements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Manual
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/welcome/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/containers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Containers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/backups/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backups
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/appendix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Appendix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../BACKUP_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backups
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../NOTIFICATIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ENVIRONMENTAL_VARIABLES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Setup
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CLOUDFLARE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloudflare Tunnel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tailscale VPN
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tailscale VPN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Table of Contents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#other-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-tailscale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is Tailscale?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is Tailscale?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-use-tailscale-with-n8n" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Use Tailscale with n8n?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-tailscale-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a Tailscale Account
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a Tailscale Account">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-sign-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Sign Up
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-create-your-tailnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Create Your Tailnet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-install-tailscale-on-your-first-device" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Install Tailscale on Your First Device
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-connect-your-device" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Connect Your Device
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generating-auth-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generating Auth Keys
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Generating Auth Keys">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-access-the-admin-console" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Access the Admin Console
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-generate-an-auth-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Generate an Auth Key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-store-the-key-securely" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Store the Key Securely
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understanding-subnet-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding Subnet Routing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Understanding Subnet Routing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-subnet-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is Subnet Routing?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuring-routes-via-env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring Routes via .env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-can-you-access-via-the-32-route" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Can You Access via the /32 Route?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-use-larger-subnets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to Use Larger Subnets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-in-n8n-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration in n8n Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration in n8n Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finding-your-docker-host-ip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding Your Docker Host IP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docker-compose-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-configuration-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Configuration Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approving-routes-in-admin-console" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approving Routes in Admin Console
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approving Routes in Admin Console">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-access-machines-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Access Machines List
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-approve-subnet-routes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Approve Subnet Routes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-verify-route-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Verify Route Status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-enable-serve-if-prompted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Enable Serve (If Prompted)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-approval-is-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Approval is Required
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enabling-https-certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling HTTPS Certificates
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enabling HTTPS Certificates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-access-dns-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Access DNS Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-enable-https-certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Enable HTTPS Certificates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-this-is-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why This is Required
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tailscale-serve-https-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tailscale Serve (HTTPS Proxy)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tailscale Serve (HTTPS Proxy)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#benefits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benefits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration File
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verifying-serve-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying Serve Status
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#accessing-services-via-tailscale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Accessing Services via Tailscale
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Accessing Services via Tailscale">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recommended-magic-dns-with-path-based-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended: Magic DNS with Path-Based Routing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh-access-to-docker-host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SSH Access to Docker Host
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tailscale-ssh-optional-advanced-feature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tailscale SSH (Optional Advanced Feature)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finding-the-tailscale-ip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding the Tailscale IP
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Best Practices
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security Best Practices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-use-reusable-pre-approved-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Use Reusable, Pre-approved Keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-set-key-expiration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Set Key Expiration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-use-access-control-lists-acls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Use Access Control Lists (ACLs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-restrict-management-console-to-tailscale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Restrict Management Console to Tailscale
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-monitor-access-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Monitor Access Logs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#container-wont-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Container Won't Start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#routes-not-working" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Routes Not Working
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cant-access-docker-host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can't Access Docker Host
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#serve-not-working" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serve Not Working
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connection-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Timeout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#need-to-re-authenticate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Need to Re-authenticate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#urls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        URLs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CERTBOT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Certbot SSL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../TROUBLESHOOTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href=".." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../CLOUDFLARE/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Setup
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="tailscale-integration-guide">Tailscale Integration Guide<a class="headerlink" href="#tailscale-integration-guide" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>Tailscale provides secure, zero-config VPN access to your n8n installation and Docker host from anywhere in the world. This guide covers everything from creating an account to understanding why specific configurations are needed.</p>
+<hr />
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="#what-is-tailscale">What is Tailscale?</a></li>
+<li><a href="#creating-a-tailscale-account">Creating a Tailscale Account</a></li>
+<li><a href="#generating-auth-keys">Generating Auth Keys</a></li>
+<li><a href="#understanding-subnet-routing">Understanding Subnet Routing</a></li>
+<li><a href="#configuration-in-n8n-management">Configuration in n8n Management</a></li>
+<li><a href="#approving-routes-in-admin-console">Approving Routes in Admin Console</a></li>
+<li><a href="#enabling-https-certificates">Enabling HTTPS Certificates</a></li>
+<li><a href="#tailscale-serve-https-proxy">Tailscale Serve (HTTPS Proxy)</a></li>
+<li><a href="#accessing-services-via-tailscale">Accessing Services via Tailscale</a></li>
+<li><a href="#security-best-practices">Security Best Practices</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ol>
+<h3 id="other-documentation">Other Documentation<a class="headerlink" href="#other-documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="../API/">API Reference</a> - REST API documentation</li>
+<li><a href="../BACKUP_GUIDE/">Backup Guide</a> - Backup and restore procedures</li>
+<li><a href="../CERTBOT/">Certbot Guide</a> - SSL certificate management</li>
+<li><a href="../CLOUDFLARE/">Cloudflare Guide</a> - Cloudflare Tunnel setup</li>
+<li><a href="../MIGRATION/">Migration Guide</a> - Upgrading from v2.0 to v3.0</li>
+<li><a href="../NOTIFICATIONS/">Notifications Guide</a> - Alert and notification setup</li>
+<li><a href="../TROUBLESHOOTING/">Troubleshooting</a> - Common issues and solutions</li>
+</ul>
+<hr />
+<h2 id="what-is-tailscale">What is Tailscale?<a class="headerlink" href="#what-is-tailscale" title="Permanent link">&para;</a></h2>
+<p>Tailscale is a VPN service built on WireGuard that creates a secure mesh network (called a "tailnet") between your devices. Unlike traditional VPNs:</p>
+<ul>
+<li><strong>No port forwarding required</strong> - Works behind NAT and firewalls</li>
+<li><strong>Zero configuration</strong> - Devices automatically find each other</li>
+<li><strong>End-to-end encrypted</strong> - Traffic is encrypted device-to-device</li>
+<li><strong>Magic DNS</strong> - Access devices by name (e.g., <code>n8n-tailscale.your-tailnet.ts.net</code>)</li>
+</ul>
+<h3 id="why-use-tailscale-with-n8n">Why Use Tailscale with n8n?<a class="headerlink" href="#why-use-tailscale-with-n8n" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Remote Access</strong> - Access your n8n instance and management console from anywhere</li>
+<li><strong>SSH to Docker Host</strong> - Manage your server without exposing SSH to the internet</li>
+<li><strong>No Public Ports</strong> - Keep your infrastructure completely private</li>
+<li><strong>Multiple Devices</strong> - Access from laptop, phone, tablet - all secure</li>
+</ol>
+<hr />
+<h2 id="creating-a-tailscale-account">Creating a Tailscale Account<a class="headerlink" href="#creating-a-tailscale-account" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-sign-up">Step 1: Sign Up<a class="headerlink" href="#step-1-sign-up" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Visit <a href="https://tailscale.com">https://tailscale.com</a></li>
+<li>Click <strong>Get Started</strong> or <strong>Sign Up</strong></li>
+<li>Choose a sign-in method:</li>
+<li><strong>Google</strong> (recommended for personal use)</li>
+<li><strong>Microsoft</strong> (recommended for organizations)</li>
+<li><strong>GitHub</strong> (great for developers)</li>
+<li><strong>Apple</strong> (iOS users)</li>
+<li><strong>Email + password</strong> (custom domains only)</li>
+</ol>
+<h3 id="step-2-create-your-tailnet">Step 2: Create Your Tailnet<a class="headerlink" href="#step-2-create-your-tailnet" title="Permanent link">&para;</a></h3>
+<p>After signing up, Tailscale automatically creates a tailnet for you:</p>
+<ul>
+<li>Your tailnet name is based on your email domain or a generated name</li>
+<li>Example: <code>your-email.gmail.com</code> becomes <code>your-email.ts.net</code></li>
+<li>You can customize this later in <strong>Settings</strong> &gt; <strong>General</strong></li>
+</ul>
+<h3 id="step-3-install-tailscale-on-your-first-device">Step 3: Install Tailscale on Your First Device<a class="headerlink" href="#step-3-install-tailscale-on-your-first-device" title="Permanent link">&para;</a></h3>
+<p>To manage your tailnet, install Tailscale on at least one device:</p>
+<p><strong>macOS:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>brew<span class="w"> </span>install<span class="w"> </span>tailscale
+</span></code></pre></div></p>
+<p><strong>Windows:</strong>
+Download from <a href="https://tailscale.com/download/windows">https://tailscale.com/download/windows</a></p>
+<p><strong>Linux (Ubuntu/Debian):</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://tailscale.com/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+</span></code></pre></div></p>
+<p><strong>iOS/Android:</strong>
+Install from App Store or Google Play Store</p>
+<h3 id="step-4-connect-your-device">Step 4: Connect Your Device<a class="headerlink" href="#step-4-connect-your-device" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>up
+</span></code></pre></div>
+<p>This opens a browser for authentication. After authenticating, your device is part of your tailnet.</p>
+<hr />
+<h2 id="generating-auth-keys">Generating Auth Keys<a class="headerlink" href="#generating-auth-keys" title="Permanent link">&para;</a></h2>
+<p>Auth keys allow the n8n Tailscale container to join your tailnet automatically without interactive login.</p>
+<h3 id="step-1-access-the-admin-console">Step 1: Access the Admin Console<a class="headerlink" href="#step-1-access-the-admin-console" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Visit <a href="https://login.tailscale.com/admin/settings/keys">https://login.tailscale.com/admin/settings/keys</a></li>
+<li>Or navigate: <strong>Tailscale Admin Console</strong> &gt; <strong>Settings</strong> &gt; <strong>Keys</strong></li>
+</ol>
+<h3 id="step-2-generate-an-auth-key">Step 2: Generate an Auth Key<a class="headerlink" href="#step-2-generate-an-auth-key" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Click <strong>Generate auth key</strong></li>
+<li>Configure the key settings:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Recommended Value</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Description</strong></td>
+<td><code>n8n Docker</code></td>
+<td>Helps identify the key's purpose</td>
+</tr>
+<tr>
+<td><strong>Reusable</strong></td>
+<td>✅ Enabled</td>
+<td>Allows container restarts without new keys</td>
+</tr>
+<tr>
+<td><strong>Ephemeral</strong></td>
+<td>❌ Disabled</td>
+<td>Node persists in admin console</td>
+</tr>
+<tr>
+<td><strong>Pre-approved</strong></td>
+<td>✅ Enabled</td>
+<td>Skip manual device approval</td>
+</tr>
+<tr>
+<td><strong>Tags</strong></td>
+<td>Optional</td>
+<td>For ACL management</td>
+</tr>
+<tr>
+<td><strong>Expiration</strong></td>
+<td>90 days or never</td>
+<td>Your preference</td>
+</tr>
+</tbody>
+</table>
+<ol>
+<li>Click <strong>Generate key</strong></li>
+<li><strong>Copy the key immediately</strong> - it's only shown once!</li>
+</ol>
+<p>The key looks like: <code>tskey-auth-kBWxxxxxCNTRL-xxxxxxxxxxxxxxxxx</code></p>
+<h3 id="step-3-store-the-key-securely">Step 3: Store the Key Securely<a class="headerlink" href="#step-3-store-the-key-securely" title="Permanent link">&para;</a></h3>
+<p>Add to your n8n <code>.env</code> file:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>TAILSCALE_AUTH_KEY=tskey-auth-kBWxxxxxCNTRL-xxxxxxxxxxxxxxxxx
+</span></code></pre></div></p>
+<blockquote>
+<p>⚠️ <strong>Security Note</strong>: Never commit auth keys to version control. Add <code>.env</code> to <code>.gitignore</code>.</p>
+</blockquote>
+<hr />
+<h2 id="understanding-subnet-routing">Understanding Subnet Routing<a class="headerlink" href="#understanding-subnet-routing" title="Permanent link">&para;</a></h2>
+<h3 id="what-is-subnet-routing">What is Subnet Routing?<a class="headerlink" href="#what-is-subnet-routing" title="Permanent link">&para;</a></h3>
+<p>Subnet routing allows devices on your Tailscale network to access IPs that aren't directly running Tailscale. In our case:</p>
+<ul>
+<li>The <strong>Tailscale container</strong> runs inside Docker</li>
+<li>Your <strong>Docker host</strong> has a local IP (e.g., <code>192.168.1.10</code>)</li>
+<li>Other Tailscale devices need to reach the Docker host</li>
+</ul>
+<h3 id="configuring-routes-via-env">Configuring Routes via .env<a class="headerlink" href="#configuring-routes-via-env" title="Permanent link">&para;</a></h3>
+<p>The <code>TAILSCALE_ROUTES</code> variable in your <code>.env</code> file controls which IP addresses are accessible via Tailscale:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a># Single host (recommended) - only your Docker host is accessible
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>TAILSCALE_ROUTES=192.168.1.10/32
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a># Full subnet - your entire local network is accessible
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>TAILSCALE_ROUTES=192.168.1.0/24
+</span></code></pre></div>
+<p><strong>Route Types Explained:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Route Type</th>
+<th>Example</th>
+<th>What It Exposes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/32</code></td>
+<td><code>192.168.1.10/32</code></td>
+<td>Only your Docker host IP</td>
+</tr>
+<tr>
+<td><code>/24</code></td>
+<td><code>192.168.1.0/24</code></td>
+<td>Your entire local network (254 hosts)</td>
+</tr>
+<tr>
+<td><code>/16</code></td>
+<td><code>192.168.0.0/16</code></td>
+<td>65,534 hosts</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Benefits of /32 (Recommended for Most Users):</strong></p>
+<ol>
+<li><strong>Minimal Exposure</strong> - Only your Docker host is accessible, not your entire LAN</li>
+<li><strong>Precise Control</strong> - You know exactly what's reachable</li>
+<li><strong>Security</strong> - Other devices on your network aren't exposed</li>
+<li><strong>Simplicity</strong> - No complex ACL rules needed</li>
+</ol>
+<h3 id="what-can-you-access-via-the-32-route">What Can You Access via the /32 Route?<a class="headerlink" href="#what-can-you-access-via-the-32-route" title="Permanent link">&para;</a></h3>
+<p>With the Docker host IP routed (<code>192.168.1.10/32</code>), you gain the ability to SSH directly to your Docker host from anywhere on your Tailscale network. However, for web services, <strong>we recommend using Tailscale Serve</strong> (Magic DNS) which provides a cleaner experience without port numbers.</p>
+<p><strong>SSH Access (via Tailscale):</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ssh<span class="w"> </span>user@n8n-tailscale.your-tailnet.ts.net
+</span></code></pre></div></p>
+<p><strong>Web Services (via Tailscale Serve - recommended):</strong></p>
+<p>All web services are accessed through nginx reverse proxy with path-based routing - no ports to remember:</p>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>n8n</strong></td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net</code></td>
+</tr>
+<tr>
+<td><strong>Management Console</strong></td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net/management</code></td>
+</tr>
+<tr>
+<td><strong>Adminer</strong> (optional)</td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net/adminer</code></td>
+</tr>
+<tr>
+<td><strong>Portainer</strong> (optional)</td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net/portainer</code></td>
+</tr>
+<tr>
+<td><strong>Dozzle</strong> (optional)</td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net/dozzle</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Note</strong>: This system is specifically designed to eliminate port requirements. All services are routed through nginx on standard HTTPS (443), with paths determining which service you access.</p>
+</blockquote>
+<h3 id="when-to-use-larger-subnets">When to Use Larger Subnets<a class="headerlink" href="#when-to-use-larger-subnets" title="Permanent link">&para;</a></h3>
+<p>The default configuration uses <code>/32</code> (single host) routing, which is sufficient for most users since all services are accessible via Tailscale Serve's Magic DNS.</p>
+<p>You might want <code>/24</code> or larger subnet routing if:</p>
+<ul>
+<li>You need to access multiple servers on your LAN via Tailscale</li>
+<li>You're setting up a full site-to-site VPN</li>
+<li>You have IoT devices you want to access remotely</li>
+</ul>
+<p><strong>To enable full subnet routing:</strong></p>
+<p>Simply update your <code>.env</code> file with the desired network range:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a># For single host access (default):
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>TAILSCALE_ROUTES=192.168.1.10/32
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a># For full /24 subnet access:
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>TAILSCALE_ROUTES=192.168.1.0/24
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a># For multiple subnets (comma-separated):
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>TAILSCALE_ROUTES=192.168.1.0/24,10.0.0.0/24
+</span></code></pre></div>
+<p>Then restart the Tailscale container:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>n8n_tailscale
+</span></code></pre></div></p>
+<blockquote>
+<p>⚠️ <strong>Advanced Configuration</strong>: Larger subnets require careful ACL configuration to prevent unintended access. Most users should stick with the default <code>/32</code> configuration and use Magic DNS for all services.</p>
+</blockquote>
+<hr />
+<h2 id="configuration-in-n8n-management">Configuration in n8n Management<a class="headerlink" href="#configuration-in-n8n-management" title="Permanent link">&para;</a></h2>
+<h3 id="required-environment-variables">Required Environment Variables<a class="headerlink" href="#required-environment-variables" title="Permanent link">&para;</a></h3>
+<p>Add these to your <code>.env</code> file:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a># Tailscale auth key (from admin console)
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>TAILSCALE_AUTH_KEY=tskey-auth-xxxxxxxxxxxxx
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a># Routes to advertise (CIDR notation)
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a># Single host: 192.168.1.10/32 (access only the Docker host)
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a># Full subnet: 192.168.1.0/24 (access entire local network)
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>TAILSCALE_ROUTES=192.168.1.10/32
+</span></code></pre></div>
+<h3 id="finding-your-docker-host-ip">Finding Your Docker Host IP<a class="headerlink" href="#finding-your-docker-host-ip" title="Permanent link">&para;</a></h3>
+<p><strong>Linux:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Get the primary interface IP</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>ip<span class="w"> </span>route<span class="w"> </span>get<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>awk<span class="w"> </span><span class="s1">&#39;{print $7}&#39;</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Or list all interfaces</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>ip<span class="w"> </span>-4<span class="w"> </span>addr<span class="w"> </span>show<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>inet
+</span></code></pre></div></p>
+<p><strong>macOS:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>ipconfig<span class="w"> </span>getifaddr<span class="w"> </span>en0
+</span></code></pre></div></p>
+<p><strong>Windows (PowerShell):</strong>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="p">(</span><span class="nb">Get-NetIPAddress</span> <span class="n">-AddressFamily</span> <span class="n">IPv4</span> <span class="n">-InterfaceAlias</span> <span class="s2">&quot;Ethernet&quot;</span><span class="p">).</span><span class="n">IPAddress</span>
+</span></code></pre></div></p>
+<h3 id="docker-compose-configuration">Docker Compose Configuration<a class="headerlink" href="#docker-compose-configuration" title="Permanent link">&para;</a></h3>
+<p>The Tailscale container is configured in <code>docker-compose.yml</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">n8n_tailscale</span><span class="p">:</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tailscale/tailscale:stable</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">n8n_tailscale</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">n8n-tailscale</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TS_AUTHKEY=${TAILSCALE_AUTH_KEY}</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TS_ROUTES=${TAILSCALE_ROUTES}</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TS_AUTH_ONCE=true</span>
+</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TS_SERVE_CONFIG=/config/tailscale-serve.json</span>
+</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
+</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tailscale_data:/var/lib/tailscale</span>
+</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./tailscale-serve.json:/config/tailscale-serve.json:ro</span>
+</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">  </span><span class="nt">cap_add</span><span class="p">:</span>
+</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NET_ADMIN</span>
+</span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SYS_MODULE</span>
+</span><span id="__span-12-16"><a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="w">  </span><span class="nt">devices</span><span class="p">:</span>
+</span><span id="__span-12-17"><a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/dev/net/tun</span>
+</span><span id="__span-12-18"><a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a><span class="w">  </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+</span></code></pre></div>
+<h3 id="key-configuration-options">Key Configuration Options<a class="headerlink" href="#key-configuration-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TS_AUTHKEY</code></td>
+<td>Authenticates to your tailnet</td>
+</tr>
+<tr>
+<td><code>TS_ROUTES</code></td>
+<td>IP/CIDR to advertise for subnet routing (from <code>.env</code>)</td>
+</tr>
+<tr>
+<td><code>TS_AUTH_ONCE</code></td>
+<td>Prevents re-auth on restart (requires reusable key)</td>
+</tr>
+<tr>
+<td><code>TS_SERVE_CONFIG</code></td>
+<td>Enables HTTPS proxy via Tailscale Serve</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="approving-routes-in-admin-console">Approving Routes in Admin Console<a class="headerlink" href="#approving-routes-in-admin-console" title="Permanent link">&para;</a></h2>
+<p>After the container starts, you <strong>must</strong> approve the advertised routes.</p>
+<h3 id="step-1-access-machines-list">Step 1: Access Machines List<a class="headerlink" href="#step-1-access-machines-list" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Visit <a href="https://login.tailscale.com/admin/machines">https://login.tailscale.com/admin/machines</a></li>
+<li>Find <strong>n8n-tailscale</strong> in the list (your container's hostname)</li>
+</ol>
+<h3 id="step-2-approve-subnet-routes">Step 2: Approve Subnet Routes<a class="headerlink" href="#step-2-approve-subnet-routes" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Click on the <strong>n8n-tailscale</strong> machine</li>
+<li>Scroll to the <strong>Subnets</strong> section</li>
+<li>You'll see: <code>192.168.1.10/32</code> (Pending approval)</li>
+<li>Click <strong>Approve</strong></li>
+</ol>
+<h3 id="step-3-verify-route-status">Step 3: Verify Route Status<a class="headerlink" href="#step-3-verify-route-status" title="Permanent link">&para;</a></h3>
+<p>After approval, the status should show:
+- ✅ <code>192.168.1.10/32</code> (Approved)</p>
+<h3 id="step-4-enable-serve-if-prompted">Step 4: Enable Serve (If Prompted)<a class="headerlink" href="#step-4-enable-serve-if-prompted" title="Permanent link">&para;</a></h3>
+<p>If using Tailscale Serve, you may need to:
+1. Scroll to <strong>Serve</strong> section
+2. Toggle to <strong>Enable</strong></p>
+<h3 id="why-approval-is-required">Why Approval is Required<a class="headerlink" href="#why-approval-is-required" title="Permanent link">&para;</a></h3>
+<p>This is a security feature:
+- Prevents rogue devices from advertising routes
+- Ensures only authorized routes are enabled
+- Gives administrators control over network topology</p>
+<hr />
+<h2 id="enabling-https-certificates">Enabling HTTPS Certificates<a class="headerlink" href="#enabling-https-certificates" title="Permanent link">&para;</a></h2>
+<p>For Tailscale Serve to work properly, you must enable HTTPS certificates in the Tailscale admin console. See the <a href="https://tailscale.com/kb/1153/enabling-https">official Tailscale documentation</a> for more details.</p>
+<h3 id="step-1-access-dns-settings">Step 1: Access DNS Settings<a class="headerlink" href="#step-1-access-dns-settings" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Visit <a href="https://login.tailscale.com/admin/dns">https://login.tailscale.com/admin/dns</a></li>
+<li>Scroll down to the <strong>HTTPS Certificates</strong> section</li>
+</ol>
+<h3 id="step-2-enable-https-certificates">Step 2: Enable HTTPS Certificates<a class="headerlink" href="#step-2-enable-https-certificates" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Toggle <strong>HTTPS Certificates</strong> to <strong>Enabled</strong></li>
+<li>This allows Tailscale to provision TLS certificates for your machines</li>
+</ol>
+<h3 id="why-this-is-required">Why This is Required<a class="headerlink" href="#why-this-is-required" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Tailscale Serve uses these certificates to provide HTTPS endpoints</li>
+<li>Without this enabled, <code>https://n8n-tailscale.your-tailnet.ts.net</code> will not work</li>
+<li>Certificates are automatically provisioned and renewed by Tailscale</li>
+</ul>
+<hr />
+<h2 id="tailscale-serve-https-proxy">Tailscale Serve (HTTPS Proxy)<a class="headerlink" href="#tailscale-serve-https-proxy" title="Permanent link">&para;</a></h2>
+<p>Tailscale Serve creates an HTTPS endpoint on your tailnet that proxies to your n8n instance.</p>
+<h3 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart LR
+    A[Your Device] --&gt;|WireGuard Encrypted| B[Tailscale Container]
+    B --&gt;|HTTPS Proxy| C[nginx:443]
+    C --&gt; D[n8n]
+
+    style A fill:#d4edda,stroke:#28a745
+    style B fill:#cce5ff,stroke:#004085
+    style C fill:#fff3cd,stroke:#856404
+    style D fill:#d1ecf1,stroke:#0c5460</code></pre>
+<p><strong>URL</strong>: <code>https://n8n-tailscale.your-tailnet.ts.net</code></p>
+<h3 id="benefits">Benefits<a class="headerlink" href="#benefits" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Valid HTTPS</strong> - Tailscale provides automatic certificates</li>
+<li><strong>Magic DNS</strong> - Easy-to-remember URL</li>
+<li><strong>No Port Exposure</strong> - Works without any open ports</li>
+<li><strong>Encrypted</strong> - End-to-end via WireGuard</li>
+</ol>
+<h3 id="configuration-file">Configuration File<a class="headerlink" href="#configuration-file" title="Permanent link">&para;</a></h3>
+<p>The <code>tailscale-serve.json</code> file configures the proxy:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="p">{</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">&quot;TCP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="nt">&quot;443&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">      </span><span class="nt">&quot;HTTPS&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">  </span><span class="nt">&quot;Web&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">    </span><span class="nt">&quot;${TS_CERT_DOMAIN}:443&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">      </span><span class="nt">&quot;Handlers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">        </span><span class="nt">&quot;/&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="w">          </span><span class="nt">&quot;Proxy&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://your-domain.com:443&quot;</span>
+</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="w">        </span><span class="p">}</span>
+</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="w">      </span><span class="p">}</span>
+</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-13-15"><a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-13-16"><a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Replace <code>your-domain.com</code> with your actual domain.</p>
+<h3 id="verifying-serve-status">Verifying Serve Status<a class="headerlink" href="#verifying-serve-status" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_tailscale<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>status
+</span></code></pre></div>
+<p>Expected output:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>https://n8n-tailscale.your-tailnet.ts.net (Tailscale Serve)
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>|-- / proxy https://your-domain.com:443
+</span></code></pre></div></p>
+<hr />
+<h2 id="accessing-services-via-tailscale">Accessing Services via Tailscale<a class="headerlink" href="#accessing-services-via-tailscale" title="Permanent link">&para;</a></h2>
+<h3 id="recommended-magic-dns-with-path-based-routing">Recommended: Magic DNS with Path-Based Routing<a class="headerlink" href="#recommended-magic-dns-with-path-based-routing" title="Permanent link">&para;</a></h3>
+<p>The n8n Management Suite uses nginx reverse proxy to eliminate port requirements. All services are accessed via paths on a single URL:</p>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>n8n</strong></td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net</code></td>
+</tr>
+<tr>
+<td><strong>Management Console</strong></td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net/management</code></td>
+</tr>
+<tr>
+<td><strong>Adminer</strong> (optional)</td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net/adminer</code></td>
+</tr>
+<tr>
+<td><strong>Portainer</strong> (optional)</td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net/portainer</code></td>
+</tr>
+<tr>
+<td><strong>Dozzle</strong> (optional)</td>
+<td><code>https://n8n-tailscale.your-tailnet.ts.net/dozzle</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Benefits:</strong>
+- No ports to remember
+- Single URL for all services
+- Automatic HTTPS certificate from Tailscale
+- Works from any Tailscale-connected device</p>
+<h3 id="ssh-access-to-docker-host">SSH Access to Docker Host<a class="headerlink" href="#ssh-access-to-docker-host" title="Permanent link">&para;</a></h3>
+<p>SSH to your Docker host using the Tailscale Magic DNS name:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># SSH to Docker host via Tailscale</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>ssh<span class="w"> </span>user@n8n-tailscale.your-tailnet.ts.net
+</span></code></pre></div>
+<p>This works from anywhere in the world as long as you're connected to your Tailscale network.</p>
+<blockquote>
+<p><strong>Note about the Tailscale Container</strong>: The SSH connection above connects to your <strong>Docker host</strong>, not the Tailscale container itself. If you need shell access to the Tailscale container:</p>
+<ol>
+<li><strong>Easiest</strong>: Use the <strong>Terminal</strong> button in the Management Console's Container view - no extra configuration needed</li>
+<li><strong>Alternative</strong>: Enable <a href="https://tailscale.com/kb/1193/tailscale-ssh">Tailscale SSH</a> on the container (see below)</li>
+</ol>
+</blockquote>
+<h3 id="tailscale-ssh-optional-advanced-feature">Tailscale SSH (Optional Advanced Feature)<a class="headerlink" href="#tailscale-ssh-optional-advanced-feature" title="Permanent link">&para;</a></h3>
+<p>Tailscale offers its own SSH server that provides passwordless, key-less SSH authentication using your Tailscale identity. This is separate from traditional SSH and provides additional security features.</p>
+<p><strong>To enable Tailscale SSH on the container:</strong></p>
+<ol>
+<li>
+<p>Enter the container:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>n8n_tailscale<span class="w"> </span>sh
+</span></code></pre></div></p>
+</li>
+<li>
+<p>Enable Tailscale SSH:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>tailscale<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--ssh
+</span></code></pre></div></p>
+</li>
+<li>
+<p>Configure ACLs in the <a href="https://login.tailscale.com/admin/acls">Tailscale Admin Console</a> to permit SSH access:
+   <div class="language-json highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nt">&quot;ssh&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="p">{</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">    </span><span class="nt">&quot;action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;accept&quot;</span><span class="p">,</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">    </span><span class="nt">&quot;src&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;autogroup:member&quot;</span><span class="p">],</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">    </span><span class="nt">&quot;dst&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;tag:n8n&quot;</span><span class="p">],</span>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">    </span><span class="nt">&quot;users&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;root&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;autogroup:nonroot&quot;</span><span class="p">]</span>
+</span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="p">]</span>
+</span></code></pre></div></p>
+</li>
+</ol>
+<p><strong>Benefits of Tailscale SSH:</strong>
+- No SSH keys to manage
+- Authentication via your identity provider
+- Session recording (optional)
+- Check mode for re-authentication on sensitive connections</p>
+<p><strong>For most users</strong>: The Management Console's built-in Terminal feature is the simplest way to access containers without any additional configuration.</p>
+<p>For more details, see the <a href="https://tailscale.com/kb/1193/tailscale-ssh">Tailscale SSH documentation</a>.</p>
+<h3 id="finding-the-tailscale-ip">Finding the Tailscale IP<a class="headerlink" href="#finding-the-tailscale-ip" title="Permanent link">&para;</a></h3>
+<p>Access via the container's Tailscale IP:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Find the Tailscale IP</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_tailscale<span class="w"> </span>tailscale<span class="w"> </span>ip
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># Output: 100.x.x.x</span>
+</span></code></pre></div>
+<hr />
+<h2 id="security-best-practices">Security Best Practices<a class="headerlink" href="#security-best-practices" title="Permanent link">&para;</a></h2>
+<h3 id="1-use-reusable-pre-approved-keys">1. Use Reusable, Pre-approved Keys<a class="headerlink" href="#1-use-reusable-pre-approved-keys" title="Permanent link">&para;</a></h3>
+<p>This prevents the container from losing access after restarts while maintaining security:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>Reusable: ✅ Yes
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>Pre-approved: ✅ Yes
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>Ephemeral: ❌ No
+</span></code></pre></div></p>
+<h3 id="2-set-key-expiration">2. Set Key Expiration<a class="headerlink" href="#2-set-key-expiration" title="Permanent link">&para;</a></h3>
+<p>For production, use keys that expire and rotate them periodically:
+- 90 days is a good balance
+- Set calendar reminders to rotate keys</p>
+<h3 id="3-use-access-control-lists-acls">3. Use Access Control Lists (ACLs)<a class="headerlink" href="#3-use-access-control-lists-acls" title="Permanent link">&para;</a></h3>
+<p>Configure ACLs to restrict who can access what:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="p">{</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">  </span><span class="nt">&quot;acls&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">    </span><span class="p">{</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">      </span><span class="nt">&quot;action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;accept&quot;</span><span class="p">,</span>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="w">      </span><span class="nt">&quot;src&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;group:admins&quot;</span><span class="p">],</span>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="w">      </span><span class="nt">&quot;dst&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;tag:n8n:*&quot;</span><span class="p">]</span>
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="w">  </span><span class="p">],</span>
+</span><span id="__span-22-9"><a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="w">  </span><span class="nt">&quot;tagOwners&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-22-10"><a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="w">    </span><span class="nt">&quot;tag:n8n&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;autogroup:admin&quot;</span><span class="p">]</span>
+</span><span id="__span-22-11"><a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-22-12"><a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="4-restrict-management-console-to-tailscale">4. Restrict Management Console to Tailscale<a class="headerlink" href="#4-restrict-management-console-to-tailscale" title="Permanent link">&para;</a></h3>
+<p>In the n8n Management Console:
+1. Go to <strong>Settings</strong> &gt; <strong>Security</strong>
+2. Set allowed IPs to only include Tailscale range:
+   <div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>100.64.0.0/10
+</span></code></pre></div>
+3. This makes the management console only accessible via Tailscale</p>
+<h3 id="5-monitor-access-logs">5. Monitor Access Logs<a class="headerlink" href="#5-monitor-access-logs" title="Permanent link">&para;</a></h3>
+<p>Regularly check:
+- Tailscale Admin Console for connected devices
+- Management Console logs for access attempts</p>
+<hr />
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="container-wont-start">Container Won't Start<a class="headerlink" href="#container-wont-start" title="Permanent link">&para;</a></h3>
+<p><strong>Check auth key validity:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>docker<span class="w"> </span>logs<span class="w"> </span>n8n_tailscale<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span>auth
+</span></code></pre></div></p>
+<p>Common issues:
+- Key expired
+- Key already used (if not reusable)
+- Network connectivity issues</p>
+<h3 id="routes-not-working">Routes Not Working<a class="headerlink" href="#routes-not-working" title="Permanent link">&para;</a></h3>
+<p><strong>Verify route is advertised:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_tailscale<span class="w"> </span>tailscale<span class="w"> </span>status
+</span></code></pre></div></p>
+<p>Look for:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a># Subnet routes:
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>192.168.1.10/32 (pending)  # Needs approval
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>192.168.1.10/32            # Approved and active
+</span></code></pre></div></p>
+<p><strong>Check admin console:</strong>
+- Routes may need manual approval
+- Visit <a href="https://login.tailscale.com/admin/machines">Machines page</a></p>
+<h3 id="cant-access-docker-host">Can't Access Docker Host<a class="headerlink" href="#cant-access-docker-host" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Verify TAILSCALE_HOST_IP is correct:</strong>
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>grep<span class="w"> </span>TAILSCALE_HOST_IP<span class="w"> </span>.env
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Ping the host from another Tailscale device:</strong>
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>ping<span class="w"> </span><span class="m">192</span>.168.1.10
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Check route approval:</strong></p>
+</li>
+<li>Must be approved in admin console</li>
+</ol>
+<h3 id="serve-not-working">Serve Not Working<a class="headerlink" href="#serve-not-working" title="Permanent link">&para;</a></h3>
+<p><strong>Check serve status:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_tailscale<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>status
+</span></code></pre></div></p>
+<p><strong>Verify serve.json configuration:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_tailscale<span class="w"> </span>cat<span class="w"> </span>/config/tailscale-serve.json
+</span></code></pre></div></p>
+<p><strong>Check for errors:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>docker<span class="w"> </span>logs<span class="w"> </span>n8n_tailscale<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span>serve
+</span></code></pre></div></p>
+<h3 id="connection-timeout">Connection Timeout<a class="headerlink" href="#connection-timeout" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Ensure Tailscale is running on your device:</strong>
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>tailscale<span class="w"> </span>status
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Check if route is enabled:</strong>
+   The route must show as active, not pending</p>
+</li>
+<li>
+<p><strong>Verify no firewall blocking:</strong>
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="c1"># On Docker host</span>
+</span><span id="__span-33-2"><a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a>sudo<span class="w"> </span>iptables<span class="w"> </span>-L<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span>tailscale
+</span></code></pre></div></p>
+</li>
+</ol>
+<h3 id="need-to-re-authenticate">Need to Re-authenticate<a class="headerlink" href="#need-to-re-authenticate" title="Permanent link">&para;</a></h3>
+<p>If using <code>TS_AUTH_ONCE=true</code> but auth is lost:</p>
+<ol>
+<li>Generate a new auth key</li>
+<li>Update <code>.env</code> with the new key</li>
+<li>Restart the container:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>restart<span class="w"> </span>n8n_tailscale
+</span></code></pre></div></li>
+</ol>
+<hr />
+<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<h3 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="c1"># Check Tailscale status</span>
+</span><span id="__span-35-2"><a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_tailscale<span class="w"> </span>tailscale<span class="w"> </span>status
+</span><span id="__span-35-3"><a id="__codelineno-35-3" name="__codelineno-35-3" href="#__codelineno-35-3"></a>
+</span><span id="__span-35-4"><a id="__codelineno-35-4" name="__codelineno-35-4" href="#__codelineno-35-4"></a><span class="c1"># Get Tailscale IP</span>
+</span><span id="__span-35-5"><a id="__codelineno-35-5" name="__codelineno-35-5" href="#__codelineno-35-5"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_tailscale<span class="w"> </span>tailscale<span class="w"> </span>ip
+</span><span id="__span-35-6"><a id="__codelineno-35-6" name="__codelineno-35-6" href="#__codelineno-35-6"></a>
+</span><span id="__span-35-7"><a id="__codelineno-35-7" name="__codelineno-35-7" href="#__codelineno-35-7"></a><span class="c1"># Check serve status</span>
+</span><span id="__span-35-8"><a id="__codelineno-35-8" name="__codelineno-35-8" href="#__codelineno-35-8"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_tailscale<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>status
+</span><span id="__span-35-9"><a id="__codelineno-35-9" name="__codelineno-35-9" href="#__codelineno-35-9"></a>
+</span><span id="__span-35-10"><a id="__codelineno-35-10" name="__codelineno-35-10" href="#__codelineno-35-10"></a><span class="c1"># View container logs</span>
+</span><span id="__span-35-11"><a id="__codelineno-35-11" name="__codelineno-35-11" href="#__codelineno-35-11"></a>docker<span class="w"> </span>logs<span class="w"> </span>n8n_tailscale
+</span><span id="__span-35-12"><a id="__codelineno-35-12" name="__codelineno-35-12" href="#__codelineno-35-12"></a>
+</span><span id="__span-35-13"><a id="__codelineno-35-13" name="__codelineno-35-13" href="#__codelineno-35-13"></a><span class="c1"># Restart Tailscale container</span>
+</span><span id="__span-35-14"><a id="__codelineno-35-14" name="__codelineno-35-14" href="#__codelineno-35-14"></a>docker<span class="w"> </span>compose<span class="w"> </span>restart<span class="w"> </span>n8n_tailscale
+</span></code></pre></div>
+<h3 id="urls">URLs<a class="headerlink" href="#urls" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Admin Console</td>
+<td>https://login.tailscale.com/admin</td>
+</tr>
+<tr>
+<td>Generate Auth Keys</td>
+<td>https://login.tailscale.com/admin/settings/keys</td>
+</tr>
+<tr>
+<td>Machine List</td>
+<td>https://login.tailscale.com/admin/machines</td>
+</tr>
+<tr>
+<td>ACL Editor</td>
+<td>https://login.tailscale.com/admin/acls</td>
+</tr>
+</tbody>
+</table>
+<h3 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Example</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TAILSCALE_AUTH_KEY</code></td>
+<td><code>tskey-auth-xxx</code></td>
+<td>Authentication</td>
+</tr>
+<tr>
+<td><code>TAILSCALE_ROUTES</code></td>
+<td><code>192.168.1.10/32</code></td>
+<td>Subnet routes (CIDR notation)</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 Richard J. Sears
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/rjsears" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.indexes", "navigation.path", "navigation.top", "toc.follow", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/vendor/mermaid.min.js"></script>
+      
+        <script src="../javascripts/manual.js"></script>
+      
+    
+  </body>
+</html>

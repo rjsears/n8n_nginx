@@ -1,0 +1,160 @@
+/* ==========================================================================
+   Custom styles for the User Manual
+   - Widens the content area so screenshots have more room to render
+   - Makes screenshots full-width with a subtle border and click-to-zoom
+   ========================================================================== */
+
+/* Widen the main content area slightly so 1100px-max screenshots have room.
+   Material default is ~56rem (~900px); 70rem gives ~1120px. */
+.md-grid {
+  max-width: 70rem;
+}
+
+/* Default styling for screenshots in articles. Captured at 2x DPI so they
+   stay crisp when scaled down. Use max-width only — never stretch images
+   beyond their natural size, which would blur small modal captures. */
+.md-content article img {
+  max-width: min(1100px, 100%);
+  height: auto;
+  display: block;
+  margin: 1.5em auto;
+  border-radius: 6px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  cursor: zoom-in;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Smaller modals (Add Channel, About, edit forms, shutdown warnings) are
+   compact natural-size captures — let them display at their natural width.
+   Use suffix matching ($=) for warnings so it only catches manual-screenshot
+   files like `containers-04-shutdown-warning.png` and NOT bigger marketing
+   cards like `safety_scope_warning_card.png` that happen to contain the
+   word "warning". */
+.md-content article img[src*="modal"],
+.md-content article img[src$="-warning.png"] {
+  max-width: 700px;
+}
+
+/* The Help & Documentation dialog is content-rich (9 link cards, 4 sections)
+   so it needs more room. */
+.md-content article img[src*="help-dialog"] {
+  max-width: 900px;
+}
+
+/* About dialog is taller-than-wide and reads fine at modest size. */
+.md-content article img[src*="about-dialog"] {
+  max-width: 600px;
+}
+
+/* The shared header strip is short — show it at a comfortable readable size,
+   not stretched full width. */
+.md-content article img[src*="header"] {
+  max-width: 1100px;
+}
+
+/* Hover state: subtle lift to suggest interactivity */
+.md-content article img:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Click-to-zoom: when an image is clicked, expand it to fill the viewport.
+   Implemented purely with the :target pseudo-class - no JS required when
+   images are wrapped in <a href="#img-id"> links. For our standard markdown
+   images, we use a lightbox approach via the manual.js script below. */
+
+/* Lightbox overlay (toggled by manual.js click handler) */
+.lightbox-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  cursor: zoom-out;
+  padding: 2rem;
+}
+
+.lightbox-overlay img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* Don't apply image styles to icons (e.g. badges in the README) */
+.md-content article img[src*="img.shields.io"],
+.md-content article img[src*="badge"] {
+  width: auto;
+  border: none;
+  box-shadow: none;
+  cursor: auto;
+  margin: 0 0.25em;
+  transform: none;
+}
+.md-content article img[src*="img.shields.io"]:hover,
+.md-content article img[src*="badge"]:hover {
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   Custom "security" admonition (!!! security)
+   The original hand-built manual (docs/manual/styles.css) has a 5th callout
+   type, .info-box.security, distinct from .info-box.danger, used to flag
+   screenshots containing sensitive data (API tokens, IPs, hostnames) that
+   need to be blurred before publishing. Material ships no built-in
+   "security" admonition, so this defines one using Material's documented
+   custom-admonition pattern (icon variable + border/title colors), reusing
+   the exact --security-bg / --security-border / --security-text palette
+   from the original stylesheet so the manual keeps its original look.
+   Light values: --security-bg:#fce7f3 --security-border:#be185d --security-text:#831843
+   Dark values:  --security-bg:#831843 --security-border:#f472b6 --security-text:#fce7f3
+   ========================================================================== */
+:root {
+  /* Lock glyph (Material Design Icons "lock"), matching the original
+     manual's 🔒 emoji used on .info-box.security / .security-flag. */
+  --md-admonition-icon--security: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12,17A2,2 0 0,0 14,15C14,13.89 13.1,13 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10C4,8.89 4.9,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z"/></svg>');
+}
+
+.md-typeset .admonition.security,
+.md-typeset details.security {
+  border-color: #be185d;
+}
+
+.md-typeset .security > .admonition-title,
+.md-typeset .security > summary {
+  background-color: #fce7f3;
+  border-color: #be185d;
+}
+
+.md-typeset .security > .admonition-title::before,
+.md-typeset .security > summary::before {
+  background-color: #be185d;
+  -webkit-mask-image: var(--md-admonition-icon--security);
+          mask-image: var(--md-admonition-icon--security);
+}
+
+/* Dark scheme override (Material's slate palette, toggled via
+   data-md-color-scheme) — reuses the original stylesheet's dark tokens. */
+[data-md-color-scheme="slate"] .md-typeset .admonition.security,
+[data-md-color-scheme="slate"] .md-typeset details.security {
+  border-color: #f472b6;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .security > .admonition-title,
+[data-md-color-scheme="slate"] .md-typeset .security > summary {
+  background-color: #831843;
+  border-color: #f472b6;
+  color: #fce7f3;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .security > .admonition-title::before,
+[data-md-color-scheme="slate"] .md-typeset .security > summary::before {
+  background-color: #f472b6;
+}

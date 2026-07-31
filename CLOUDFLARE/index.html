@@ -1,0 +1,3043 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted n8n with nginx SSL termination, PostgreSQL, and a full management console">
+      
+      
+        <meta name="author" content="Richard J. Sears">
+      
+      
+        <link rel="canonical" href="https://rjsears.github.io/n8n_nginx/CLOUDFLARE/">
+      
+      
+        <link rel="prev" href="../API/">
+      
+      
+        <link rel="next" href="../TAILSCALE/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Cloudflare Tunnel - n8n Management Suite</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cloudflare-tunnel-integration-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="n8n Management Suite" class="md-header__button md-logo" aria-label="n8n Management Suite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 2v6h2v3H5c-1.11 0-2 .89-2 2v3H1v6h6v-6H5v-3h6v3H9v6h6v-6h-2v-3h6v3h-2v6h6v-6h-2v-3c0-1.11-.89-2-2-2h-6V8h2V2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            n8n Management Suite
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Cloudflare Tunnel
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rjsears/n8n_nginx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rjsears/n8n_nginx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="n8n Management Suite" class="md-nav__button md-logo" aria-label="n8n Management Suite" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 2v6h2v3H5c-1.11 0-2 .89-2 2v3H1v6h6v-6H5v-3h6v3H9v6h6v-6h-2v-3h6v3h-2v6h6v-6h-2v-3c0-1.11-.89-2-2-2h-6V8h2V2z"/></svg>
+
+    </a>
+    n8n Management Suite
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rjsears/n8n_nginx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rjsears/n8n_nginx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/requirements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Manual
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Manual
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/welcome/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/containers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Containers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/flows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/backups/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backups
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual/appendix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Appendix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../BACKUP_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backups
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../NOTIFICATIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ENVIRONMENTAL_VARIABLES/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Setup
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloudflare Tunnel
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloudflare Tunnel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Table of Contents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#other-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-cloudflare-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is Cloudflare Tunnel?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is Cloudflare Tunnel?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#traditional-setup-without-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Traditional Setup (Without Tunnel)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with-cloudflare-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        With Cloudflare Tunnel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-benefits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Benefits
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-cloudflare-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a Cloudflare Account
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a Cloudflare Account">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-sign-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Sign Up
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-choose-a-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Choose a Plan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-complete-account-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Complete Account Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-your-domain-to-cloudflare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding Your Domain to Cloudflare
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Adding Your Domain to Cloudflare">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-add-your-site" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Add Your Site
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-review-dns-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Review DNS Records
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-change-nameservers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Change Nameservers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-wait-for-propagation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Wait for Propagation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setting-up-zero-trust" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setting Up Zero Trust
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setting Up Zero Trust">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-access-zero-trust-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Access Zero Trust Dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-initial-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Initial Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-verify-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Verify Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a Tunnel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a Tunnel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-navigate-to-tunnels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Navigate to Tunnels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-choose-connector-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Choose Connector Type
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-name-your-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Name Your Tunnel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-install-connector-skip-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Install Connector (Skip This)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-5-add-public-hostnames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5: Add Public Hostnames
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-6-save-the-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6: Save the Tunnel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#public-website-hosting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public Website Hosting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Public Website Hosting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-is-this-needed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why is this needed?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#important-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Important Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generating-the-tunnel-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generating the Tunnel Token
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Generating the Tunnel Token">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-find-your-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Find Your Tunnel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-copy-the-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Copy the Token
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#token-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token Format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-store-the-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Store the Token
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-in-n8n-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration in n8n Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration in n8n Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docker-compose-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#starting-the-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting the Tunnel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understanding-how-tunnels-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding How Tunnels Work
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Understanding How Tunnels Work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connection-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tunnel-redundancy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tunnel Redundancy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-open-ports-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No Open Ports Required
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zero-trust-access-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero Trust Access Policies
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Zero Trust Access Policies">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-create-an-application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Create an Application
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-configure-the-application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Configure the Application
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-add-access-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Add Access Policies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-configure-identity-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Configure Identity Providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-5-save-and-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5: Save and Test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Best Practices
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security Best Practices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-enable-access-for-n8n" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Enable Access for n8n
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-use-service-tokens-for-automation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Use Service Tokens for Automation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-monitor-access-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Monitor Access Logs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-rotate-tunnel-tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Rotate Tunnel Tokens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-use-separate-tunnels-for-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Use Separate Tunnels for Services
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-implement-device-posture-pro-feature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Implement Device Posture (Pro Feature)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tunnel-shows-inactive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tunnel Shows "Inactive"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connection-refused-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Refused Errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#502-bad-gateway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        502 Bad Gateway
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-not-resolving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DNS Not Resolving
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#access-policy-not-working" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Access Policy Not Working
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssl-certificate-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SSL Certificate Errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#container-restart-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Container Restart Loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#urls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        URLs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-cloudflare-tunnel-vs-tailscale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison: Cloudflare Tunnel vs Tailscale
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../TAILSCALE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tailscale VPN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CERTBOT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Certbot SSL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../TROUBLESHOOTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href=".." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="./" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Setup
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cloudflare-tunnel-integration-guide">Cloudflare Tunnel Integration Guide<a class="headerlink" href="#cloudflare-tunnel-integration-guide" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>Cloudflare Tunnel (formerly Argo Tunnel) provides secure, outbound-only access to your n8n installation without exposing any ports to the internet. This guide covers everything from creating a Cloudflare account to advanced access policies.</p>
+<hr />
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="#what-is-cloudflare-tunnel">What is Cloudflare Tunnel?</a></li>
+<li><a href="#creating-a-cloudflare-account">Creating a Cloudflare Account</a></li>
+<li><a href="#adding-your-domain-to-cloudflare">Adding Your Domain to Cloudflare</a></li>
+<li><a href="#setting-up-zero-trust">Setting Up Zero Trust</a></li>
+<li><a href="#creating-a-tunnel">Creating a Tunnel</a></li>
+<li><a href="#public-website-hosting">Public Website Hosting</a></li>
+<li><a href="#generating-the-tunnel-token">Generating the Tunnel Token</a></li>
+<li><a href="#configuration-in-n8n-management">Configuration in n8n Management</a></li>
+<li><a href="#understanding-how-tunnels-work">Understanding How Tunnels Work</a></li>
+<li><a href="#zero-trust-access-policies">Zero Trust Access Policies</a></li>
+<li><a href="#security-best-practices">Security Best Practices</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ol>
+<h3 id="other-documentation">Other Documentation<a class="headerlink" href="#other-documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="../API/">API Reference</a> - REST API documentation</li>
+<li><a href="../BACKUP_GUIDE/">Backup Guide</a> - Backup and restore procedures</li>
+<li><a href="../CERTBOT/">Certbot Guide</a> - SSL certificate management</li>
+<li><a href="../MIGRATION/">Migration Guide</a> - Upgrading from v2.0 to v3.0</li>
+<li><a href="../NOTIFICATIONS/">Notifications Guide</a> - Alert and notification setup</li>
+<li><a href="../TAILSCALE/">Tailscale Guide</a> - Tailscale VPN integration</li>
+<li><a href="../TROUBLESHOOTING/">Troubleshooting</a> - Common issues and solutions</li>
+</ul>
+<hr />
+<h2 id="what-is-cloudflare-tunnel">What is Cloudflare Tunnel?<a class="headerlink" href="#what-is-cloudflare-tunnel" title="Permanent link">&para;</a></h2>
+<p>Cloudflare Tunnel creates a secure, encrypted connection between your server and Cloudflare's edge network. Unlike traditional setups:</p>
+<h3 id="traditional-setup-without-tunnel">Traditional Setup (Without Tunnel)<a class="headerlink" href="#traditional-setup-without-tunnel" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart LR
+    A[Internet] --&gt;|Port 443| B[Your Public IP]
+    B --&gt; C[nginx]
+    C --&gt; D[n8n]
+
+    style B fill:#f8d7da,stroke:#721c24
+    linkStyle 0 stroke:#dc3545,stroke-width:2px</code></pre>
+<blockquote>
+<p>⚠️ <strong>Risk</strong>: Your public IP is exposed to attacks</p>
+</blockquote>
+<h3 id="with-cloudflare-tunnel">With Cloudflare Tunnel<a class="headerlink" href="#with-cloudflare-tunnel" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>flowchart LR
+    A[Internet] --&gt; B[Cloudflare Edge]
+    B --&gt;|Encrypted Tunnel| C[cloudflared]
+    C --&gt; D[nginx]
+    D --&gt; E[n8n]
+
+    style B fill:#cce5ff,stroke:#004085
+    style C fill:#d4edda,stroke:#28a745
+    linkStyle 1 stroke:#28a745,stroke-width:2px</code></pre>
+<blockquote>
+<p>✅ <strong>Secure</strong>: Outbound only, no exposed ports</p>
+</blockquote>
+<h3 id="key-benefits">Key Benefits<a class="headerlink" href="#key-benefits" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Benefit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>No Open Ports</strong></td>
+<td>Your server has no inbound ports exposed</td>
+</tr>
+<tr>
+<td><strong>DDoS Protection</strong></td>
+<td>Cloudflare filters malicious traffic</td>
+</tr>
+<tr>
+<td><strong>Free SSL</strong></td>
+<td>Automatic certificate management</td>
+</tr>
+<tr>
+<td><strong>Access Control</strong></td>
+<td>Require authentication before access</td>
+</tr>
+<tr>
+<td><strong>Performance</strong></td>
+<td>Cloudflare's CDN and optimization</td>
+</tr>
+<tr>
+<td><strong>Zero Config DNS</strong></td>
+<td>Automatic DNS record management</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="creating-a-cloudflare-account">Creating a Cloudflare Account<a class="headerlink" href="#creating-a-cloudflare-account" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-sign-up">Step 1: Sign Up<a class="headerlink" href="#step-1-sign-up" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Visit <a href="https://dash.cloudflare.com/sign-up">https://dash.cloudflare.com/sign-up</a></li>
+<li>Enter your email address</li>
+<li>Create a password (minimum 8 characters)</li>
+<li>Click <strong>Create Account</strong></li>
+<li>Verify your email address</li>
+</ol>
+<h3 id="step-2-choose-a-plan">Step 2: Choose a Plan<a class="headerlink" href="#step-2-choose-a-plan" title="Permanent link">&para;</a></h3>
+<p>For most n8n installations, the <strong>Free</strong> plan is sufficient:</p>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Free</th>
+<th>Pro ($20/mo)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cloudflare Tunnel</td>
+<td>✅ Unlimited</td>
+<td>✅ Unlimited</td>
+</tr>
+<tr>
+<td>Zero Trust (50 users)</td>
+<td>✅ Free</td>
+<td>✅ Free</td>
+</tr>
+<tr>
+<td>DDoS Protection</td>
+<td>✅ Basic</td>
+<td>✅ Enhanced</td>
+</tr>
+<tr>
+<td>SSL Certificates</td>
+<td>✅ Universal</td>
+<td>✅ Advanced</td>
+</tr>
+</tbody>
+</table>
+<h3 id="step-3-complete-account-setup">Step 3: Complete Account Setup<a class="headerlink" href="#step-3-complete-account-setup" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Log into <a href="https://dash.cloudflare.com">dash.cloudflare.com</a></li>
+<li>Click on your profile icon (top right)</li>
+<li>Go to <strong>My Profile</strong> &gt; <strong>Account</strong></li>
+<li>Add 2FA for security (highly recommended)</li>
+</ol>
+<hr />
+<h2 id="adding-your-domain-to-cloudflare">Adding Your Domain to Cloudflare<a class="headerlink" href="#adding-your-domain-to-cloudflare" title="Permanent link">&para;</a></h2>
+<p>Before creating a tunnel, your domain must be on Cloudflare.</p>
+<h3 id="step-1-add-your-site">Step 1: Add Your Site<a class="headerlink" href="#step-1-add-your-site" title="Permanent link">&para;</a></h3>
+<ol>
+<li>In Cloudflare dashboard, click <strong>Add site</strong></li>
+<li>Enter your domain name (e.g., <code>example.com</code>)</li>
+<li>Select the <strong>Free</strong> plan</li>
+<li>Click <strong>Continue</strong></li>
+</ol>
+<h3 id="step-2-review-dns-records">Step 2: Review DNS Records<a class="headerlink" href="#step-2-review-dns-records" title="Permanent link">&para;</a></h3>
+<p>Cloudflare scans your existing DNS records:</p>
+<ol>
+<li>Review the imported records</li>
+<li>Ensure your main records are present</li>
+<li>Click <strong>Continue</strong></li>
+</ol>
+<h3 id="step-3-change-nameservers">Step 3: Change Nameservers<a class="headerlink" href="#step-3-change-nameservers" title="Permanent link">&para;</a></h3>
+<p>Cloudflare provides two nameservers. Update them at your domain registrar:</p>
+<p><strong>Example:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ns1.cloudflare.com
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>ns2.cloudflare.com
+</span></code></pre></div></p>
+<p><strong>Where to update nameservers:</strong>
+- GoDaddy: Domain Settings &gt; Nameservers
+- Namecheap: Domain List &gt; Manage &gt; Nameservers
+- Google Domains: DNS &gt; Custom nameservers</p>
+<h3 id="step-4-wait-for-propagation">Step 4: Wait for Propagation<a class="headerlink" href="#step-4-wait-for-propagation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Nameserver changes take 1-48 hours</li>
+<li>Cloudflare emails you when active</li>
+<li>Check status in dashboard: should show <strong>Active</strong></li>
+</ul>
+<hr />
+<h2 id="setting-up-zero-trust">Setting Up Zero Trust<a class="headerlink" href="#setting-up-zero-trust" title="Permanent link">&para;</a></h2>
+<p>Cloudflare Zero Trust is the platform for managing tunnels and access policies.</p>
+<h3 id="step-1-access-zero-trust-dashboard">Step 1: Access Zero Trust Dashboard<a class="headerlink" href="#step-1-access-zero-trust-dashboard" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Go to <a href="https://one.dash.cloudflare.com">https://one.dash.cloudflare.com</a></li>
+<li>Or from main dashboard: <strong>Zero Trust</strong> (left sidebar)</li>
+</ol>
+<h3 id="step-2-initial-setup">Step 2: Initial Setup<a class="headerlink" href="#step-2-initial-setup" title="Permanent link">&para;</a></h3>
+<p>First time accessing Zero Trust:</p>
+<ol>
+<li>Click <strong>Get started</strong></li>
+<li>Enter a <strong>team name</strong> (this becomes your access URL: <code>teamname.cloudflareaccess.com</code>)</li>
+<li>Select the <strong>Free</strong> plan (up to 50 users)</li>
+<li>Click <strong>Complete setup</strong></li>
+</ol>
+<h3 id="step-3-verify-setup">Step 3: Verify Setup<a class="headerlink" href="#step-3-verify-setup" title="Permanent link">&para;</a></h3>
+<p>Your Zero Trust dashboard should show:
+- <strong>Tunnels</strong>: For creating connections
+- <strong>Access</strong>: For authentication policies
+- <strong>Gateway</strong>: For DNS filtering (optional)</p>
+<hr />
+<h2 id="creating-a-tunnel">Creating a Tunnel<a class="headerlink" href="#creating-a-tunnel" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-navigate-to-tunnels">Step 1: Navigate to Tunnels<a class="headerlink" href="#step-1-navigate-to-tunnels" title="Permanent link">&para;</a></h3>
+<ol>
+<li>In Zero Trust dashboard, go to <strong>Networks</strong> &gt; <strong>Tunnels</strong></li>
+<li>Click <strong>Create a tunnel</strong></li>
+</ol>
+<h3 id="step-2-choose-connector-type">Step 2: Choose Connector Type<a class="headerlink" href="#step-2-choose-connector-type" title="Permanent link">&para;</a></h3>
+<p>Select <strong>Cloudflared</strong> (the recommended connector)</p>
+<h3 id="step-3-name-your-tunnel">Step 3: Name Your Tunnel<a class="headerlink" href="#step-3-name-your-tunnel" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Enter a name: e.g., <code>n8n-tunnel</code></li>
+<li>Click <strong>Save tunnel</strong></li>
+</ol>
+<h3 id="step-4-install-connector-skip-this">Step 4: Install Connector (Skip This)<a class="headerlink" href="#step-4-install-connector-skip-this" title="Permanent link">&para;</a></h3>
+<p>Cloudflare shows installation instructions. <strong>Skip this step</strong> - the n8n docker setup handles this automatically.</p>
+<p>Click <strong>Next</strong> to continue.</p>
+<h3 id="step-5-add-public-hostnames">Step 5: Add Public Hostnames<a class="headerlink" href="#step-5-add-public-hostnames" title="Permanent link">&para;</a></h3>
+<p>Configure what services are accessible through the tunnel:</p>
+<p><strong>For n8n:</strong>
+| Field | Value |
+|-------|-------|
+| Subdomain | <code>n8n</code> (or leave blank for root) |
+| Domain | <code>example.com</code> (your domain) |
+| Type | <code>HTTPS</code> |
+| URL | <code>nginx:443</code> |</p>
+<p>This creates: <code>n8n.example.com</code> → your n8n instance</p>
+<p><strong>Available Services (Path-Based Routing):</strong></p>
+<p>The n8n Management Suite uses nginx reverse proxy with path-based routing - no ports required:</p>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>n8n</strong></td>
+<td><code>https://n8n.example.com</code></td>
+</tr>
+<tr>
+<td><strong>Management Console</strong></td>
+<td><code>https://n8n.example.com/management</code></td>
+</tr>
+<tr>
+<td><strong>Adminer</strong> (optional)</td>
+<td><code>https://n8n.example.com/adminer</code></td>
+</tr>
+<tr>
+<td><strong>Portainer</strong> (optional)</td>
+<td><code>https://n8n.example.com/portainer</code></td>
+</tr>
+<tr>
+<td><strong>Dozzle</strong> (optional)</td>
+<td><code>https://n8n.example.com/dozzle</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Note</strong>: All services are accessed via paths on your single domain. The tunnel only needs to expose one hostname - nginx handles routing to the appropriate service.</p>
+</blockquote>
+<p><strong>Additional Options (click "Additional application settings"):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Recommended</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TLS &gt; No TLS Verify</td>
+<td>✅ Enable</td>
+<td>Accept self-signed certs from nginx</td>
+</tr>
+<tr>
+<td>TLS &gt; Origin Server Name</td>
+<td><code>your-domain.com</code></td>
+<td>SNI for the connection</td>
+</tr>
+<tr>
+<td>HTTP Settings &gt; HTTP Host Header</td>
+<td><code>your-domain.com</code></td>
+<td>Preserve host header</td>
+</tr>
+</tbody>
+</table>
+<h3 id="step-6-save-the-tunnel">Step 6: Save the Tunnel<a class="headerlink" href="#step-6-save-the-tunnel" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Review your configuration</li>
+<li>Click <strong>Save tunnel</strong></li>
+</ol>
+<hr />
+<h2 id="public-website-hosting">Public Website Hosting<a class="headerlink" href="#public-website-hosting" title="Permanent link">&para;</a></h2>
+<p>If you enabled the <strong>Public Website</strong> feature during setup, you must configure Cloudflare Tunnel to route traffic for your website (<code>www.yourdomain.com</code> or <code>yourdomain.com</code>).</p>
+<h3 id="why-is-this-needed">Why is this needed?<a class="headerlink" href="#why-is-this-needed" title="Permanent link">&para;</a></h3>
+<p>The <code>n8n</code> public hostname (e.g., <code>n8n.example.com</code>) only routes traffic to the n8n application. To serve your static website, you need separate public hostnames pointing to the same tunnel.</p>
+<h3 id="configuration-steps">Configuration Steps<a class="headerlink" href="#configuration-steps" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Go to <strong>Networks</strong> &gt; <strong>Tunnels</strong></li>
+<li>Select your <code>n8n-tunnel</code> &gt; <strong>Configure</strong></li>
+<li>Go to <strong>Public Hostname</strong> tab</li>
+<li>Click <strong>Add a public hostname</strong></li>
+</ol>
+<p><strong>For www subdomain:</strong>
+| Field | Value |
+|-------|-------|
+| Subdomain | <code>www</code> |
+| Domain | <code>example.com</code> |
+| Path | (leave empty) |
+| Type | <code>HTTPS</code> |
+| URL | <code>n8n_nginx:443</code> |</p>
+<p><strong>For root domain (optional):</strong>
+| Field | Value |
+|-------|-------|
+| Subdomain | (leave empty) |
+| Domain | <code>example.com</code> |
+| Type | <code>HTTPS</code> |
+| URL | <code>n8n_nginx:443</code> |</p>
+<h3 id="important-settings">Important Settings<a class="headerlink" href="#important-settings" title="Permanent link">&para;</a></h3>
+<p>For both hostnames, you <strong>must</strong> enable this setting under <strong>Additional application settings &gt; TLS</strong>:
+- <strong>No TLS Verify</strong>: ✅ Enabled</p>
+<hr />
+<h2 id="generating-the-tunnel-token">Generating the Tunnel Token<a class="headerlink" href="#generating-the-tunnel-token" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-find-your-tunnel">Step 1: Find Your Tunnel<a class="headerlink" href="#step-1-find-your-tunnel" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Go to <strong>Networks</strong> &gt; <strong>Tunnels</strong></li>
+<li>Click on your tunnel name (<code>n8n-tunnel</code>)</li>
+</ol>
+<h3 id="step-2-copy-the-token">Step 2: Copy the Token<a class="headerlink" href="#step-2-copy-the-token" title="Permanent link">&para;</a></h3>
+<ol>
+<li>In the tunnel overview, you'll see the <strong>Install connector</strong> section</li>
+<li>Look for the token in the command shown:
+   <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>cloudflared service install eyJhIjoiMj...very-long-token...
+</span></code></pre></div></li>
+<li>Copy just the token part (starts with <code>eyJ</code>)</li>
+</ol>
+<p><strong>Or use the "Copy" button</strong> next to the token</p>
+<h3 id="token-format">Token Format<a class="headerlink" href="#token-format" title="Permanent link">&para;</a></h3>
+<p>The token is a base64-encoded JSON string containing:
+- Account ID
+- Tunnel ID
+- Tunnel secret</p>
+<p>Example token start: <code>eyJhIjoiMjM0NTY3ODkwIiwidCI6Ij...</code></p>
+<h3 id="step-3-store-the-token">Step 3: Store the Token<a class="headerlink" href="#step-3-store-the-token" title="Permanent link">&para;</a></h3>
+<p>Add to your n8n <code>.env</code> file:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiMjM0NTY3ODkwIiwidCI6IjEyMzQ1Njc4OTAi...
+</span></code></pre></div></p>
+<blockquote>
+<p>⚠️ <strong>Security Note</strong>: Never share or commit tunnel tokens. They grant full access to your tunnel.</p>
+</blockquote>
+<hr />
+<h2 id="configuration-in-n8n-management">Configuration in n8n Management<a class="headerlink" href="#configuration-in-n8n-management" title="Permanent link">&para;</a></h2>
+<h3 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h3>
+<p>Add to your <code>.env</code> file:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a># Cloudflare Tunnel token (from dashboard)
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoixxxxxxx...
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a># Your domain (used for nginx configuration)
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>N8N_DOMAIN=n8n.example.com
+</span></code></pre></div>
+<h3 id="docker-compose-configuration">Docker Compose Configuration<a class="headerlink" href="#docker-compose-configuration" title="Permanent link">&para;</a></h3>
+<p>The cloudflared container is configured in <code>docker-compose.yml</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">n8n_cloudflared</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cloudflare/cloudflared:latest</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">n8n_cloudflared</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tunnel --no-autoupdate run</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="nt">networks</span><span class="p">:</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">n8n_network</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">  </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">  </span><span class="nt">depends_on</span><span class="p">:</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">n8n_nginx</span>
+</span></code></pre></div>
+<h3 id="starting-the-tunnel">Starting the Tunnel<a class="headerlink" href="#starting-the-tunnel" title="Permanent link">&para;</a></h3>
+<p>After configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>n8n_cloudflared
+</span></code></pre></div>
+<p>Verify the connection:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>docker<span class="w"> </span>logs<span class="w"> </span>n8n_cloudflared
+</span></code></pre></div></p>
+<p>Look for:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>INF Connection established connIndex=0 connection=xxxx
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>INF Connection established connIndex=1 connection=xxxx
+</span></code></pre></div></p>
+<hr />
+<h2 id="understanding-how-tunnels-work">Understanding How Tunnels Work<a class="headerlink" href="#understanding-how-tunnels-work" title="Permanent link">&para;</a></h2>
+<h3 id="connection-flow">Connection Flow<a class="headerlink" href="#connection-flow" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Cloudflared starts</strong> and connects to Cloudflare's edge</li>
+<li><strong>4 connections</strong> are established (for redundancy)</li>
+<li><strong>Tunnel becomes active</strong> in Cloudflare dashboard</li>
+<li><strong>DNS is updated</strong> to route traffic through the tunnel</li>
+</ol>
+<h3 id="request-flow">Request Flow<a class="headerlink" href="#request-flow" title="Permanent link">&para;</a></h3>
+<p>When a user visits <code>n8n.example.com</code>:</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Browser as User's Browser
+    participant DNS
+    participant CF as Cloudflare Edge
+    participant CD as cloudflared
+    participant Nginx as nginx
+    participant N8N as n8n
+
+    Browser-&gt;&gt;DNS: 1. DNS lookup
+    DNS-&gt;&gt;Browser: 2. Return Cloudflare edge IP
+    Browser-&gt;&gt;CF: 3. Connect to Cloudflare
+    CF-&gt;&gt;CF: 4. Find your tunnel
+    CF-&gt;&gt;CD: 5. Send through encrypted tunnel
+    CD-&gt;&gt;Nginx: 6. Forward to nginx:443
+    Nginx-&gt;&gt;N8N: 7. Route to n8n
+    N8N-&gt;&gt;Browser: 8. Response travels back</code></pre>
+<h3 id="tunnel-redundancy">Tunnel Redundancy<a class="headerlink" href="#tunnel-redundancy" title="Permanent link">&para;</a></h3>
+<p>Cloudflared maintains multiple connections:
+- Primary: 2 connections
+- Backup: 2 connections
+- If one fails, traffic shifts automatically</p>
+<h3 id="no-open-ports-required">No Open Ports Required<a class="headerlink" href="#no-open-ports-required" title="Permanent link">&para;</a></h3>
+<p>Your server firewall can block ALL inbound traffic:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Example: UFW configuration</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>ufw<span class="w"> </span>default<span class="w"> </span>deny<span class="w"> </span>incoming
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>ufw<span class="w"> </span>default<span class="w"> </span>allow<span class="w"> </span>outgoing
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>ufw<span class="w"> </span><span class="nb">enable</span>
+</span></code></pre></div>
+<p>The tunnel works because:
+- Connection is <strong>outbound</strong> from your server
+- Cloudflare's edge <strong>accepts</strong> the connection
+- Traffic flows <strong>through</strong> the established connection</p>
+<hr />
+<h2 id="zero-trust-access-policies">Zero Trust Access Policies<a class="headerlink" href="#zero-trust-access-policies" title="Permanent link">&para;</a></h2>
+<p>Secure your n8n with authentication requirements.</p>
+<h3 id="step-1-create-an-application">Step 1: Create an Application<a class="headerlink" href="#step-1-create-an-application" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Go to <strong>Access</strong> &gt; <strong>Applications</strong></li>
+<li>Click <strong>Add an application</strong></li>
+<li>Select <strong>Self-hosted</strong></li>
+</ol>
+<h3 id="step-2-configure-the-application">Step 2: Configure the Application<a class="headerlink" href="#step-2-configure-the-application" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Application name</td>
+<td><code>n8n</code></td>
+</tr>
+<tr>
+<td>Session Duration</td>
+<td><code>24 hours</code> (adjust as needed)</td>
+</tr>
+<tr>
+<td>Application domain</td>
+<td><code>n8n.example.com</code></td>
+</tr>
+<tr>
+<td>Path</td>
+<td>Leave empty (protect entire domain)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="step-3-add-access-policies">Step 3: Add Access Policies<a class="headerlink" href="#step-3-add-access-policies" title="Permanent link">&para;</a></h3>
+<p>Create a policy to control who can access:</p>
+<p><strong>Example: Email-based access</strong>
+| Field | Value |
+|-------|-------|
+| Policy name | <code>Allowed Users</code> |
+| Action | <code>Allow</code> |
+| Selector | <code>Emails</code> |
+| Value | <code>user@example.com, admin@example.com</code> |</p>
+<p><strong>Example: Domain-based access</strong>
+| Field | Value |
+|-------|-------|
+| Policy name | <code>Company Employees</code> |
+| Action | <code>Allow</code> |
+| Selector | <code>Emails ending in</code> |
+| Value | <code>@yourcompany.com</code> |</p>
+<p><strong>Example: IP-based access</strong>
+| Field | Value |
+|-------|-------|
+| Policy name | <code>Office IP</code> |
+| Action | <code>Allow</code> |
+| Selector | <code>IP ranges</code> |
+| Value | <code>203.0.113.0/24</code> |</p>
+<h3 id="step-4-configure-identity-providers">Step 4: Configure Identity Providers<a class="headerlink" href="#step-4-configure-identity-providers" title="Permanent link">&para;</a></h3>
+<p>Set up how users authenticate:</p>
+<ol>
+<li>Go to <strong>Settings</strong> &gt; <strong>Authentication</strong></li>
+<li>Add identity providers:</li>
+<li><strong>One-time PIN</strong> (email code, easiest)</li>
+<li><strong>Google</strong> (for Google Workspace)</li>
+<li><strong>GitHub</strong> (for GitHub organizations)</li>
+<li><strong>SAML</strong> (for enterprise SSO)</li>
+</ol>
+<h3 id="step-5-save-and-test">Step 5: Save and Test<a class="headerlink" href="#step-5-save-and-test" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Save the application</li>
+<li>Open an incognito window</li>
+<li>Visit <code>n8n.example.com</code></li>
+<li>You should see the Cloudflare Access login page</li>
+<li>Authenticate with allowed credentials</li>
+</ol>
+<hr />
+<h2 id="security-best-practices">Security Best Practices<a class="headerlink" href="#security-best-practices" title="Permanent link">&para;</a></h2>
+<h3 id="1-enable-access-for-n8n">1. Enable Access for n8n<a class="headerlink" href="#1-enable-access-for-n8n" title="Permanent link">&para;</a></h3>
+<p>Always require authentication for production:
+- Prevents unauthorized access
+- Logs all access attempts
+- Can revoke access instantly</p>
+<h3 id="2-use-service-tokens-for-automation">2. Use Service Tokens for Automation<a class="headerlink" href="#2-use-service-tokens-for-automation" title="Permanent link">&para;</a></h3>
+<p>For API access or automation:</p>
+<ol>
+<li>Go to <strong>Access</strong> &gt; <strong>Service Auth</strong></li>
+<li>Create a service token</li>
+<li>Add the token to your API client:
+   <div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>CF-Access-Client-Id: xxx
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>CF-Access-Client-Secret: xxx
+</span></code></pre></div></li>
+</ol>
+<h3 id="3-monitor-access-logs">3. Monitor Access Logs<a class="headerlink" href="#3-monitor-access-logs" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Go to <strong>Logs</strong> &gt; <strong>Access</strong></li>
+<li>Review login attempts</li>
+<li>Set up alerts for suspicious activity</li>
+</ol>
+<h3 id="4-rotate-tunnel-tokens">4. Rotate Tunnel Tokens<a class="headerlink" href="#4-rotate-tunnel-tokens" title="Permanent link">&para;</a></h3>
+<p>Periodically regenerate tunnel tokens:</p>
+<ol>
+<li>Go to <strong>Tunnels</strong> &gt; Your tunnel</li>
+<li>Click <strong>Configure</strong></li>
+<li>Generate new credentials</li>
+<li>Update your <code>.env</code> file</li>
+<li>Restart cloudflared</li>
+</ol>
+<h3 id="5-use-separate-tunnels-for-services">5. Use Separate Tunnels for Services<a class="headerlink" href="#5-use-separate-tunnels-for-services" title="Permanent link">&para;</a></h3>
+<p>Consider separate tunnels for:
+- Production n8n
+- Development/staging
+- Management console (if exposed)</p>
+<h3 id="6-implement-device-posture-pro-feature">6. Implement Device Posture (Pro Feature)<a class="headerlink" href="#6-implement-device-posture-pro-feature" title="Permanent link">&para;</a></h3>
+<p>Require devices to meet security requirements:
+- OS up to date
+- Disk encryption enabled
+- Corporate device only</p>
+<hr />
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="tunnel-shows-inactive">Tunnel Shows "Inactive"<a class="headerlink" href="#tunnel-shows-inactive" title="Permanent link">&para;</a></h3>
+<p><strong>Check container is running:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>docker<span class="w"> </span>ps<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>cloudflared
+</span></code></pre></div></p>
+<p><strong>Check logs for errors:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>docker<span class="w"> </span>logs<span class="w"> </span>n8n_cloudflared
+</span></code></pre></div></p>
+<p><strong>Common causes:</strong>
+- Invalid tunnel token
+- Network connectivity issues
+- Token expired or regenerated</p>
+<h3 id="connection-refused-errors">Connection Refused Errors<a class="headerlink" href="#connection-refused-errors" title="Permanent link">&para;</a></h3>
+<p><strong>Verify nginx is accessible from cloudflared:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_cloudflared<span class="w"> </span>wget<span class="w"> </span>-q<span class="w"> </span>-O-<span class="w"> </span>https://nginx:443<span class="w"> </span>--no-check-certificate
+</span></code></pre></div></p>
+<p><strong>Check tunnel configuration:</strong>
+1. Go to tunnel in Cloudflare dashboard
+2. Verify the <strong>URL</strong> is correct (<code>nginx:443</code>)
+3. Ensure <strong>No TLS Verify</strong> is enabled</p>
+<h3 id="502-bad-gateway">502 Bad Gateway<a class="headerlink" href="#502-bad-gateway" title="Permanent link">&para;</a></h3>
+<p>This indicates cloudflared can reach your server, but something is wrong:</p>
+<p><strong>Check nginx is running:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>docker<span class="w"> </span>logs<span class="w"> </span>n8n_nginx
+</span></code></pre></div></p>
+<p><strong>Verify SSL configuration:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_nginx<span class="w"> </span>nginx<span class="w"> </span>-t
+</span></code></pre></div></p>
+<h3 id="dns-not-resolving">DNS Not Resolving<a class="headerlink" href="#dns-not-resolving" title="Permanent link">&para;</a></h3>
+<p><strong>Check DNS records:</strong>
+1. Go to <strong>DNS</strong> in Cloudflare dashboard
+2. Look for the CNAME record created by the tunnel
+3. Should show: <code>n8n.example.com CNAME &lt;tunnel-id&gt;.cfargotunnel.com</code></p>
+<p><strong>Force DNS refresh:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Clear local DNS cache</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="c1"># macOS</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>sudo<span class="w"> </span>dscacheutil<span class="w"> </span>-flushcache
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="c1"># Linux</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>sudo<span class="w"> </span>systemd-resolve<span class="w"> </span>--flush-caches
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="c1"># Windows</span>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>ipconfig<span class="w"> </span>/flushdns
+</span></code></pre></div></p>
+<h3 id="access-policy-not-working">Access Policy Not Working<a class="headerlink" href="#access-policy-not-working" title="Permanent link">&para;</a></h3>
+<p><strong>Check policy order:</strong>
+- Policies are evaluated in order
+- First matching policy wins
+- Put most restrictive first</p>
+<p><strong>Verify session:</strong>
+1. Open incognito window
+2. Clear <code>CF_Authorization</code> cookie
+3. Try again</p>
+<h3 id="ssl-certificate-errors">SSL Certificate Errors<a class="headerlink" href="#ssl-certificate-errors" title="Permanent link">&para;</a></h3>
+<p><strong>If using self-signed certs on nginx:</strong>
+1. Go to tunnel configuration
+2. Enable <strong>No TLS Verify</strong> in additional settings
+3. Save and wait for propagation</p>
+<p><strong>If using Let's Encrypt:</strong>
+- Ensure certificate is valid: <code>docker exec n8n_nginx cat /etc/letsencrypt/live/*/fullchain.pem | openssl x509 -noout -dates</code></p>
+<h3 id="container-restart-loop">Container Restart Loop<a class="headerlink" href="#container-restart-loop" title="Permanent link">&para;</a></h3>
+<p><strong>Check token validity:</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Decode token (first 100 chars visible)</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="nb">echo</span><span class="w"> </span><span class="nv">$CLOUDFLARE_TUNNEL_TOKEN</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-c1-100<span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-d
+</span></code></pre></div></p>
+<p><strong>Regenerate token:</strong>
+1. Go to tunnel in dashboard
+2. Get new token
+3. Update <code>.env</code>
+4. Restart container</p>
+<hr />
+<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<h3 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Check tunnel status</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>docker<span class="w"> </span>logs<span class="w"> </span>n8n_cloudflared
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="c1"># Restart tunnel</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>docker<span class="w"> </span>compose<span class="w"> </span>restart<span class="w"> </span>n8n_cloudflared
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="c1"># Test connectivity</span>
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>n8n_cloudflared<span class="w"> </span>wget<span class="w"> </span>-q<span class="w"> </span>-O-<span class="w"> </span>https://nginx:443<span class="w"> </span>--no-check-certificate
+</span></code></pre></div>
+<h3 id="urls">URLs<a class="headerlink" href="#urls" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Zero Trust Dashboard</td>
+<td>https://one.dash.cloudflare.com</td>
+</tr>
+<tr>
+<td>Main Dashboard</td>
+<td>https://dash.cloudflare.com</td>
+</tr>
+<tr>
+<td>Tunnels</td>
+<td>https://one.dash.cloudflare.com/networks/tunnels</td>
+</tr>
+<tr>
+<td>Access Applications</td>
+<td>https://one.dash.cloudflare.com/access/apps</td>
+</tr>
+</tbody>
+</table>
+<h3 id="environment-variables_1">Environment Variables<a class="headerlink" href="#environment-variables_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Example</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CLOUDFLARE_TUNNEL_TOKEN</code></td>
+<td><code>eyJhIjoixxx</code></td>
+<td>Tunnel authentication</td>
+</tr>
+<tr>
+<td><code>N8N_DOMAIN</code></td>
+<td><code>n8n.example.com</code></td>
+<td>Your n8n domain</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="comparison-cloudflare-tunnel-vs-tailscale">Comparison: Cloudflare Tunnel vs Tailscale<a class="headerlink" href="#comparison-cloudflare-tunnel-vs-tailscale" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Cloudflare Tunnel</th>
+<th>Tailscale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Public Access</strong></td>
+<td>✅ Yes</td>
+<td>❌ Requires Tailscale</td>
+</tr>
+<tr>
+<td><strong>Authentication</strong></td>
+<td>✅ Built-in</td>
+<td>❌ Separate setup needed</td>
+</tr>
+<tr>
+<td><strong>SSH Access</strong></td>
+<td>❌ No</td>
+<td>✅ Yes</td>
+</tr>
+<tr>
+<td><strong>Port Exposure</strong></td>
+<td>None</td>
+<td>None</td>
+</tr>
+<tr>
+<td><strong>Cost</strong></td>
+<td>Free (50 users)</td>
+<td>Free (personal)</td>
+</tr>
+<tr>
+<td><strong>Best For</strong></td>
+<td>Public-facing n8n</td>
+<td>Private/team access</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Recommendation</strong>: Use both!
+- Cloudflare Tunnel for public access
+- Tailscale for SSH and admin access</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 Richard J. Sears
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/rjsears" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.indexes", "navigation.path", "navigation.top", "toc.follow", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/vendor/mermaid.min.js"></script>
+      
+        <script src="../javascripts/manual.js"></script>
+      
+    
+  </body>
+</html>
