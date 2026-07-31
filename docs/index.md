@@ -3,7 +3,8 @@
 The n8n Management Suite is a comprehensive, production-ready solution designed to automate the deployment and maintenance of self-hosted n8n workflow environments. This suite leverages a robust technology stack — including Docker, Nginx, and PostgreSQL 16 — to provide enterprise-grade features such as automated SSL certificate management and a dedicated FastAPI-driven management console. Key functional areas include a sophisticated backup and disaster recovery system, multi-channel notifications via Apprise and NTFY, and optional public website hosting with isolated network security. Users can monitor system health through real-time performance dashboards and manage Docker containers directly via a web interface.
 
 <p align="center">
-  <img src="images/n8n_repo_banner.jpg" alt="n8n Management Suite">
+  <img src="images/n8n_repo_banner_light.png#only-light" alt="n8n Management Suite — Secure. Automated. Recoverable." width="900"/>
+  <img src="images/n8n_repo_banner_dark.png#only-dark" alt="n8n Management Suite — Secure. Automated. Recoverable." width="900"/>
 </p>
 
 <div class="grid cards" markdown>
