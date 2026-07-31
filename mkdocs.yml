@@ -1,0 +1,137 @@
+site_name: n8n Management Suite
+site_description: Self-hosted n8n with nginx SSL termination, PostgreSQL, and a full management console
+site_author: Richard J. Sears
+site_url: https://rjsears.github.io/n8n_nginx
+
+repo_name: rjsears/n8n_nginx
+repo_url: https://github.com/rjsears/n8n_nginx
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.indexes
+    - navigation.path
+    - navigation.top
+    - toc.follow
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/sitemap
+  favicon: images/favicon.svg
+
+plugins:
+  - search
+  - tags
+
+# Internal-only docs — excluded from every build (local + CI) so they
+# never publish to the GitHub Pages site even if they somehow get
+# added to git. Belt-and-suspenders on top of .gitignore.
+exclude_docs: |
+  superpowers/
+  *_PLAN.md
+  screenshot_capture_quickstart.md
+  manual/MANIFEST.txt
+  manual/*.html
+  manual/styles.css
+  manual/manual.js
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - admonition
+  - tables
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/rjsears
+  generator: false
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/manual.js
+
+copyright: Copyright &copy; 2026 Richard J. Sears
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Requirements: getting-started/requirements.md
+    - Installation: getting-started/installation.md
+    - Architecture: getting-started/architecture.md
+  - User Manual:
+    - Welcome: manual/welcome.md
+    - Dashboard: manual/dashboard.md
+    - Containers: manual/containers.md
+    - Flows: manual/flows.md
+    - Backups: manual/backups.md
+    - Notifications: manual/notifications.md
+    - System: manual/system.md
+    - Settings: manual/settings.md
+    - Appendix: manual/appendix.md
+  - User Guides:
+    - Backups: BACKUP_GUIDE.md
+    - Notifications: NOTIFICATIONS.md
+    - Environment Variables: ENVIRONMENTAL_VARIABLES.md
+    - API Reference: API.md
+  - Setup:
+    - Cloudflare Tunnel: CLOUDFLARE.md
+    - Tailscale VPN: TAILSCALE.md
+    - Certbot SSL: CERTBOT.md
+    - Migration: MIGRATION.md
+  - Reference:
+    - Troubleshooting: TROUBLESHOOTING.md
+    - Changelog: CHANGELOG.md
+    - Contributing: CONTRIBUTING.md
