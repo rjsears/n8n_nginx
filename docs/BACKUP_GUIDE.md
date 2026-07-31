@@ -220,6 +220,48 @@ curl -X PUT https://your-domain.com/management/api/settings \
 
 ---
 
+## Pruning
+
+Pruning is the automated deletion of old backups, applied on top of the [retention policy](#retention-policies) above, to keep storage usage under control. Four independent modes can be enabled together.
+
+### Time-Based Pruning
+
+- Delete backups older than X days
+- Respects the retention policy — backups a retention rule needs to keep are not deleted
+
+### Space-Based Pruning
+
+- Trigger when free space falls below X% (a configurable threshold)
+- Deletes the oldest unprotected backups first
+
+### Size-Based Pruning
+
+- Keep total backup storage under X GB
+- Deletes the oldest backups once the limit is exceeded
+
+### Critical Space Handling
+
+- Emergency threshold (default: 5% free space)
+- Two response options: delete the oldest backups immediately, or stop new backups and alert
+
+### Configuring Pruning
+
+**Via Management UI:**
+1. Go to **Settings** → **Backups** → **Pruning**
+2. Enable the pruning modes you want (time-based, space-based, size-based)
+3. Set the threshold for each enabled mode
+4. Configure the critical space handling behavior
+5. Save
+
+**Via API:**
+See [Storage & Pruning](./API.md#storage-pruning) in the API Reference for the full `BackupPruningSettingsResponse` schema and the endpoints to preview pruning candidates, view pending deletions, or force a pruning pass.
+
+!!! note
+
+    Backups marked as protected (see [Per-row actions → Protect](manual/backups.md#row-actions) in the User Manual) are never removed by any pruning mode.
+
+---
+
 ## Backup Verification
 
 Verification ensures backups can actually be restored.

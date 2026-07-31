@@ -2,7 +2,7 @@
 
 ## n8n Management Console - Complete Environment Configuration Guide
 
-**Version 3.0.0 - February 2026**
+**Version 3.0.0 - April 2026**
 
 ---
 
@@ -57,6 +57,7 @@ PostgreSQL database credentials used by both n8n and the Management Console.
 | `POSTGRES_USER` | Database username for n8n and management console | `n8n` | ✅ Yes | No |
 | `POSTGRES_PASSWORD` | Database password. **Changing this requires database migration and container restart.** | *Generated* | ✅ Yes | ✅ Yes |
 | `POSTGRES_DB` | Name of the primary n8n database | `n8n` | ✅ Yes | No |
+| `POSTGRES_HOST` | Hostname the management console uses to reach PostgreSQL. Auto-derived from `POSTGRES_CONTAINER` inside Docker; only override when running the backend outside the standard docker-compose stack. | `postgres` | No | No |
 
 **⚠️ Warning:** Changing `POSTGRES_PASSWORD` after initial setup requires:
 1. Stopping all containers
@@ -458,5 +459,5 @@ n8n_nginx/
 
 ---
 
-*Document last updated: February 2026*
+*Document last updated: April 2026*
 *Part of the n8n Management Console v3.0.0*

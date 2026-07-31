@@ -5,7 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] - 2026-02
+## [Unreleased]
+
+### July 2026 Updates
+
+#### Fixed
+- **Scheduled SSL renewal was silently failing.** The certbot container's
+  deploy hook (`docker exec ... nginx -s reload`) requires the Docker CLI,
+  which the stock certbot images do not include. Certbot's hook validation
+  failed with `Unable to find deploy-hook command docker in the PATH` and
+  aborted every renewal attempt before it started. The certbot entrypoint
+  now installs `docker-cli` at container start, so the hook validates and
+  renewals run. (See `CERTBOT.md` "Renewals Silently Failing".)
+- Deploy hook now also reloads `n8n_nginx_router` on Public Website
+  installs. The router terminates SSL on port 443 in that topology; without
+  the reload it kept serving the pre-renewal certificate from memory until
+  the container was restarted.
+- The scheduled 12-hour renewal loop now passes `--no-random-sleep-on-renew`
+  (previously only on-demand renewals used it).
+
+#### Changed
+- `setup.sh` now detects hosts where the Docker daemon cannot load AppArmor
+  policy into the kernel (e.g. Docker inside a Proxmox LXC guest: container
+  creation fails with `docker-default profile could not be loaded ... You
+  need policy admin privileges`). Detection is a runtime probe, not
+  platform guessing. On affected hosts, every generated compose service
+  gets `security_opt: - apparmor:unconfined` and all helper `docker run`
+  invocations include `--security-opt apparmor=unconfined` — the same
+  approach already used by the management console's helper containers.
+  Unaffected hosts keep standard Docker AppArmor confinement. This replaces
+  the previous state where the compose-level fix existed only as a manual
+  server-side edit that regeneration would silently discard. (See
+  `TROUBLESHOOTING.md` "Container Creation Fails: docker-default profile
+  could not be loaded".)
+- The Docker hello-world verification during install retries with AppArmor
+  unconfined instead of aborting on affected hosts.
+
+## [3.0.0] - 2026-04
+
+### April 2026 Updates
+
+#### Added
+- `DNS_CERTBOT_IMAGE` environment variable to control which Certbot image runs
+  during SSL renewal (lets operators pin to a specific tag or DNS plugin
+  variant).
+- `POSTGRES_HOST` documented in the environment-variables reference (the
+  variable was already used by the backup, restore, and verification
+  services; only the doc was missing).
+- HTML user manual under `docs/manual/` rebuilt with screenshots reflecting
+  the current UI (light + dark dashboards, modal interactions, all sub-tabs).
+
+#### Changed
+- Let's Encrypt renewal timeout extended from the previous default to five
+  minutes (300 s). DNS challenges that hit propagation delays no longer fail
+  due to the management console's request timeout.
+- Frontend `services/api.js` now sets the corresponding 300 000 ms timeout
+  for SSL-related operations.
+
+#### Fixed
+- AppArmor LXC mount issue affecting the Selective Restore mount workflow
+  inside Proxmox LXC containers. Backup verification and restore Docker
+  invocations now use `security_opt=["apparmor=unconfined"]` and Certbot
+  runs with `--no-random-sleep-on-renew` so the renewal hook completes
+  inside the request window. (See `TROUBLESHOOTING.md` "AppArmor / LXC mount
+  failures" and `CERTBOT.md`.)
+- Alpine restore container cleanup in `system.py` and the docker container
+  cleanup paths so transient Alpine helpers used during selective restore
+  are reliably removed even when an operation aborts.
 
 ### Added
 

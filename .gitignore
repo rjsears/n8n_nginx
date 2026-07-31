@@ -6,6 +6,9 @@ digitalocean.ini
 credentials.ini
 *.credentials
 
+# Local scratch / sensitive working files (contains API keys, exported workflows, etc.)
+temp/
+
 # Setup configuration (contains sensitive settings)
 .n8n_setup_config
 setup-config
@@ -88,3 +91,9 @@ docs/superpowers/
 
 # Internal planning docs (not for public repo)
 *_PLAN.md
+
+# MkDocs build output and virtualenv
+.mkdocs-venv/
+site/
+docker-compose.yaml.org
+docker-compose.yaml.broken

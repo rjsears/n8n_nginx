@@ -43,7 +43,9 @@
         <li><a href="#troubleshooting">Troubleshooting</a></li>
         <li><a href="#tb-mount-fail">— AppArmor / mount fails</a></li>
         <li><a href="#tb-ssl">— SSL renewal timeouts</a></li>
+        <li><a href="#tb-ssl-silent">— SSL renewals silently failing</a></li>
         <li><a href="#tb-stuck-alpine">— Stuck Alpine containers</a></li>
+        <li><a href="#tb-apparmor-compose">— Container creation fails (AppArmor)</a></li>
         <li><a href="#tb-cache-stale">— Stale cached data</a></li>
         <li><a href="#tb-auth-locked">— Locked out of the console</a></li>
         <li><a href="#tb-filebrowser">— File Browser issues</a></li>
@@ -94,6 +96,24 @@ docker compose up -d n8n_management</code></pre>
         <p>See the canonical <a href="../CERTBOT.md">Certbot guide</a> for the full rate-limit table and DNS provider setup details.</p>
       </section>
 
+      <section id="tb-ssl-silent">
+        <h3>SSL renewals silently failing (deploy hook can't find docker)</h3>
+        <p><strong>Symptom:</strong> <code>docker logs n8n_certbot</code> shows <code>Unable to find deploy-hook command docker in the PATH.</code> every 12 hours. Nothing looks broken day-to-day, but the certificate's remaining validity keeps shrinking on the <a href="system.html#health-ssl">System → SSL Certificates</a> card.</p>
+
+        <p><strong>Cause:</strong> The certbot container's renewal loop uses a deploy hook (<code>docker exec &hellip; nginx -s reload</code>) to make nginx pick up renewed certificates. The stock certbot images don't include the Docker CLI, and certbot validates hook commands <em>before</em> renewing — a failed validation aborts the entire run. So this isn't just a broken reload: <strong>no renewal is ever attempted</strong>, and the certificate eventually expires.</p>
+
+        <p><strong>Fix:</strong> Update <code>docker-compose.yaml</code> to the current version — the certbot entrypoint now installs the CLI at container start (<code>apk add docker-cli</code>) — then recreate the container and verify:</p>
+        <pre><code>docker compose up -d --force-recreate certbot
+docker exec n8n_certbot which docker   # should print a path</code></pre>
+
+        <p>If the certificate is already close to expiry, renew immediately instead of waiting for the next 12-hour cycle:</p>
+        <pre><code>docker exec n8n_certbot certbot renew --no-random-sleep-on-renew
+docker exec n8n_nginx nginx -s reload
+docker exec n8n_nginx_router nginx -s reload   # Public Website installs only</code></pre>
+
+        <p><strong>Public Website installs:</strong> the <code>n8n_nginx_router</code> container terminates SSL on port 443 and must be reloaded after any renewal or it keeps serving the old certificate from memory. The current deploy hook does this automatically.</p>
+      </section>
+
       <section id="tb-stuck-alpine">
         <h3>Many Alpine containers stuck in "Created" state</h3>
         <p><strong>Symptom:</strong> Running <code>docker ps -a --filter "ancestor=alpine:latest"</code> shows dozens of orphaned Alpine containers in <code>Created</code> state that never ran. Common when running Docker inside an LXC.</p>
@@ -105,6 +125,20 @@ docker compose up -d n8n_management</code></pre>
 docker compose up -d n8n_management
 docker ps -a --filter "ancestor=alpine:latest" --filter "status=created" -q | xargs -r docker rm -f
 docker ps -a --filter "ancestor=alpine:latest" --filter "status=exited" -q | xargs -r docker rm -f</code></pre>
+      </section>
+
+      <section id="tb-apparmor-compose">
+        <h3>Container creation fails: "docker-default profile could not be loaded"</h3>
+        <p><strong>Symptom:</strong> Creating or recreating <em>any</em> container (e.g. <code>docker compose up -d --force-recreate certbot</code>) fails with <code>Error response from daemon: AppArmor enabled on system but the docker-default profile could not be loaded &hellip; apparmor_parser: Access denied. You need policy admin privileges to manage profiles.</code> Long-running containers keep working, so the error can appear "out of nowhere" months after install — it only triggers on container creation.</p>
+
+        <p><strong>Cause:</strong> The same root condition as the two AppArmor entries above, but at the Docker-daemon level: inside an LXC guest (e.g. Proxmox), Docker shares the host's kernel and may not be allowed to load AppArmor policy into it. Creating a container with default confinement requires loading the <code>docker-default</code> profile, and the load is denied. This affects <strong>every</strong> compose service, not just the management console's helper containers.</p>
+
+        <p><strong>Fix:</strong> Every service in <code>docker-compose.yaml</code> needs:</p>
+        <pre><code>    security_opt:
+      - apparmor:unconfined</code></pre>
+        <p>Current <code>setup.sh</code> handles this automatically — during the Docker environment check it probes whether the daemon can load AppArmor policy, and on affected hosts it generates every compose service with the <code>security_opt</code> entry (helper <code>docker run</code> commands get <code>--security-opt apparmor=unconfined</code> too). Unaffected hosts keep standard Docker confinement.</p>
+
+        <p><strong>Important:</strong> if you replace or regenerate <code>docker-compose.yaml</code> on an affected host, make sure the <code>security_opt</code> entries survive. A compose file without them deploys fine but fails on the next container recreate — re-running the current <code>setup.sh</code> restores them.</p>
       </section>
 
       <section id="tb-cache-stale">
@@ -166,6 +200,8 @@ print('Password updated, account unlocked')
             <tr><td>Unhealthy count > 0 on Dashboard or Containers</td><td><a href="containers.html#health-badges">Containers → Health badges</a></td></tr>
             <tr><td>Workflow toggle does nothing</td><td><a href="flows.html#api-integration">Flows → n8n API integration</a> (likely missing API key)</td></tr>
             <tr><td>SSL Certificates card shows < 7 days valid</td><td><a href="system.html#health-ssl">System → SSL Certificates</a> (Force Renew or wait for auto-renewal)</td></tr>
+            <tr><td><code>Unable to find deploy-hook command docker</code> in certbot logs</td><td><a href="#tb-ssl-silent">SSL renewals silently failing</a></td></tr>
+            <tr><td><code>docker-default profile could not be loaded</code> when (re)creating a container</td><td><a href="#tb-apparmor-compose">Container creation fails (AppArmor)</a></td></tr>
             <tr><td>Notifications not arriving</td><td><a href="notifications.html#channels">Notifications → Channels</a> (test the channel)</td></tr>
             <tr><td>Page shows "loading" or blank tiles</td><td><a href="system.html#cache">System → Cache</a> (check collectors)</td></tr>
             <tr><td>Need to recover from a corrupted host</td><td><a href="backups.html#bare-metal">Backups → Bare Metal</a></td></tr>

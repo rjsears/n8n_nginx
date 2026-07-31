@@ -191,525 +191,568 @@ Authorization: Bearer <token>
 
 ### Backup Endpoints
 
-#### List Backups
+All backup routes are mounted under the `/api/backups` prefix
+(`management/api/main.py: include_router(backups.router, prefix="/api/backups")`).
+The router is implemented in `management/api/routers/backups.py` and the
+response/request models live in `management/api/schemas/backups.py`.
 
-Get a paginated list of all backups.
+The endpoints below are grouped by purpose (history, schedules, run, retention,
+verification, contents, mount, restore, configuration, pruning, public-website
+restore). Field names in the example responses match the actual Pydantic
+schemas; see the schema file for the full list of optional fields.
+
+---
+
+#### History — List Backups
+
+Paginated history of every completed (or in-progress) backup. Replaces the
+older `GET /api/backups` listing endpoint.
 
 ```http
-GET /api/backups
+GET /api/backups/history
 Authorization: Bearer <token>
 ```
 
 **Query Parameters:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `limit` | integer | 50 | Number of results per page |
-| `offset` | integer | 0 | Number of results to skip |
-| `status` | string | - | Filter by status (success, failed, in_progress) |
+| `limit` | integer | 50 | Page size |
+| `offset` | integer | 0 | Pagination offset |
+| `backup_type` | string | - | Filter by type (e.g., `full`, `database`) |
+| `status` | string | - | Filter by status (e.g., `completed`, `failed`, `in_progress`) |
 
-**Response:** `200 OK`
+**Response:** `200 OK` — `BackupHistoryPaginatedResponse`
 ```json
 {
-  "backups": [
+  "items": [
     {
       "id": 1,
-      "filename": "n8n_backup_20241220_120000.tar.gz",
-      "file_size": 1048576,
-      "status": "success",
       "backup_type": "full",
-      "created_at": "2024-12-20T12:00:00Z",
-      "verified": true,
-      "protected": false,
-      "description": "Scheduled daily backup"
+      "schedule_id": 2,
+      "filename": "n8n_backup_20260427_120000.tar.gz",
+      "filepath": "/app/backups/n8n_backup_20260427_120000.tar.gz",
+      "storage_location": "local",
+      "file_size": 1048576,
+      "compressed_size": 524288,
+      "compression": "gzip",
+      "checksum": "sha256:...",
+      "started_at": "2026-04-27T12:00:00Z",
+      "completed_at": "2026-04-27T12:00:42Z",
+      "duration_seconds": 42,
+      "status": "completed",
+      "verification_status": "passed",
+      "is_protected": false
     }
   ],
   "total": 100,
   "limit": 50,
-  "offset": 0
+  "offset": 0,
+  "has_more": true
 }
 ```
 
-#### Get Backup Details
+#### History — Count
 
-Get detailed information about a specific backup.
+Lightweight counter, useful for badges and dashboards.
 
 ```http
-GET /api/backups/{backup_id}
+GET /api/backups/history/count
 Authorization: Bearer <token>
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "id": 1,
-  "filename": "n8n_backup_20241220_120000.tar.gz",
-  "file_size": 1048576,
-  "status": "success",
-  "backup_type": "full",
-  "created_at": "2024-12-20T12:00:00Z",
-  "verified": true,
-  "verified_at": "2024-12-20T12:05:00Z",
-  "protected": false,
-  "description": "Scheduled daily backup",
-  "checksum": "sha256:abc123...",
-  "workflows": [
-    {
-      "id": "workflow-uuid",
-      "name": "My Workflow",
-      "active": true,
-      "node_count": 5
-    }
-  ]
-}
-```
+**Response:** `200 OK` — `{ "total": <int> }`
 
-#### Create Backup
+#### History — Single Backup Detail
 
-Trigger a new backup.
+Full extended record for one backup, including protection and pending-deletion
+metadata.
 
 ```http
-POST /api/backups
+GET /api/backups/history/{backup_id}
 Authorization: Bearer <token>
 ```
 
-**Request Body:**
+**Response:** `200 OK` — `BackupHistoryExtendedResponse`. Adds `is_protected`,
+`protected_at`, `protected_reason`, `deletion_status`,
+`scheduled_deletion_at`, `deletion_reason` on top of the history fields.
+
+---
+
+#### Run — Trigger Manual Backup
+
+Kick off a backup of the chosen type immediately.
+
+```http
+POST /api/backups/run
+Authorization: Bearer <token>
+```
+
+**Request Body:** `BackupRunRequest`
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `backup_type` | string | No | Type: "full" or "database" (default: "full") |
-| `description` | string | No | Optional description |
-| `compression` | string | No | Compression: "gzip", "zstd", "none" |
+| `backup_type` | string | Yes | Backup type identifier (`full`, `database`, `n8n_db`, `config`, `workflows`) |
+| `compression` | string | No | `gzip` (default), `zstd`, or `none` |
+| `skip_auto_verify` | boolean | No | Skip the post-backup verification even if it is globally enabled |
 
-**Response:** `202 Accepted`
+**Response:** `200 OK` — `BackupRunResponse`
 ```json
-{
-  "id": 2,
-  "status": "in_progress",
-  "message": "Backup started"
-}
+{ "backup_id": 42, "status": "started", "message": "Full backup started" }
 ```
 
-#### Get Backup Status
+#### Run — Trigger Full Backup (everything)
 
-Get the current status of a backup operation.
+Convenience endpoint for kicking off a complete backup including databases,
+config, SSL certs and (if installed) the public-website volume.
 
 ```http
-GET /api/backups/{backup_id}/status
+POST /api/backups/run-full
 Authorization: Bearer <token>
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "id": 2,
-  "status": "in_progress",
-  "progress": 45,
-  "current_step": "Dumping database",
-  "started_at": "2024-12-20T12:00:00Z"
-}
-```
+**Response:** `200 OK` — `BackupRunResponse`
 
-#### Download Backup
+---
 
-Download a backup file.
-
-```http
-GET /api/backups/{backup_id}/download
-Authorization: Bearer <token>
-```
-
-**Response:** `200 OK` (binary file stream)
-
-#### Verify Backup
-
-Verify the integrity of a backup.
-
-```http
-POST /api/backups/{backup_id}/verify
-Authorization: Bearer <token>
-```
-
-**Response:** `200 OK`
-```json
-{
-  "verified": true,
-  "checksum_valid": true,
-  "archive_valid": true,
-  "database_valid": true,
-  "verified_at": "2024-12-20T12:10:00Z"
-}
-```
-
-#### Restore Backup
-
-Restore from a backup.
-
-```http
-POST /api/backups/{backup_id}/restore
-Authorization: Bearer <token>
-```
-
-**Request Body:**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `restore_type` | string | No | "full", "workflows", "credentials" |
-| `workflow_ids` | array | No | Specific workflow IDs to restore |
-| `overwrite` | boolean | No | Overwrite existing data (default: false) |
-
-**Response:** `202 Accepted`
-```json
-{
-  "restore_id": "restore-uuid",
-  "status": "in_progress",
-  "message": "Restore started"
-}
-```
-
-#### Delete Backup
-
-Delete a backup file.
-
-```http
-DELETE /api/backups/{backup_id}
-Authorization: Bearer <token>
-```
-
-**Response:** `200 OK`
-```json
-{
-  "message": "Backup deleted successfully"
-}
-```
-
-#### Protect/Unprotect Backup
-
-Toggle backup protection status.
-
-```http
-POST /api/backups/{backup_id}/protect
-Authorization: Bearer <token>
-```
-
-**Request Body:**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `protected` | boolean | Yes | Protection status |
-
-**Response:** `200 OK`
-```json
-{
-  "id": 1,
-  "protected": true,
-  "message": "Backup protection updated"
-}
-```
-
-#### Get Backup Schedules
-
-List all backup schedules.
+#### Schedules — List
 
 ```http
 GET /api/backups/schedules
 Authorization: Bearer <token>
 ```
 
-**Response:** `200 OK`
+**Response:** `200 OK` — `BackupScheduleResponse[]`
 ```json
-{
-  "schedules": [
-    {
-      "id": 1,
-      "name": "Daily Backup",
-      "enabled": true,
-      "cron_expression": "0 2 * * *",
-      "backup_type": "full",
-      "retention_days": 30,
-      "next_run": "2024-12-21T02:00:00Z"
-    }
-  ]
-}
+[
+  {
+    "id": 1,
+    "name": "Daily full backup",
+    "backup_type": "full",
+    "enabled": true,
+    "frequency": "daily",
+    "hour": 2,
+    "minute": 0,
+    "timezone": "America/Los_Angeles",
+    "compression": "gzip",
+    "last_run": "2026-04-27T02:00:00Z",
+    "next_run": "2026-04-28T02:00:00Z",
+    "created_at": "2026-01-15T00:00:00Z",
+    "updated_at": "2026-04-25T00:00:00Z"
+  }
+]
 ```
 
-#### Create Backup Schedule
-
-Create a new backup schedule.
+#### Schedules — Create
 
 ```http
 POST /api/backups/schedules
 Authorization: Bearer <token>
 ```
 
-**Request Body:**
+**Request Body:** schedule definition
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Schedule name |
-| `cron_expression` | string | Yes | Cron expression |
-| `backup_type` | string | No | "full" or "database" |
-| `retention_days` | integer | No | Days to retain backups |
-| `enabled` | boolean | No | Enable schedule (default: true) |
+| `name` | string | Yes | Display name |
+| `backup_type` | string | Yes | Backup type identifier |
+| `enabled` | boolean | No | Default: `true` |
+| `frequency` | string | Yes | `hourly`, `daily`, `weekly`, `monthly` |
+| `hour` | integer | conditional | 0–23, required for daily/weekly/monthly |
+| `minute` | integer | Yes | 0–59 |
+| `day_of_week` | integer | conditional | 0=Mon … 6=Sun, required for weekly |
+| `day_of_month` | integer | conditional | 1–31, required for monthly |
+| `timezone` | string | No | IANA tz name (default: system tz) |
+| `compression` | string | No | `gzip` (default), `zstd`, `none` |
 
-**Response:** `201 Created`
+**Response:** `201 Created` — `BackupScheduleResponse`
 
-#### Update Backup Schedule
-
-```http
-PUT /api/backups/schedules/{schedule_id}
-Authorization: Bearer <token>
-```
-
-#### Delete Backup Schedule
+#### Schedules — Get / Update / Delete
 
 ```http
+GET    /api/backups/schedules/{schedule_id}
+PUT    /api/backups/schedules/{schedule_id}
 DELETE /api/backups/schedules/{schedule_id}
-Authorization: Bearer <token>
 ```
 
-#### Get Backup Settings
+PUT accepts the same body as create; DELETE returns `SuccessResponse`.
 
-Get backup configuration settings.
+---
+
+#### Download — Full Archive
+
+Stream the backup file with the embedded restore script.
 
 ```http
-GET /api/backups/settings
+GET /api/backups/download/{backup_id}
 Authorization: Bearer <token>
 ```
 
-**Response:** `200 OK`
+**Response:** `200 OK` (binary octet-stream).
+
+#### Download — Data-Only
+
+Stream the data portion of the archive without the bare-metal recovery script.
+
+```http
+GET /api/backups/download/{backup_id}/data-only
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK` (binary octet-stream).
+
+---
+
+#### Delete Backup
+
+```http
+DELETE /api/backups/{backup_id}
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK` — `SuccessResponse`. Protected backups are refused
+with `409 Conflict`.
+
+#### Protect / Unprotect Backup
+
+Mark a backup as protected from automatic pruning, or remove that mark.
+
+```http
+POST /api/backups/{backup_id}/protect
+Authorization: Bearer <token>
+```
+
+**Request Body:** `BackupProtectRequest`
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `protected` | boolean | Yes | True to protect, false to unprotect |
+| `reason` | string | No | Optional note (max 200 chars) |
+
+**Response:** `200 OK` — `BackupHistoryExtendedResponse`
+
+#### List Protected Backups
+
+```http
+GET /api/backups/protected
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK` — `BackupHistoryExtendedResponse[]`
+
+---
+
+#### Retention Policies
+
+Per-backup-type retention rules (the GFS-style daily/weekly/monthly counts).
+
+```http
+GET /api/backups/retention
+PUT /api/backups/retention/{backup_type}
+Authorization: Bearer <token>
+```
+
+**Update body:** `RetentionPolicyUpdate`
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `keep_hourly` | integer | 24 | Hourly snapshots to keep (0–168) |
+| `keep_daily` | integer | 7 | Daily snapshots to keep (0–90) |
+| `keep_weekly` | integer | 4 | Weekly snapshots to keep (0–52) |
+| `keep_monthly` | integer | 12 | Monthly snapshots to keep (0–60) |
+| `max_total_size_gb` | integer | null | Optional total-size cap |
+
+**Response:** `200 OK` — `RetentionPolicyResponse`
+
+---
+
+#### Verification
+
+Verification can be scheduled, triggered manually, or performed as a quick
+integrity-only check.
+
+```http
+GET  /api/backups/verification/schedule
+PUT  /api/backups/verification/schedule
+POST /api/backups/verification/run/{backup_id}
+POST /api/backups/{backup_id}/verify
+POST /api/backups/{backup_id}/verify/quick
+GET  /api/backups/{backup_id}/verification/status
+GET  /api/backups/verification/container/status
+POST /api/backups/verification/cleanup
+Authorization: Bearer <token>
+```
+
+**Verification Schedule body:** `VerificationScheduleUpdate`
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | true | Master toggle |
+| `frequency` | string | `weekly` | `daily`, `weekly`, `monthly` |
+| `day_of_week` | integer | 0 | 0=Mon … 6=Sun |
+| `hour` | integer | 3 | Hour to run (0–23) |
+| `verify_latest_count` | integer | 5 | How many of the most-recent backups to verify each run (1–20) |
+
+**Run / Quick Verify Response:** `VerifyBackupResponse` / `VerificationRunResponse`
+```json
+{ "backup_id": 42, "status": "passed", "details": { "checksum": "ok", "archive": "ok", "database": "ok" } }
+```
+
+`/{backup_id}/verify` performs the comprehensive verification (loads database
+into a temporary container and validates schema, row counts, workflow
+checksums); `/{backup_id}/verify/quick` does the integrity-only path.
+
+---
+
+#### Statistics
+
+Aggregate counters for dashboards.
+
+```http
+GET /api/backups/stats
+Authorization: Bearer <token>
+```
+
+**Response:** `200 OK` — `BackupStatsResponse`
 ```json
 {
-  "retention": {
-    "daily": 7,
-    "weekly": 4,
-    "monthly": 12
-  },
-  "compression": "gzip",
-  "storage_path": "/app/backups",
-  "nfs_enabled": false,
-  "auto_verify": true,
-  "max_concurrent": 1
+  "total_backups": 134,
+  "successful_backups": 130,
+  "failed_backups": 4,
+  "total_size_bytes": 12345678901,
+  "last_backup": "2026-04-27T12:00:00Z",
+  "last_successful_backup": "2026-04-27T12:00:00Z",
+  "by_type": { "full": 60, "database": 50, "config": 24 },
+  "by_status": { "completed": 130, "failed": 4 }
 }
 ```
 
-#### Update Backup Settings
+---
+
+#### Backup Contents (Browsing)
+
+The contents endpoints surface metadata captured at backup time without
+loading the archive into a database. Useful for showing what a backup
+contains in the UI.
 
 ```http
-PUT /api/backups/settings
+GET /api/backups/contents/{backup_id}
+GET /api/backups/contents/{backup_id}/workflows
+GET /api/backups/contents/{backup_id}/config-files
 Authorization: Bearer <token>
 ```
 
-#### Mount Backup for Selective Restore
+**Response (full contents):** `200 OK` — `BackupContentsResponse` with
+`workflow_count`, `credential_count`, `config_file_count`, plus a
+`workflows`, `credentials`, `config_files`, `public_website_files`,
+`databases` listing (each item is the corresponding `*ManifestItem`).
 
-Mount a backup to browse and selectively restore items.
+The `/workflows` and `/config-files` sub-endpoints return just those slices.
+
+---
+
+#### Mount / Unmount (Selective Restore Workspace)
+
+Mounting starts a restore-side helper container with the backup contents
+exposed read-only. The mount is required before downloading or restoring
+individual workflows, credentials, or config files.
 
 ```http
 POST /api/backups/{backup_id}/mount
+POST /api/backups/{backup_id}/unmount
+GET  /api/backups/mount/status
 Authorization: Bearer <token>
 ```
 
-**Response:** `200 OK`
+**Mount Response:** `MountBackupResponse`
 ```json
 {
   "status": "success",
-  "message": "Backup mounted with 15 workflows and 8 credentials",
-  "backup_id": 123,
+  "message": "Backup mounted",
+  "backup_id": 42,
   "backup_info": {
-    "backup_id": 123,
-    "filename": "n8n_backup_20241220.tar.gz",
+    "backup_id": 42,
+    "filename": "n8n_backup_20260427.tar.gz",
     "workflow_count": 15,
     "credential_count": 8,
-    "mounted_at": "2024-12-20T12:00:00Z"
+    "mounted_at": "2026-04-27T12:00:00Z"
   },
-  "workflows": [
-    {"id": "abc123", "name": "My Workflow", "active": true}
-  ],
-  "credentials": [
-    {"id": "def456", "name": "API Key", "type": "httpHeaderAuth"}
-  ]
+  "workflows": [{ "id": "abc123", "name": "My Workflow", "active": true }],
+  "credentials": [{ "id": "def456", "name": "API Key", "type": "httpHeaderAuth" }]
 }
 ```
 
-#### Unmount Backup
+**Mount Status Response:** `MountStatusResponse` — same shape as above with
+`"mounted": true|false`.
 
-Unmount a mounted backup and clean up resources.
+---
 
-```http
-POST /api/backups/{backup_id}/unmount
-Authorization: Bearer <token>
-```
+#### Selective Restore — Workflows & Credentials
 
-**Response:** `200 OK`
-```json
-{
-  "status": "success",
-  "message": "Backup unmounted and container stopped"
-}
-```
-
-#### Get Mount Status
-
-Check if a backup is currently mounted.
+Once a backup is mounted, browse and download or restore individual items.
 
 ```http
-GET /api/backups/mount/status
-Authorization: Bearer <token>
-```
-
-**Response:** `200 OK`
-```json
-{
-  "mounted": true,
-  "backup_id": 123,
-  "backup_info": {
-    "backup_id": 123,
-    "filename": "n8n_backup_20241220.tar.gz",
-    "mounted_at": "2024-12-20T12:00:00Z"
-  }
-}
-```
-
-#### Download Workflow from Backup
-
-Download a specific workflow as JSON from a mounted backup.
-
-```http
-GET /api/backups/{backup_id}/workflows/{workflow_id}/download
-Authorization: Bearer <token>
-```
-
-**Response:** `200 OK` (JSON file download)
-```json
-{
-  "name": "My Workflow",
-  "nodes": [...],
-  "connections": {...},
-  "settings": {...}
-}
-```
-
-#### Restore Workflow to n8n
-
-Restore a workflow from a mounted backup directly to n8n.
-
-```http
+GET  /api/backups/{backup_id}/restore/workflows
+GET  /api/backups/{backup_id}/workflows/{workflow_id}/download
 POST /api/backups/{backup_id}/restore/workflow
+GET  /api/backups/{backup_id}/credentials/{credential_id}/download
 Authorization: Bearer <token>
 ```
 
-**Request Body:**
+**Restore-workflow body:**
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `workflow_id` | string | Yes | ID of workflow to restore |
-| `rename_format` | string | No | Format for new name (default: `{name}_backup_{date}`) |
+| `workflow_id` | string | Yes | Workflow id from the mount listing |
+| `rename_format` | string | No | Naming pattern for the imported copy (default `{name}_backup_{date}`) |
 
-**Response:** `200 OK`
+**Response:** `WorkflowRestoreResponse`
 ```json
-{
-  "status": "success",
-  "new_name": "My Workflow_backup_20241220",
-  "new_id": "xyz789",
-  "message": "Workflow restored successfully"
-}
+{ "status": "success", "new_id": "xyz789", "new_name": "My Workflow_backup_20260427", "message": "Workflow restored successfully" }
 ```
 
-#### Download Credential from Backup
+Credential downloads return JSON with the encrypted `data` blob — restoring
+to a different instance usually requires re-entering credential values.
 
-Download a specific credential as JSON from a mounted backup.
+---
+
+#### Selective Restore — Config Files
 
 ```http
-GET /api/backups/{backup_id}/credentials/{credential_id}/download
-Authorization: Bearer <token>
-```
-
-**Response:** `200 OK` (JSON file download)
-```json
-{
-  "name": "API Key",
-  "type": "httpHeaderAuth",
-  "data": {...},
-  "_note": "The 'data' field contains encrypted values from the backup. You may need to reconfigure these credentials after import."
-}
-```
-
-**Note:** Credential data is encrypted. If restoring to a different n8n instance, you may need to reconfigure the values manually.
-
-#### List Config Files in Backup
-
-List configuration files available in a mounted backup.
-
-```http
-GET /api/backups/{backup_id}/restore/config-files
-Authorization: Bearer <token>
-```
-
-**Response:** `200 OK`
-```json
-{
-  "config_files": [
-    {
-      "path": "config/.env",
-      "name": ".env",
-      "size": 1024,
-      "is_ssl": false
-    },
-    {
-      "path": "ssl/cert.pem",
-      "name": "cert.pem",
-      "size": 2048,
-      "is_ssl": true
-    }
-  ]
-}
-```
-
-#### Download Config File from Backup
-
-Download a specific config file from a mounted backup.
-
-```http
-GET /api/backups/{backup_id}/config-files/{config_path}/download
-Authorization: Bearer <token>
-```
-
-**Response:** `200 OK` (file download)
-
-#### Restore Config File
-
-Restore a config file from backup to the system.
-
-```http
+GET  /api/backups/{backup_id}/restore/config-files
+GET  /api/backups/{backup_id}/config-files/{config_path:path}/download
 POST /api/backups/{backup_id}/restore/config
 Authorization: Bearer <token>
 ```
 
-**Request Body:**
+**Restore-config body:**
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `config_path` | string | Yes | Path of config file in backup |
-| `create_backup` | boolean | No | Backup existing file first (default: true) |
+| `config_path` | string | Yes | Path within the backup |
+| `create_backup` | boolean | No | Snapshot the existing file first (default: `true`) |
 
-**Response:** `200 OK`
-```json
-{
-  "status": "success",
-  "message": "Config file restored",
-  "backup_created": "/path/to/backup.bak"
-}
-```
+---
 
-#### Cleanup Restore Container
+#### Full / Database / Preview Restore
 
-Manually clean up the restore container if it wasn't properly unmounted.
+Restore that doesn't require a separate selective workflow.
 
 ```http
+GET  /api/backups/{backup_id}/restore/preview
+POST /api/backups/{backup_id}/restore/database
+POST /api/backups/{backup_id}/restore/full
+GET  /api/backups/restore/status
 POST /api/backups/restore/cleanup
 Authorization: Bearer <token>
 ```
 
-**Response:** `200 OK`
+`/restore/preview` returns a dry-run summary of what will change.
+`/restore/database` and `/restore/full` accept an optional
+`create_pre_restore_backup` boolean (default `true`).
+`/restore/status` reports the running restore session, if any.
+`/restore/cleanup` tears down a stuck restore container.
+
+---
+
+#### Configuration
+
+System-wide backup configuration (separate from per-schedule and per-type
+retention settings).
+
+```http
+GET  /api/backups/configuration
+PUT  /api/backups/configuration
+POST /api/backups/configuration/validate-path
+GET  /api/backups/configuration/detect-storage
+Authorization: Bearer <token>
+```
+
+**Get/Update Response:** `BackupConfigurationResponse` (selected fields):
 ```json
 {
-  "success": true,
-  "message": "Restore container cleaned up"
+  "id": 1,
+  "primary_storage_path": "/app/backups",
+  "nfs_storage_path": null,
+  "nfs_enabled": false,
+  "storage_preference": "local",
+  "compression_enabled": true,
+  "compression_algorithm": "gzip",
+  "compression_level": 6,
+  "retention_enabled": true,
+  "retention_daily_count": 7,
+  "retention_weekly_count": 4,
+  "retention_monthly_count": 12,
+  "include_n8n_config": true,
+  "include_ssl_certs": true,
+  "include_env_files": true,
+  "include_public_website": true,
+  "auto_verify_enabled": true,
+  "verify_after_backup": true,
+  "verify_frequency": 1
 }
 ```
+
+`validate-path` checks whether a given filesystem path is writable and has
+free space; `detect-storage` returns the recommended storage location based
+on what NFS mounts and local disks the host actually exposes.
+
+---
+
+#### Storage & Pruning
+
+Pruning runs as a background job; these endpoints expose the configuration
+and let an operator preview / force a pruning pass.
+
+```http
+GET  /api/backups/storage/usage
+GET  /api/backups/pruning/settings
+PUT  /api/backups/pruning/settings
+GET  /api/backups/pruning/candidates
+GET  /api/backups/pruning/pending
+POST /api/backups/pruning/run
+POST /api/backups/pruning/execute-pending
+POST /api/backups/{backup_id}/cancel-deletion
+Authorization: Bearer <token>
+```
+
+**Pruning Settings Body / Response:** `BackupPruningSettingsResponse`
+```json
+{
+  "id": 1,
+  "time_based_enabled": true,
+  "max_age_days": 90,
+  "space_based_enabled": true,
+  "min_free_space_percent": 20,
+  "size_based_enabled": false,
+  "max_total_size_gb": 500,
+  "notify_before_delete": true,
+  "notify_hours_before": 24,
+  "critical_space_threshold": 5,
+  "critical_space_action": "force_delete_unprotected"
+}
+```
+
+`pruning/candidates` lists what *would* be removed by the current rules;
+`pruning/pending` lists backups already scheduled for deletion (typically
+24h ahead so the operator can intervene). `cancel-deletion` rescinds a
+pending delete.
+
+---
+
+#### Public-Website Restore
+
+When the optional public-website hosting feature is installed, these
+endpoints surface the public-website slice of the backup.
+
+```http
+POST /api/backups/restore/{backup_id}/public-website/mount
+POST /api/backups/restore/public-website/unmount
+GET  /api/backups/restore/public-website/status
+GET  /api/backups/restore/{backup_id}/public-website/files
+GET  /api/backups/restore/{backup_id}/public-website/preview
+GET  /api/backups/restore/{backup_id}/public-website/download
+POST /api/backups/restore/{backup_id}/public-website/check
+POST /api/backups/restore/{backup_id}/public-website/restore
+Authorization: Bearer <token>
+```
+
+`/files` lists every file with size and checksum; `/preview` returns the
+text/HTML body of a file when it's small enough; `/check` runs a dry-run
+restore reporting which files would change; `/restore` performs the actual
+copy back into the live volume.
 
 ---
 

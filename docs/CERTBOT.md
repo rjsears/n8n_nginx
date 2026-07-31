@@ -467,6 +467,8 @@ nginx:
     - letsencrypt:/etc/letsencrypt:ro
 ```
 
+> **Public Website installs:** the `n8n_nginx_router` container also mounts the certificates and is the one that terminates SSL on port 443 (the main `n8n_nginx` becomes internal-only on port 80). Anything that renews a certificate must therefore reload the router as well — the deploy hook does this automatically.
+
 And referenced in nginx.conf:
 
 ```nginx
@@ -510,14 +512,15 @@ The Certbot container runs continuously and checks for renewal:
 # docker-compose.yaml
 certbot:
   image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
-  entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew ... --deploy-hook 'docker exec n8n_nginx nginx -s reload'; sleep 12h & wait $${!}; done;"
+  entrypoint: /bin/sh -c "apk add --no-cache docker-cli >/dev/null 2>&1; trap exit TERM; while :; do certbot renew --no-random-sleep-on-renew ... --deploy-hook 'docker exec n8n_nginx nginx -s reload; docker exec n8n_nginx_router nginx -s reload || true'; sleep 12h & wait $${!}; done;"
 ```
 
 **Process:**
-1. Every 12 hours, Certbot checks if renewal is needed
-2. Certificates are renewed when less than 30 days remain
-3. After renewal, nginx is reloaded to pick up new certs
-4. No downtime - nginx gracefully reloads
+1. On container start, the Docker CLI is installed (`apk add docker-cli`) so the deploy hook can reach the host's Docker daemon through the mounted socket. Without it, certbot's hook validation fails with `Unable to find deploy-hook command docker in the PATH` and **no renewal is ever attempted**.
+2. Every 12 hours, Certbot checks if renewal is needed
+3. Certificates are renewed when less than 30 days remain
+4. After renewal, the deploy hook reloads nginx to pick up the new certs. On installs with the Public Website feature, the hook also reloads `n8n_nginx_router` — the container that terminates SSL on port 443 in that topology. The `|| true` keeps the hook clean on installs without the router.
+5. No downtime - nginx gracefully reloads
 
 ### Renewal Timeline
 
@@ -559,9 +562,12 @@ Or via command line:
 ```bash
 docker exec n8n_certbot certbot renew --force-renewal --no-random-sleep-on-renew
 docker exec n8n_nginx nginx -s reload
+
+# Public Website installs only: also reload the SSL-terminating router
+docker exec n8n_nginx_router nginx -s reload
 ```
 
-> **Why `--no-random-sleep-on-renew`?** By default, certbot adds a random delay of up to 8 minutes before each renewal to spread load on Let's Encrypt's servers. For interactive force-renewals this causes long waits and HTTP timeouts, so the flag is included for on-demand renewals. The scheduled background renewal (every 12 hours) keeps the random delay enabled.
+> **Why `--no-random-sleep-on-renew`?** By default, certbot adds a random delay of up to 8 minutes before each renewal to spread load on Let's Encrypt's servers. For interactive force-renewals this causes long waits and HTTP timeouts. The flag is now used everywhere — both on-demand renewals and the scheduled 12-hour background loop.
 
 ### View Certificate Details
 
@@ -618,6 +624,24 @@ docker logs n8n_certbot
 | `CAA record issue` | CAA DNS record blocks Let's Encrypt | Add `0 issue "letsencrypt.org"` |
 | `Timeout during connect` | Network issues | Check internet connectivity |
 | `The requested dns-cloudflare plugin does not appear to be installed` | Wrong certbot image | Set `DNS_CERTBOT_IMAGE=certbot/dns-cloudflare` in `.env` and recreate the certbot container |
+| `Unable to find deploy-hook command docker in the PATH` | Certbot container missing the Docker CLI, so the deploy hook fails validation and **renewal is never attempted** | Update to the current compose file (entrypoint runs `apk add docker-cli` at container start), then `docker compose up -d --force-recreate certbot` |
+
+### Renewals Silently Failing: Deploy Hook Cannot Find Docker
+
+**Symptoms:** `docker logs n8n_certbot` shows `Unable to find deploy-hook command docker in the PATH.` every 12 hours. The certificate creeps toward expiry even though the certbot container is running.
+
+**Cause:** The deploy hook (`docker exec ... nginx -s reload`) needs the Docker CLI inside the certbot container to reach the host daemon through the mounted `/var/run/docker.sock`. The stock certbot images don't ship it. Certbot validates hook commands *before* doing anything, and a failed validation aborts the entire renew run — so this isn't just a broken reload; **no renewal happens at all**.
+
+**Solution:** The current compose file installs the CLI at container start (`apk add --no-cache docker-cli` in the entrypoint). Update your `docker-compose.yaml` to the current version and recreate the container:
+```bash
+docker compose up -d --force-recreate certbot
+docker exec n8n_certbot which docker   # should print a path
+```
+If the certificate is close to expiry, renew immediately rather than waiting for the next 12-hour cycle:
+```bash
+docker exec n8n_certbot certbot renew --no-random-sleep-on-renew
+docker exec n8n_nginx nginx -s reload
+```
 
 ### Force Renewal Times Out in Management Console
 
@@ -657,9 +681,15 @@ docker exec n8n_nginx nginx -s reload
 
 ### Certificate Not Updating in nginx
 
+nginx only reads certificate files at startup or reload — a renewed cert on disk is not served until the SSL-terminating container reloads.
+
 ```bash
 # Reload nginx manually
 docker exec n8n_nginx nginx -s reload
+
+# Public Website installs: n8n_nginx_router terminates SSL on port 443 —
+# it must be reloaded too, or it keeps serving the old cert from memory
+docker exec n8n_nginx_router nginx -s reload
 
 # Or restart nginx container
 docker compose restart nginx
@@ -728,13 +758,16 @@ curl -I https://n8n.yourdomain.com
 docker exec n8n_nginx openssl x509 -in /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem -noout -enddate
 
 # Force certificate renewal
-docker exec n8n_certbot certbot renew --force-renewal
+docker exec n8n_certbot certbot renew --force-renewal --no-random-sleep-on-renew
 
 # Test renewal (dry run)
 docker exec n8n_certbot certbot renew --dry-run
 
 # Reload nginx after renewal
 docker exec n8n_nginx nginx -s reload
+
+# Public Website installs: also reload the SSL-terminating router
+docker exec n8n_nginx_router nginx -s reload
 
 # View Certbot logs
 docker logs n8n_certbot

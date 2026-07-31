@@ -44,6 +44,10 @@
         <li><a href="#summary-cards">Summary cards</a></li>
         <li><a href="#search-filters">Search &amp; filters</a></li>
         <li><a href="#workflow-list">Workflow list</a></li>
+        <li><a href="#expanded-row">Expanded workflow detail</a></li>
+        <li><a href="#successful-runs">Last 5 successful executions</a></li>
+        <li><a href="#failed-runs">Last 5 failed executions</a></li>
+        <li><a href="#view-in-n8n">View execution in n8n</a></li>
         <li><a href="#toggle">Toggling active/inactive</a></li>
         <li><a href="#executions">Recent Executions</a></li>
         <li><a href="#api-integration">n8n API integration</a></li>
@@ -52,8 +56,6 @@
     <main class="content">
       <h1>Flows</h1>
       <p class="lede">The Flows page lets you see, filter, and toggle every n8n workflow without leaving the management console. It's a thin operational layer over n8n's API: read-only for inspection, plus an activate-toggle and an execute-now action for the workflows that support them.</p>
-
-      <div class="info-box note">📝 <strong>Note for the editor:</strong> The screenshot on this page was captured against a test deployment with all workflows inactive and zero executions. Several panels show empty/zero state. After activating workflows and running them on your deployment, re-capture <code>flows-01-overview.png</code> for production-quality visuals.</div>
 
       <section id="overview">
         <h2>Overview</h2>
@@ -111,6 +113,63 @@
             <tr><td><strong>Toggle</strong></td><td>Activate/deactivate switch — see the next section.</td></tr>
           </tbody>
         </table>
+      </section>
+
+      <section id="expanded-row">
+        <h2>Expanded workflow detail</h2>
+        <p>Clicking anywhere on a workflow row expands it in place to reveal the workflow's metadata and quick-action buttons. The expanded view shows the workflow's full ID, four action buttons, and two collapsible execution-history panels — one for the most recent successful runs and one for the most recent failed runs. Clicking the row again collapses it.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/flows-02-workflow-expanded.png" alt="Daily Aviation Newsletter row expanded in place, showing Workflow ID 0XJwyFqnZ3nOdvSk, four action buttons (Open in n8n, Download, Execute Now, Deactivate), and two collapsed history panels labeled Last 5 Successful Executions (green) and Last 5 Failed Executions (red)">
+          <figcaption>Figure 2: A workflow row expanded in place — metadata, four action buttons, and two collapsed execution-history panels.</figcaption>
+        </figure>
+
+        <h3>Action buttons</h3>
+        <table>
+          <thead><tr><th>Button</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Open in n8n</strong></td><td>Opens the workflow in n8n's editor in a new tab. Use this for any deep-dive editing — the management console intentionally doesn't reproduce n8n's editor.</td></tr>
+            <tr><td><strong>Download</strong></td><td>Downloads the workflow's JSON definition. Useful for backup, version control, or moving between n8n instances.</td></tr>
+            <tr><td><strong>Execute Now</strong></td><td>Runs the workflow on demand via n8n's API. Disabled / no-op for webhook-triggered workflows (see <a href="#api-integration">n8n API integration</a> below).</td></tr>
+            <tr><td><strong>Activate / Deactivate</strong></td><td>Same effect as the Toggle switch on the right side of the row, mirrored here for convenience.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="successful-runs">
+        <h2>Last 5 successful executions</h2>
+        <p>Click the green <strong>Last 5 Successful Executions</strong> header inside an expanded row to reveal the most recent successful runs for that workflow. Each entry shows the start timestamp, duration, and an "open in n8n" button to drill into the execution log. The badge to the right of the header counts how many successful runs are recorded.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/flows-03-successful-executions.png" alt="Daily Aviation Newsletter row expanded with the Last 5 Successful Executions panel open, showing five recent runs with timestamps from 5/3/2026 ranging 6:19 PM to 6:36 PM and durations from 51.4 seconds to 1.4 minutes, each with an open-in-n8n action on the right">
+          <figcaption>Figure 3: Last 5 Successful Executions expanded — five recent successful runs of Daily Aviation Newsletter with timestamps, durations, and open-in-n8n actions.</figcaption>
+        </figure>
+
+        <p>The execution times come straight from n8n; the management console only renders them. To see node-by-node output for a successful run, click the open-in-n8n action on the right.</p>
+      </section>
+
+      <section id="failed-runs">
+        <h2>Last 5 failed executions</h2>
+        <p>The red <strong>Last 5 Failed Executions</strong> header opens an analogous panel of the most recent failures. The two panels are mutually exclusive — opening the failed panel automatically collapses the successful panel and vice versa, so you're always looking at one history at a time. The red badge counts current failures; if it's zero the panel is empty when expanded.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/flows-04-failed-executions.png" alt="Daily Aviation Newsletter row expanded with the Last 5 Failed Executions panel open, showing four failed runs with timestamps from 5/3/2026 ranging 4:48 PM to 6:42 PM and durations from 4.0 seconds to 1.2 minutes, each with an open-in-n8n action on the right">
+          <figcaption>Figure 4: Last 5 Failed Executions expanded — four recent failed runs of Daily Aviation Newsletter, sorted newest first.</figcaption>
+        </figure>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> A short duration on a failed run usually means the workflow errored early (auth, validation, missing credential). A long duration on a failure usually means a downstream API timed out. Compare durations across failures before opening the execution in n8n — the pattern often points at the cause.</div>
+      </section>
+
+      <section id="view-in-n8n">
+        <h2>View execution in n8n</h2>
+        <p>To the right of every execution row — both in the Last 5 Successful and Last 5 Failed panels — is a small <strong>View in n8n</strong> icon button. Clicking it opens that exact execution directly in n8n's editor in a new tab, so you can inspect node-by-node output, see the error stacktrace, retry from a checkpoint, or run the workflow manually with the same input. It's a one-click jump from the management console's triage view to n8n's full debugger.</p>
+
+        <figure class="screenshot">
+          <img src="../../images/screenshots/flows-05-failed-execution-in-n8n.png" alt="n8n editor's Executions view for the Daily Aviation Newsletter workflow, opened to a failed execution from May 4 at 07:05:34 with Error in 2m 20.651s and ID 41 visible in the right panel; the left sidebar shows the full execution history with several red error rows mixed in with green successful rows">
+          <figcaption>Figure 5: After clicking the View in n8n icon — n8n's Executions view opens directly to the selected failed run. Use Debug in editor (top right) to drop into the node graph at the failure point.</figcaption>
+        </figure>
+
+        <div class="info-box tip">💡 <strong>Tip:</strong> The icon is the small box-with-arrow icon to the right of the timestamp and duration. The selected execution is highlighted on the left sidebar; the right panel shows the run header. Click <strong>Debug in editor</strong> in the top-right to load the node graph with the failed node flagged, where you can inspect each node's input, output, and error message.</div>
       </section>
 
       <section id="toggle">

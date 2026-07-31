@@ -471,6 +471,34 @@ is_lxc_container() {
     return 1
 }
 
+# Some hosts cannot load AppArmor policy into the kernel (e.g. Docker inside
+# an LXC guest that lacks policy-admin over the shared kernel). There,
+# container creation fails outright with "AppArmor enabled on system but the
+# docker-default profile could not be loaded ... You need policy admin
+# privileges to manage profiles". Probe once with a throwaway container and
+# cache the result. When restricted, every generated compose service and
+# helper `docker run` gets apparmor unconfined — same approach as the
+# management console's helper containers (see docs/TROUBLESHOOTING.md).
+APPARMOR_UNCONFINED=""
+DOCKER_APPARMOR_OPT=""
+
+apparmor_unconfined_required() {
+    if [ -z "$APPARMOR_UNCONFINED" ]; then
+        APPARMOR_UNCONFINED="false"
+        local probe_output=""
+        if ! probe_output=$($DOCKER_SUDO docker run --rm --name n8n_apparmor_probe alpine:latest true 2>&1); then
+            if echo "$probe_output" | grep -qiE "apparmor|policy admin"; then
+                APPARMOR_UNCONFINED="true"
+                DOCKER_APPARMOR_OPT="--security-opt apparmor=unconfined"
+                print_warning "Docker cannot load its default AppArmor profile on this host"
+                print_info "Containers will run with apparmor:unconfined (see docs/TROUBLESHOOTING.md)"
+            fi
+        fi
+        $DOCKER_SUDO docker rm -f n8n_apparmor_probe >/dev/null 2>&1 || true
+    fi
+    [ "$APPARMOR_UNCONFINED" = "true" ]
+}
+
 # Read sensitive input showing first 10 chars, then masking the rest
 # Usage: read_masked_token
 # Returns: value in $MASKED_INPUT
@@ -1623,7 +1651,7 @@ backup_existing_config() {
     # Backup Let's Encrypt certificates from Docker volume
     if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
         mkdir -p "${backup_dir}/letsencrypt"
-        if $DOCKER_SUDO docker run --rm \
+        if $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
             -v letsencrypt:/source:ro \
             -v "${backup_dir}/letsencrypt:/backup" \
             alpine sh -c "cp -rL /source/* /backup/ 2>/dev/null || true" 2>/dev/null; then
@@ -1750,7 +1778,7 @@ rollback_config() {
     # Also backup current letsencrypt certs
     if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
         mkdir -p "${safety_backup}/letsencrypt"
-        $DOCKER_SUDO docker run --rm -v letsencrypt:/source:ro -v "${safety_backup}/letsencrypt:/backup" \
+        $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/source:ro -v "${safety_backup}/letsencrypt:/backup" \
             alpine sh -c "cp -rL /source/* /backup/ 2>/dev/null || true" 2>/dev/null
     fi
 
@@ -1771,7 +1799,7 @@ rollback_config() {
         print_info "Restoring Let's Encrypt certificates..."
         # Create volume if it doesn't exist
         $DOCKER_SUDO docker volume create letsencrypt >/dev/null 2>&1 || true
-        if $DOCKER_SUDO docker run --rm \
+        if $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
             -v "${backup_dir}/letsencrypt:/source:ro" \
             -v letsencrypt:/dest \
             alpine sh -c "rm -rf /dest/* && cp -rL /source/* /dest/" 2>/dev/null; then
@@ -2501,6 +2529,14 @@ install_docker_linux() {
     print_info "Running Docker hello-world test..."
     if run_privileged docker run --rm hello-world >/dev/null 2>&1; then
         print_success "Docker hello-world test passed!"
+    elif run_privileged docker run --rm --security-opt apparmor=unconfined hello-world >/dev/null 2>&1; then
+        # Container creation works only without AppArmor confinement — this
+        # host cannot load Docker's default profile (e.g. LXC guest).
+        APPARMOR_UNCONFINED="true"
+        DOCKER_APPARMOR_OPT="--security-opt apparmor=unconfined"
+        print_success "Docker hello-world test passed (AppArmor unconfined)"
+        print_warning "Docker cannot load its default AppArmor profile on this host"
+        print_info "Containers will run with apparmor:unconfined (see docs/TROUBLESHOOTING.md)"
     else
         print_error "Docker hello-world test failed!"
         print_info "You may need to log out and back in, then run setup.sh again."
@@ -2625,6 +2661,9 @@ check_and_install_docker() {
     else
         DOCKER_SUDO="sudo"
     fi
+
+    # Detect hosts that cannot load AppArmor policy (e.g. Docker in LXC)
+    apparmor_unconfined_required || true
 }
 
 perform_system_checks() {
@@ -2759,7 +2798,7 @@ except ImportError:
 
     # Fallback to Docker if available
     if [ -z "$hash" ] && command_exists docker; then
-        hash=$(docker run --rm httpd:2.4-alpine htpasswd -nbB admin "$password" 2>/dev/null | cut -d: -f2)
+        hash=$(docker run --rm $DOCKER_APPARMOR_OPT httpd:2.4-alpine htpasswd -nbB admin "$password" 2>/dev/null | cut -d: -f2)
     fi
 
     echo "$hash"
@@ -3016,6 +3055,11 @@ services:
       - N8N_COMMUNITY_PACKAGES_ENABLED=true
       # Proxy
       - N8N_TRUST_PROXY=true
+      # Telemetry / Outbound n8n.io traffic (silences 429s on
+      # /rest/telemetry/proxy/v1/identify when upstream rate-limits)
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      - N8N_TEMPLATES_ENABLED=false
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
@@ -3133,7 +3177,12 @@ EOF
       - certbot_data:/var/www/certbot
       - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:/credentials.ini:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER:-n8n_nginx} nginx -s reload' || true; sleep 12h & wait $${!}; done;"
+    # apk add docker-cli on startup so the deploy-hook (`docker exec ... nginx -s reload`)
+    # passes certbot's hook validation. Without this, certbot bails with
+    # "Unable to find deploy-hook command docker in the PATH" and renewals
+    # never even attempt — which would silently fail until the cert expires.
+    # apk is idempotent: second container start is a no-op.
+    entrypoint: /bin/sh -c "apk add --no-cache docker-cli >/dev/null 2>&1; trap exit TERM; while :; do certbot renew --no-random-sleep-on-renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER:-n8n_nginx} nginx -s reload; docker exec n8n_nginx_router nginx -s reload || true' || true; sleep 12h & wait $${!}; done;"
     networks:
       - n8n_network
 
@@ -3691,6 +3740,15 @@ EOF
         fi
     fi
 
+    # Hosts that cannot load AppArmor policy (e.g. Docker inside LXC) need
+    # every service unconfined or container creation fails outright.
+    if apparmor_unconfined_required; then
+        awk '{print} /^    container_name: /{print "    security_opt:"; print "      - apparmor:unconfined"}' \
+            "${SCRIPT_DIR}/docker-compose.yaml" > "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp"
+        mv "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp" "${SCRIPT_DIR}/docker-compose.yaml"
+        print_info "Added apparmor:unconfined to all generated services"
+    fi
+
     print_success "docker-compose.yaml generated for v3.0"
 }
 
@@ -3859,9 +3917,13 @@ EOF
             proxy_buffering off;
         }
 
+        # n8n editor (v2.7+) polls /healthz and parses the body as JSON
+        # ({status:"ok"}); plain-text responses make it think the backend is
+        # offline. Keep this block returning valid JSON.
         location /healthz {
             access_log off;
-            return 200 "healthy\n";
+            default_type application/json;
+            return 200 '{"status":"ok"}';
         }
 EOF
 
@@ -5543,7 +5605,7 @@ initialize_public_website() {
     local volume_name="${project_name}_public_web_root"
 
     # Check if index.html already exists
-    local has_index=$($DOCKER_SUDO docker run --rm -v "${volume_name}:/data:ro" alpine sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
+    local has_index=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data:ro" alpine sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
 
     if [ "$has_index" = "yes" ]; then
         print_info "Public website already has content, skipping initialization"
@@ -5555,7 +5617,7 @@ initialize_public_website() {
     local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
 
     # Create the default landing page (WHITE template)
-    $DOCKER_SUDO docker run --rm -v "${volume_name}:/data" alpine sh -c "cat > /data/index.html << 'HTMLEOF'
+    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data" alpine sh -c "cat > /data/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang=\"en\">
 <head>
@@ -5637,7 +5699,7 @@ initialize_public_website() {
 HTMLEOF"
 
     # Set proper permissions
-    $DOCKER_SUDO docker run --rm -v "${volume_name}:/data" alpine chmod -R 755 /data
+    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data" alpine chmod -R 755 /data
 
     print_success "Public website initialized with default landing page"
 }
@@ -5746,7 +5808,7 @@ determine_ssl_cert_domain() {
     if [ "$root_domain" != "$N8N_DOMAIN" ]; then
         if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
             # Check if cert exists under root domain first (wildcard cert)
-            local cert_check=$($DOCKER_SUDO docker run --rm \
+            local cert_check=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
                 -v letsencrypt:/etc/letsencrypt:ro \
                 alpine \
                 sh -c "[ -f /etc/letsencrypt/live/${root_domain}/fullchain.pem ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
@@ -5758,7 +5820,7 @@ determine_ssl_cert_domain() {
             fi
 
             # Also check if cert exists under N8N_DOMAIN (single-domain cert)
-            cert_check=$($DOCKER_SUDO docker run --rm \
+            cert_check=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
                 -v letsencrypt:/etc/letsencrypt:ro \
                 alpine \
                 sh -c "[ -f /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
@@ -5794,7 +5856,7 @@ check_existing_ssl_certificate() {
     fi
 
     # Check if certificate files exist and get info
-    CERT_INFO=$($DOCKER_SUDO docker run --rm \
+    CERT_INFO=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
         -v letsencrypt:/etc/letsencrypt:ro \
         alpine/openssl \
         sh -c "
@@ -5986,7 +6048,7 @@ obtain_ssl_certificate() {
 
     mkdir -p "${SCRIPT_DIR}/letsencrypt-temp"
 
-    if ! $DOCKER_SUDO docker run --rm \
+    if ! $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
         -v "$(pwd)/letsencrypt-temp:/etc/letsencrypt" \
         $cred_volume_opt \
         $DNS_CERTBOT_IMAGE \
@@ -6003,7 +6065,7 @@ obtain_ssl_certificate() {
     print_success "SSL certificate obtained"
 
     # Copy to volume
-    $DOCKER_SUDO docker run --rm \
+    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
         -v "$(pwd)/letsencrypt-temp:/source:ro" \
         -v letsencrypt:/dest \
         alpine \
