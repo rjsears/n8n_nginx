@@ -37,20 +37,21 @@ const helpLinks = [
     category: 'User Guides',
     icon: BookOpenIcon,
     links: [
-      { name: 'Backup Guide', url: 'https://github.com/rjsears/n8n_nginx/blob/main/docs/BACKUP_GUIDE.md', description: 'Complete backup and restore documentation', external: true },
-      { name: 'API Reference', url: 'https://github.com/rjsears/n8n_nginx/blob/main/docs/API.md', description: 'API endpoints and usage examples', external: true },
-      { name: 'Notifications Setup', url: 'https://github.com/rjsears/n8n_nginx/blob/main/docs/NOTIFICATIONS.md', description: 'Email and NTFY notification configuration', external: true },
-      { name: 'Troubleshooting', url: 'https://github.com/rjsears/n8n_nginx/blob/main/docs/TROUBLESHOOTING.md', description: 'Common issues and solutions', external: true },
+      { name: 'Backup Guide', url: '/management/docs/BACKUP_GUIDE/', description: 'Complete backup and restore documentation', external: false },
+      { name: 'API Reference', url: '/management/docs/API/', description: 'API endpoints and usage examples', external: false },
+      { name: 'Notifications Setup', url: '/management/docs/NOTIFICATIONS/', description: 'Email and NTFY notification configuration', external: false },
+      { name: 'Troubleshooting', url: '/management/docs/TROUBLESHOOTING/', description: 'Common issues and solutions', external: false },
+      { name: 'User Manual', url: '/management/docs/manual/welcome/', description: 'Complete illustrated manual for every console page', external: false },
     ]
   },
   {
     category: 'Infrastructure Docs',
     icon: CpuChipIcon,
     links: [
-      { name: 'Cloudflare Setup', url: 'https://github.com/rjsears/n8n_nginx/blob/main/docs/CLOUDFLARE.md', description: 'Cloudflare tunnel and DNS configuration', external: true },
-      { name: 'Tailscale Setup', url: 'https://github.com/rjsears/n8n_nginx/blob/main/docs/TAILSCALE.md', description: 'Tailscale VPN integration', external: true },
-      { name: 'Certbot SSL', url: 'https://github.com/rjsears/n8n_nginx/blob/main/docs/CERTBOT.md', description: 'SSL certificate management', external: true },
-      { name: 'Migration Guide', url: 'https://github.com/rjsears/n8n_nginx/blob/main/docs/MIGRATION.md', description: 'Upgrading from previous versions', external: true },
+      { name: 'Cloudflare Setup', url: '/management/docs/CLOUDFLARE/', description: 'Cloudflare tunnel and DNS configuration', external: false },
+      { name: 'Tailscale Setup', url: '/management/docs/TAILSCALE/', description: 'Tailscale VPN integration', external: false },
+      { name: 'Certbot SSL', url: '/management/docs/CERTBOT/', description: 'SSL certificate management', external: false },
+      { name: 'Migration Guide', url: '/management/docs/MIGRATION/', description: 'Upgrading from previous versions', external: false },
     ]
   },
   {
@@ -58,7 +59,7 @@ const helpLinks = [
     icon: DocumentTextIcon,
     links: [
       { name: 'GitHub Repository', url: 'https://github.com/rjsears/n8n_nginx', description: 'Source code and issue tracker', external: true },
-      { name: 'README', url: 'https://github.com/rjsears/n8n_nginx/blob/main/README.md', description: 'Project overview and quick start', external: true },
+      { name: 'README', url: 'https://rjsears.github.io/n8n_nginx/', description: 'Project overview and quick start', external: true },
     ]
   },
 ]

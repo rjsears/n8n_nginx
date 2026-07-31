@@ -3202,6 +3202,8 @@ EOF
     build:
       context: ./management
       dockerfile: Dockerfile
+      additional_contexts:
+        docs_src: .
 EOF
     fi
 

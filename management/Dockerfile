@@ -83,6 +83,20 @@ COPY frontend/ ./
 RUN npm run build
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Documentation Site (MkDocs)
+# ═══════════════════════════════════════════════════════════════════════════
+# Documentation site (MkDocs) — sources come from the repo root via the
+# compose `additional_contexts: docs_src` (the management build context
+# alone cannot see ../docs).
+FROM python:3.11-slim-bookworm AS docs
+WORKDIR /docs-build
+COPY --from=docs_src docs/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=docs_src mkdocs.yml ./
+COPY --from=docs_src docs ./docs
+RUN mkdocs build -d /site
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Final Stage
 # ═══════════════════════════════════════════════════════════════════════════
 FROM backend AS final
@@ -109,6 +123,9 @@ COPY api/ /app/api/
 
 # Copy built frontend from builder stage
 COPY --from=frontend-builder /frontend/dist/ /app/static/
+
+# Copy built documentation site (MkDocs)
+COPY --from=docs /site /app/static/docs
 
 # Create non-root user for running services (nginx and uvicorn)
 # Note: We still need root for NFS mounting and Docker socket access

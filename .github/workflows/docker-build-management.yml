@@ -17,6 +17,8 @@ on:
       - main
     paths:
       - 'management/**'
+      - 'docs/**'
+      - 'mkdocs.yml'
       - '.github/workflows/docker-build-management.yml'
 
   # Allow manual trigger from Actions tab
@@ -99,6 +101,8 @@ jobs:
         with:
           context: ./management
           file: ./management/Dockerfile
+          build-contexts: |
+            docs_src=.
           push: true
           platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
           tags: ${{ steps.meta.outputs.tags }}

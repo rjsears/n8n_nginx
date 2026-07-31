@@ -8,6 +8,7 @@ repo_url: https://github.com/rjsears/n8n_nginx
 
 theme:
   name: material
+  font: false
   palette:
     # Light mode
     - media: "(prefers-color-scheme: light)"
@@ -101,6 +102,7 @@ extra_css:
   - stylesheets/extra.css
 
 extra_javascript:
+  - javascripts/vendor/mermaid.min.js
   - javascripts/manual.js
 
 copyright: Copyright &copy; 2026 Richard J. Sears

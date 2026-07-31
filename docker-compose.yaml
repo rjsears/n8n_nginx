@@ -186,6 +186,11 @@ services:
   # ===========================================================================
   n8n_management:
     image: rjsears/n8n_management:latest
+    build:
+      context: ./management
+      dockerfile: Dockerfile
+      additional_contexts:
+        docs_src: .
     container_name: ${MANAGEMENT_CONTAINER:-n8n_management}
     restart: always
     security_opt:

@@ -313,7 +313,7 @@ test_docker_build() {
 
     # Build management image (combined backend + frontend)
     assert_success "Management Docker image builds" \
-        "docker build -t n8n-management:test '$mgmt_dir'"
+        "docker build -t n8n-management:test --build-context docs_src='$PROJECT_ROOT' '$mgmt_dir'"
 
     # Cleanup test images
     docker rmi n8n-management:test 2>/dev/null || true

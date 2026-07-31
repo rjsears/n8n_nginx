@@ -25,8 +25,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install mkdocs>=1.5.0 mkdocs-material>=9.5.0 pymdown-extensions>=10.0
+        run: pip install -r docs/requirements.txt
 
       - name: Deploy to GitHub Pages
         run: mkdocs gh-deploy --force
