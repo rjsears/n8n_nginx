@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### September 2026 Updates
+
+#### Fixed
+- **Maintenance mode now expires.** The dispatcher only checked the
+  `maintenance_mode` flag and ignored `maintenance_until`, so a window that
+  had lapsed kept suppressing every notification (the UI showed "Expired"
+  while nothing was delivered). A lapsed window now clears itself on the
+  next event, and notifications suppressed by an active window are recorded
+  in history with `suppression_reason = "maintenance"` instead of vanishing.
+- **`container_recreated` notifications were dropped silently.** The
+  management console dispatched the event when recreating a container, but
+  it was not in the event registry, so it was discarded with no history row.
+  It is now a registered Container event (seeded on next start) with its own
+  message.
+- **L2 escalation ignored its own switch.** `escalation_enabled` was stored
+  and shown in the UI but never read; L2 targets fired whenever they
+  existed. It is now enforced.
+- **L2 escalation could only ever fire once per event/target.** The
+  `escalation_sent` state flag was set on the first escalation and never
+  cleared, so every later occurrence skipped L2. Each new occurrence now
+  starts a fresh escalation cycle.
+- **`POST /api/system-notifications/test` did not send anything.** It
+  recorded a `sent` history row without contacting any channel, so a broken
+  channel passed the test. It now delivers a real test message to every
+  target on the event and returns `502` when none accepts it.
+- **`GET /api/notifications/services/{id}` returned channel secrets in
+  clear text** while the list and group endpoints masked them. All channel
+  responses now use the same redaction.
+- The System Notifications "N/M enabled" badge counted hidden SSL events in
+  both numbers when SSL was not configured. It now counts only the events
+  shown.
+
+#### Changed
+- **Time-delayed L2 escalation removed.** The "Escalation Timeout" on L2
+  targets scheduled a job that re-sent to L2 after N minutes unconditionally:
+  it checked neither maintenance mode nor whether the event was still
+  enabled, and the UI's "if L1 hasn't acknowledged" had no acknowledgement
+  behind it. L2 targets now fire immediately when the event is critical or
+  when no L1 target accepted the message. The timeout picker is gone from
+  the add-target dialog; the stored `escalation_timeout_minutes` value is
+  no longer read.
+
+#### Added
+- **Backend test suite** under `management/tests/` (`cd management && pytest`).
+  Runs the real models and dispatcher against in-memory SQLite with the
+  transports stubbed. Includes a registry check that fails when an event is
+  dispatched but not registered, or registered without a producer beyond the
+  known list, and a column check that fails when a notification setting is
+  added without being either enforced or explicitly classified as pending.
+
 ### July 2026 Updates
 
 #### Fixed

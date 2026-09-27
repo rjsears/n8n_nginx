@@ -80,6 +80,11 @@ skip-magic-trailing-comma = false
 line-ending = "lf"
 
 [tool.pytest.ini_options]
-# Run from management/ with `pytest` (dev deps: requirements-dev.txt)
+# Run from the management/ directory: `pytest`
+# Tests import the API as `api.*`, exactly as uvicorn does in the container.
 testpaths = ["tests"]
 pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
