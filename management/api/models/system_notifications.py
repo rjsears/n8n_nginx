@@ -512,6 +512,17 @@ DEFAULT_SYSTEM_EVENTS = [
         "flapping_enabled": False,
     },
     {
+        "event_type": "container_recreated",
+        "display_name": "Container Recreated",
+        "description": "Notification when a container is recreated from the management console (with or without pulling a new image)",
+        "icon": "ArrowPathIcon",
+        "category": "container",
+        "severity": "info",
+        "frequency": "every_time",
+        "cooldown_minutes": 0,
+        "flapping_enabled": False,
+    },
+    {
         "event_type": "container_healthy",
         "display_name": "Container Recovered",
         "description": "Notification when a previously unhealthy container becomes healthy again",

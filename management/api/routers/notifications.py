@@ -47,6 +47,18 @@ from api.models.notifications import NotificationService as NotificationServiceM
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Config keys that must never leave the API in clear text.
+SENSITIVE_CONFIG_KEYS = ("password", "token", "secret", "api_key")
+
+
+def _redacted_config(config: Optional[dict]) -> dict:
+    """Copy of a channel config with secret values masked. Used by every endpoint that returns one."""
+    redacted = dict(config or {})
+    for key in SENSITIVE_CONFIG_KEYS:
+        if key in redacted:
+            redacted[key] = "***"
+    return redacted
+
 
 # Import sync function lazily to avoid circular imports
 async def _sync_ntfy_channel_to_topic(db: AsyncSession, service: NotificationServiceModel, action: str = "create"):
@@ -162,10 +174,7 @@ async def list_services(
     # Redact sensitive config values and add group info
     result = []
     for s in services:
-        config = dict(s.config)
-        for key in ["password", "token", "secret", "api_key"]:
-            if key in config:
-                config[key] = "***"
+        config = _redacted_config(s.config)
 
         # Get groups this service belongs to
         groups = await service.get_groups_for_service(s.id)
@@ -253,7 +262,9 @@ async def get_service(
             detail="Service not found",
         )
 
-    return NotificationServiceResponse.model_validate(svc)
+    response = NotificationServiceResponse.model_validate(svc)
+    response.config = _redacted_config(svc.config)
+    return response
 
 
 @router.put("/services/{service_id}", response_model=NotificationServiceResponse)
@@ -392,10 +403,7 @@ async def list_groups(
         channels = []
         for membership in g.memberships:
             s = membership.service
-            config = dict(s.config)
-            for key in ["password", "token", "secret", "api_key"]:
-                if key in config:
-                    config[key] = "***"
+            config = _redacted_config(s.config)
 
             channels.append(NotificationServiceResponse(
                 id=s.id,
@@ -456,10 +464,7 @@ async def create_group(
     channels = []
     for membership in created.memberships:
         s = membership.service
-        config = dict(s.config)
-        for key in ["password", "token", "secret", "api_key"]:
-            if key in config:
-                config[key] = "***"
+        config = _redacted_config(s.config)
 
         channels.append(NotificationServiceResponse(
             id=s.id,
@@ -511,10 +516,7 @@ async def get_group(
     channels = []
     for membership in group.memberships:
         s = membership.service
-        config = dict(s.config)
-        for key in ["password", "token", "secret", "api_key"]:
-            if key in config:
-                config[key] = "***"
+        config = _redacted_config(s.config)
 
         channels.append(NotificationServiceResponse(
             id=s.id,
@@ -581,10 +583,7 @@ async def update_group(
     channels = []
     for membership in updated.memberships:
         s = membership.service
-        config = dict(s.config)
-        for key in ["password", "token", "secret", "api_key"]:
-            if key in config:
-                config[key] = "***"
+        config = _redacted_config(s.config)
 
         channels.append(NotificationServiceResponse(
             id=s.id,

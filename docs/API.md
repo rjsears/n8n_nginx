@@ -1109,9 +1109,7 @@ Authorization: Bearer <token>
 | `severity` | string | No | "info", "warning", "critical" |
 | `channel_ids` | array | No | Channels to notify |
 | `cooldown_minutes` | integer | No | Minimum time between notifications |
-| `escalation_enabled` | boolean | No | Enable L2 escalation |
-| `escalation_delay_minutes` | integer | No | Delay before escalation |
-| `escalation_channel_ids` | array | No | L2 escalation channels |
+| `escalation_enabled` | boolean | No | Enable L2 escalation. When enabled, L2 targets are notified immediately if the event is critical or if no L1 target accepted the message. There is no time-delayed escalation. |
 
 #### Get Global Notification Settings
 

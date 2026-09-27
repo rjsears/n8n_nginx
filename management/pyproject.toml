@@ -78,3 +78,13 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 # Use Unix line endings
 line-ending = "lf"
+
+[tool.pytest.ini_options]
+# Run from the management/ directory: `pytest`
+# Tests import the API as `api.*`, exactly as uvicorn does in the container.
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
