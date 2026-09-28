@@ -9,7 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### September 2026 Updates
 
-#### Fixed
+#### Removed
+- **Controls that were stored and displayed but never did anything.** A
+  setting that looks configured and is not enforced is worse than no
+  setting, so these are gone from the UI and the API (the database columns
+  stay so existing installs load, marked RETIRED in the models):
+  - *Daily Digest* card and the per-event `include_in_digest` flag. A real
+    digest needs a queue and a delivery job; it was a checkbox.
+  - *Emergency Contact* channel select. Nothing ever sent to it, and no
+    behaviour was ever defined for it.
+  - Per-event *flapping detection* fields (`flapping_*`) and the flapping
+    columns on the state endpoint. Never implemented; without an
+    acknowledgement concept it would only hide the second alert.
+  - Container `custom_targets`. No UI wrote it and dispatch never read it.
+  - `escalation_timeout_minutes` on events and targets. The delayed L2 path
+    that read it was removed earlier this month.
+  - `retry_count` and `rule_id` on history responses. There is no retry
+    worker and no rules.
+- **The `notification_rules` engine.** `NotificationService.dispatch`, the
+  rules CRUD endpoints (`/api/notifications/rules`) and their schemas had
+  no callers and no UI. They implemented a second, independent suppression
+  scheme (own `cooldown_minutes`, own `last_triggered`) beside the real
+  one. Deleted so the next person fixes the right dispatcher. The
+  `notification_rules` table is left in place.
+- The `severity` argument to `dispatch_notification`. Every caller passed
+  one and the dispatcher ignored all of them in favour of the event's
+  configured severity, which is what the Settings page shows. The
+  parameter is gone so it cannot look meaningful again.
 - **Eight registered notification events that could never fire now have
   producers.** `disk_space_low`, `high_memory`, `high_cpu`,
   `container_high_cpu`, `container_high_memory`, `container_healthy`,

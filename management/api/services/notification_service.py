@@ -22,13 +22,11 @@ import re
 
 from api.models.notifications import (
     NotificationService as NotificationServiceModel,
-    NotificationRule,
     NotificationHistory,
     NotificationGroup,
     NotificationGroupMembership,
     generate_slug,
 )
-from api.schemas.notifications import NotificationEventType
 from api.config import settings
 
 logger = logging.getLogger(__name__)
@@ -833,183 +831,6 @@ class NotificationService:
             "errors": errors,
         }
 
-    # Rule management
-
-    async def get_rules(self, event_type: Optional[str] = None) -> List[NotificationRule]:
-        """Get notification rules, optionally filtered by event type."""
-        query = select(NotificationRule).order_by(NotificationRule.sort_order)
-        if event_type:
-            query = query.where(NotificationRule.event_type == event_type)
-
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
-
-    async def get_rule(self, rule_id: int) -> Optional[NotificationRule]:
-        """Get notification rule by ID."""
-        result = await self.db.execute(
-            select(NotificationRule).where(NotificationRule.id == rule_id)
-        )
-        return result.scalar_one_or_none()
-
-    async def create_rule(self, **kwargs) -> NotificationRule:
-        """Create a notification rule."""
-        rule = NotificationRule(**kwargs)
-        self.db.add(rule)
-        await self.db.commit()
-        await self.db.refresh(rule)
-        return rule
-
-    async def update_rule(self, rule_id: int, **updates) -> Optional[NotificationRule]:
-        """Update a notification rule."""
-        rule = await self.get_rule(rule_id)
-        if not rule:
-            return None
-
-        for key, value in updates.items():
-            if value is not None and hasattr(rule, key):
-                setattr(rule, key, value)
-
-        rule.updated_at = datetime.now(UTC)
-        await self.db.commit()
-        await self.db.refresh(rule)
-        return rule
-
-    async def delete_rule(self, rule_id: int) -> bool:
-        """Delete a notification rule."""
-        result = await self.db.execute(
-            delete(NotificationRule).where(NotificationRule.id == rule_id)
-        )
-        await self.db.commit()
-        return result.rowcount > 0
-
-    # Event dispatching
-
-    async def dispatch(
-        self,
-        event_type: str,
-        event_data: Dict[str, Any],
-        severity: str = "info",
-    ) -> List[int]:
-        """
-        Dispatch notification for an event.
-        Returns list of notification history IDs.
-        """
-        history_ids = []
-
-        # Get matching rules
-        rules = await self.get_rules(event_type)
-        enabled_rules = [r for r in rules if r.enabled]
-
-        for rule in enabled_rules:
-            # Check cooldown
-            if rule.cooldown_minutes > 0 and rule.last_triggered:
-                cooldown_until = rule.last_triggered + timedelta(minutes=rule.cooldown_minutes)
-                if datetime.now(UTC) < cooldown_until:
-                    logger.debug(f"Rule {rule.id} in cooldown, skipping")
-                    continue
-
-            # Get service
-            service = await self.get_service(rule.service_id)
-            if not service or not service.enabled:
-                continue
-
-            # Build message
-            title = rule.custom_title or self._get_default_title(event_type)
-            body = rule.custom_message or self._get_default_message(event_type, event_data)
-
-            if rule.include_details:
-                body += self._format_event_details(event_data)
-
-            # Send notification
-            history_id = await self._send_and_log(
-                service=service,
-                rule=rule,
-                event_type=event_type,
-                event_data=event_data,
-                severity=severity,
-                title=title,
-                body=body,
-            )
-            history_ids.append(history_id)
-
-            # Update rule last triggered
-            rule.last_triggered = datetime.now(UTC)
-            await self.db.commit()
-
-        return history_ids
-
-    async def _send_and_log(
-        self,
-        service: NotificationServiceModel,
-        rule: NotificationRule,
-        event_type: str,
-        event_data: Dict[str, Any],
-        severity: str,
-        title: str,
-        body: str,
-    ) -> int:
-        """Send notification and log to history."""
-        history = NotificationHistory(
-            event_type=event_type,
-            event_data=event_data,
-            severity=severity,
-            service_id=service.id,
-            service_name=service.name,
-            rule_id=rule.id,
-            status="pending",
-        )
-        self.db.add(history)
-        await self.db.commit()
-        await self.db.refresh(history)
-
-        try:
-            try:
-                success = await self.dispatcher.send(service, title, body, rule.priority, event_data)
-            except UnsupportedServiceType:
-                success = False
-
-            history.status = "sent" if success else "failed"
-            history.sent_at = datetime.now(UTC)
-
-        except Exception as e:
-            history.status = "failed"
-            history.error_message = str(e)
-            logger.error(f"Notification failed: {e}")
-
-        await self.db.commit()
-        return history.id
-
-    def _get_default_title(self, event_type: str) -> str:
-        """Get default title for event type."""
-        titles = {
-            "backup.success": "Backup Completed Successfully",
-            "backup.failed": "Backup Failed",
-            "backup.started": "Backup Started",
-            "verification.started": "Backup Verification Started",
-            "verification.passed": "Backup Verification Passed",
-            "verification.failed": "Backup Verification Failed",
-            "container.unhealthy": "Container Unhealthy",
-            "container.stopped": "Container Stopped",
-            "system.disk_warning": "Disk Space Warning",
-            "system.disk_critical": "Disk Space Critical",
-        }
-        return titles.get(event_type, f"n8n Alert: {event_type}")
-
-    def _get_default_message(self, event_type: str, event_data: Dict[str, Any]) -> str:
-        """Get default message for event type."""
-        return f"Event: {event_type}"
-
-    def _format_event_details(self, event_data: Dict[str, Any]) -> str:
-        """Format event data as readable text."""
-        if not event_data:
-            return ""
-
-        lines = ["\n\nDetails:"]
-        for key, value in event_data.items():
-            lines.append(f"  {key}: {value}")
-
-        return "\n".join(lines)
-
     # Direct send methods (for system notifications)
 
     async def send_to_service(
@@ -1188,10 +1009,13 @@ async def _deliver_to_targets(
 async def dispatch_notification(
     event_type: str,
     event_data: Dict[str, Any],
-    severity: str = "info",
 ) -> None:
     """
     Dispatch notification using System Notifications configuration.
+
+    Severity (and therefore transport priority) comes from the event row,
+    which is what the Settings page shows and lets you change. Callers do
+    not pass one.
 
     This looks up the event in SystemNotificationEvent and sends to all
     configured targets (channels/groups) in SystemNotificationTarget.

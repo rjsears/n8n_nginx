@@ -155,61 +155,6 @@ class NotificationGroupResponse(BaseModel):
         from_attributes = True
 
 
-class NotificationRuleCreate(BaseModel):
-    """Create notification rule."""
-    name: str = Field(..., min_length=1, max_length=100)
-    enabled: bool = True
-    event_type: str = Field(..., min_length=1, max_length=100)
-    event_pattern: Optional[str] = Field(None, max_length=255)
-    service_id: int
-    priority: NotificationPriority = NotificationPriority.NORMAL
-    conditions: Optional[Dict[str, Any]] = None
-    custom_title: Optional[str] = Field(None, max_length=500)
-    custom_message: Optional[str] = None
-    include_details: bool = True
-    cooldown_minutes: int = Field(default=0, ge=0, le=1440)
-    sort_order: int = 0
-
-
-class NotificationRuleUpdate(BaseModel):
-    """Update notification rule."""
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    enabled: Optional[bool] = None
-    event_type: Optional[str] = Field(None, min_length=1, max_length=100)
-    event_pattern: Optional[str] = Field(None, max_length=255)
-    service_id: Optional[int] = None
-    priority: Optional[NotificationPriority] = None
-    conditions: Optional[Dict[str, Any]] = None
-    custom_title: Optional[str] = Field(None, max_length=500)
-    custom_message: Optional[str] = None
-    include_details: Optional[bool] = None
-    cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
-    sort_order: Optional[int] = None
-
-
-class NotificationRuleResponse(BaseModel):
-    """Notification rule response."""
-    id: int
-    name: str
-    enabled: bool
-    event_type: str
-    event_pattern: Optional[str] = None
-    service_id: int
-    priority: str
-    conditions: Optional[Dict[str, Any]] = None
-    custom_title: Optional[str] = None
-    custom_message: Optional[str] = None
-    include_details: bool
-    cooldown_minutes: int
-    last_triggered: Optional[datetime] = None
-    sort_order: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 class NotificationHistoryResponse(BaseModel):
     """Notification history response."""
     id: int
@@ -218,11 +163,9 @@ class NotificationHistoryResponse(BaseModel):
     severity: Optional[str] = None
     service_id: Optional[int] = None
     service_name: Optional[str] = None
-    rule_id: Optional[int] = None
     status: str
     sent_at: Optional[datetime] = None
     error_message: Optional[str] = None
-    retry_count: int
     created_at: datetime
 
     class Config:

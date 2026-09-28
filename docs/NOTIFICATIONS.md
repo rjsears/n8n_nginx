@@ -49,7 +49,7 @@ Set up where notifications will be sent:
 Group channels together for easier management:
 
 1. Go to **Settings** > **Notifications** > **Groups**
-2. Create groups like "Critical Alerts" or "Daily Digest"
+2. Create groups like "Critical Alerts" or "Low Priority"
 3. Add channels to groups
 
 ### Step 3: Enable Global Event Types
@@ -92,7 +92,7 @@ All channel configuration is done through the Management Console UI. Here are th
 |--------------|-------------|----------|
 | **Apprise** | Universal notification library (80+ services) | Slack, Discord, Teams, Telegram, etc. |
 | **NTFY** | Push notifications to phone | Mobile alerts |
-| **Email** | SMTP email | Record keeping, digests |
+| **Email** | SMTP email | Record keeping |
 | **Webhook** | Custom HTTP endpoints | Integration with other systems |
 
 ### Apprise (Recommended for Chat Services)
@@ -648,7 +648,7 @@ Don't rely on a single notification method:
 | Critical | PagerDuty + Phone | Slack |
 | High | Slack | Email |
 | Normal | Slack | - |
-| Low | Email digest | - |
+| Low | Email | - |
 
 ### 3. Set Appropriate Priorities
 
@@ -668,7 +668,7 @@ Prevent alert fatigue by setting cooldown periods in event configuration:
 | Critical | 0-5 minutes |
 | High | 15-30 minutes |
 | Normal | 1-4 hours |
-| Low | Daily digest |
+| Low | Set the event's frequency to `once_per_day` |
 
 ### 5. Test Regularly
 

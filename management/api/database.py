@@ -214,7 +214,7 @@ async def run_schema_migrations() -> None:
         ("system_notification_container_configs", "cpu_threshold", "INTEGER DEFAULT 80"),
         ("system_notification_container_configs", "monitor_high_memory", "BOOLEAN DEFAULT FALSE"),
         ("system_notification_container_configs", "memory_threshold", "INTEGER DEFAULT 80"),
-        # system_notification_targets.escalation_timeout_minutes for per-target L2 timeout
+        # system_notification_targets.escalation_timeout_minutes (RETIRED: delayed L2 removed; column kept)
         ("system_notification_targets", "escalation_timeout_minutes", "INTEGER"),
         # backup_history protection and pending deletion columns (Phase 7)
         ("backup_history", "is_protected", "BOOLEAN DEFAULT FALSE"),

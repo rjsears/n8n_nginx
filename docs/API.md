@@ -1114,24 +1114,35 @@ Authorization: Bearer <token>
 #### Get Global Notification Settings
 
 ```http
-GET /api/system-notifications/settings
+GET /api/system-notifications/global-settings
 Authorization: Bearer <token>
 ```
 
 **Response:** `200 OK`
 ```json
 {
-  "global_enabled": true,
+  "id": 1,
   "maintenance_mode": false,
+  "maintenance_until": null,
+  "maintenance_reason": null,
   "quiet_hours_enabled": false,
   "quiet_hours_start": "22:00",
   "quiet_hours_end": "07:00",
-  "default_cooldown_minutes": 5,
-  "flapping_detection_enabled": true,
-  "flapping_threshold": 5,
-  "flapping_window_minutes": 10
+  "quiet_hours_reduce_priority": true,
+  "blackout_enabled": false,
+  "blackout_start": null,
+  "blackout_end": null,
+  "max_notifications_per_hour": 50,
+  "notifications_this_hour": 3,
+  "hour_started_at": "2026-09-28T14:02:11Z",
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-09-28T14:02:11Z"
 }
 ```
+
+Every one of these is enforced by the notification gate. `quiet_hours_reduce_priority`
+chooses between lowering non-critical notifications to low priority (`true`) and
+muting them (`false`) during quiet hours. Times are in the console's `TIMEZONE`.
 
 #### Update Global Notification Settings
 

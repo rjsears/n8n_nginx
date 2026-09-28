@@ -36,9 +36,6 @@ from api.schemas.notifications import (
     NotificationServiceCreate,
     NotificationServiceUpdate,
     NotificationServiceResponse,
-    NotificationRuleCreate,
-    NotificationRuleUpdate,
-    NotificationRuleResponse,
     NotificationHistoryResponse,
     NotificationEventType,
 )
@@ -101,9 +98,6 @@ __all__ = [
     "NotificationServiceCreate",
     "NotificationServiceUpdate",
     "NotificationServiceResponse",
-    "NotificationRuleCreate",
-    "NotificationRuleUpdate",
-    "NotificationRuleResponse",
     "NotificationHistoryResponse",
     "NotificationEventType",
     # Backups

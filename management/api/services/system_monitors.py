@@ -88,7 +88,7 @@ async def check_host_metrics(metrics: Dict[str, Dict[str, Any]], now: Optional[d
                     "threshold": threshold,
                     "path": "/",
                     "free_bytes": (metrics.get("disk") or {}).get("free"),
-                }, severity=disk.severity)
+                })
                 fired.append("disk_space_low")
 
         memory = await _event(db, "high_memory")
@@ -99,7 +99,7 @@ async def check_host_metrics(metrics: Dict[str, Dict[str, Any]], now: Optional[d
                 await dispatch_notification("high_memory", {
                     "percent": memory_percent,
                     "threshold": threshold,
-                }, severity=memory.severity)
+                })
                 fired.append("high_memory")
 
         cpu = await _event(db, "high_cpu")
@@ -128,7 +128,7 @@ async def check_host_metrics(metrics: Dict[str, Dict[str, Any]], now: Optional[d
                         "percent": cpu_percent,
                         "threshold": threshold,
                         "duration_minutes": duration,
-                    }, severity=cpu.severity)
+                    })
                     fired.append("high_cpu")
 
     return fired
@@ -179,7 +179,7 @@ async def check_container_resources(stats: Iterable[Dict[str, Any]]) -> List[str
             if cpu_percent >= threshold:
                 await dispatch_notification("container_high_cpu", {
                     "container": name, "percent": cpu_percent, "threshold": threshold,
-                }, severity=cpu_event.severity)
+                })
                 fired.append(f"container_high_cpu:{name}")
 
         memory_percent = row.get("memory_percent")
@@ -188,7 +188,7 @@ async def check_container_resources(stats: Iterable[Dict[str, Any]]) -> List[str
             if memory_percent >= threshold:
                 await dispatch_notification("container_high_memory", {
                     "container": name, "percent": memory_percent, "threshold": threshold,
-                }, severity=memory_event.severity)
+                })
                 fired.append(f"container_high_memory:{name}")
 
     return fired
@@ -237,7 +237,7 @@ async def check_container_recovery(health: Dict[str, Any]) -> List[str]:
                 await dispatch_notification("container_healthy", {
                     "container": name,
                     "recovered_from": state.event_type.replace("container_", ""),
-                }, severity="info")
+                })
                 announced.add(name)
                 recovered.append(name)
             state.last_sent_at = None
@@ -277,7 +277,7 @@ async def check_certificate_expiry(certificates: Iterable[Dict[str, Any]]) -> Li
             "days_until_expiry": days,
             "valid_until": cert.get("valid_until"),
             "threshold_days": threshold_days,
-        }, severity=event.severity)
+        })
         fired.append(domain)
     return fired
 
@@ -292,6 +292,6 @@ async def report_security_event(kind: str, target_id: str, **details: Any) -> No
     from api.services.notification_service import dispatch_notification
 
     try:
-        await dispatch_notification("security_event", {"kind": kind, "target_id": target_id, **details}, severity="critical")
+        await dispatch_notification("security_event", {"kind": kind, "target_id": target_id, **details})
     except Exception as e:  # pragma: no cover - defensive
         logger.error(f"Failed to dispatch security_event '{kind}': {e}")

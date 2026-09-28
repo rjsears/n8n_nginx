@@ -57,7 +57,7 @@
 
 A production-grade, self-hosted **n8n** deployment that treats the unglamorous parts — TLS renewal, backups that actually restore, reverse-proxy webhook plumbing, disaster recovery — as first-class engineering problems. One interactive `setup.sh` deploys n8n, PostgreSQL 16 + pgvector, nginx, Certbot, Redis, and a full FastAPI/Vue.js management console, all behind **a single exposed port**.
 
-This is not a `docker run n8nio/n8n` wrapper. It is the infrastructure you build *around* n8n once you depend on it: automatic DNS-01 certificates with a renewal path that provably fires, restore-tested backup verification, selective per-workflow restore, bare-metal recovery archives, 21 notification event types with escalation, and a management console that replaces a half-dozen SSH sessions.
+This is not a `docker run n8nio/n8n` wrapper. It is the infrastructure you build *around* n8n once you depend on it: automatic DNS-01 certificates with a renewal path that provably fires, restore-tested backup verification, selective per-workflow restore, bare-metal recovery archives, 22 notification event types with escalation, and a management console that replaces a half-dozen SSH sessions.
 
 <p align="center">
   <img src="docs/images/screenshots/dashboard-01-overview.png" alt="Management Console dashboard overview" width="850"/>
@@ -409,7 +409,7 @@ Ten screens replacing a half-dozen SSH sessions — dark/light themes, top or si
 | **Backups** | Scheduling, tiered retention, restore-tested verification, selective restore, bare-metal archive |
 | **Containers** | Start/stop/restart, live stats, per-container log viewer and terminal |
 | **Flows** | n8n workflow inventory with activate/deactivate toggles and execution history |
-| **Notifications** | 80+ services via Apprise, native NTFY push, channels/groups, L1→L2 escalation, quiet hours, flapping detection |
+| **Notifications** | 80+ services via Apprise, native NTFY push, channels/groups, L1→L2 escalation, quiet hours, rate limiting, maintenance windows |
 | **System** | Health cards (incl. SSL expiry with Force Renew), Redis cache status, network tools, host terminal, file manager |
 | **Settings** | CIDR access control, n8n API key, categorized `.env` editor with validation |
 
