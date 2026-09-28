@@ -262,6 +262,31 @@ async def run_schema_migrations() -> None:
         # Fix certificate_expiring event category (move from security to ssl)
         await _migrate_certificate_event_category(conn)
 
+        # Remove registry rows for events that were never produced by any code
+        await _remove_retired_notification_events(conn)
+
+
+# Events that had a card in the UI but no code path that could ever fire them.
+# Seeding is insert-if-missing, so removing one from DEFAULT_SYSTEM_EVENTS is
+# not enough: existing databases keep the row unless it is deleted here.
+RETIRED_NOTIFICATION_EVENTS = (
+    "update_available",  # no update checker exists; retired 2026-09
+)
+
+
+async def _remove_retired_notification_events(conn) -> None:
+    """Delete registry rows (targets cascade) for retired event types."""
+    for event_type in RETIRED_NOTIFICATION_EVENTS:
+        try:
+            result = await conn.execute(
+                text("DELETE FROM system_notification_events WHERE event_type = :event_type"),
+                {"event_type": event_type},
+            )
+            if result.rowcount > 0:
+                logger.info(f"Removed retired notification event '{event_type}'")
+        except Exception as e:
+            logger.warning(f"Failed to remove retired notification event '{event_type}': {e}")
+
 
 async def _migrate_certificate_event_category(conn) -> None:
     """Move certificate_expiring event from security category to ssl category."""

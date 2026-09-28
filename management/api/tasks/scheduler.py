@@ -161,6 +161,25 @@ async def _add_maintenance_jobs() -> None:
         replace_existing=True,
     )
 
+    # Per-container CPU / memory thresholds - run every 5 minutes, offset from
+    # host metrics so the two Docker stats calls do not coincide
+    scheduler.add_job(
+        _check_container_resources,
+        CronTrigger(minute="2-59/5"),
+        id="maintenance_container_resources",
+        name="Container Resource Thresholds",
+        replace_existing=True,
+    )
+
+    # Certificate expiry - run daily at 6 AM
+    scheduler.add_job(
+        _check_certificate_expiry,
+        CronTrigger(hour=6, minute=0),
+        id="maintenance_certificate_expiry",
+        name="Certificate Expiry Check",
+        replace_existing=True,
+    )
+
     logger.info("Maintenance jobs added")
 
 
@@ -373,6 +392,14 @@ async def _collect_metrics() -> None:
             },
         }
 
+        # Threshold checks first: the sustained-CPU window looks at *earlier*
+        # cached samples, so this sample must not be in the cache yet.
+        try:
+            from api.services.system_monitors import check_host_metrics
+            await check_host_metrics(metrics)
+        except Exception as e:
+            logger.error(f"Host metric threshold check failed: {e}")
+
         async with async_session_maker() as db:
             for metric_type, data in metrics.items():
                 cache = SystemMetricsCache(
@@ -428,8 +455,54 @@ async def _check_container_health() -> None:
             )
             logger.info(f"Sent restart notification for {container_name} (count: {restart_count})")
 
+        # Recovery: containers announced unhealthy/stopped that are healthy again
+        from api.services.system_monitors import check_container_recovery
+        recovered = await check_container_recovery(health)
+        for container in recovered:
+            logger.info(f"Container {container} recovered - sent container_healthy notification")
+
     except Exception as e:
         logger.error(f"Container health check failed: {e}")
+
+
+async def _check_container_resources() -> None:
+    """Compare per-container CPU / memory usage against each container's configured thresholds."""
+    from api.database import async_session_maker
+    from api.services.container_service import ContainerService
+    from api.services.system_monitors import check_container_resources, monitored_container_configs
+
+    try:
+        # Skip the Docker stats round-trip entirely when nothing is monitored
+        async with async_session_maker() as db:
+            if not await monitored_container_configs(db):
+                return
+
+        stats = await ContainerService().get_stats()
+        fired = await check_container_resources(stats)
+        for entry in fired:
+            logger.info(f"Container resource threshold exceeded: {entry}")
+
+    except Exception as e:
+        logger.error(f"Container resource check failed: {e}")
+
+
+async def _check_certificate_expiry() -> None:
+    """Warn when a served certificate is within the configured number of days of expiry."""
+    import asyncio
+    from api.services.ssl_service import get_ssl_info
+    from api.services.system_monitors import check_certificate_expiry
+
+    try:
+        ssl_info = await asyncio.to_thread(get_ssl_info)
+        if ssl_info.get("error") and not ssl_info.get("certificates"):
+            logger.debug(f"Certificate expiry check skipped: {ssl_info['error']}")
+            return
+        fired = await check_certificate_expiry(ssl_info.get("certificates") or [])
+        for domain in fired:
+            logger.info(f"Certificate for {domain} is within the expiry threshold - notification sent")
+
+    except Exception as e:
+        logger.error(f"Certificate expiry check failed: {e}")
 
 
 async def _enforce_retention() -> None:

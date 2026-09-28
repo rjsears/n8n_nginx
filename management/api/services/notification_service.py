@@ -1651,7 +1651,9 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         return f"Host: {hostname}\n\nContainer '{container}' is unhealthy!\n\n{message}" if message else f"Host: {hostname}\n\nContainer '{container}' is unhealthy!\n\nPlease check the container health."
     elif event_type == "container_healthy":
         container = event_data.get("container") or event_data.get("container_name", "unknown")
-        return f"Host: {hostname}\n\nContainer '{container}' has recovered and is now healthy."
+        recovered_from = event_data.get("recovered_from")
+        detail = f" (was {recovered_from})" if recovered_from else ""
+        return f"Host: {hostname}\n\nContainer '{container}' has recovered and is now healthy{detail}."
     elif event_type == "container_stopped":
         container = event_data.get("container") or event_data.get("container_name", "unknown")
         return f"Host: {hostname}\n\nContainer '{container}' has stopped.\n\nThis may indicate an issue."
@@ -1684,13 +1686,46 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
     elif event_type == "disk_space_low":
         percent = event_data.get("percent", 0)
         path = event_data.get("path", "/")
-        return f"Host: {hostname}\n\nDisk space is low!\n\nPath: {path}\nUsage: {percent}%"
+        threshold = event_data.get("threshold")
+        detail = f" (threshold {threshold}%)" if threshold else ""
+        return f"Host: {hostname}\n\nDisk space is low!\n\nPath: {path}\nUsage: {percent}%{detail}"
     elif event_type == "high_memory":
         percent = event_data.get("percent", 0)
-        return f"Host: {hostname}\n\nHigh memory usage detected: {percent}%"
+        threshold = event_data.get("threshold")
+        detail = f" (threshold {threshold}%)" if threshold else ""
+        return f"Host: {hostname}\n\nHigh memory usage detected: {percent}%{detail}"
     elif event_type == "high_cpu":
         percent = event_data.get("percent", 0)
-        return f"Host: {hostname}\n\nHigh CPU usage detected: {percent}%"
+        threshold = event_data.get("threshold")
+        duration = event_data.get("duration_minutes")
+        detail = f" (threshold {threshold}%" + (f" for {duration} min)" if duration else ")") if threshold else ""
+        return f"Host: {hostname}\n\nHigh CPU usage detected: {percent}%{detail}"
+
+    # SSL events
+    elif event_type == "certificate_expiring":
+        domain = event_data.get("domain", "unknown")
+        days = event_data.get("days_until_expiry")
+        valid_until = event_data.get("valid_until", "")
+        if days is not None and days <= 0:
+            return f"Host: {hostname}\n\nSSL certificate for '{domain}' has EXPIRED ({valid_until}).\n\nRenew it now."
+        return (
+            f"Host: {hostname}\n\nSSL certificate for '{domain}' expires in {days} day(s) ({valid_until}).\n\n"
+            "Check that certbot renewal is working."
+        )
+
+    # Security events
+    elif event_type == "security_event":
+        kind = event_data.get("kind", "unknown")
+        client_ip = event_data.get("client_ip") or "unknown"
+        if kind == "account_locked":
+            return (
+                f"Host: {hostname}\n\nAccount '{event_data.get('username')}' locked after "
+                f"{event_data.get('failed_attempts')} failed login attempts.\n\n"
+                f"Last attempt from: {client_ip}\nLocked until: {event_data.get('locked_until')}"
+            )
+        if kind == "webhook_invalid_key":
+            return f"Host: {hostname}\n\nNotification webhook called with an invalid API key.\n\nFrom: {client_ip}"
+        return f"Host: {hostname}\n\nSecurity event: {kind}\nFrom: {client_ip}"
 
     # Pruning events
     elif event_type == "backup_pending_deletion":

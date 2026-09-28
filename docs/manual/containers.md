@@ -123,8 +123,8 @@ Recreate stops the container, removes it, and starts a fresh instance using the 
 | Status Events | Container Stopped | Container exits unexpectedly. |
 | Status Events | Health Check Failed | Healthcheck transitions to unhealthy. Disabled (and noted) if the image has no healthcheck. |
 | Status Events | Container Restarted | Docker auto-restarts the container. |
-| Resource Thresholds | High CPU Usage | CPU exceeds a configurable threshold for a sustained period. |
-| Resource Thresholds | High Memory Usage | Memory exceeds a configurable threshold. |
+| Resource Thresholds | High CPU Usage | CPU exceeds the configured percentage at the 5-minute check. Repeats are throttled by the event's frequency (default: once per 15 minutes). |
+| Resource Thresholds | High Memory Usage | Memory exceeds the configured percentage at the 5-minute check. Same throttling. |
 
 !!! warning
 

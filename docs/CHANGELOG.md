@@ -10,6 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### September 2026 Updates
 
 #### Fixed
+- **Eight registered notification events that could never fire now have
+  producers.** `disk_space_low`, `high_memory`, `high_cpu`,
+  `container_high_cpu`, `container_high_memory`, `container_healthy`,
+  `certificate_expiring` and `security_event` each had a card, a toggle and
+  threshold controls in Settings → System Notifications, but no code path
+  dispatched them. Now (`api/services/system_monitors.py`):
+  - Host disk / memory / CPU are compared against the event's threshold at
+    every 5-minute metrics sample. `high_cpu` honours its
+    `duration_minutes`: every sample inside that window must be over the
+    threshold.
+  - Per-container CPU / memory use each container's own thresholds from
+    Containers → Alerts (a new 5-minute job; skipped entirely when no
+    container has resource monitoring on).
+  - `container_healthy` fires when a container that was announced unhealthy
+    or stopped is healthy again, if the problem event's "notify on
+    recovery" is on. Recovery closes the episode, so the next problem
+    alerts immediately instead of waiting out the cooldown.
+  - `certificate_expiring` is checked daily at 06:00 against the "days
+    before expiration" threshold; each certificate throttles separately and
+    an already-expired certificate is sent as critical.
+  - `security_event` fires on an account lockout (with the client IP) and
+    on a notification-webhook call with a wrong API key.
+- **`update_available` removed.** No update checker exists anywhere in the
+  codebase, so the event could never fire. The registry row is deleted on
+  next start (its targets cascade). Writing a real update check is a
+  feature for another day, not a notification fix.
 - **Quiet hours, rate limiting, frequency and blackout window are now
   enforced.** All four were stored, shown in the UI and documented, but the
   dispatcher never read them. They are now checked by a single gate

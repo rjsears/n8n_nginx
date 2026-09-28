@@ -410,16 +410,6 @@ DEFAULT_SYSTEM_EVENTS = [
         "flapping_threshold_count": 5,
         "flapping_threshold_minutes": 5,
     },
-    {
-        "event_type": "update_available",
-        "display_name": "Update Available",
-        "description": "Notification when software updates are available",
-        "icon": "ArrowDownTrayIcon",
-        "category": "system",
-        "severity": "info",
-        "frequency": "once_per_day",
-        "include_in_digest": True,
-    },
     # Additional backup events
     {
         "event_type": "backup_started",

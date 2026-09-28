@@ -50,10 +50,10 @@ The System Notifications tab is where you tell the management console *which eve
 | Category | Covers |
 |---|---|
 | **Backup Events** | Backup success / failure / verification / retention rotation. |
-| **Container Events** | Health-check transitions, restarts, exit codes, resource thresholds. |
-| **Security Events** | Failed logins, account lockouts, unauthorized API attempts. |
-| **SSL Certificate Events** | Certificate expiration warnings, renewal success / failure. |
-| **Docker Host System Events** | Host CPU / memory / disk threshold breaches. |
+| **Container Events** | Stopped, unhealthy, restarted, started, removed, recreated, recovered (healthy again), and per-container CPU / memory thresholds (enable those per container under Containers → Alerts). |
+| **Security Events** | Account lockouts after repeated failed logins, and notification-webhook calls with a wrong API key. |
+| **SSL Certificate Events** | Certificate expiration warnings, checked daily against the "days before expiration" threshold on the event. |
+| **Docker Host System Events** | Host CPU (sustained for the configured minutes), memory and disk threshold breaches, sampled every 5 minutes. |
 
 Click any category to expand it and toggle individual events on/off. The "X/Y enabled" badge updates live.
 
