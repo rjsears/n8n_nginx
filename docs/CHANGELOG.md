@@ -10,6 +10,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### September 2026 Updates
 
 #### Fixed
+- **Quiet hours, rate limiting, frequency and blackout window are now
+  enforced.** All four were stored, shown in the UI and documented, but the
+  dispatcher never read them. They are now checked by a single gate
+  (`api/services/notification_gate.py`) that every delivery path consults:
+  - *Frequency*: an event set to `once_per_hour`, `once_per_day` and so on
+    is throttled to that window. Previously only `cooldown_minutes`
+    throttled anything, whatever the frequency select said. Cooldown now
+    applies only to `every_time` events, which is what the UI already
+    implied by hiding the cooldown slider for other frequencies.
+  - *Quiet hours*: critical events pass untouched. Non-critical events are
+    delivered at low priority or muted, per a new choice in the Quiet Hours
+    dialog (the stored `quiet_hours_reduce_priority` setting, previously
+    unexposed). Times are in the console's `TIMEZONE`.
+  - *Rate limit*: the "This Hour" counter now counts real deliveries, and
+    notifications over `max_notifications_per_hour` are suppressed. The UI
+    text claiming they were "queued and delivered when the limit resets"
+    described a queue that never existed; it now says what happens.
+  - *Blackout window* (API only): total suppression, critical included.
+  Every suppression writes a history row whose `suppression_reason` names
+  the dial that stopped it (`maintenance`, `blackout`,
+  `frequency (once_per_day)`, `cooldown (15min)`, `quiet_hours`,
+  `rate_limit (50/hour)`).
+- **The n8n webhook endpoint (`POST /api/notifications/webhook`) now honours
+  the global controls.** It previously checked only the API key, so
+  workflow messages went out during maintenance windows and ignored quiet
+  hours and the rate limit. It now passes through the same gate (global
+  dials only; it has no event, so cooldown and frequency do not apply). A
+  suppressed call returns `success: false` with a new `suppressed` field
+  naming the reason, and is recorded in the notification history.
 - **Maintenance mode now expires.** The dispatcher only checked the
   `maintenance_mode` flag and ignored `maintenance_until`, so a window that
   had lapsed kept suppressing every notification (the UI showed "Expired"
@@ -40,6 +69,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shown.
 
 #### Changed
+- The four copies of the transport `if/elif` chain (apprise / ntfy /
+  webhook / email) are replaced by one `NotificationDispatcher.send()`.
+  Webhook channels now receive a consistent payload (`event_data` plus
+  `priority`) from every sender instead of a different shape from each.
 - **Time-delayed L2 escalation removed.** The "Escalation Timeout" on L2
   targets scheduled a job that re-sent to L2 after N minutes unconditionally:
   it checked neither maintenance mode nor whether the event was still

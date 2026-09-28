@@ -84,6 +84,8 @@ const maintenanceReason = ref('')
 // Quiet hours form state
 const quietHoursStart = ref('22:00')
 const quietHoursEnd = ref('07:00')
+// true: non-critical notifications go out at low (silent) priority; false: they are muted
+const quietHoursReducePriority = ref(true)
 
 // Add target form state
 
@@ -372,6 +374,7 @@ async function loadGlobalSettings() {
     if (response.data) {
       quietHoursStart.value = response.data.quiet_hours_start || '22:00'
       quietHoursEnd.value = response.data.quiet_hours_end || '07:00'
+      quietHoursReducePriority.value = response.data.quiet_hours_reduce_priority !== false
     }
   } catch (error) {
     console.error('Failed to load global settings:', error)
@@ -561,6 +564,7 @@ async function saveQuietHours() {
     quiet_hours_enabled: true,
     quiet_hours_start: quietHoursStart.value,
     quiet_hours_end: quietHoursEnd.value,
+    quiet_hours_reduce_priority: quietHoursReducePriority.value,
   })
   showQuietHoursModal.value = false
 }
@@ -806,7 +810,7 @@ onMounted(() => {
             </p>
             <p v-else class="font-semibold text-primary">Quiet Hours</p>
             <p :class="['text-xs', isInQuietHours ? 'text-indigo-300' : 'text-secondary']">
-              {{ isInQuietHours ? 'Non-critical muted' : globalSettings?.quiet_hours_enabled ? 'Scheduled' : 'Click to configure' }}
+              {{ isInQuietHours ? (globalSettings?.quiet_hours_reduce_priority ? 'Non-critical at low priority' : 'Non-critical muted') : globalSettings?.quiet_hours_enabled ? 'Scheduled' : 'Click to configure' }}
             </p>
           </div>
         </div>
@@ -1563,7 +1567,7 @@ onMounted(() => {
                     <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0" />
                     <div class="text-sm text-blue-700 dark:text-blue-400">
                       <p class="font-medium">How rate limiting works</p>
-                      <p class="mt-1 text-blue-600 dark:text-blue-300">When the hourly limit is reached, additional notifications are queued and delivered when the limit resets. Lower limits help prevent notification fatigue during high-activity periods.</p>
+                      <p class="mt-1 text-blue-600 dark:text-blue-300">Counts notifications delivered in a rolling one-hour window that starts with the first delivery. Once the limit is reached, further notifications are not sent; each one is recorded in history with the reason <code>rate_limit</code>. The window resets an hour after it started. Lower limits help prevent notification fatigue during high-activity periods.</p>
                     </div>
                   </div>
                 </div>
@@ -2050,7 +2054,9 @@ onMounted(() => {
 
             <div class="bg-indigo-800/30 border border-indigo-500/30 rounded-lg p-4">
               <p class="text-sm text-indigo-200">
-                During quiet hours, <strong class="text-indigo-100">non-critical notifications</strong> will be suppressed. Critical alerts will still come through.
+                During quiet hours, <strong class="text-indigo-100">critical alerts</strong> always come through at full priority.
+                Non-critical notifications are either delivered silently at low priority or muted, as chosen below.
+                Muted notifications are recorded in history with the reason <code class="text-indigo-100">quiet_hours</code>.
               </p>
             </div>
 
@@ -2077,6 +2083,37 @@ onMounted(() => {
                     type="time"
                     class="w-full px-3 py-2.5 rounded-lg border border-indigo-500/50 bg-indigo-900/50 text-indigo-100 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
                   />
+                </div>
+              </div>
+
+              <!-- Non-critical handling -->
+              <div>
+                <label class="block text-sm font-medium text-indigo-200 mb-2">Non-critical notifications during quiet hours</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <button
+                    @click="quietHoursReducePriority = true"
+                    :class="[
+                      'px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left',
+                      quietHoursReducePriority
+                        ? 'bg-indigo-500/40 border-indigo-300 text-indigo-50'
+                        : 'bg-indigo-900/50 border-indigo-500/30 text-indigo-300 hover:bg-indigo-800/50'
+                    ]"
+                  >
+                    <span class="block">Deliver at low priority</span>
+                    <span class="block text-xs opacity-80">Arrives silently, no sound or vibration</span>
+                  </button>
+                  <button
+                    @click="quietHoursReducePriority = false"
+                    :class="[
+                      'px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left',
+                      !quietHoursReducePriority
+                        ? 'bg-indigo-500/40 border-indigo-300 text-indigo-50'
+                        : 'bg-indigo-900/50 border-indigo-500/30 text-indigo-300 hover:bg-indigo-800/50'
+                    ]"
+                  >
+                    <span class="block">Mute</span>
+                    <span class="block text-xs opacity-80">Not delivered; logged as suppressed</span>
+                  </button>
                 </div>
               </div>
 
