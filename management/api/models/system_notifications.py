@@ -49,6 +49,7 @@ class SystemNotificationEvent(Base):
     cooldown_minutes = Column(Integer, default=5)
 
     # Flapping detection settings
+    # RETIRED: never enforced, no UI or API. Kept so existing databases load; drop in a future migration.
     flapping_enabled = Column(Boolean, default=True)
     flapping_threshold_count = Column(Integer, default=3)  # Events in window to trigger flapping
     flapping_threshold_minutes = Column(Integer, default=10)  # Window size
@@ -61,9 +62,10 @@ class SystemNotificationEvent(Base):
 
     # Escalation settings
     escalation_enabled = Column(Boolean, default=False)
-    escalation_timeout_minutes = Column(Integer, default=30)
+    escalation_timeout_minutes = Column(Integer, default=30)  # RETIRED: delayed L2 escalation was removed
 
     # Daily digest inclusion
+    # RETIRED: never enforced, no UI or API. Kept so existing databases load; drop in a future migration.
     include_in_digest = Column(Boolean, default=False)
 
     # Timestamps
@@ -96,6 +98,7 @@ class SystemNotificationTarget(Base):
     # Escalation level: 1 = primary (L1), 2 = escalation (L2)
     escalation_level = Column(Integer, default=1)
 
+    # RETIRED: delayed L2 escalation was removed; not exposed by the API
     # Per-target escalation timeout (for L2 targets)
     # If set, overrides the event's default escalation_timeout_minutes
     escalation_timeout_minutes = Column(Integer, nullable=True)
@@ -142,6 +145,7 @@ class SystemNotificationContainerConfig(Base):
     monitor_high_memory = Column(Boolean, default=False)
     memory_threshold = Column(Integer, default=80)  # percentage
 
+    # RETIRED: never read by dispatch, no UI; not exposed by the API
     # Custom targets override (optional, JSON array of {type, id} objects)
     # If null, uses default targets from the event configuration
     # Example: [{"type": "channel", "id": 1}, {"type": "group", "id": 2}]
@@ -170,6 +174,7 @@ class SystemNotificationState(Base):
     # Cooldown tracking
     last_sent_at = Column(DateTime(timezone=True), nullable=True)
 
+    # RETIRED: flapping detection was never implemented; columns unused
     # Flapping detection
     event_count_in_window = Column(Integer, default=0)
     window_start = Column(DateTime(timezone=True), nullable=True)
@@ -225,8 +230,10 @@ class SystemNotificationGlobalSettings(Base):
     max_notifications_per_hour = Column(Integer, default=50)
     notifications_this_hour = Column(Integer, default=0)
     hour_started_at = Column(DateTime(timezone=True), nullable=True)
+    # RETIRED: no defined semantics; not exposed by the API
     emergency_contact_id = Column(Integer, ForeignKey("notification_services.id", ondelete="SET NULL"), nullable=True)
 
+    # RETIRED: digest was never built; not exposed by the API
     # Daily digest settings
     digest_enabled = Column(Boolean, default=False)
     digest_time = Column(String(5), default="08:00")  # When to send digest (HH:MM)

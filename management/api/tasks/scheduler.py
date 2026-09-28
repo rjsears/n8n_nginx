@@ -474,8 +474,7 @@ async def _check_container_health() -> None:
         for container in health.get("unhealthy", []):
             await dispatch_notification(
                 "container_unhealthy",
-                {"container": container},
-                severity="critical",
+                {"container": container}
             )
 
         # Alert for stopped containers (that should be running)
@@ -484,8 +483,7 @@ async def _check_container_health() -> None:
             if container not in ["n8n_cloudflared", "n8n_tailscale"]:
                 await dispatch_notification(
                     "container_stopped",
-                    {"container": container},
-                    severity="warning",
+                    {"container": container}
                 )
 
         # Alert for automatically restarted containers
@@ -498,8 +496,7 @@ async def _check_container_health() -> None:
                     "container": container_name,
                     "container_name": container_name,
                     "restart_count": restart_count,
-                },
-                severity="warning",
+                }
             )
             logger.info(f"Sent restart notification for {container_name} (count: {restart_count})")
 

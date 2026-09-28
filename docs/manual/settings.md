@@ -33,9 +33,9 @@ Each tile also has a **Top** / **Side** toggle for navigation layout — top hor
 
 ## System Notifications {: #sys-notifications }
 
-The System Notifications tab is where you tell the management console *which events should fire alerts* and configure rate-limiting / quiet hours / digest behavior. Actual delivery channels (Slack, NTFY, email) live under [Notifications](notifications.md) — this tab is purely about *when* and *what*, not *where*.
+The System Notifications tab is where you tell the management console *which events should fire alerts* and configure maintenance windows, quiet hours and rate limiting. Actual delivery channels (Slack, NTFY, email) live under [Notifications](notifications.md) — this tab is purely about *when* and *what*, not *where*.
 
-![Settings System Notifications tab showing a Maintenance toggle, Quiet Hours, four counter strip showing Events Enabled and This Hour totals, five event-category cards (Backup Events, Container Events, Security Events, SSL Certificate Events, Docker Host System Events) each with an enabled-of-total count, and a Global Settings section with Rate Limiting and Daily Digest options](../images/screenshots/settings-02-system-notifications.png)
+![Settings System Notifications tab showing a Maintenance toggle, Quiet Hours, four counter strip showing Events Enabled and This Hour totals, five event-category cards (Backup Events, Container Events, Security Events, SSL Certificate Events, Docker Host System Events) each with an enabled-of-total count, and a Global Settings section with Rate Limiting options](../images/screenshots/settings-02-system-notifications.png)
 *Figure 2: Settings → System Notifications tab.*
 
 ### Top strip controls
@@ -60,7 +60,6 @@ Click any category to expand it and toggle individual events on/off. The "X/Y en
 ### Global Settings
 
 - **Rate Limiting** — caps total notifications per hour to prevent storms (default 50/hour). The window starts with the first delivery and resets an hour later. Notifications over the cap are not queued; they are dropped and recorded in history with the reason `rate_limit`. The cap also applies to messages sent by n8n workflows through the notification webhook.
-- **Daily Digest** — batches low-priority events into a single daily summary instead of per-event firing.
 
 !!! tip
 

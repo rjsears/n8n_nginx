@@ -364,7 +364,7 @@ class BackupService:
                     "backup_id": history.id,
                     "error": str(e),
                     "failed_at": history.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
-                }, severity="error")
+                })
             except Exception as notif_error:
                 logger.error(f"Failed to send failure notification: {notif_error}")
 
@@ -1659,7 +1659,7 @@ class BackupService:
                     "backup_id": history.id,
                     "error": str(e),
                     "failed_at": history.completed_at.strftime("%Y-%m-%d %H:%M:%S"),
-                }, severity="error")
+                })
             except Exception as notif_error:
                 logger.error(f"Failed to send failure notification: {notif_error}")
 

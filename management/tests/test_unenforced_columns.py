@@ -6,12 +6,10 @@ A stored setting that nothing reads is worse than no setting: it looks
 configured. This test forces every column into one of three buckets and
 fails when a column moves between them without the list being updated.
 
-The "phase" tags in UNENFORCED_PENDING refer to the notification-enforcement
-work plan: phase 2 (done) built one gate consulted by every delivery path
-(api/services/notification_gate.py); phase 3 (done) wrote producers for the
-registered events that had none (api/services/system_monitors.py); phase 4
-removes or hides the controls that will not be built (digest, flapping,
-emergency contact, custom targets).
+Buckets: STRUCTURAL (identity and presentation), ENFORCED (read by the
+gate or a producer), UNENFORCED_PENDING (stored, exposed, decision pending;
+empty today) and RETIRED (never enforced, removed from the API and UI,
+column kept for existing databases).
 """
 
 from __future__ import annotations
@@ -55,26 +53,34 @@ ENFORCED: Set[str] = {
     "escalation_level",
 }
 
-# Stored, surfaced by the API, never read by dispatch. Each entry names the
-# phase of the work plan that decides its fate. Enforcing one MUST remove it
-# from this map, or the test fails.
-UNENFORCED_PENDING: Dict[str, str] = {
-    # Phase 4: remove or defer
-    "flapping_enabled": "phase 4 - deferred", "flapping_threshold_count": "phase 4 - deferred",
-    "flapping_threshold_minutes": "phase 4 - deferred", "flapping_summary_interval": "phase 4 - deferred",
-    "event_count_in_window": "phase 4 - deferred", "window_start": "phase 4 - deferred",
-    "is_flapping": "phase 4 - deferred", "flapping_started_at": "phase 4 - deferred",
-    "last_summary_at": "phase 4 - deferred",
-    "include_in_digest": "phase 4 - deferred", "digest_enabled": "phase 4 - deferred",
-    "digest_time": "phase 4 - deferred", "digest_severity_levels": "phase 4 - deferred",
-    "last_digest_sent": "phase 4 - deferred",
-    "emergency_contact_id": "phase 4 - remove",
-    "custom_targets": "phase 4 - remove",
-    # The delayed L2 path was removed in phase 1 (it escalated unconditionally
-    # and its "acknowledged" promise had no acknowledgement behind it). The
-    # timeout columns it read are now inert until phase 4 removes them.
-    "escalation_timeout_minutes": "phase 4 - remove (delayed L2 path deleted in phase 1)",
+# Never enforced and not going to be. Phase 4 removed them from the API,
+# the UI and the docs; the columns stay so existing databases keep loading.
+# A retired column must not reappear in a schema, a router or the frontend.
+RETIRED: Dict[str, str] = {
+    "flapping_enabled": "flapping detection never built",
+    "flapping_threshold_count": "flapping detection never built",
+    "flapping_threshold_minutes": "flapping detection never built",
+    "flapping_summary_interval": "flapping detection never built",
+    "event_count_in_window": "flapping detection never built",
+    "window_start": "flapping detection never built",
+    "is_flapping": "flapping detection never built",
+    "flapping_started_at": "flapping detection never built",
+    "last_summary_at": "flapping detection never built",
+    "include_in_digest": "digest never built",
+    "digest_enabled": "digest never built",
+    "digest_time": "digest never built",
+    "digest_severity_levels": "digest never built",
+    "last_digest_sent": "digest never built",
+    "emergency_contact_id": "no defined semantics",
+    "custom_targets": "no UI, never read",
+    "escalation_timeout_minutes": "delayed L2 escalation removed",
 }
+
+# Stored, surfaced by the API, never read by dispatch: settings whose fate
+# is still being decided. Enforcing one MUST remove it from this map, or
+# the test fails. Empty since phase 3; a new column lands here only with a
+# plan attached.
+UNENFORCED_PENDING: Dict[str, str] = {}
 
 # Names that also occur in unrelated code in the enforcement dirs, so a
 # "must be unreferenced" assertion is not meaningful for them.
@@ -120,22 +126,52 @@ def _is_referenced(name: str, source: str) -> bool:
 
 
 def test_every_column_is_classified():
-    unclassified = _all_columns() - STRUCTURAL - ENFORCED - set(UNENFORCED_PENDING)
+    unclassified = _all_columns() - STRUCTURAL - ENFORCED - set(UNENFORCED_PENDING) - set(RETIRED)
     assert not unclassified, (
         f"new column(s) with no classification: {sorted(unclassified)}. "
-        "Wire them into dispatch and add to ENFORCED, or add to UNENFORCED_PENDING with a phase."
+        "Wire them into dispatch and add to ENFORCED, or add to UNENFORCED_PENDING with a plan."
     )
 
 
 def test_classifications_do_not_overlap():
-    assert not (STRUCTURAL & ENFORCED)
-    assert not (STRUCTURAL & set(UNENFORCED_PENDING))
-    assert not (ENFORCED & set(UNENFORCED_PENDING))
+    buckets = [STRUCTURAL, ENFORCED, set(UNENFORCED_PENDING), set(RETIRED)]
+    for i, a in enumerate(buckets):
+        for b in buckets[i + 1:]:
+            assert not (a & b), sorted(a & b)
 
 
 def test_classified_columns_exist():
-    stale = (ENFORCED | set(UNENFORCED_PENDING)) - _all_columns()
+    stale = (ENFORCED | set(UNENFORCED_PENDING) | set(RETIRED)) - _all_columns()
     assert not stale, f"classified but no longer a column: {sorted(stale)}"
+
+
+def _exposure_source() -> str:
+    """Everything that can put a setting in front of a user: schemas, routers, frontend."""
+    parts = []
+    for directory, suffixes in (
+        (API_DIR / "schemas", (".py",)),
+        (API_DIR / "routers", (".py",)),
+        (MANAGEMENT_DIR / "frontend" / "src", (".vue", ".js")),
+    ):
+        for path in sorted(directory.rglob("*")):
+            if path.suffix in suffixes and path.is_file():
+                parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
+
+
+@pytest.mark.parametrize("column", sorted(RETIRED))
+def test_retired_column_is_not_exposed_anywhere(column):
+    """A retired setting must not come back through a schema, a router or the UI."""
+    assert not _is_referenced(column, _exposure_source()), (
+        f"'{column}' is RETIRED ({RETIRED[column]}) but is referenced by a schema, router or frontend file"
+    )
+
+
+@pytest.mark.parametrize("column", sorted(RETIRED))
+def test_retired_column_is_not_read_by_dispatch(column):
+    assert not _is_referenced(column, _enforcement_source()), (
+        f"'{column}' is RETIRED but api/services or api/tasks reads it; either enforce it (move to ENFORCED) or remove the read"
+    )
 
 
 @pytest.mark.parametrize("column", sorted(ENFORCED))
@@ -145,10 +181,11 @@ def test_enforced_column_is_read_by_dispatch_code(column):
     )
 
 
-@pytest.mark.parametrize("column", sorted(set(UNENFORCED_PENDING) - AMBIGUOUS))
-def test_pending_column_is_still_unenforced(column):
-    """When one of these gets wired in, move it to ENFORCED."""
-    assert not _is_referenced(column, _enforcement_source()), (
-        f"'{column}' is now referenced under api/services or api/tasks; "
-        f"move it from UNENFORCED_PENDING ({UNENFORCED_PENDING[column]}) to ENFORCED"
+def test_pending_columns_are_still_unenforced():
+    """When one of these gets wired in, move it to ENFORCED. (Plain loop: the map may be empty.)"""
+    source = _enforcement_source()
+    wired = [c for c in sorted(set(UNENFORCED_PENDING) - AMBIGUOUS) if _is_referenced(c, source)]
+    assert not wired, (
+        f"now referenced under api/services or api/tasks; move from UNENFORCED_PENDING to ENFORCED: "
+        + ", ".join(f"{c} ({UNENFORCED_PENDING[c]})" for c in wired)
     )

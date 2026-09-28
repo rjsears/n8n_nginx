@@ -30,9 +30,6 @@ from api.schemas.notifications import (
     NotificationGroupCreate,
     NotificationGroupUpdate,
     NotificationGroupResponse,
-    NotificationRuleCreate,
-    NotificationRuleUpdate,
-    NotificationRuleResponse,
     NotificationHistoryResponse,
     NotificationTestRequest,
     NotificationEventType,
@@ -632,99 +629,6 @@ async def delete_group(
         )
 
     return SuccessResponse(message="Group deleted")
-
-
-# Rules
-
-@router.get("/rules", response_model=List[NotificationRuleResponse])
-async def list_rules(
-    event_type: str = None,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """List notification rules."""
-    service = NotificationService(db)
-    rules = await service.get_rules(event_type)
-    return [NotificationRuleResponse.model_validate(r) for r in rules]
-
-
-@router.post("/rules", response_model=NotificationRuleResponse, status_code=status.HTTP_201_CREATED)
-async def create_rule(
-    data: NotificationRuleCreate,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Create a notification rule."""
-    service = NotificationService(db)
-
-    kwargs = data.model_dump()
-    kwargs["priority"] = kwargs["priority"].value if hasattr(kwargs["priority"], "value") else kwargs["priority"]
-
-    created = await service.create_rule(**kwargs)
-    return NotificationRuleResponse.model_validate(created)
-
-
-@router.get("/rules/{rule_id}", response_model=NotificationRuleResponse)
-async def get_rule(
-    rule_id: int,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get a notification rule."""
-    service = NotificationService(db)
-    rule = await service.get_rule(rule_id)
-
-    if not rule:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found",
-        )
-
-    return NotificationRuleResponse.model_validate(rule)
-
-
-@router.put("/rules/{rule_id}", response_model=NotificationRuleResponse)
-async def update_rule(
-    rule_id: int,
-    data: NotificationRuleUpdate,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update a notification rule."""
-    service = NotificationService(db)
-
-    updates = data.model_dump(exclude_unset=True)
-    if "priority" in updates and hasattr(updates["priority"], "value"):
-        updates["priority"] = updates["priority"].value
-
-    updated = await service.update_rule(rule_id, **updates)
-
-    if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found",
-        )
-
-    return NotificationRuleResponse.model_validate(updated)
-
-
-@router.delete("/rules/{rule_id}", response_model=SuccessResponse)
-async def delete_rule(
-    rule_id: int,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Delete a notification rule."""
-    service = NotificationService(db)
-    deleted = await service.delete_rule(rule_id)
-
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found",
-        )
-
-    return SuccessResponse(message="Rule deleted")
 
 
 # Event Types

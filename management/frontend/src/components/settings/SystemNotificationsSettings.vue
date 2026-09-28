@@ -75,7 +75,6 @@ const showAddTargetModal = ref(false)
 const selectedEventForTarget = ref(null)
 const addingTarget = ref(false)
 const expandedRateLimiting = ref(false)
-const expandedDailyDigest = ref(false)
 
 // Maintenance mode form state
 const maintenanceDuration = ref('1h')
@@ -464,7 +463,6 @@ async function performEventUpdate(event, field, value) {
       frequency: `Frequency updated for "${event.display_name}"`,
       severity: `Severity changed to ${value} for "${event.display_name}"`,
       cooldown_minutes: `Cooldown updated for "${event.display_name}"`,
-      flapping_enabled: value ? `Flapping detection enabled for "${event.display_name}"` : `Flapping detection disabled for "${event.display_name}"`,
       escalation_enabled: value ? `Escalation enabled for "${event.display_name}"` : `Escalation disabled for "${event.display_name}"`,
     }
     notificationStore.success(fieldMessages[field] || `Settings saved for "${event.display_name}"`)
@@ -1535,32 +1533,6 @@ onMounted(() => {
                   </div>
                 </div>
 
-                <!-- Divider -->
-                <div class="border-t border-[var(--color-border)]"></div>
-
-                <!-- Emergency Contact -->
-                <div class="space-y-3">
-                  <div class="flex items-start gap-3">
-                    <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20 mt-0.5">
-                      <ExclamationTriangleIcon class="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                    </div>
-                    <div class="flex-1">
-                      <p class="font-medium text-primary">Emergency Contact</p>
-                      <p class="text-sm text-secondary mt-0.5">When the rate limit is exceeded, this channel will receive an alert</p>
-                    </div>
-                  </div>
-                  <select
-                    :value="globalSettings?.emergency_contact_id || ''"
-                    @change="updateGlobalSettings({ emergency_contact_id: $event.target.value ? parseInt($event.target.value) : null })"
-                    class="select-field w-full"
-                  >
-                    <option value="">No emergency contact configured</option>
-                    <option v-for="channel in channels" :key="channel.id" :value="channel.id">
-                      {{ channel.name }}
-                    </option>
-                  </select>
-                </div>
-
                 <!-- Info Box -->
                 <div class="rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 p-3">
                   <div class="flex gap-2">
@@ -1576,81 +1548,6 @@ onMounted(() => {
           </Transition>
         </div>
 
-        <!-- Daily Digest Card -->
-        <div class="bg-surface rounded-xl border border-[var(--color-border)] overflow-hidden">
-          <button
-            @click="expandedDailyDigest = !expandedDailyDigest"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
-                <EnvelopeIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Daily Digest</h3>
-                <p class="text-sm text-secondary">Batch low-priority notifications into a daily summary</p>
-              </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <span :class="[
-                'px-2 py-0.5 rounded-full text-xs font-medium',
-                globalSettings?.digest_enabled
-                  ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-              ]">
-                {{ globalSettings?.digest_enabled ? 'Enabled' : 'Disabled' }}
-              </span>
-              <ChevronDownIcon
-                :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedDailyDigest ? 'rotate-180' : '']"
-              />
-            </div>
-          </button>
-
-          <Transition name="collapse">
-            <div v-if="expandedDailyDigest" class="border-t border-[var(--color-border)]">
-              <div class="p-4 space-y-4 bg-gray-50/50 dark:bg-gray-800/30">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium text-primary">Enable Daily Digest</p>
-                    <p class="text-sm text-secondary">Info-level events will be batched</p>
-                  </div>
-                  <label class="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      :checked="globalSettings?.digest_enabled"
-                      @change="updateGlobalSettings({ digest_enabled: $event.target.checked })"
-                      class="sr-only peer"
-                    />
-                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
-                  </label>
-                </div>
-
-                <div v-if="globalSettings?.digest_enabled" class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium text-primary">Digest Time</p>
-                    <p class="text-sm text-secondary">When to send the daily summary</p>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <ClockIcon class="h-4 w-4 text-gray-400" />
-                    <input
-                      type="time"
-                      :value="globalSettings?.digest_time"
-                      @change="updateGlobalSettings({ digest_time: $event.target.value })"
-                      class="input-field w-32"
-                    />
-                  </div>
-                </div>
-
-                <div class="pt-2 border-t border-[var(--color-border)]">
-                  <p class="text-xs text-secondary">
-                    <InformationCircleIcon class="inline h-4 w-4 mr-1" />
-                    Info-level events will be collected and sent as a single digest email at the specified time.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Transition>
-        </div>
       </div>
     </template>
 

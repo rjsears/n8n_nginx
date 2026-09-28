@@ -157,11 +157,7 @@ export const notificationsApi = {
   createGroup: (data) => api.post('/notifications/groups', data),
   updateGroup: (id, data) => api.put(`/notifications/groups/${id}`, data),
   deleteGroup: (id) => api.delete(`/notifications/groups/${id}`),
-  // Rules
-  getRules: () => api.get('/notifications/rules'),
-  createRule: (data) => api.post('/notifications/rules', data),
-  updateRule: (id, data) => api.put(`/notifications/rules/${id}`, data),
-  deleteRule: (id) => api.delete(`/notifications/rules/${id}`),
+  // Event types and history
   getEventTypes: () => api.get('/notifications/event-types'),
   getHistory: (params) => api.get('/notifications/history', { params }),
   // Webhook integration for n8n workflows

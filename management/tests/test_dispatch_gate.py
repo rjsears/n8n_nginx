@@ -10,10 +10,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 
-async def _dispatch(event_type: str, data: dict | None = None, severity: str = "warning"):
+async def _dispatch(event_type: str, data: dict | None = None, **_ignored):
     from api.services.notification_service import dispatch_notification
 
-    await dispatch_notification(event_type, data or {"container": "n8n_postgres"}, severity=severity)
+    await dispatch_notification(event_type, data or {"container": "n8n_postgres"})
 
 
 # --- registration -----------------------------------------------------------------
