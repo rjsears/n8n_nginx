@@ -8,9 +8,10 @@ fails when a column moves between them without the list being updated.
 
 The "phase" tags in UNENFORCED_PENDING refer to the notification-enforcement
 work plan: phase 2 (done) built one gate consulted by every delivery path
-(api/services/notification_gate.py); phase 3 writes producers for the
-registered events that have none; phase 4 removes or hides the controls that
-will not be built (digest, flapping, emergency contact, custom targets).
+(api/services/notification_gate.py); phase 3 (done) wrote producers for the
+registered events that had none (api/services/system_monitors.py); phase 4
+removes or hides the controls that will not be built (digest, flapping,
+emergency contact, custom targets).
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ STRUCTURAL: Set[str] = {
 ENFORCED: Set[str] = {
     # SystemNotificationEvent
     "enabled", "severity", "cooldown_minutes", "frequency", "escalation_enabled",
+    "thresholds", "notify_on_recovery",
     # SystemNotificationGlobalSettings
     "maintenance_mode", "maintenance_until",
     "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end", "quiet_hours_reduce_priority",
@@ -46,6 +48,7 @@ ENFORCED: Set[str] = {
     "max_notifications_per_hour", "notifications_this_hour", "hour_started_at",
     # SystemNotificationContainerConfig
     "monitor_unhealthy", "monitor_restart", "monitor_stopped", "monitor_high_cpu", "monitor_high_memory",
+    "cpu_threshold", "memory_threshold",
     # SystemNotificationState
     "last_sent_at", "escalation_sent", "escalation_triggered_at",
     # SystemNotificationTarget
@@ -56,11 +59,6 @@ ENFORCED: Set[str] = {
 # phase of the work plan that decides its fate. Enforcing one MUST remove it
 # from this map, or the test fails.
 UNENFORCED_PENDING: Dict[str, str] = {
-    # Phase 3: producers
-    "thresholds": "phase 3 - host metric producers",
-    "cpu_threshold": "phase 3 - container stats producer",
-    "memory_threshold": "phase 3 - container stats producer",
-    "notify_on_recovery": "phase 3 - container_healthy producer",
     # Phase 4: remove or defer
     "flapping_enabled": "phase 4 - deferred", "flapping_threshold_count": "phase 4 - deferred",
     "flapping_threshold_minutes": "phase 4 - deferred", "flapping_summary_interval": "phase 4 - deferred",

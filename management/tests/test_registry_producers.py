@@ -22,21 +22,12 @@ MANAGEMENT_DIR = Path(__file__).resolve().parents[1]
 API_DIR = MANAGEMENT_DIR / "api"
 NOTIFICATION_SERVICE = API_DIR / "services" / "notification_service.py"
 
-# Registered events that have no producer yet. Each one is a card in the UI
-# that cannot fire at any setting. Writing a producer for one of these MUST
-# remove it from this list, or the test below fails. Adding a new registered
-# event without a producer also fails: register and produce in the same change.
-KNOWN_DEAD_EVENTS: Set[str] = {
-    "certificate_expiring",
-    "container_healthy",
-    "container_high_cpu",
-    "container_high_memory",
-    "disk_space_low",
-    "high_cpu",
-    "high_memory",
-    "security_event",
-    "update_available",
-}
+# Registered events that have no producer. Each one would be a card in the
+# UI that cannot fire at any setting. Empty since the producers in
+# api/services/system_monitors.py landed; keep it empty. Adding a registered
+# event without a producer fails the test below: register and produce in the
+# same change.
+KNOWN_DEAD_EVENTS: Set[str] = set()
 
 
 def _registered_events() -> Set[str]:

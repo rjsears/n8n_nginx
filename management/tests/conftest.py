@@ -76,7 +76,9 @@ async def engine():
     tables = [
         table
         for name, table in Base.metadata.tables.items()
-        if name.startswith("notification_") or name.startswith("system_notification_")
+        if name.startswith("notification_")
+        or name.startswith("system_notification_")
+        or name == "system_metrics_cache"  # read by the sustained-CPU check
     ]
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)

@@ -93,7 +93,7 @@ class AuthService:
 
         # Verify password
         if not verify_password(password, user.password_hash):
-            await self._increment_failed_attempts(user)
+            await self._increment_failed_attempts(user, client_ip)
             await self._log_action(user.id, "login_failed", {"reason": "invalid_password"}, client_ip, user_agent)
             return None, None, "Invalid credentials"
 
@@ -137,7 +137,7 @@ class AuthService:
 
         return session
 
-    async def _increment_failed_attempts(self, user: AdminUser) -> None:
+    async def _increment_failed_attempts(self, user: AdminUser, client_ip: Optional[str] = None) -> None:
         """Increment failed login attempts and lock if necessary."""
         user.failed_attempts += 1
 
@@ -148,6 +148,18 @@ class AuthService:
             logger.warning(f"User {user.username} locked until {lockout_until}")
 
         await self.db.commit()
+
+        if lockout_until:
+            from api.services.system_monitors import report_security_event
+
+            await report_security_event(
+                "account_locked",
+                target_id=f"user:{user.username}",
+                username=user.username,
+                failed_attempts=user.failed_attempts,
+                locked_until=lockout_until.isoformat(),
+                client_ip=client_ip,
+            )
 
     async def logout(self, token: str) -> bool:
         """Invalidate a session."""

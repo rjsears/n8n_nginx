@@ -11,7 +11,7 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -806,9 +806,20 @@ async def list_history(
 
 # Webhook
 
+def request_client_ip(http_request: Optional[Request]) -> Optional[str]:
+    """Best-effort client address for security events (behind nginx, X-Forwarded-For)."""
+    if http_request is None:
+        return None
+    forwarded = http_request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return http_request.client.host if http_request.client else None
+
+
 @router.post("/webhook", response_model=WebhookNotificationResponse)
 async def send_webhook_notification(
     request: WebhookNotificationRequest,
+    http_request: Request,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
@@ -843,6 +854,15 @@ async def send_webhook_notification(
         )
 
     if not api_key or not secrets.compare_digest(api_key, expected_key):
+        if api_key:
+            # A wrong key (not a missing one) is someone guessing.
+            from api.services.system_monitors import report_security_event
+
+            await report_security_event(
+                "webhook_invalid_key",
+                target_id="webhook",
+                client_ip=request_client_ip(http_request),
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
