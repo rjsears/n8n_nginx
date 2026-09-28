@@ -41,9 +41,9 @@ The System Notifications tab is where you tell the management console *which eve
 ### Top strip controls
 
 - **Maintenance** — pause all notifications during scheduled work. Click to enable; while on, no events fire regardless of category settings.
-- **Quiet Hours** — define a daily window during which only critical events fire. Click to configure start/end times and severity threshold.
+- **Quiet Hours** — define a daily window (in the console's time zone, `TIMEZONE` in `.env`) during which critical events still fire at full priority and non-critical events are either delivered at low priority (silent) or muted, whichever you choose in the dialog. Muted events appear in the notification history as suppressed with the reason `quiet_hours`.
 - **Events Enabled** counter — current total enabled events out of available.
-- **This Hour** counter — events fired in the last 60 minutes.
+- **This Hour** counter — notifications delivered in the current rate-limit window (see Rate Limiting below).
 
 ### Event categories
 
@@ -59,7 +59,7 @@ Click any category to expand it and toggle individual events on/off. The "X/Y en
 
 ### Global Settings
 
-- **Rate Limiting** — caps total notifications per hour to prevent storms (default 50/hour).
+- **Rate Limiting** — caps total notifications per hour to prevent storms (default 50/hour). The window starts with the first delivery and resets an hour later. Notifications over the cap are not queued; they are dropped and recorded in history with the reason `rate_limit`. The cap also applies to messages sent by n8n workflows through the notification webhook.
 - **Daily Digest** — batches low-priority events into a single daily summary instead of per-event firing.
 
 !!! tip

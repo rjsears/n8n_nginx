@@ -7,8 +7,8 @@ configured. This test forces every column into one of three buckets and
 fails when a column moves between them without the list being updated.
 
 The "phase" tags in UNENFORCED_PENDING refer to the notification-enforcement
-work plan: phase 2 builds one gate consulted by every delivery path (quiet
-hours, blackout, rate limit, frequency); phase 3 writes producers for the
+work plan: phase 2 (done) built one gate consulted by every delivery path
+(api/services/notification_gate.py); phase 3 writes producers for the
 registered events that have none; phase 4 removes or hides the controls that
 will not be built (digest, flapping, emergency contact, custom targets).
 """
@@ -38,9 +38,12 @@ STRUCTURAL: Set[str] = {
 # Settings the dispatch path reads. Removing a read of one of these fails.
 ENFORCED: Set[str] = {
     # SystemNotificationEvent
-    "enabled", "severity", "cooldown_minutes", "escalation_enabled",
+    "enabled", "severity", "cooldown_minutes", "frequency", "escalation_enabled",
     # SystemNotificationGlobalSettings
     "maintenance_mode", "maintenance_until",
+    "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end", "quiet_hours_reduce_priority",
+    "blackout_enabled", "blackout_start", "blackout_end",
+    "max_notifications_per_hour", "notifications_this_hour", "hour_started_at",
     # SystemNotificationContainerConfig
     "monitor_unhealthy", "monitor_restart", "monitor_stopped", "monitor_high_cpu", "monitor_high_memory",
     # SystemNotificationState
@@ -53,12 +56,6 @@ ENFORCED: Set[str] = {
 # phase of the work plan that decides its fate. Enforcing one MUST remove it
 # from this map, or the test fails.
 UNENFORCED_PENDING: Dict[str, str] = {
-    # Phase 2: single gate
-    "frequency": "phase 2 - frequency/cooldown window",
-    "quiet_hours_enabled": "phase 2", "quiet_hours_start": "phase 2", "quiet_hours_end": "phase 2",
-    "quiet_hours_reduce_priority": "phase 2",
-    "blackout_enabled": "phase 2", "blackout_start": "phase 2", "blackout_end": "phase 2",
-    "max_notifications_per_hour": "phase 2", "notifications_this_hour": "phase 2", "hour_started_at": "phase 2",
     # Phase 3: producers
     "thresholds": "phase 3 - host metric producers",
     "cpu_threshold": "phase 3 - container stats producer",

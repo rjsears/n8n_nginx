@@ -34,8 +34,49 @@ from api.config import settings
 logger = logging.getLogger(__name__)
 
 
+class UnsupportedServiceType(ValueError):
+    """A channel whose service_type has no transport."""
+
+    def __init__(self, service_type: str):
+        super().__init__(f"Unsupported service type: {service_type}")
+        self.service_type = service_type
+
+
 class NotificationDispatcher:
     """Handles sending notifications via various services."""
+
+    async def send(
+        self,
+        service: "NotificationServiceModel",
+        title: str,
+        body: str,
+        priority: str = "normal",
+        event_data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Deliver one message to one channel, choosing the transport from
+        ``service.service_type``. The single place that knows which types
+        exist; every sender goes through here.
+
+        Webhook channels receive ``event_data`` (with the priority added) as
+        their payload; the other transports take the priority directly.
+        Raises UnsupportedServiceType for an unknown type.
+        """
+        service_type = service.service_type
+        if service_type == "webhook":
+            payload = dict(event_data or {})
+            payload.setdefault("priority", priority)
+            return await self.send_webhook(service.config, title, body, payload)
+
+        transports = {
+            "apprise": self.send_apprise,
+            "ntfy": self.send_ntfy,
+            "email": self.send_email,
+        }
+        transport = transports.get(service_type)
+        if transport is None:
+            raise UnsupportedServiceType(service_type)
+        return await transport(service.config, title, body, priority)
 
     async def send_apprise(self, config: Dict[str, Any], title: str, body: str, priority: str) -> bool:
         """Send notification via Apprise."""
@@ -361,16 +402,7 @@ class NotificationService:
 
         error_msg = None
         try:
-            if service.service_type == "apprise":
-                success = await self.dispatcher.send_apprise(service.config, title, message, "normal")
-            elif service.service_type == "ntfy":
-                success = await self.dispatcher.send_ntfy(service.config, title, message, "normal")
-            elif service.service_type == "webhook":
-                success = await self.dispatcher.send_webhook(service.config, title, message, {})
-            elif service.service_type == "email":
-                success = await self.dispatcher.send_email(service.config, title, message, "normal")
-            else:
-                return {"success": False, "error": f"Unsupported service type: {service.service_type}"}
+            success = await self.dispatcher.send(service, title, message, "normal", {"source": "service.test"})
 
             # Update test status
             service.last_test = datetime.now(UTC)
@@ -378,6 +410,9 @@ class NotificationService:
             service.last_test_error = None if success else "Send returned false"
             if not success:
                 error_msg = "Send returned false"
+
+        except UnsupportedServiceType as e:
+            return {"success": False, "error": str(e)}
 
         except Exception as e:
             success = False
@@ -713,21 +748,41 @@ class NotificationService:
                 "errors": errors if errors else ["No channels matched the specified targets"],
             }
 
+        # The same gate system events pass through. There is no event row for
+        # a workflow message, so only the global dials apply: maintenance,
+        # blackout, quiet hours (priority), hourly rate limit.
+        from api.services.notification_gate import evaluate, get_global_settings, record_delivery
+
+        now = datetime.now(UTC)
+        global_settings = await get_global_settings(self.db)
+        decision = evaluate(global_settings=global_settings, priority=priority, now=now)
+        if not decision.allow:
+            logger.info(f"Webhook notification '{title}' suppressed: {decision.reason}")
+            self.db.add(NotificationHistory(
+                event_type="webhook.notification",
+                event_data={"title": title, "message": message[:500], "priority": priority, "targets": targets},
+                severity=priority,
+                status="suppressed",
+                error_message=f"suppressed: {decision.reason}",
+            ))
+            await self.db.commit()
+            return {
+                "success": False,
+                "channels_notified": 0,
+                "channels": [],
+                "targets_resolved": targets_resolved,
+                "errors": [],
+                "suppressed": decision.reason,
+            }
+        priority = decision.priority
+
         channels_notified = []
 
         for service in services:
             try:
-                if service.service_type == "apprise":
-                    success = await self.dispatcher.send_apprise(service.config, title, message, priority)
-                elif service.service_type == "ntfy":
-                    success = await self.dispatcher.send_ntfy(service.config, title, message, priority)
-                elif service.service_type == "webhook":
-                    success = await self.dispatcher.send_webhook(service.config, title, message, {"source": "n8n_webhook", "targets": targets})
-                elif service.service_type == "email":
-                    success = await self.dispatcher.send_email(service.config, title, message, priority)
-                else:
-                    success = False
-                    errors.append(f"{service.name}: Unsupported service type")
+                success = await self.dispatcher.send(
+                    service, title, message, priority, {"source": "n8n_webhook", "targets": targets}
+                )
 
                 if success:
                     channels_notified.append(service.name)
@@ -746,6 +801,9 @@ class NotificationService:
                 else:
                     errors.append(f"{service.name}: Send returned false")
 
+            except UnsupportedServiceType:
+                errors.append(f"{service.name}: Unsupported service type")
+
             except Exception as e:
                 logger.error(f"Webhook notification failed for {service.name}: {e}")
                 errors.append(f"{service.name}: {str(e)}")
@@ -761,6 +819,9 @@ class NotificationService:
                     error_message=str(e),
                 )
                 self.db.add(history)
+
+        if channels_notified:
+            record_delivery(global_settings, now)
 
         await self.db.commit()
 
@@ -902,15 +963,9 @@ class NotificationService:
         await self.db.refresh(history)
 
         try:
-            if service.service_type == "apprise":
-                success = await self.dispatcher.send_apprise(service.config, title, body, rule.priority)
-            elif service.service_type == "ntfy":
-                success = await self.dispatcher.send_ntfy(service.config, title, body, rule.priority)
-            elif service.service_type == "webhook":
-                success = await self.dispatcher.send_webhook(service.config, title, body, event_data)
-            elif service.service_type == "email":
-                success = await self.dispatcher.send_email(service.config, title, body, rule.priority)
-            else:
+            try:
+                success = await self.dispatcher.send(service, title, body, rule.priority, event_data)
+            except UnsupportedServiceType:
                 success = False
 
             history.status = "sent" if success else "failed"
@@ -973,18 +1028,13 @@ class NotificationService:
             return {"success": False, "error": "Service is disabled"}
 
         try:
-            if service.service_type == "apprise":
-                success = await self.dispatcher.send_apprise(service.config, title, message, priority)
-            elif service.service_type == "ntfy":
-                success = await self.dispatcher.send_ntfy(service.config, title, message, priority)
-            elif service.service_type == "webhook":
-                success = await self.dispatcher.send_webhook(service.config, title, message, {})
-            elif service.service_type == "email":
-                success = await self.dispatcher.send_email(service.config, title, message, priority)
-            else:
-                return {"success": False, "error": f"Unsupported service type: {service.service_type}"}
-
+            success = await self.dispatcher.send(
+                service, title, message, priority, {"source": "system_notification"}
+            )
             return {"success": success}
+
+        except UnsupportedServiceType as e:
+            return {"success": False, "error": str(e)}
 
         except Exception as e:
             logger.error(f"Failed to send to service {service_id}: {e}")
@@ -1148,19 +1198,20 @@ async def dispatch_notification(
 
     Features:
     - Per-container configuration checking
-    - Cooldown enforcement
+    - The shared gate (api.services.notification_gate): maintenance mode,
+      blackout window, frequency/cooldown, quiet hours, hourly rate limit
     - L1/L2 escalation (L2 fires when L1 fails to deliver or the event is critical)
-    - History logging
+    - History logging, including a row for every suppression naming the reason
     """
     from api.database import async_session_maker
     from api.models.system_notifications import (
         SystemNotificationEvent,
         SystemNotificationTarget,
-        SystemNotificationGlobalSettings,
         SystemNotificationContainerConfig,
         SystemNotificationState,
         SystemNotificationHistory,
     )
+    from api.services.notification_gate import evaluate, get_global_settings, record_delivery
 
     async with async_session_maker() as db:
         now = datetime.now(UTC)
@@ -1212,29 +1263,7 @@ async def dispatch_notification(
 
         target_id = container_name or event_data.get("target_id") or "global"
 
-        # Maintenance mode. A window with an end time clears itself once it has
-        # lapsed; suppression while it is active is recorded in history so
-        # "why didn't it arrive" has an answer.
-        settings_result = await db.execute(
-            select(SystemNotificationGlobalSettings).limit(1)
-        )
-        global_settings = settings_result.scalar_one_or_none()
-
-        if global_settings and global_settings.maintenance_mode:
-            until = global_settings.maintenance_until
-            if until is not None and now >= until:
-                global_settings.maintenance_mode = False
-                global_settings.maintenance_until = None
-                global_settings.maintenance_reason = None
-                await db.commit()
-                logger.info("Maintenance window expired - notifications resumed")
-            else:
-                logger.debug(f"Event '{event_type}' suppressed - maintenance mode active")
-                db.add(_suppressed_history(event, event_data, target_id, "maintenance", now))
-                await db.commit()
-                return
-
-        # Check cooldown
+        # Per-(event, target) throttle state
         state_result = await db.execute(
             select(SystemNotificationState).where(
                 SystemNotificationState.event_type == event_type,
@@ -1243,16 +1272,24 @@ async def dispatch_notification(
         )
         state = state_result.scalar_one_or_none()
 
-        if event.cooldown_minutes and event.cooldown_minutes > 0 and state and state.last_sent_at:
-            cooldown_until = state.last_sent_at + timedelta(minutes=event.cooldown_minutes)
-            if now < cooldown_until:
-                remaining = (cooldown_until - now).total_seconds() / 60
-                logger.debug(f"Event '{event_type}' in cooldown for {remaining:.1f} more minutes")
-                db.add(_suppressed_history(
-                    event, event_data, target_id, f"cooldown ({event.cooldown_minutes}min)", now
-                ))
-                await db.commit()
-                return
+        # The gate: maintenance (with expiry), blackout, frequency/cooldown,
+        # quiet hours, hourly rate limit. Every suppression is recorded.
+        global_settings = await get_global_settings(db)
+        decision = evaluate(
+            global_settings=global_settings,
+            event=event,
+            state=state,
+            priority=_priority_for_severity(event.severity),
+            now=now,
+        )
+        if not decision.allow:
+            logger.debug(f"Event '{event_type}' suppressed: {decision.reason}")
+            db.add(_suppressed_history(event, event_data, target_id, decision.reason, now))
+            await db.commit()
+            return
+        priority = decision.priority
+        for note in decision.notes:
+            logger.debug(f"Event '{event_type}': {note}")
 
         # Get L1 targets for this event (immediate delivery)
         targets_result = await db.execute(
@@ -1274,12 +1311,12 @@ async def dispatch_notification(
 
         if not l1_targets and not l2_targets:
             logger.debug(f"No targets configured for event '{event_type}'")
+            await db.commit()  # keep any maintenance expiry / rate window roll
             return
 
         # Build notification title and message
         title = f"{event.display_name}"
         message = _build_notification_message(event_type, event_data)
-        priority = _priority_for_severity(event.severity)
 
         notification_service = NotificationService(db)
 
@@ -1314,9 +1351,11 @@ async def dispatch_notification(
         elif l2_targets:
             logger.debug(f"L2 targets configured for '{event_type}' but escalation is disabled")
 
-        # Update state for cooldown tracking
+        # Update state for the frequency/cooldown window and the hourly count
         state.last_sent_at = now
         state.updated_at = now
+        if sent_count > 0:
+            record_delivery(global_settings, now)
 
         # Log to SystemNotificationHistory (for system notifications settings page)
         system_history = SystemNotificationHistory(

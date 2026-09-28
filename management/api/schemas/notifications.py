@@ -271,3 +271,6 @@ class WebhookNotificationResponse(BaseModel):
     channels: List[str] = []
     targets_resolved: Dict[str, List[str]] = {}  # Shows which channels each target resolved to
     errors: List[str] = []
+    # Set when the notification gate stopped the send (maintenance, blackout,
+    # quiet_hours, rate_limit ...). success is False and nothing was delivered.
+    suppressed: Optional[str] = None

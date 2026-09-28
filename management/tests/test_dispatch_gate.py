@@ -199,3 +199,103 @@ async def test_escalation_state_resets_on_each_new_occurrence(db, channel, make_
     sent.calls.clear()
     await _dispatch(event.event_type)              # L1 fails again -> L2 must fire again
     assert any(c["title"].startswith("[ESCALATED]") for c in sent.calls)
+
+
+# --- the shared gate, end to end ----------------------------------------------------------
+
+def _bracket_now():
+    from api.services.notification_gate import local_now
+
+    local = local_now(datetime.now(UTC))
+    return (local - timedelta(hours=1)).strftime("%H:%M"), (local + timedelta(hours=1)).strftime("%H:%M")
+
+
+async def test_frequency_throttles_even_with_zero_cooldown(db, channel, make_event, add_target, sent, history_rows):
+    event = await make_event(frequency="once_per_hour", cooldown_minutes=0)
+    await add_target(event, channel)
+
+    await _dispatch(event.event_type)
+    await _dispatch(event.event_type)
+
+    assert len(sent.calls) == 1
+    rows = await history_rows(event.event_type)
+    assert [r.status for r in rows] == ["sent", "suppressed"]
+    assert rows[1].suppression_reason == "frequency (once_per_hour)"
+
+
+async def test_rate_limit_suppresses_over_cap_and_counts_deliveries(db, global_settings, channel, make_event, add_target, sent, history_rows):
+    global_settings.max_notifications_per_hour = 2
+    await db.commit()
+    event = await make_event(cooldown_minutes=0)
+    await add_target(event, channel)
+
+    for _ in range(3):
+        await _dispatch(event.event_type)
+
+    assert len(sent.calls) == 2
+    rows = await history_rows(event.event_type)
+    assert [r.status for r in rows] == ["sent", "sent", "suppressed"]
+    assert rows[2].suppression_reason == "rate_limit (2/hour)"
+    await db.refresh(global_settings)
+    assert global_settings.notifications_this_hour == 2
+    assert global_settings.hour_started_at is not None
+
+
+async def test_quiet_hours_lower_priority_when_reduce_is_on(db, global_settings, channel, make_event, add_target, sent):
+    start, end = _bracket_now()
+    global_settings.quiet_hours_enabled = True
+    global_settings.quiet_hours_start, global_settings.quiet_hours_end = start, end
+    global_settings.quiet_hours_reduce_priority = True
+    await db.commit()
+    event = await make_event(severity="warning")
+    await add_target(event, channel)
+
+    await _dispatch(event.event_type)
+
+    assert len(sent.calls) == 1
+    assert sent.calls[0]["priority"] == "low"
+
+
+async def test_quiet_hours_mute_suppresses_non_critical(db, global_settings, channel, make_event, add_target, sent, history_rows):
+    start, end = _bracket_now()
+    global_settings.quiet_hours_enabled = True
+    global_settings.quiet_hours_start, global_settings.quiet_hours_end = start, end
+    global_settings.quiet_hours_reduce_priority = False
+    await db.commit()
+    event = await make_event(severity="warning")
+    await add_target(event, channel)
+
+    await _dispatch(event.event_type)
+
+    assert sent.calls == []
+    rows = await history_rows(event.event_type)
+    assert [(r.status, r.suppression_reason) for r in rows] == [("suppressed", "quiet_hours")]
+
+
+async def test_quiet_hours_let_critical_through_at_full_priority(db, global_settings, channel, make_event, add_target, sent):
+    start, end = _bracket_now()
+    global_settings.quiet_hours_enabled = True
+    global_settings.quiet_hours_start, global_settings.quiet_hours_end = start, end
+    global_settings.quiet_hours_reduce_priority = False
+    await db.commit()
+    event = await make_event(severity="critical")
+    await add_target(event, channel)
+
+    await _dispatch(event.event_type, severity="critical")
+
+    assert [c["priority"] for c in sent.calls] == ["critical"]
+
+
+async def test_blackout_suppresses_critical_too(db, global_settings, channel, make_event, add_target, sent, history_rows):
+    start, end = _bracket_now()
+    global_settings.blackout_enabled = True
+    global_settings.blackout_start, global_settings.blackout_end = start, end
+    await db.commit()
+    event = await make_event(severity="critical")
+    await add_target(event, channel)
+
+    await _dispatch(event.event_type, severity="critical")
+
+    assert sent.calls == []
+    rows = await history_rows(event.event_type)
+    assert rows[0].suppression_reason == "blackout"
