@@ -920,6 +920,42 @@ restore_dns_settings_from_provider() {
                 ;;
         esac
     fi
+
+    # DNS_CREDENTIALS_FILE must always match the provider (it is written to
+    # .env and mounted into the certbot container for renewals)
+    if [ -z "$DNS_CREDENTIALS_FILE" ] && [ -n "$DNS_PROVIDER_NAME" ]; then
+        case $DNS_PROVIDER_NAME in
+            cloudflare)   DNS_CREDENTIALS_FILE="cloudflare.ini" ;;
+            route53)      DNS_CREDENTIALS_FILE="route53.ini" ;;
+            google)       DNS_CREDENTIALS_FILE="google.json" ;;
+            digitalocean) DNS_CREDENTIALS_FILE="digitalocean.ini" ;;
+            *)            DNS_CREDENTIALS_FILE="credentials.ini" ;;
+        esac
+    fi
+}
+
+# Path inside the certbot container where the provider's credentials file is
+# mounted. Must match the path used at issuance (recorded in the lineage's
+# renewal config), otherwise renewals fail. Written to .env as
+# DNS_CREDENTIALS_TARGET and used by the certbot service in docker-compose.yaml.
+dns_credentials_target() {
+    case "${DNS_PROVIDER_NAME:-cloudflare}" in
+        route53) echo "/root/.aws/credentials" ;;
+        google)  echo "/credentials.json" ;;
+        *)       echo "/credentials.ini" ;;
+    esac
+}
+
+# Make sure the credentials file exists so the certbot bind mount does not make
+# Docker create a directory in its place (e.g. for the manual provider).
+ensure_dns_credentials_file() {
+    local cred_path="${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE:-credentials.ini}"
+    if [ -d "$cred_path" ] && [ -z "$(ls -A "$cred_path" 2>/dev/null)" ]; then
+        rmdir "$cred_path" 2>/dev/null || true
+    fi
+    if [ ! -e "$cred_path" ]; then
+        touch "$cred_path" && chmod 600 "$cred_path"
+    fi
 }
 
 restore_optional_services_from_config() {
@@ -1315,6 +1351,11 @@ EOF
                 ;;
             manual)
                 print_info "Manual DNS validation selected - you will need to add DNS records manually"
+                print_warning "Manual DNS needs an interactive terminal and certificates will NOT auto-renew"
+                if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                    print_error "DNS_PROVIDER=manual cannot be used in auto-confirm mode"
+                    exit 1
+                fi
                 ;;
             *)
                 print_error "Unknown DNS_PROVIDER: $DNS_PROVIDER_NAME"
@@ -1654,7 +1695,7 @@ backup_existing_config() {
         if $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
             -v letsencrypt:/source:ro \
             -v "${backup_dir}/letsencrypt:/backup" \
-            alpine sh -c "cp -rL /source/* /backup/ 2>/dev/null || true" 2>/dev/null; then
+            alpine sh -c "cp -a /source/. /backup/ 2>/dev/null || true" 2>/dev/null; then
             # Check if anything was actually copied
             if [ -n "$(ls -A ${backup_dir}/letsencrypt 2>/dev/null)" ]; then
                 print_success "Backed up Let's Encrypt certificates"
@@ -1779,7 +1820,7 @@ rollback_config() {
     if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
         mkdir -p "${safety_backup}/letsencrypt"
         $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/source:ro -v "${safety_backup}/letsencrypt:/backup" \
-            alpine sh -c "cp -rL /source/* /backup/ 2>/dev/null || true" 2>/dev/null
+            alpine sh -c "cp -a /source/. /backup/ 2>/dev/null || true" 2>/dev/null
     fi
 
     # Restore files from backup
@@ -1802,7 +1843,7 @@ rollback_config() {
         if $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
             -v "${backup_dir}/letsencrypt:/source:ro" \
             -v letsencrypt:/dest \
-            alpine sh -c "rm -rf /dest/* && cp -rL /source/* /dest/" 2>/dev/null; then
+            alpine sh -c "rm -rf /dest/* && cp -a /source/. /dest/" 2>/dev/null; then
             print_success "Restored Let's Encrypt certificates"
             restored=$((restored + 1))
         else
@@ -2930,6 +2971,8 @@ PUBLIC_SITE_ENABLE=${INSTALL_PUBLIC_WEBSITE}
 # ===========================================
 DNS_CERTBOT_IMAGE=${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
 DNS_CERTBOT_FLAGS=${DNS_CERTBOT_FLAGS:-}
+DNS_CREDENTIALS_FILE=${DNS_CREDENTIALS_FILE:-cloudflare.ini}
+DNS_CREDENTIALS_TARGET=$(dns_credentials_target)
 
 # ===========================================
 # Container Names (generally don't change)
@@ -2957,22 +3000,9 @@ EOF
 generate_docker_compose_v3() {
     print_info "Generating docker-compose.yaml for v3.0..."
 
-    # Determine credential mount
-    local cred_mount=""
-    case $DNS_PROVIDER_NAME in
-        cloudflare|digitalocean)
-            cred_mount="./${DNS_CREDENTIALS_FILE}:/credentials.ini:ro"
-            ;;
-        route53)
-            cred_mount="./${DNS_CREDENTIALS_FILE}:/root/.aws/credentials:ro"
-            ;;
-        google)
-            cred_mount="./${DNS_CREDENTIALS_FILE}:/credentials.json:ro"
-            ;;
-        *)
-            cred_mount="./${DNS_CREDENTIALS_FILE:-credentials.ini}:/credentials.ini:ro"
-            ;;
-    esac
+    # The certbot service mounts ./${DNS_CREDENTIALS_FILE} at
+    # ${DNS_CREDENTIALS_TARGET} (both from .env); make sure the file exists.
+    ensure_dns_credentials_file
 
     cat > "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -3172,17 +3202,22 @@ EOF
   certbot:
     image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
     container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
+    restart: unless-stopped
+    environment:
+      - NGINX_CONTAINER=${NGINX_CONTAINER:-n8n_nginx}
     volumes:
       - letsencrypt:/etc/letsencrypt
       - certbot_data:/var/www/certbot
-      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:/credentials.ini:ro
+      # Provider credentials, mounted where the renewal config recorded at issuance expects them
+      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:${DNS_CREDENTIALS_TARGET:-/credentials.ini}:ro
+      # Renewal loop + nginx reload deploy hook (scripts/certbot/)
+      - ./scripts/certbot:/opt/n8n-certbot:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    # apk add docker-cli on startup so the deploy-hook (`docker exec ... nginx -s reload`)
-    # passes certbot's hook validation. Without this, certbot bails with
-    # "Unable to find deploy-hook command docker in the PATH" and renewals
-    # never even attempt — which would silently fail until the cert expires.
-    # apk is idempotent: second container start is a no-op.
-    entrypoint: /bin/sh -c "apk add --no-cache docker-cli >/dev/null 2>&1; trap exit TERM; while :; do certbot renew --no-random-sleep-on-renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER:-n8n_nginx} nginx -s reload; docker exec n8n_nginx_router nginx -s reload || true' || true; sleep 12h & wait $${!}; done;"
+    # renew-loop.sh runs `certbot renew` every 12h, logs failures to `docker logs`
+    # and /etc/letsencrypt/n8n-renewal.log (status in n8n-renewal-status.json),
+    # retries hourly after a failure, and installs a deploy hook that reloads
+    # nginx through the Docker API (no docker CLI / apk install needed).
+    entrypoint: ["/bin/sh", "/opt/n8n-certbot/renew-loop.sh"]
     networks:
       - n8n_network
 
@@ -4585,7 +4620,13 @@ configure_other_dns() {
     DNS_CERTBOT_FLAGS="--manual --preferred-challenges dns"
 
     print_warning "Manual DNS configuration selected"
-    echo -e "  ${GRAY}You will need to configure certbot manually.${NC}"
+    echo -e "  ${GRAY}During deployment certbot will show a TXT record (_acme-challenge.<domain>)${NC}"
+    echo -e "  ${GRAY}that you must create at your DNS provider, then press Enter to continue.${NC}"
+    echo -e "  ${YELLOW}${BOLD}Automatic renewal is NOT possible with manual DNS validation.${NC}"
+    echo -e "  ${YELLOW}The certificate expires after 90 days; you must re-run ./setup.sh (option 1)${NC}"
+    echo -e "  ${YELLOW}and add a new TXT record before then. The certbot container will log an${NC}"
+    echo -e "  ${YELLOW}error once the certificate is due for renewal.${NC}"
+    ensure_dns_credentials_file
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -5761,6 +5802,11 @@ deploy_stack() {
     print_step "4" "4" "Verifying services"
     verify_services_v3
 
+    # Make sure certificates will actually renew (dry-run), repair old broken lineages
+    if [ "${SSL_METHOD:-certbot}" = "certbot" ]; then
+        check_certificate_renewal || true
+    fi
+
     # Create backup of working configuration after successful deployment
     print_info "Creating backup of working configuration..."
     backup_existing_config
@@ -5975,8 +6021,11 @@ obtain_ssl_certificate() {
     fi
 
     # Check for existing valid certificate first (use SSL_CERT_DOMAIN which may be root domain for wildcards)
+    local renewal_opt=""
     if check_existing_ssl_certificate "$SSL_CERT_DOMAIN"; then
         display_certificate_info
+        # Reaching certonly below means a new certificate was explicitly requested
+        renewal_opt="--force-renewal"
 
         # Check if force renewal via env var
         if [ "$force_renew" = "true" ]; then
@@ -6048,33 +6097,134 @@ obtain_ssl_certificate() {
             ;;
     esac
 
-    mkdir -p "${SCRIPT_DIR}/letsencrypt-temp"
+    # Manual DNS: certbot prints the TXT record and waits for the user, so it
+    # must run interactively. Such certificates can never renew automatically.
+    local interactive_opt="--non-interactive"
+    local tty_opt=""
+    if [ "$DNS_PROVIDER_NAME" = "manual" ]; then
+        if [ ! -t 0 ] || [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+            print_error "Manual DNS validation needs an interactive terminal (TXT records must be added by hand)"
+            print_info "Re-run ./setup.sh from a terminal, or choose a supported DNS provider for automatic renewal"
+            exit 1
+        fi
+        certbot_flags="--manual --preferred-challenges dns"
+        interactive_opt=""
+        tty_opt="-it"
+        print_warning "Manual DNS validation: certbot will now ask you to create TXT record(s)."
+        print_warning "This certificate will NOT renew automatically - repeat this before it expires (90 days)."
+    fi
 
-    if ! $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
-        -v "$(pwd)/letsencrypt-temp:/etc/letsencrypt" \
+    # Issue directly into the letsencrypt volume (the same external volume the
+    # certbot service uses) so certbot's live/ -> archive/ symlinks stay intact.
+    # Copying with `cp -rL` (the old approach) broke the lineage and certbot
+    # then silently refused to ever renew it.
+    ensure_dns_credentials_file
+    $DOCKER_SUDO docker volume create letsencrypt >/dev/null 2>&1 || true
+
+    # A lineage broken by an older install (live/*.pem copied as regular files)
+    # would make certbot create "<name>-0001" instead of updating <name>, which
+    # nginx does not use. Move it aside (kept in lineage-repair-backup/) first.
+    local lineage_backup=""
+    if [ "$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt:ro alpine \
+            sh -c "f=/etc/letsencrypt/live/${SSL_CERT_DOMAIN}/cert.pem; [ -e \$f ] && [ ! -L \$f ] && echo broken" 2>/dev/null)" = "broken" ]; then
+        lineage_backup="/etc/letsencrypt/lineage-repair-backup/${SSL_CERT_DOMAIN}-$(date +%Y%m%d%H%M%S)"
+        print_warning "Existing certificate lineage for ${SSL_CERT_DOMAIN} is broken (not renewable) - replacing it"
+        $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt alpine sh -c "
+            n='${SSL_CERT_DOMAIN}'; b='${lineage_backup}'; mkdir -p \"\$b\"
+            cp -a /etc/letsencrypt/live/\$n \"\$b/live\" && rm -rf /etc/letsencrypt/live/\$n
+            [ -e /etc/letsencrypt/archive/\$n ] && mv /etc/letsencrypt/archive/\$n \"\$b/archive\"
+            [ -e /etc/letsencrypt/renewal/\$n.conf ] && mv /etc/letsencrypt/renewal/\$n.conf \"\$b/renewal.conf\"
+            true"
+        renewal_opt=""
+    fi
+
+    if ! $DOCKER_SUDO docker run --rm $tty_opt $DOCKER_APPARMOR_OPT \
+        -v letsencrypt:/etc/letsencrypt \
         $cred_volume_opt \
         $DNS_CERTBOT_IMAGE \
         certonly \
         $certbot_flags \
         $domains_arg \
+        --cert-name "$SSL_CERT_DOMAIN" \
+        $renewal_opt \
         --agree-tos \
-        --non-interactive \
+        $interactive_opt \
         --email "$LETSENCRYPT_EMAIL"; then
         print_error "Failed to obtain SSL certificate"
+        if [ -n "$lineage_backup" ]; then
+            print_info "Restoring the previous certificate files so nginx keeps working"
+            $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt alpine sh -c "
+                n='${SSL_CERT_DOMAIN}'; b='${lineage_backup}'
+                rm -rf /etc/letsencrypt/live/\$n /etc/letsencrypt/archive/\$n /etc/letsencrypt/renewal/\$n.conf
+                [ -e \"\$b/live\" ] && cp -a \"\$b/live\" /etc/letsencrypt/live/\$n
+                [ -e \"\$b/archive\" ] && cp -a \"\$b/archive\" /etc/letsencrypt/archive/\$n
+                [ -e \"\$b/renewal.conf\" ] && cp -a \"\$b/renewal.conf\" /etc/letsencrypt/renewal/\$n.conf
+                true"
+        fi
         exit 1
     fi
 
-    print_success "SSL certificate obtained"
+    print_success "SSL certificate obtained and stored in the letsencrypt volume"
+}
 
-    # Copy to volume
-    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
-        -v "$(pwd)/letsencrypt-temp:/source:ro" \
-        -v letsencrypt:/dest \
-        alpine \
-        sh -c "cp -rL /source/* /dest/"
+# After deployment: make sure certificates can actually be renewed.
+# Detects broken lineages (live/*.pem not symlinks, left by older installs),
+# offers to repair them, then runs `certbot renew --dry-run` in the running
+# certbot container and reports the result.
+check_certificate_renewal() {
+    local certbot_container="${CERTBOT_CONTAINER:-$DEFAULT_CERTBOT_CONTAINER}"
+    local repair_script="${SCRIPT_DIR}/scripts/repair_ssl_lineage.sh"
 
-    rm -rf "${SCRIPT_DIR}/letsencrypt-temp"
-    print_success "Certificates copied to Docker volume"
+    print_info "Checking automatic certificate renewal..."
+
+    if ! $DOCKER_SUDO docker ps --format '{{.Names}}' | grep -q "^${certbot_container}$"; then
+        print_warning "Certbot container ${certbot_container} is not running - certificates will NOT auto-renew"
+        print_info "Check: docker logs ${certbot_container}"
+        return 1
+    fi
+
+    local broken
+    broken=$($DOCKER_SUDO docker exec "$certbot_container" sh -c \
+        'for f in /etc/letsencrypt/live/*/cert.pem /etc/letsencrypt/live/*/privkey.pem /etc/letsencrypt/live/*/fullchain.pem; do [ -e "$f" ] && [ ! -L "$f" ] && echo "$f"; done; true' 2>/dev/null || true)
+    if [ -n "$broken" ]; then
+        print_warning "Broken certificate lineage detected (live files are not symlinks):"
+        echo "$broken" | sed 's/^/    /'
+        print_info "certbot will never renew these certificates until the lineage is repaired."
+        if [ -x "$repair_script" ] && confirm_prompt "Repair the certificate lineage now (non-destructive, backup kept)?" "y"; then
+            if $DOCKER_SUDO "$repair_script"; then
+                print_success "Certificate lineage repaired and renewal verified"
+                return 0
+            fi
+            print_error "Automatic repair failed - see docs/CERTBOT.md (Repairing a broken lineage)"
+            return 1
+        fi
+        print_warning "Repair later with: ./scripts/repair_ssl_lineage.sh"
+        return 1
+    fi
+
+    if [ "$DNS_PROVIDER_NAME" = "manual" ]; then
+        print_warning "Manual DNS provider: automatic renewal is not possible."
+        print_info "Re-run ./setup.sh before the certificate expires to issue a new one."
+        return 0
+    fi
+
+    echo -e "  ${GRAY}Running certbot renew --dry-run (staging server, may take a few minutes for DNS propagation)...${NC}"
+    local dry_run_output="" attempt
+    for attempt in 1 2 3; do
+        if dry_run_output=$($DOCKER_SUDO docker exec "$certbot_container" certbot renew --dry-run --no-random-sleep-on-renew 2>&1); then
+            print_success "Renewal dry-run succeeded - certificates will renew automatically"
+            return 0
+        fi
+        # The renewal loop may be running its start-up `certbot renew` right now
+        echo "$dry_run_output" | grep -q "Another instance of Certbot" || break
+        sleep 15
+    done
+
+    print_error "Renewal dry-run FAILED - certificates will NOT renew automatically until this is fixed"
+    echo "$dry_run_output" | tail -n 15 | sed 's/^/    /'
+    print_info "Check the DNS credentials file (${DNS_CREDENTIALS_FILE}) and docs/CERTBOT.md"
+    print_info "Re-test with: docker exec ${certbot_container} certbot renew --dry-run"
+    return 1
 }
 
 verify_services_v3() {

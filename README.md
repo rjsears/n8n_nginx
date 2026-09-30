@@ -100,15 +100,7 @@ If you run n8n for anything you'd be upset to lose, this repo is the difference 
 
 ### 🔐 SSL renewal that provably renews
 
-Certbot validates `--deploy-hook` commands **before** attempting renewal. On stock certbot images, a hook that calls `docker` fails validation — and every renewal silently aborts before it begins. No error, no log noise, nothing until the cert expires. This stack installs `docker-cli` inside the certbot container at startup and runs renewal in a long-lived 12-hour loop:
-
-```yaml
-entrypoint: /bin/sh -c "apk add --no-cache docker-cli >/dev/null 2>&1; trap exit TERM;
-  while :; do certbot renew --no-random-sleep-on-renew ${DNS_CERTBOT_FLAGS:-}
-    --deploy-hook 'docker exec n8n_nginx nginx -s reload;
-                   docker exec n8n_nginx_router nginx -s reload || true' || true;
-  sleep 12h & wait ${!}; done;"
-```
+Certificates are issued straight into the `letsencrypt` volume, so certbot's `live/ → archive/` symlinks stay intact (copying them with `cp -L` makes certbot skip the lineage forever). The certbot container (`restart: unless-stopped`) runs [`scripts/certbot/renew-loop.sh`](scripts/certbot/renew-loop.sh): `certbot renew` every 12 hours, failures logged loudly to `docker logs n8n_certbot` and `/etc/letsencrypt/n8n-renewal.log` and retried hourly, and a deploy hook that reloads nginx through the Docker API with plain Python (no Docker CLI to install at start-up). Each provider's credentials file is mounted where the renewal config expects it (`DNS_CREDENTIALS_FILE` / `DNS_CREDENTIALS_TARGET` in `.env`), and `setup.sh` finishes with a `certbot renew --dry-run` to show that renewal actually works. Older installs can be checked and repaired with `./scripts/repair_ssl_lineage.sh`.
 
 The hook reloads **both** nginx instances, because the router terminates TLS in public-website topology and would otherwise keep serving the old certificate from memory. Certificates are issued via **DNS-01 challenges** (Cloudflare, AWS Route 53, Google Cloud DNS, DigitalOcean), so port 80 is never opened and wildcard certs are supported.
 
@@ -538,7 +530,7 @@ Everything below lives on the full docs site — **[rjsears.github.io/n8n_nginx]
 |---|---|
 | Stack seems unhealthy | `./scripts/health_check.sh` — it checks all ten components |
 | Certificate problems | `./scripts/fix_ssl.sh your-domain.com`, then `docker exec n8n_certbot certbot certificates` |
-| Renewal seems stuck | `docker compose logs --tail 200 certbot` — look for deploy-hook validation errors |
+| Renewal seems stuck | `docker compose logs --tail 200 certbot` — look for `ERROR: certbot renew FAILED` / broken lineage; `./scripts/repair_ssl_lineage.sh --check` |
 | Management console errors | `docker exec n8n_management tail -200 /app/logs/uvicorn.log` (not `docker logs`) |
 | Webhooks failing externally | `docker exec n8n printenv WEBHOOK_URL N8N_TRUST_PROXY` — verify n8n knows its external identity |
 | Docker-in-LXC won't start containers | AppArmor — see [Proxmox LXC hosts](#proxmox-lxc-hosts) above |

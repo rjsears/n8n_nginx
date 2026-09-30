@@ -172,12 +172,22 @@ services:
     security_opt:
       - apparmor:unconfined
     container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
+    restart: unless-stopped
+    environment:
+      - NGINX_CONTAINER=${NGINX_CONTAINER:-n8n_nginx}
     volumes:
       - letsencrypt:/etc/letsencrypt
       - certbot_data:/var/www/certbot
-      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:/credentials.ini:ro
+      # Provider credentials, mounted where the renewal config recorded at issuance expects them
+      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:${DNS_CREDENTIALS_TARGET:-/credentials.ini}:ro
+      # Renewal loop + nginx reload deploy hook (scripts/certbot/)
+      - ./scripts/certbot:/opt/n8n-certbot:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    entrypoint: /bin/sh -c "apk add --no-cache docker-cli >/dev/null 2>&1; trap exit TERM; while :; do certbot renew --no-random-sleep-on-renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER:-n8n_nginx} nginx -s reload; docker exec n8n_nginx_router nginx -s reload || true' || true; sleep 12h & wait $${!}; done;"
+    # renew-loop.sh runs `certbot renew` every 12h, logs failures to `docker logs`
+    # and /etc/letsencrypt/n8n-renewal.log (status in n8n-renewal-status.json),
+    # retries hourly after a failure, and installs a deploy hook that reloads
+    # nginx through the Docker API (no docker CLI / apk install needed).
+    entrypoint: ["/bin/sh", "/opt/n8n-certbot/renew-loop.sh"]
     networks:
       - n8n_network
 
