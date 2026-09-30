@@ -48,12 +48,55 @@ done
 
 # --- helpers -----------------------------------------------------------------
 
+# Decode the raw right-hand side of a KEY=VALUE .env line. Mirrors
+# env_unquote_value in setup.sh, which writes values unquoted, as '...'
+# (literal) or as "..." with \ escapes for \ " and $. Keep the two in sync.
+env_unquote_value() {
+    local raw="$1" out="" ch i n
+    raw="${raw#"${raw%%[![:space:]]*}"}"
+    case "$raw" in
+        \'*)
+            raw="${raw#\'}"
+            printf '%s' "${raw%%\'*}"
+            ;;
+        \"*)
+            raw="${raw#\"}"
+            n=${#raw}
+            for ((i = 0; i < n; i++)); do
+                ch="${raw:i:1}"
+                if [ "$ch" = "\\" ] && [ $((i + 1)) -lt "$n" ]; then
+                    i=$((i + 1))
+                    out+="${raw:i:1}"
+                elif [ "$ch" = '"' ]; then
+                    break
+                else
+                    out+="$ch"
+                fi
+            done
+            printf '%s' "$out"
+            ;;
+        *)
+            # Unquoted: drop an inline " # comment" and trailing whitespace
+            raw="${raw%%[[:space:]]#*}"
+            raw="${raw%"${raw##*[![:space:]]}"}"
+            printf '%s' "$raw"
+            ;;
+    esac
+}
+
 env_value() {
-    # Read KEY=value from .env without sourcing it
-    local key="$1" default="${2:-}" val=""
+    # Read KEY=value from .env without sourcing it (last occurrence wins)
+    local key="$1" default="${2:-}" line raw="" found=1 val=""
     if [ -f "${SCRIPT_DIR}/.env" ]; then
-        val=$(grep -E "^${key}=" "${SCRIPT_DIR}/.env" | tail -n 1 | cut -d= -f2-)
-        val="${val%\"}"; val="${val#\"}"
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]] \
+                && [ "${BASH_REMATCH[2]}" = "$key" ]; then
+                raw="${BASH_REMATCH[3]}"
+                found=0
+            fi
+        done < "${SCRIPT_DIR}/.env"
+        [ "$found" -eq 0 ] && val=$(env_unquote_value "$raw")
     fi
     echo "${val:-$default}"
 }

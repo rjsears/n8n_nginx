@@ -355,7 +355,9 @@ docker compose down               # the network must be recreated: Docker cannot
 docker compose up -d
 ```
 
-`setup.sh` does the `down` for you when it deploys and detects the old network. Then, in Cloudflare Zero Trust, change the tunnel's public hostname for your n8n domain to **HTTP → `n8n_nginx:8080`** (see [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)). Tailscale users should browse the Tailscale Serve URL (`https://<hostname>.<tailnet>.ts.net`). If `172.30.0.0/24` clashes with a network you already use, set `N8N_NETWORK_SUBNET` before regenerating.
+`setup.sh` does the `down` for you when it deploys and detects the old network. Then, in Cloudflare Zero Trust, change the tunnel's public hostname for your n8n domain to **HTTP → `n8n_nginx:8080`** (see [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)). Tailscale users should browse the Tailscale Serve URL (`https://<hostname>.<tailnet>.ts.net`). If `172.30.0.0/24` clashes with a network you already use, set `N8N_NETWORK_SUBNET` (in `.n8n_setup_config`) before regenerating — `setup.sh` checks the existing Docker networks before it stops anything, and refuses to deploy (suggesting a free `/24`) if the subnet overlaps one.
+
+**Management image:** File Browser (`/files/`) now authenticates through the management console: nginx calls `/api/auth/verify`, which must return an `X-Auth-User` header, and the console's internal nginx now takes the client address from `n8n_nginx`'s `X-Real-IP`. Both changes live in the management image. With `USE_PREBUILT_MANAGEMENT=true` (the default), pull the updated image once it is published (`docker compose pull n8n_management`) — an older prebuilt image breaks File Browser logins; with a local build, rebuild it (`docker compose build n8n_management`).
 
 ### Driving backups from the API
 

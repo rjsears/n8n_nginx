@@ -474,11 +474,16 @@ compute_docker_network_addrs() {
     local subnet="${N8N_NETWORK_SUBNET:-$DEFAULT_N8N_NETWORK_SUBNET}"
     local re='^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.0/([0-9]{1,2})$'
     if ! [[ "$subnet" =~ $re ]] || [ "${BASH_REMATCH[4]}" -lt 8 ] || [ "${BASH_REMATCH[4]}" -gt 24 ] || \
-       [ "${BASH_REMATCH[1]}" -gt 255 ] || [ "${BASH_REMATCH[2]}" -gt 255 ] || [ "${BASH_REMATCH[3]}" -gt 255 ]; then
-        print_warning "Invalid N8N_NETWORK_SUBNET '${subnet}' (expected e.g. 172.30.0.0/24, prefix /8-/24) - using ${DEFAULT_N8N_NETWORK_SUBNET}"
+       [ "${BASH_REMATCH[1]}" -gt 255 ] || [ "${BASH_REMATCH[2]}" -gt 255 ] || [ "${BASH_REMATCH[3]}" -gt 255 ] || \
+       ! ipv4_cidr_is_network "$subnet"; then
+        # ipv4_cidr_is_network rejects host bits (e.g. 10.20.5.0/16): the
+        # static IPs below are derived from the first three octets and would
+        # otherwise fall outside the network nginx trusts.
+        print_warning "Invalid N8N_NETWORK_SUBNET '${subnet}' (expected a network address, e.g. 172.30.0.0/24, prefix /8-/24) - using ${DEFAULT_N8N_NETWORK_SUBNET}"
         subnet="$DEFAULT_N8N_NETWORK_SUBNET"
-        [[ "$subnet" =~ $re ]]
     fi
+    # Re-match: ipv4_cidr_is_network above overwrites BASH_REMATCH
+    [[ "$subnet" =~ $re ]]
     local base="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
     N8N_NETWORK_SUBNET="$subnet"
     N8N_NETWORK_GATEWAY="${base}.1"
@@ -504,6 +509,152 @@ n8n_network_needs_recreate() {
     esac
     print_warning "Network ${existing_net} uses '${existing_subnets% }', expected ${N8N_NETWORK_SUBNET}"
     return 0
+}
+
+# ---------------------------------------------------------------------------
+# Pure-bash IPv4 CIDR helpers (no ipcalc/python dependency).
+# ---------------------------------------------------------------------------
+
+# Parse an IPv4 address or CIDR ("a.b.c.d" is treated as /32). On success sets
+# CIDR_ADDR (the address as an integer), CIDR_PREFIX and CIDR_NET (CIDR_ADDR
+# with the host bits cleared). Returns 1 when $1 is not valid IPv4.
+ipv4_cidr_parse() {
+    local cidr="$1" ip prefix
+    ip="${cidr%%/*}"
+    if [ "$ip" = "$cidr" ]; then
+        prefix=32
+    else
+        prefix="${cidr#*/}"
+    fi
+    [[ "$prefix" =~ ^[0-9]{1,2}$ ]] || return 1
+    prefix=$((10#$prefix))
+    [ "$prefix" -le 32 ] || return 1
+    local re='^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$'
+    [[ "$ip" =~ $re ]] || return 1
+    local o1=$((10#${BASH_REMATCH[1]})) o2=$((10#${BASH_REMATCH[2]}))
+    local o3=$((10#${BASH_REMATCH[3]})) o4=$((10#${BASH_REMATCH[4]}))
+    [ "$o1" -le 255 ] && [ "$o2" -le 255 ] && [ "$o3" -le 255 ] && [ "$o4" -le 255 ] || return 1
+    CIDR_ADDR=$(( (o1 << 24) | (o2 << 16) | (o3 << 8) | o4 ))
+    CIDR_PREFIX=$prefix
+    ipv4_prefix_mask "$prefix"
+    CIDR_NET=$(( CIDR_ADDR & IPV4_MASK ))
+    return 0
+}
+
+# Sets IPV4_MASK to the netmask (as an integer) for prefix length $1. Sets a
+# variable instead of printing so callers need no subshell (these helpers run
+# in loops).
+ipv4_prefix_mask() {
+    if [ "$1" -eq 0 ]; then
+        IPV4_MASK=0
+    else
+        IPV4_MASK=$(( (0xFFFFFFFF << (32 - $1)) & 0xFFFFFFFF ))
+    fi
+}
+
+# True (0) when the two IPv4 CIDRs share at least one address. Two CIDR blocks
+# overlap iff they are equal when both are truncated to the shorter prefix.
+# Returns 2 when either argument is not valid IPv4.
+ipv4_cidrs_overlap() {
+    local net_a prefix_a p
+    ipv4_cidr_parse "$1" || return 2
+    net_a=$CIDR_NET
+    prefix_a=$CIDR_PREFIX
+    ipv4_cidr_parse "$2" || return 2
+    p=$prefix_a
+    [ "$CIDR_PREFIX" -lt "$p" ] && p=$CIDR_PREFIX
+    ipv4_prefix_mask "$p"
+    [ $(( net_a & IPV4_MASK )) -eq $(( CIDR_NET & IPV4_MASK )) ]
+}
+
+# True (0) when $1 is a valid IPv4 CIDR whose host bits are all zero.
+ipv4_cidr_is_network() {
+    ipv4_cidr_parse "$1" || return 1
+    [ "$CIDR_ADDR" -eq "$CIDR_NET" ]
+}
+
+# True (0) when an "internal" range would override the pinned Docker subnet in
+# the nginx geo block, i.e. it overlaps N8N_NETWORK_SUBNET and is not strictly
+# broader than it (geo is longest-prefix match, so broader ranges such as
+# 172.16.0.0/12 lose to the more specific "external" subnet entry and are fine).
+range_inside_docker_subnet() {
+    local range="$1" range_prefix
+    ipv4_cidr_parse "$range" || return 1
+    range_prefix=$CIDR_PREFIX
+    ipv4_cidr_parse "$N8N_NETWORK_SUBNET" || return 1
+    [ "$range_prefix" -ge "$CIDR_PREFIX" ] || return 1
+    ipv4_cidrs_overlap "$range" "$N8N_NETWORK_SUBNET"
+}
+
+# Docker Compose project name for this install (networks are <project>_<name>).
+compose_project_name() {
+    local name="${COMPOSE_PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
+    printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-'
+}
+
+# Pre-flight check before any "docker compose down/up": N8N_NETWORK_SUBNET
+# must not overlap a subnet already used by another Docker network, or
+# "docker compose up" fails with "Pool overlaps with other one on this address
+# space" (and, after the down that recreates the network, the stack stays
+# down). This project's own n8n_network is ignored: it is recreated anyway.
+# Returns 1 (after printing what to do) on overlap; 0 otherwise, including
+# when Docker cannot be queried.
+check_n8n_network_subnet_free() {
+    compute_docker_network_addrs
+    command_exists docker || return 0
+
+    local project own_net listing
+    project=$(compose_project_name)
+    own_net=$($DOCKER_SUDO docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' \
+        "${NGINX_CONTAINER:-n8n_nginx}" 2>/dev/null | grep 'n8n_network$' | head -1) || true
+    # One line per network: name|compose project|compose network|subnets
+    # shellcheck disable=SC2086  # DOCKER_SUDO is empty or "sudo"
+    listing=$($DOCKER_SUDO docker network ls -q 2>/dev/null | xargs $DOCKER_SUDO docker network inspect \
+        -f '{{.Name}}|{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.network"}}|{{range .IPAM.Config}}{{.Subnet}} {{end}}' \
+        2>/dev/null) || true
+    [ -n "$listing" ] || return 0
+
+    local name lproj lnet subnets s conflicts="" used=""
+    while IFS='|' read -r name lproj lnet subnets; do
+        [ -n "$name" ] || continue
+        [ -n "$own_net" ] && [ "$name" = "$own_net" ] && continue
+        [ "$lnet" = "n8n_network" ] && [ "$lproj" = "$project" ] && continue
+        for s in $subnets; do
+            ipv4_cidr_parse "$s" || continue   # skips IPv6
+            used="${used} ${s}"
+            if ipv4_cidrs_overlap "$s" "$N8N_NETWORK_SUBNET"; then
+                conflicts="${conflicts}      ${name}: ${s}\n"
+            fi
+        done
+    done <<< "$listing"
+
+    [ -n "$conflicts" ] || return 0
+
+    # Suggest a free /24, avoiding other Docker networks and host routes.
+    local routes="" suggestion="" second third cand u clash
+    if command_exists ip; then
+        routes=$(ip -4 route show 2>/dev/null | awk '{print $1}' | grep -E '^[0-9.]+(/[0-9]+)?$' | grep -v '^0\.0\.0\.0') || true
+    fi
+    for second in 30 29 28 27 26 25 24; do
+        for third in $(seq 0 255); do
+            cand="172.${second}.${third}.0/24"
+            clash=false
+            for u in $used $routes; do
+                if ipv4_cidrs_overlap "$u" "$cand"; then clash=true; break; fi
+            done
+            if [ "$clash" = false ]; then suggestion="$cand"; break 2; fi
+        done
+    done
+
+    print_error "N8N_NETWORK_SUBNET ${N8N_NETWORK_SUBNET} overlaps existing Docker network(s):"
+    echo -e "$conflicts"
+    print_info "Docker cannot create n8n_network there (\"Pool overlaps\"). Nothing was stopped."
+    print_info "Pick a free subnet and set"
+    print_info "  N8N_NETWORK_SUBNET=${suggestion:-<free /24>}"
+    print_info "in ${CONFIG_FILE} (or in your preconfig file / the environment for a"
+    print_info "fresh install), regenerate the config files (setup.sh -> Reconfigure -> 7)"
+    print_info "and deploy again."
+    return 1
 }
 
 # Check if running inside an LXC container
@@ -2397,6 +2548,10 @@ run_migration_v2_to_v3() {
 
     print_info "Starting all services..."
     cd "$SCRIPT_DIR"
+    if ! check_n8n_network_subnet_free; then
+        print_error "Migration stopped before starting v3.0 services."
+        return 1
+    fi
     $docker_compose_cmd up -d
 
     # Wait for services to be healthy
@@ -2925,7 +3080,7 @@ generate_tool_auth_files() {
     bcrypt_hash=$(generate_bcrypt_hash "$ADMIN_PASS")
 
     if [ -z "$bcrypt_hash" ]; then
-        print_warn "Could not generate bcrypt hash - tools will use default authentication"
+        print_warning "Could not generate bcrypt hash - tools will use default authentication"
         return 1
     fi
 
@@ -3621,7 +3776,12 @@ generate_docker_compose_v3() {
     # client traffic (must match the geo/realip rules in nginx.conf)
     compute_docker_network_addrs
 
-    cat > "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+    # Build into a temp file and move it into place at the end, so an abort
+    # part-way through (set -e) never leaves a truncated docker-compose.yaml.
+    local compose_tmp="${SCRIPT_DIR}/.docker-compose.yaml.new"
+    rm -f "$compose_tmp"
+
+    cat > "$compose_tmp" << 'EOF'
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # /docker-compose.yaml
 #
@@ -3729,7 +3889,7 @@ EOF
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         # With public website: nginx_router handles SSL and port 443
         # n8n_nginx is internal only (port 80)
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Nginx Router (hostname-based routing for internal access)
   # ===========================================================================
@@ -3759,7 +3919,7 @@ EOF
         ipv4_address: ${NGINX_ROUTER_IP}
 
 EOF
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
   # ===========================================================================
   # Nginx Reverse Proxy (internal - SSL terminated by router)
   # ===========================================================================
@@ -3789,7 +3949,7 @@ EOF
 EOF
     else
         # Without public website: n8n_nginx handles SSL directly on port 443
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
   # ===========================================================================
   # Nginx Reverse Proxy (SSL termination)
   # ===========================================================================
@@ -3817,7 +3977,7 @@ EOF
 EOF
     fi
 
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+    cat >> "$compose_tmp" << 'EOF'
 
   # ===========================================================================
   # Certbot (SSL certificate management)
@@ -3852,11 +4012,11 @@ EOF
 
     # Add either pre-built image or build context based on user preference
     if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
     image: ${MANAGEMENT_IMAGE}
 EOF
     else
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
     build:
       context: ./management
       dockerfile: Dockerfile
@@ -3866,7 +4026,7 @@ EOF
     fi
 
     # Continue with the rest of management service configuration
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+    cat >> "$compose_tmp" << 'EOF'
     container_name: ${MANAGEMENT_CONTAINER:-n8n_management}
     restart: always
     environment:
@@ -3907,18 +4067,18 @@ EOF
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       # Public website backup/restore
-      - PUBLIC_SITE_ENABLE=${INSTALL_PUBLIC_WEBSITE}
+      - PUBLIC_SITE_ENABLE=${PUBLIC_SITE_ENABLE:-false}
 EOF
 
     # Add notification environment variables if configured
     if [ "$NOTIFICATIONS_CONFIGURED" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
       # Notifications
       - NOTIF_TYPE=${NOTIF_TYPE:-}
       - NOTIF_CONFIG=${NOTIF_CONFIG:-}
 EOF
         if [ -n "$EMAIL_HOST" ]; then
-            cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+            cat >> "$compose_tmp" << EOF
       - EMAIL_HOST=${EMAIL_HOST}
       - EMAIL_PORT=${EMAIL_PORT}
       - EMAIL_USER=${EMAIL_USER}
@@ -3931,7 +4091,7 @@ EOF
 
     # Add NTFY environment variable if configured
     if [ -n "$NTFY_BASE_URL" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
       # NTFY Push Notifications
       - NTFY_BASE_URL=${NTFY_BASE_URL}
 EOF
@@ -3940,12 +4100,12 @@ EOF
     # Status collector URL - needed for Cache tab to reach n8n_status service
     # n8n_status runs on host network, so we need to use host.docker.internal (Docker Desktop)
     # or the Docker gateway IP (Linux). Users can override via STATUS_COLLECTOR_URL env var.
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+    cat >> "$compose_tmp" << 'EOF'
       # Status Collector (n8n_status service on host network)
       - STATUS_COLLECTOR_URL=${STATUS_COLLECTOR_URL:-http://host.docker.internal:8080}
 EOF
 
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    cat >> "$compose_tmp" << EOF
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -3964,7 +4124,7 @@ EOF
 
     # Add NFS bind mount if configured (host-level NFS mount)
     if [ "$NFS_CONFIGURED" = "true" ] && [ -n "$NFS_LOCAL_MOUNT" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
       # NFS backup mount
       - ${NFS_LOCAL_MOUNT}:/mnt/backups
 EOF
@@ -3972,13 +4132,13 @@ EOF
 
     # Add public website volume mount if configured (for backup/restore)
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
       # Public website files (read-only for backup)
       - public_web_root:/app/public_website:ro
 EOF
     fi
 
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    cat >> "$compose_tmp" << EOF
     expose:
       - "80"
     extra_hosts:
@@ -4057,7 +4217,7 @@ EOF
             portainer_cmd="$portainer_cmd --admin-password='${escaped_hash}'"
         fi
 
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Portainer - Container Management UI
   # ===========================================================================
@@ -4079,7 +4239,7 @@ EOF
 
     # Add Portainer Agent if configured (for remote management)
     if [ "$INSTALL_PORTAINER_AGENT" = true ] && [ "$INSTALL_PORTAINER" != true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
   # ===========================================================================
   # Portainer Agent (for remote Portainer server)
   # ===========================================================================
@@ -4101,7 +4261,7 @@ EOF
 
     # Add Cloudflare Tunnel if configured
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Cloudflare Tunnel
   # ===========================================================================
@@ -4127,7 +4287,7 @@ EOF
         # Generate tailscale-serve.json for Tailscale Serve
         generate_tailscale_serve_config
 
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Tailscale VPN
   # ===========================================================================
@@ -4161,7 +4321,7 @@ EOF
 
     # Add Adminer if configured
     if [ "$INSTALL_ADMINER" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Adminer - Database Management
   # ===========================================================================
@@ -4184,7 +4344,7 @@ EOF
 
     # Add Dozzle if configured
     if [ "$INSTALL_DOZZLE" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Dozzle - Container Log Viewer
   # ===========================================================================
@@ -4209,7 +4369,7 @@ EOF
 
     # Add NTFY if configured
     if [ "$INSTALL_NTFY" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # NTFY - Push Notification Server
   # Accessible via its own subdomain (configured in Cloudflare Tunnel)
@@ -4262,12 +4422,24 @@ EOF
 
     # Add File Browser if configured (Public Website)
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        touch "${SCRIPT_DIR}/filebrowser.db"
-        # filebrowser runs as non-root (UID 1000) and needs write access.
-        # The DB holds File Browser users and its JWT signing key: owner-only.
-        run_privileged chown 1000:1000 "${SCRIPT_DIR}/filebrowser.db" 2>/dev/null || \
-            print_warning "Could not chown filebrowser.db to 1000:1000"
-        run_privileged chmod 600 "${SCRIPT_DIR}/filebrowser.db"
+        local fb_db="${SCRIPT_DIR}/filebrowser.db"
+        # Only create it on first install. On a re-run it is already owned by
+        # UID 1000 with mode 600, so a plain touch as another non-root user
+        # would fail (Permission denied) and abort setup under set -e.
+        if [ ! -e "$fb_db" ]; then
+            touch "$fb_db" 2>/dev/null || run_privileged touch "$fb_db" 2>/dev/null || \
+                print_warning "Could not create ${fb_db} - Docker will create it as a directory; create it manually"
+        fi
+        local fb_db_mode
+        fb_db_mode=$(stat -c '%u:%a' "$fb_db" 2>/dev/null || stat -f '%u:%Lp' "$fb_db" 2>/dev/null || true)
+        if [ -f "$fb_db" ] && [ "$fb_db_mode" != "1000:600" ]; then
+            # filebrowser runs as non-root (UID 1000) and needs write access.
+            # The DB holds File Browser users and its JWT signing key: owner-only.
+            run_privileged chown 1000:1000 "$fb_db" 2>/dev/null || \
+                print_warning "Could not chown filebrowser.db to 1000:1000"
+            run_privileged chmod 600 "$fb_db" 2>/dev/null || \
+                print_warning "Could not chmod 600 filebrowser.db"
+        fi
 
         # Create File Browser config file with proxy auth. nginx only sets
         # X-Remote-User after auth_request has validated the management
@@ -4288,7 +4460,7 @@ EOF
 }
 FBEOF
 
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # File Browser - Public Website Management
   # ===========================================================================
@@ -4335,7 +4507,7 @@ EOF
     fi
 
     # Add volumes section
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    cat >> "$compose_tmp" << EOF
 # ===========================================================================
 # Volumes
 # ===========================================================================
@@ -4359,7 +4531,7 @@ volumes:
 EOF
 
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   public_web_root:
     driver: local
 EOF
@@ -4370,7 +4542,7 @@ EOF
 
     # Add Tailscale volume if configured
     if [ "$INSTALL_TAILSCALE" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   tailscale_data:
     driver: local
 EOF
@@ -4378,7 +4550,7 @@ EOF
 
     # Add Portainer volume if full Portainer is configured
     if [ "$INSTALL_PORTAINER" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   portainer_data:
     driver: local
 EOF
@@ -4386,7 +4558,7 @@ EOF
 
     # Add NTFY volumes if configured
     if [ "$INSTALL_NTFY" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   ntfy_cache:
     driver: local
   ntfy_data:
@@ -4395,7 +4567,7 @@ EOF
     fi
 
     # Add networks section
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    cat >> "$compose_tmp" << EOF
 
 # ===========================================================================
 # Networks
@@ -4414,7 +4586,7 @@ networks:
 EOF
 
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   filebrowser_network:
     driver: bridge
     internal: true
@@ -4425,9 +4597,9 @@ EOF
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         if [ "$CHECK_PLATFORM" = "macos" ]; then
             sed -i '' '/letsencrypt:\/etc\/letsencrypt:ro/a\
-      - public_web_root:/var/www/public:ro' "${SCRIPT_DIR}/docker-compose.yaml"
+      - public_web_root:/var/www/public:ro' "$compose_tmp"
         else
-            sed -i '/letsencrypt:\/etc\/letsencrypt:ro/a\      - public_web_root:/var/www/public:ro' "${SCRIPT_DIR}/docker-compose.yaml"
+            sed -i '/letsencrypt:\/etc\/letsencrypt:ro/a\      - public_web_root:/var/www/public:ro' "$compose_tmp"
         fi
     fi
 
@@ -4435,11 +4607,12 @@ EOF
     # every service unconfined or container creation fails outright.
     if apparmor_unconfined_required; then
         awk '{print} /^    container_name: /{print "    security_opt:"; print "      - apparmor:unconfined"}' \
-            "${SCRIPT_DIR}/docker-compose.yaml" > "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp"
-        mv "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp" "${SCRIPT_DIR}/docker-compose.yaml"
+            "$compose_tmp" > "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp"
+        mv "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp" "$compose_tmp"
         print_info "Added apparmor:unconfined to all generated services"
     fi
 
+    mv -f "$compose_tmp" "${SCRIPT_DIR}/docker-compose.yaml"
     print_success "docker-compose.yaml generated for v3.0"
 }
 
@@ -4503,6 +4676,10 @@ EOF
         case "$range" in
             ""|127.0.0.1/32|"$N8N_NETWORK_SUBNET"|"${TAILSCALE_IP}/32") continue ;;
         esac
+        if range_inside_docker_subnet "$range"; then
+            print_warning "Ignoring internal range ${range}: it lies inside the Docker network ${N8N_NETWORK_SUBNET}, which must stay external"
+            continue
+        fi
         cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
         ${range}    "internal";
 EOF
@@ -4609,7 +4786,7 @@ EOF
             proxy_pass http://n8n;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For \$remote_addr;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
@@ -4629,7 +4806,7 @@ EOF
             proxy_pass http://n8n;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For \$remote_addr;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
@@ -4662,7 +4839,7 @@ EOF
             proxy_pass http://n8n_portainer:9000/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
@@ -4677,7 +4854,7 @@ EOF
             proxy_pass http://n8n_portainer:9000/api/websocket/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -4700,7 +4877,7 @@ EOF
             proxy_pass http://n8n_adminer:8080/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
         }
@@ -4722,7 +4899,7 @@ EOF
             proxy_pass http://n8n_dozzle:8080;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -4756,10 +4933,13 @@ EOF
                 return 204;
             }
 
-            proxy_pass $ntfy_upstream/;
+            # Strip the /ntfy prefix. (proxy_pass with a variable plus a URI part
+            # would replace the whole request URI with "/".)
+            rewrite ^/ntfy/(.*)$ /$1 break;
+            proxy_pass $ntfy_upstream;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -4796,7 +4976,7 @@ EOF
             proxy_pass http://n8n_filebrowser:80;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -4816,7 +4996,7 @@ EOF
             proxy_set_header Host $host;
             proxy_set_header X-Original-URI $request_uri;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 EOF
@@ -4835,7 +5015,7 @@ EOF
             proxy_pass http://management/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -4853,7 +5033,7 @@ EOF
             proxy_pass http://management/api/ws/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
 
             # WebSocket required headers
@@ -4878,7 +5058,7 @@ EOF
             proxy_pass http://management/api/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_buffering off;
@@ -4900,6 +5080,17 @@ EOF
     server {
         listen 8080 default_server;
         server_name _;
+EOF
+    # cloudflared passes the visitor address (set by the Cloudflare edge) in
+    # CF-Connecting-IP. Trust it only from the cloudflared container's static
+    # IP so n8n sees the real client (e.g. for webhook IP whitelists) in
+    # X-Real-IP / X-Forwarded-For, which clients cannot spoof.
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+        set_real_ip_from ${CLOUDFLARED_IP}/32;
+        real_ip_header CF-Connecting-IP;
+EOF
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
@@ -4923,7 +5114,7 @@ EOF
             proxy_pass http://n8n;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             # TLS is terminated by Cloudflare
             proxy_set_header X-Forwarded-Proto https;
             proxy_http_version 1.1;
@@ -4939,10 +5130,13 @@ EOF
         # NTFY Push Notification Server - PUBLICLY ACCESSIBLE
         location /ntfy/ {
             set $ntfy_upstream http://n8n_ntfy:80;
-            proxy_pass $ntfy_upstream/;
+            # Strip the /ntfy prefix. (proxy_pass with a variable plus a URI part
+            # would replace the whole request URI with "/".)
+            rewrite ^/ntfy/(.*)$ /$1 break;
+            proxy_pass $ntfy_upstream;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto https;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -5177,7 +5371,7 @@ http {
             proxy_pass http://n8n_nginx:80;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For \$remote_addr;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
@@ -5209,7 +5403,7 @@ http {
             proxy_pass http://nginx_public:80;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For \$remote_addr;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_http_version 1.1;
             proxy_buffering off;
@@ -6724,6 +6918,13 @@ deploy_stack() {
 
     cd "$SCRIPT_DIR"
 
+    # Must run before any "down": if the pinned subnet is taken, "up" would
+    # fail and leave the stack stopped.
+    if ! check_n8n_network_subnet_free; then
+        print_error "Deployment aborted before touching the running stack."
+        exit 1
+    fi
+
     # Existing installs: n8n_network used to get a random Docker subnet. The
     # nginx access control now depends on the pinned subnet, and Docker cannot
     # change the subnet of an existing network, so recreate it (volumes kept).
@@ -7441,7 +7642,15 @@ configure_access_control() {
             fi
 
             # Validate CIDR notation
-            if [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+            if [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]] && ! ipv4_cidr_parse "$ip_range"; then
+                echo -e "    ${RED}[ERROR]${NC} Invalid IPv4 range: $ip_range"
+            elif [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]] && range_inside_docker_subnet "$ip_range"; then
+                # geo is longest-prefix match: a range inside the Docker
+                # network would make proxied traffic (e.g. cloudflared at
+                # ${CLOUDFLARED_IP}) internal again.
+                echo -e "    ${RED}[ERROR]${NC} $ip_range overlaps the Docker network ${N8N_NETWORK_SUBNET},"
+                echo -e "      ${GRAY}which must stay external (Cloudflare Tunnel and other containers).${NC}"
+            elif [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
                 CUSTOM_INTERNAL_IPS="$CUSTOM_INTERNAL_IPS $ip_range"
                 echo -e "    ${GREEN}[OK]${NC} Added: $ip_range"
             else
@@ -7824,7 +8033,14 @@ main() {
             if confirm_prompt "Would you like to redeploy the stack now?"; then
                 deploy_stack
             else
-                print_info "Configuration saved. Run 'docker compose up -d' when ready."
+                if n8n_network_needs_recreate; then
+                    # Docker cannot change an existing network's subnet; a
+                    # plain "up -d" would fail or keep the old network.
+                    print_info "Configuration saved. When ready, recreate the stack network (data volumes are kept):"
+                    print_info "  docker compose down && docker compose up -d"
+                else
+                    print_info "Configuration saved. Run 'docker compose up -d' when ready."
+                fi
             fi
             exit 0
         fi
