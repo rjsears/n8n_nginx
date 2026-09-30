@@ -888,7 +888,17 @@ async function downloadRestoreScript() {
     notificationStore.success('Latest restore.sh downloaded. Copy it over the restore.sh in the extracted archive before running it.')
   } catch (error) {
     console.error('Download error:', error)
-    notificationStore.error(`Failed to download restore.sh: ${error.response?.data?.detail || error.message || 'Unknown error'}`)
+    // responseType 'blob' means error bodies arrive as a Blob too
+    let detail = error.response?.data?.detail
+    const data = error.response?.data
+    if (!detail && data instanceof Blob) {
+      try {
+        detail = JSON.parse(await data.text())?.detail
+      } catch {
+        detail = undefined
+      }
+    }
+    notificationStore.error(`Failed to download restore.sh: ${detail || error.message || 'Unknown error'}`)
   } finally {
     downloadingRestoreScript.value = false
   }

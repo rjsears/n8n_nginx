@@ -11,10 +11,14 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
+import asyncio
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, UTC
 
 from api.database import get_db
@@ -39,6 +43,8 @@ from api.schemas.settings import (
 )
 from api.schemas.common import SuccessResponse
 from api.services.env_file import read_env_value, update_env_file_key
+from api.services import nginx_geo
+from api.services.nginx_geo import MANAGED_IP_RANGE_MARKER, PROTECTED_IP_RANGES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -310,15 +316,9 @@ async def update_nfs_config(
 
 
 # Access Control Configuration
-# Protected IP ranges that cannot be removed (required for system functionality)
-PROTECTED_IP_RANGES = ["127.0.0.1/32"]
-
-# geo entries written by setup.sh carry this marker in their comment, e.g. the
-# pinned Docker network (n8n_network) as "external" and the Tailscale container
-# /32 as "internal". They are what keeps traffic arriving through a Docker hop
-# (Cloudflare Tunnel, docker-proxy, other containers) from being treated as
-# internal, so the UI must never drop, change or undercut them.
-MANAGED_IP_RANGE_MARKER = "[managed]"
+# The geo block parsing/validation lives in api/services/nginx_geo.py (pure,
+# unit-tested). Entries written by setup.sh carry MANAGED_IP_RANGE_MARKER in
+# their comment and are never dropped, changed or undercut by the UI.
 
 # Default IP ranges shown as suggestions (user can choose to add these)
 DEFAULT_IP_RANGES = [
@@ -337,135 +337,122 @@ HOST_ENV_PATH = "/app/host_project/.env"
 
 def parse_nginx_geo_block(config_content: str) -> List[Dict[str, Any]]:
     """Parse the geo block from nginx.conf to extract IP ranges."""
-    import re
-
-    ip_ranges = []
-
-    # Find the geo block
-    geo_match = re.search(r'geo\s+\$access_level\s*\{([^}]+)\}', config_content, re.DOTALL)
-    if not geo_match:
-        return ip_ranges
-
-    geo_content = geo_match.group(1)
-
-    # Parse each line in the geo block
-    for line in geo_content.strip().split('\n'):
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-
-        # Check for comment at end of line (description)
-        comment = ""
-        if '#' in line:
-            parts = line.split('#', 1)
-            line = parts[0].strip()
-            comment = parts[1].strip()
-
-        # Skip default directive
-        if line.startswith('default'):
-            continue
-
-        # Parse CIDR and access level
-        parts = line.rstrip(';').split()
-        if len(parts) >= 2:
-            cidr = parts[0]
-            access_level = parts[1].strip('"').strip("'")
-            ip_ranges.append({
-                "cidr": cidr,
-                "description": comment,
-                "access_level": access_level,
-                "protected": cidr in PROTECTED_IP_RANGES or comment.startswith(MANAGED_IP_RANGE_MARKER),
-            })
-
-    return ip_ranges
+    return nginx_geo.parse_geo_block(config_content)
 
 
 def _is_managed_ip_range(ip_range: Dict[str, Any]) -> bool:
-    return str(ip_range.get("description") or "").startswith(MANAGED_IP_RANGE_MARKER)
+    return nginx_geo.is_managed_ip_range(ip_range)
 
 
 def _merge_managed_ip_ranges(config_content: str, ip_ranges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Keep setup.sh-managed geo entries exactly as they are in the current config.
-
-    Also rejects user "internal" ranges that fall inside a managed "external"
-    range (e.g. 172.30.0.0/25 inside the Docker network): geo is longest-prefix
-    match, so such an entry would make proxied traffic internal again.
-    """
-    import ipaddress
-
-    managed = [r for r in parse_nginx_geo_block(config_content) if _is_managed_ip_range(r)]
-    managed_cidrs = {r["cidr"] for r in managed}
-    managed_external = []
-    for r in managed:
-        if r["access_level"] == "external":
-            try:
-                managed_external.append(ipaddress.ip_network(r["cidr"], strict=False))
-            except ValueError:
-                pass
-
-    user_ranges = [
-        r for r in ip_ranges
-        if r.get("cidr") not in managed_cidrs and not _is_managed_ip_range(r)
-    ]
-    for r in user_ranges:
-        if r.get("access_level", "internal") != "internal":
-            continue
-        try:
-            net = ipaddress.ip_network(r.get("cidr", ""), strict=False)
-        except ValueError:
-            continue
-        for ext in managed_external:
-            if net.version == ext.version and net.subnet_of(ext):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        f"{r.get('cidr')} is inside the Docker network {ext} used for proxied "
-                        "traffic (Cloudflare Tunnel, docker-proxy) and cannot be marked internal"
-                    ),
-                )
-
-    return user_ranges + managed
+    """Validate user ranges and keep setup.sh-managed geo entries exactly as they are (400 on invalid input)."""
+    try:
+        return nginx_geo.merge_managed_ip_ranges(config_content, ip_ranges)
+    except nginx_geo.GeoConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 def generate_nginx_geo_block(ip_ranges: List[Dict[str, Any]]) -> str:
     """Generate nginx geo block from IP ranges."""
-    lines = ['geo $access_level {', '    default          "external";']
-
-    for ip_range in ip_ranges:
-        cidr = ip_range.get("cidr", "")
-        access_level = ip_range.get("access_level", "internal")
-        description = ip_range.get("description", "")
-
-        # Format the line with proper alignment
-        line = f'    {cidr:<20} "{access_level}";'
-        if description:
-            line += f'  # {description}'
-        lines.append(line)
-
-    lines.append('}')
-    return '\n'.join(lines)
+    return nginx_geo.generate_geo_block(ip_ranges)
 
 
 def update_nginx_config_geo_block(config_content: str, ip_ranges: List[Dict[str, Any]]) -> str:
-    """Update the geo block in nginx.conf content."""
-    import re
+    """Update the geo block in nginx.conf content (400 on invalid input or a malformed geo block)."""
+    try:
+        return nginx_geo.update_geo_block(config_content, ip_ranges)
+    except nginx_geo.GeoConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    ip_ranges = _merge_managed_ip_ranges(config_content, ip_ranges)
-    new_geo_block = generate_nginx_geo_block(ip_ranges)
 
-    # Try to replace existing geo block
-    pattern = r'geo\s+\$access_level\s*\{[^}]+\}'
-    if re.search(pattern, config_content, re.DOTALL):
-        return re.sub(pattern, new_geo_block, config_content, flags=re.DOTALL)
+def _nginx_test_config(content: str) -> Optional[str]:
+    """Run `nginx -t` on content inside the nginx container.
 
-    # If no geo block exists, add it at the beginning of http block
-    http_match = re.search(r'(http\s*\{)', config_content)
-    if http_match:
-        insert_pos = http_match.end()
-        return config_content[:insert_pos] + '\n    ' + new_geo_block + '\n' + config_content[insert_pos:]
+    The candidate is written to a temp file next to the live config (so
+    relative includes such as mime.types resolve the same way) and removed
+    afterwards. Returns nginx's error output if the configuration is invalid,
+    or None if it is valid or cannot be checked (no docker CLI, container not
+    running) - the input validation in nginx_geo is the primary safeguard.
+    """
+    import subprocess
+    import shutil
+    import os
 
-    # Fallback: add at the beginning
-    return new_geo_block + '\n\n' + config_content
+    docker_cmd = shutil.which("docker")
+    if not docker_cmd:
+        return None
+    nginx_container = os.environ.get("NGINX_CONTAINER", "n8n_nginx")
+    script = (
+        'f=$(mktemp /etc/nginx/.nginx.conf.test.XXXXXX) || exit 97; '
+        'cat > "$f"; nginx -t -q -c "$f"; rc=$?; rm -f "$f"; exit $rc'
+    )
+    try:
+        result = subprocess.run(
+            [docker_cmd, "exec", "-i", nginx_container, "sh", "-c", script],
+            input=content,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.warning(f"Could not validate nginx config with nginx -t: {e}")
+        return None
+    if result.returncode == 0:
+        return None
+    output = ((result.stderr or "") + (result.stdout or "")).strip()
+    if "[emerg]" in output or "test failed" in output:
+        return output
+    logger.warning(f"Could not validate nginx config with nginx -t: {output or result.returncode}")
+    return None
+
+
+def _write_file_in_place(path: str, content: str) -> None:
+    with open(path, "r+") as f:
+        f.seek(0)
+        f.write(content)
+        f.truncate()
+        f.flush()
+        os.fsync(f.fileno())
+
+
+async def _write_nginx_config(old_content: str, new_content: str) -> None:
+    """Validate new_content with nginx -t, then write it to NGINX_CONFIG_PATH.
+
+    nginx.conf is bind-mounted into the nginx container as a single file
+    (./nginx.conf:/etc/nginx/nginx.conf:ro), which pins the inode: a temp
+    file + rename would leave nginx reading the old file until the container
+    is recreated. So the file is rewritten in place (same inode, same mode),
+    and the previous content is restored if the write fails part-way.
+    """
+    if new_content == old_content:
+        return
+
+    error = await asyncio.to_thread(_nginx_test_config, new_content)
+    if error:
+        old_error = await asyncio.to_thread(_nginx_test_config, old_content)
+        if not old_error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"nginx rejected the new configuration, nginx.conf was not changed: {error}",
+            )
+        logger.warning("nginx -t fails for the current nginx.conf as well; writing the access-control change anyway")
+
+    try:
+        _write_file_in_place(NGINX_CONFIG_PATH, new_content)
+    except BaseException:
+        try:
+            _write_file_in_place(NGINX_CONFIG_PATH, old_content)
+        except Exception as restore_error:
+            logger.error(f"Failed to restore nginx.conf after a failed write: {restore_error}")
+        raise
+
+
+def _ip_range_response(r: Dict[str, Any]) -> IPRange:
+    """IPRange for an entry read from nginx.conf; legacy entries that fail validation are shown as-is."""
+    try:
+        return IPRange(**r)
+    except ValidationError:
+        return IPRange.model_construct(**r)
 
 
 @router.get("/access-control", response_model=AccessControlResponse)
@@ -473,8 +460,6 @@ async def get_access_control(
     _=Depends(get_current_user),
 ):
     """Get current access control configuration."""
-    import os
-
     ip_ranges = []
     last_updated = None
     enabled = False
@@ -502,8 +487,7 @@ async def get_access_control(
         last_updated = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
     except Exception as e:
         # Log error but return empty config instead of 500
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to read nginx config: {e}")
+        logger.warning(f"Failed to read nginx config: {e}")
         return AccessControlResponse(
             enabled=False,
             ip_ranges=[],
@@ -513,7 +497,7 @@ async def get_access_control(
 
     return AccessControlResponse(
         enabled=enabled,
-        ip_ranges=[IPRange(**r) for r in ip_ranges],
+        ip_ranges=[_ip_range_response(r) for r in ip_ranges],
         nginx_config_path=NGINX_CONFIG_PATH,
         last_updated=last_updated,
     )
@@ -525,8 +509,6 @@ async def update_access_control(
     _=Depends(get_current_user),
 ):
     """Update access control configuration (replace all IP ranges)."""
-    import os
-
     try:
         if not os.path.exists(NGINX_CONFIG_PATH):
             raise HTTPException(
@@ -543,8 +525,7 @@ async def update_access_control(
         # Update the geo block
         new_content = update_nginx_config_geo_block(content, ip_ranges)
 
-        with open(NGINX_CONFIG_PATH, 'w') as f:
-            f.write(new_content)
+        await _write_nginx_config(content, new_content)
 
         return SuccessResponse(message="Access control configuration updated. Reload nginx to apply changes.")
 
@@ -563,8 +544,6 @@ async def add_ip_range(
     _=Depends(get_current_user),
 ):
     """Add a new IP range to access control."""
-    import os
-
     try:
         if not os.path.exists(NGINX_CONFIG_PATH):
             raise HTTPException(
@@ -578,9 +557,9 @@ async def add_ip_range(
         # Get existing ranges
         ip_ranges = parse_nginx_geo_block(content)
 
-        # Check for duplicate
+        # Check for duplicate (ip_range.cidr is already normalized by the schema)
         for existing in ip_ranges:
-            if existing["cidr"] == ip_range.cidr:
+            if nginx_geo.cidr_key(existing["cidr"]) == ip_range.cidr:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"IP range {ip_range.cidr} already exists",
@@ -596,8 +575,7 @@ async def add_ip_range(
         # Update config
         new_content = update_nginx_config_geo_block(content, ip_ranges)
 
-        with open(NGINX_CONFIG_PATH, 'w') as f:
-            f.write(new_content)
+        await _write_nginx_config(content, new_content)
 
         return SuccessResponse(message=f"IP range {ip_range.cidr} added. Reload nginx to apply changes.")
 
@@ -616,9 +594,9 @@ async def delete_ip_range(
     _=Depends(get_current_user),
 ):
     """Delete an IP range from access control."""
-    import os
-
     try:
+        cidr = nginx_geo.cidr_key(cidr)
+
         # Prevent deletion of protected IP ranges
         if cidr in PROTECTED_IP_RANGES:
             raise HTTPException(
@@ -638,7 +616,7 @@ async def delete_ip_range(
         # Get existing ranges
         ip_ranges = parse_nginx_geo_block(content)
 
-        if any(r["cidr"] == cidr and r.get("protected") for r in ip_ranges):
+        if any(nginx_geo.cidr_key(r["cidr"]) == cidr and r.get("protected") for r in ip_ranges):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete {cidr} - this IP range is managed by setup.sh",
@@ -646,7 +624,7 @@ async def delete_ip_range(
 
         # Find and remove the range
         original_count = len(ip_ranges)
-        ip_ranges = [r for r in ip_ranges if r["cidr"] != cidr]
+        ip_ranges = [r for r in ip_ranges if nginx_geo.cidr_key(r["cidr"]) != cidr]
 
         if len(ip_ranges) == original_count:
             raise HTTPException(
@@ -657,8 +635,7 @@ async def delete_ip_range(
         # Update config
         new_content = update_nginx_config_geo_block(content, ip_ranges)
 
-        with open(NGINX_CONFIG_PATH, 'w') as f:
-            f.write(new_content)
+        await _write_nginx_config(content, new_content)
 
         return SuccessResponse(message=f"IP range {cidr} deleted. Reload nginx to apply changes.")
 
@@ -678,9 +655,9 @@ async def update_ip_range(
     _=Depends(get_current_user),
 ):
     """Update an IP range's description."""
-    import os
-
     try:
+        cidr = nginx_geo.cidr_key(cidr)
+
         if not os.path.exists(NGINX_CONFIG_PATH):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -696,7 +673,12 @@ async def update_ip_range(
         # Find the range to update
         found = False
         for ip_range in ip_ranges:
-            if ip_range["cidr"] == cidr:
+            if nginx_geo.cidr_key(ip_range["cidr"]) == cidr:
+                if _is_managed_ip_range(ip_range):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot edit {cidr} - this IP range is managed by setup.sh",
+                    )
                 ip_range["description"] = update.description
                 found = True
                 break
@@ -710,8 +692,7 @@ async def update_ip_range(
         # Update config
         new_content = update_nginx_config_geo_block(content, ip_ranges)
 
-        with open(NGINX_CONFIG_PATH, 'w') as f:
-            f.write(new_content)
+        await _write_nginx_config(content, new_content)
 
         return SuccessResponse(message=f"IP range {cidr} updated.")
 
@@ -877,6 +858,12 @@ async def update_env_variable(
 
         return SuccessResponse(message=f"Environment variable '{key}' updated successfully.")
 
+    except ValueError as e:
+        # Value cannot be encoded safely for .env / docker compose
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

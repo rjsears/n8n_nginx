@@ -92,6 +92,10 @@ SPECIAL_VALUES=(
     '='
     '&|;<>*?~!'
     ''
+    'C:\dir\'
+    '\'
+    'Pa55w0rd\'
+    "it's\\"
 )
 
 ENV_FILE_PY="${PROJECT_ROOT}/management/api/services/env_file.py"
@@ -104,6 +108,18 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 v = mod.read_env_value(sys.argv[2], sys.argv[3])
 sys.stdout.write("<None>" if v is None else v)
+PY
+}
+python_encode() {  # python_encode VALUE -> encoded .env value via env_file.encode_env_value
+    python3 - "$ENV_FILE_PY" "$1" << 'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("env_file", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+try:
+    sys.stdout.write(mod.encode_env_value(sys.argv[2]))
+except ValueError:
+    sys.stdout.write("<rejected>")
 PY
 }
 HAVE_PY=false
@@ -131,6 +147,7 @@ for v in "${SPECIAL_VALUES[@]}"; do
     assert_eq "bash source KEY_$i [$v]" "$v" "$sourced"
     if [ "$HAVE_PY" = true ]; then
         assert_eq "python parser KEY_$i [$v]" "$v" "$(python_decode "$f" "KEY_$i")"
+        assert_eq "python encoder matches setup.sh KEY_$i [$v]" "$(env_quote_value "$v")" "$(python_encode "$v")"
     fi
     i=$((i + 1))
 done
@@ -143,6 +160,14 @@ if env_set_key "$f" BAD "it's \`x\`" 2>/dev/null; then
     fail "value with both ' and \` must be rejected"
 else
     pass "value with both ' and \` rejected"
+fi
+if env_set_key "$f" BAD 'tick`x`\' 2>/dev/null; then
+    fail "value with \` and a trailing backslash must be rejected"
+else
+    pass "value with \` and a trailing backslash rejected"
+fi
+if [ "$HAVE_PY" = true ]; then
+    assert_eq "python encoder rejects \` + trailing backslash" "<rejected>" "$(python_encode 'tick`x`\')"
 fi
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
     cdir="${WORK_DIR}/compose_special"

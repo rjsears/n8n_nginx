@@ -2957,20 +2957,22 @@ EOF
 # bash, and the management console's parser in management/api/services/env_file.py):
 #   * plain values ([A-Za-z0-9_./:@,+=%-]) are written unquoted
 #   * anything else without a single quote is written '...'  (literal, no $-interpolation)
-#   * values containing a single quote are written "..." with \ " $ escaped
-#   * values containing newlines, or both a single quote and a backtick, are
-#     rejected (compose and bash disagree on escaping ` inside "...")
+#   * values containing a single quote, or ending in a backslash (compose would
+#     read '...\' as an escaped closing quote), are written "..." with \ " $ escaped
+#   * values containing newlines, or a backtick together with a single quote or
+#     a trailing backslash, are rejected (compose and bash disagree on escaping
+#     ` inside "...")
 
 # Encode a value for a .env file. Returns 1 for values that cannot be stored.
 env_quote_value() {
     local v="$1"
     case "$v" in
         *$'\n'*|*$'\r'*) return 1 ;;
-        *"'"*'`'*|*'`'*"'"*) return 1 ;;
+        *"'"*'`'*|*'`'*"'"*|*'`'*\\) return 1 ;;
     esac
     if [[ "$v" =~ ^[A-Za-z0-9_./:@,+=%-]*$ ]]; then
         printf '%s' "$v"
-    elif [[ "$v" != *"'"* ]]; then
+    elif [[ "$v" != *"'"* && "$v" != *\\ ]]; then
         printf "'%s'" "$v"
     else
         v="${v//\\/\\\\}"
