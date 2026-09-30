@@ -235,6 +235,11 @@ def n8n_database_name() -> str:
     return _database_name_from_url(settings.n8n_database_url, "n8n")
 
 
+def _exc_text(e: BaseException) -> str:
+    """str(e), or the exception type when str() is empty (e.g. TimeoutError())."""
+    return str(e) or repr(e)
+
+
 def _tail(text: str, limit: int = _STDERR_LIMIT) -> str:
     text = (text or "").strip()
     if len(text) <= limit:
@@ -282,6 +287,54 @@ def _extract_tar_sync(archive_path: str, dest_dir: str) -> None:
             tar.extractall(dest_dir)
 
 
+def _remove_path_sync(path: str) -> None:
+    if os.path.islink(path) or os.path.isfile(path):
+        os.unlink(path)
+    elif os.path.isdir(path):
+        shutil.rmtree(path)
+
+
+def _replace_entry_sync(src: str, dst: str) -> None:
+    """
+    Replace dst with a copy of src (symlinks preserved) without a window in
+    which a failed copy leaves dst missing: copy to dst.new, move dst to
+    dst.old, move dst.new into place, then remove dst.old. On failure the
+    original dst is put back.
+    """
+    new = dst + ".new"
+    old = dst + ".old"
+    for leftover in (new, old):
+        if os.path.lexists(leftover):
+            _remove_path_sync(leftover)
+
+    try:
+        if os.path.isdir(src) and not os.path.islink(src):
+            shutil.copytree(src, new, symlinks=True)
+        else:
+            shutil.copy2(src, new, follow_symlinks=False)
+    except Exception:
+        if os.path.lexists(new):
+            _remove_path_sync(new)
+        raise
+
+    had_old = os.path.lexists(dst)
+    if had_old:
+        os.rename(dst, old)
+    try:
+        os.rename(new, dst)
+    except Exception:
+        if had_old:
+            os.rename(old, dst)
+        if os.path.lexists(new):
+            _remove_path_sync(new)
+        raise
+    if had_old:
+        try:
+            _remove_path_sync(old)
+        except OSError as e:
+            logger.warning(f"Could not remove {old}: {e}")
+
+
 def _restore_letsencrypt_tree_sync(src_root: str, dest_root: str, backup_dir: Optional[str]) -> Dict[str, Any]:
     """
     Replace each top-level entry of dest_root (/etc/letsencrypt) with the
@@ -298,16 +351,7 @@ def _restore_letsencrypt_tree_sync(src_root: str, dest_root: str, backup_dir: Op
 
     os.makedirs(dest_root, exist_ok=True)
     for entry in sorted(os.listdir(src_root)):
-        src = os.path.join(src_root, entry)
-        dst = os.path.join(dest_root, entry)
-        if os.path.islink(dst) or os.path.isfile(dst):
-            os.unlink(dst)
-        elif os.path.isdir(dst):
-            shutil.rmtree(dst)
-        if os.path.isdir(src) and not os.path.islink(src):
-            shutil.copytree(src, dst, symlinks=True)
-        else:
-            shutil.copy2(src, dst, follow_symlinks=False)
+        _replace_entry_sync(os.path.join(src_root, entry), os.path.join(dest_root, entry))
 
     return {
         "status": "success",
@@ -337,13 +381,14 @@ def _find_n8n_container_sync():
     return None
 
 
-def _stop_container_sync(container) -> bool:
-    """Stop the container if running. Returns True if it was running."""
+def _container_running_sync(container) -> bool:
+    """Return True if the container is currently running."""
     container.reload()
-    if container.status != "running":
-        return False
+    return container.status == "running"
+
+
+def _stop_container_sync(container) -> None:
     container.stop(timeout=60)
-    return True
 
 
 def _start_container_sync(container) -> None:
@@ -1908,14 +1953,23 @@ class RestoreService:
                 "Set N8N_CONTAINER for the management container or use the bare-metal restore.sh."
             )
 
+        # was_running is read in its own call BEFORE stopping, so the finally
+        # block restarts n8n even if the stop call times out (the worker thread
+        # may still stop the container) or raises after the container stopped.
         was_running = False
+        stop_future: Optional[asyncio.Future] = None
         renamed_old = False
         swap_error: Optional[str] = None
         swap_stderr = ""
         try:
             was_running = await asyncio.wait_for(
-                asyncio.to_thread(_stop_container_sync, container), timeout=DOCKER_TIMEOUT
+                asyncio.to_thread(_container_running_sync, container), timeout=DOCKER_TIMEOUT
             )
+            if was_running:
+                # Shielded so a timeout does not lose track of the stop still
+                # running in its worker thread (awaited again before restart).
+                stop_future = asyncio.ensure_future(asyncio.to_thread(_stop_container_sync, container))
+                await asyncio.wait_for(asyncio.shield(stop_future), timeout=DOCKER_TIMEOUT)
             logger.info(f"n8n container stopped for restore (was running: {was_running})")
 
             for attempt in range(1, 4):
@@ -1941,13 +1995,13 @@ class RestoreService:
                 result["message"] = f"Restored database {database_name} into {target}"
                 break
         except Exception as e:
-            swap_error = f"Restore aborted while swapping databases: {e}"
+            swap_error = f"Restore aborted while stopping n8n / swapping databases: {_exc_text(e)}"
         finally:
             if result["status"] != "success" and renamed_old:
                 try:
                     brc, _, berr = await self._psql(f'ALTER DATABASE "{old_db}" RENAME TO "{target}"')
                 except Exception as e:
-                    brc, berr = 1, str(e)
+                    brc, berr = 1, _exc_text(e)
                 if brc == 0:
                     swap_error = (swap_error or "Swap failed.") + " The previous database was put back; nothing changed."
                 else:
@@ -1957,16 +2011,25 @@ class RestoreService:
                     )
             if was_running:
                 try:
+                    if stop_future is not None and not stop_future.done():
+                        # Let a timed-out stop finish first, or it could stop
+                        # n8n again right after the restart below.
+                        await asyncio.wait({stop_future}, timeout=DOCKER_TIMEOUT)
                     await asyncio.shield(asyncio.wait_for(
                         asyncio.to_thread(_start_container_sync, container), timeout=DOCKER_TIMEOUT
                     ))
                     result["n8n_restarted"] = True
                 except Exception as e:
                     result["n8n_restarted"] = False
-                    result.setdefault("warnings", []).append(
-                        f"n8n could not be restarted automatically: {e}. Start it with 'docker compose up -d n8n'."
+                    restart_msg = (
+                        f"n8n could not be restarted automatically: {_exc_text(e)}. "
+                        f"Start it with 'docker compose up -d n8n'."
                     )
-                    logger.error(f"Failed to restart n8n after restore: {e}")
+                    result.setdefault("warnings", []).append(restart_msg)
+                    # Also surface it in the failure message if the swap failed.
+                    if result["status"] != "success":
+                        swap_error = (swap_error or "Database swap failed.") + " " + restart_msg
+                    logger.error(f"Failed to restart n8n after restore: {_exc_text(e)}")
 
         if result["status"] != "success":
             await drop_tmp()

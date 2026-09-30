@@ -26,14 +26,16 @@
 # Order of operations:
 #   1. Pre-flight checks (backup contents, OS, system requirements, utilities)
 #   2. Docker / Docker Compose
-#   3. Configuration files (including dotfiles such as .env)
+#   3. Stop the stack if it is running in the target directory, then restore
+#      configuration files (including dotfiles such as .env)
 #   4. DNS / NFS validation
 #   5. Docker volumes and SSL certificates (full /etc/letsencrypt tree with
 #      symlinks preserved, so certbot can keep renewing)
 #   6. Public website files
-#   7. Start ONLY the postgres service, wait for it to accept connections
-#      and restore each database with pg_restore (single transaction, stops on
-#      the first error) - nothing else is running against the databases
+#   7. Start ONLY the postgres service, wait until it accepts TCP connections
+#      (i.e. the image's first-start init has finished) and restore each
+#      database with pg_restore (single transaction, stops on the first error)
+#      - nothing else is running against the databases
 #   8. Start the rest of the stack
 #   9. Health checks
 #
@@ -77,8 +79,10 @@ AUTO_MODE=false
 MIN_DISK_GB=5
 MIN_RAM_MB=2048
 
-# How long to wait for PostgreSQL (attempts x 2 seconds)
-PG_READY_ATTEMPTS=60
+# How long to wait for PostgreSQL (attempts x 2 seconds), and how many
+# consecutive successful checks count as ready
+PG_READY_ATTEMPTS=90
+PG_READY_CONSECUTIVE=3
 
 # Database settings (overridden from the backup's .env in Step 4)
 PG_USER="n8n"
@@ -702,18 +706,84 @@ setup_nfs() {
 # ============================================================================
 
 wait_for_postgres() {
-    local attempt=0
-    log_info "Waiting for PostgreSQL to accept connections..."
-    until compose exec -T postgres pg_isready -U "$PG_USER" -d "$PG_DB" &>/dev/null; do
+    # Check over TCP (-h 127.0.0.1, like the compose healthcheck): on first
+    # start the postgres image runs init-db.sh against a temporary server that
+    # only listens on the unix socket and is then restarted. A socket check
+    # would report "ready" during init and the restore would race it. Several
+    # consecutive successes are required to ride out that restart.
+    local attempt=0 ok=0
+    log_info "Waiting for PostgreSQL to accept TCP connections..."
+    while [[ $ok -lt $PG_READY_CONSECUTIVE ]]; do
+        if compose exec -T postgres pg_isready -h 127.0.0.1 -U "$PG_USER" -d "$PG_DB" &>/dev/null; then
+            ok=$((ok + 1))
+        else
+            ok=0
+        fi
         attempt=$((attempt + 1))
-        if [[ $attempt -ge $PG_READY_ATTEMPTS ]]; then
+        if [[ $ok -lt $PG_READY_CONSECUTIVE ]] && [[ $attempt -ge $PG_READY_ATTEMPTS ]]; then
             log_error "PostgreSQL did not become ready after $((PG_READY_ATTEMPTS * 2)) seconds"
             compose logs --tail 50 postgres || true
             return 1
         fi
-        sleep 2
+        [[ $ok -ge $PG_READY_CONSECUTIVE ]] || sleep 2
     done
     log_success "PostgreSQL is ready"
+}
+
+# Values from .env that end up inside SQL statements must be plain identifiers.
+validate_sql_identifier() {
+    local name="$1"
+    local value="$2"
+    if [[ ! "$value" =~ ^[A-Za-z0-9_]+$ ]]; then
+        log_error "$name='$value' is not a plain identifier (allowed: letters, digits, underscore)."
+        log_error "Refusing to restore: it would be interpolated into SQL. Fix it in the backup's .env."
+        return 1
+    fi
+}
+
+# The .env Step 4 will read: the backup's copy once Step 3 has restored it,
+# otherwise the one already in the target directory.
+resolve_env_file() {
+    if [[ "$SKIP_CONFIG" != "true" ]] && [[ -f "$SCRIPT_DIR/config/.env" ]]; then
+        printf '%s' "$SCRIPT_DIR/config/.env"
+    elif [[ -f "$TARGET_DIR/.env" ]]; then
+        printf '%s' "$TARGET_DIR/.env"
+    elif [[ -f "$SCRIPT_DIR/config/.env" ]]; then
+        printf '%s' "$SCRIPT_DIR/config/.env"
+    fi
+}
+
+# Stop a stack that is already running from TARGET_DIR before its config,
+# certificates and databases are overwritten.
+stop_running_stack() {
+    if ! command_exists docker; then
+        return 0
+    fi
+    if [[ ! -f "$TARGET_DIR/docker-compose.yaml" ]] && [[ ! -f "$TARGET_DIR/docker-compose.yml" ]]; then
+        return 0
+    fi
+
+    local running=""
+    running=$(cd "$TARGET_DIR" && compose ps -q 2>/dev/null) || running=""
+    if [[ -z "$running" ]]; then
+        log_info "No running containers for the stack in $TARGET_DIR"
+        return 0
+    fi
+
+    local count
+    count=$(printf '%s\n' "$running" | grep -c . || true)
+    log_warning "The stack in $TARGET_DIR is running ($count container(s))."
+    log_warning "It must be stopped before its configuration and databases are overwritten."
+    if [[ "$DRY_RUN" == "true" ]]; then
+        dry_run_note "Would stop the running stack (in $TARGET_DIR): docker compose down"
+        return 0
+    fi
+    if ! confirm "Stop the running stack now (docker compose down; volumes are kept)?"; then
+        log_error "Cannot restore over a running stack. Stop it first (cd $TARGET_DIR && docker compose down) and re-run."
+        exit 1
+    fi
+    (cd "$TARGET_DIR" && compose down)
+    log_success "Stopped the running stack"
 }
 
 psql_postgres() {
@@ -776,18 +846,65 @@ restore_one_database() {
         db_restore_failed "pg_restore FAILED for $db_name (exit code $rc). It ran in a single transaction, so $db_name was left as it was before this step."
     fi
 
-    # The dumps are taken with --no-owner/--no-acl. Give the management
-    # console's own role access to its restored tables again.
+    # The dumps are taken with --no-owner/--no-acl, so the restored objects
+    # belong to $PG_USER. The management console connects as $MGMT_USER and
+    # its startup migrations (ALTER TABLE ... ADD COLUMN) need to OWN the
+    # tables, so hand ownership back to it and re-grant access.
     if [[ "$db_name" == "n8n_management" ]]; then
+        validate_sql_identifier MGMT_DB_USER "$MGMT_USER" || \
+            db_restore_failed "Invalid MGMT_DB_USER"
         local role_exists=""
         role_exists=$(psql_postgres -c "SELECT 1 FROM pg_roles WHERE rolname = '${MGMT_USER}'") || true
         if [[ "$role_exists" == "1" ]]; then
+            compose exec -T postgres psql -v ON_ERROR_STOP=1 -X -q -1 -U "$PG_USER" -d "$db_name" \
+                -v mgmt_user="$MGMT_USER" <<'SQL' || \
+                db_restore_failed "Could not transfer ownership of $db_name objects to $MGMT_USER"
+SELECT set_config('restore.mgmt_user', :'mgmt_user', true) AS mgmt_owner \gset
+DO $$
+DECLARE
+    r record;
+    owner_role text := current_setting('restore.mgmt_user');
+BEGIN
+    -- Tables, views, materialized views, foreign tables and sequences that
+    -- are not owned by a table column (those follow their table).
+    FOR r IN
+        SELECT c.oid::regclass AS obj,
+               CASE c.relkind
+                   WHEN 'S' THEN 'SEQUENCE'
+                   WHEN 'v' THEN 'VIEW'
+                   WHEN 'm' THEN 'MATERIALIZED VIEW'
+                   WHEN 'f' THEN 'FOREIGN TABLE'
+                   ELSE 'TABLE'
+               END AS kind
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+          AND NOT (c.relkind = 'S' AND EXISTS (
+              SELECT 1 FROM pg_depend d
+              WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
+                AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')))
+    LOOP
+        EXECUTE format('ALTER %s %s OWNER TO %I', r.kind, r.obj, owner_role);
+    END LOOP;
+    -- Enum and domain types
+    FOR r IN
+        SELECT t.oid::regtype AS obj
+        FROM pg_type t
+        JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'public' AND t.typtype IN ('e', 'd')
+    LOOP
+        EXECUTE format('ALTER TYPE %s OWNER TO %I', r.obj, owner_role);
+    END LOOP;
+END
+$$;
+SQL
             compose exec -T postgres psql -v ON_ERROR_STOP=1 -X -q -U "$PG_USER" -d "$db_name" \
                 -c "GRANT ALL ON SCHEMA public TO \"${MGMT_USER}\";" \
                 -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO \"${MGMT_USER}\";" \
                 -c "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO \"${MGMT_USER}\";" || \
                 db_restore_failed "Could not grant privileges on $db_name to $MGMT_USER"
-            log_success "Granted privileges on $db_name to role $MGMT_USER"
+            log_success "Made role $MGMT_USER the owner of the restored objects in $db_name"
         else
             log_warning "Role $MGMT_USER does not exist - the management console may not be able to connect"
         fi
@@ -882,6 +999,17 @@ main() {
         echo ""
     fi
 
+    # Validate .env values that are interpolated into SQL before touching anything.
+    if [[ "$SKIP_DB" != "true" ]]; then
+        local preflight_env=""
+        preflight_env=$(resolve_env_file)
+        if [[ -n "$preflight_env" ]]; then
+            local preflight_mgmt_user
+            preflight_mgmt_user=$(env_get "$preflight_env" MGMT_DB_USER)
+            validate_sql_identifier MGMT_DB_USER "${preflight_mgmt_user:-n8n_mgmt}" || exit 1
+        fi
+    fi
+
     if ! confirm "Proceed with restore?"; then
         echo "Restore cancelled."
         exit 0
@@ -943,6 +1071,10 @@ main() {
     # ========================================================================
     log_step "Step 3: Restore Configuration Files"
 
+    # Nothing may keep running against the config, certificates and databases
+    # this script is about to replace.
+    stop_running_stack
+
     if [[ "$SKIP_CONFIG" != "true" ]] && [[ -d "$SCRIPT_DIR/config" ]]; then
         run_cmd mkdir -p "$TARGET_DIR"
 
@@ -1002,6 +1134,9 @@ main() {
         PG_USER="${PG_USER:-n8n}"
         PG_DB="${PG_DB:-n8n}"
         MGMT_USER="${MGMT_USER:-n8n_mgmt}"
+        if [[ "$SKIP_DB" != "true" ]]; then
+            validate_sql_identifier MGMT_DB_USER "$MGMT_USER" || exit 1
+        fi
 
         validate_dns "$DOMAIN" "$HOST_IP" || log_warning "Continuing despite DNS validation problems"
 
@@ -1144,10 +1279,13 @@ main() {
         log_warning "No database dumps found in backup - skipping database restoration"
     elif [[ "$DRY_RUN" == "true" ]]; then
         dry_run_note "Would run (in $TARGET_DIR): docker compose up -d postgres"
-        dry_run_note "Would wait for pg_isready -U $PG_USER -d $PG_DB"
+        dry_run_note "Would wait for $PG_READY_CONSECUTIVE consecutive successes of: pg_isready -h 127.0.0.1 -U $PG_USER -d $PG_DB"
         local dump_file
         for dump_file in "${dumps[@]}"; do
             dry_run_note "Would restore $(basename "$dump_file" .dump): pg_restore --clean --if-exists --no-owner --no-acl --exit-on-error --single-transaction"
+            if [[ "$(basename "$dump_file" .dump)" == "n8n_management" ]]; then
+                dry_run_note "Would make role $MGMT_USER the owner of the restored n8n_management objects"
+            fi
         done
     else
         cd "$TARGET_DIR"

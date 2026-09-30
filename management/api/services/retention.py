@@ -26,8 +26,15 @@ Rules (per call, i.e. per backup type):
   * Monthly tier: same with calendar months, ``monthly`` buckets.
   * Buckets are computed in the given timezone. Naive datetimes are treated
     as UTC.
+  * Backups without a created_at cannot be placed in a bucket; they are
+    always kept and do not count towards any rule.
   * A backup kept by any rule is kept; everything else is selected for
     deletion.
+
+select_floor_ids() computes the retention floor shared by every pruning path
+(GFS, time/space/size based, critical space, pending deletions): the newest
+max(min_count, 1) successful, not-deleted backups of each backup type are never
+marked for deletion or deleted automatically.
 
 "Most recent buckets that contain a backup" (rather than "the last N calendar
 days") means that if backups stop being taken, the remaining ones are not
@@ -37,7 +44,7 @@ backups.
 
 from dataclasses import dataclass
 from datetime import datetime, timezone, tzinfo
-from typing import Callable, Hashable, Iterable, List, Optional, Set, Tuple
+from typing import Callable, Dict, Hashable, Iterable, List, Optional, Set, Tuple
 
 # Model/UI defaults (see BackupConfiguration in api/models/backups.py and the
 # Retention tab in BackupSettingsView.vue).
@@ -108,14 +115,17 @@ def select_gfs_retention(
 
     Returns:
         (keep_ids, delete_ids). Together they contain every input id exactly once.
+        Backups whose created_at is None are always in keep_ids.
     """
-    items: List[Tuple[int, datetime]] = [
-        (backup_id, _localize(created_at, tz)) for backup_id, created_at in backups
-    ]
+    keep: Set[int] = set()
+    items: List[Tuple[int, datetime]] = []
+    for backup_id, created_at in backups:
+        if created_at is None:
+            keep.add(backup_id)  # cannot be bucketed: never delete
+            continue
+        items.append((backup_id, _localize(created_at, tz)))
     # Newest first; id as deterministic tie-break for identical timestamps.
     items.sort(key=lambda item: (item[1], item[0]), reverse=True)
-
-    keep: Set[int] = set()
 
     # Safety net: newest N always kept, and never fewer than 1.
     min_keep = max(config.min_count, 1)
@@ -140,5 +150,38 @@ def select_gfs_retention(
             seen.add(bucket)
             keep.add(backup_id)  # newest backup in this bucket
 
-    all_ids = {backup_id for backup_id, _ in items}
+    all_ids = {backup_id for backup_id, _ in items} | keep
     return keep, all_ids - keep
+
+
+def select_floor_ids(
+    backups: Iterable[Tuple[int, Hashable, Optional[datetime]]],
+    min_count: Optional[int],
+) -> Set[int]:
+    """
+    Return the ids protected by the retention floor.
+
+    Args:
+        backups: (id, backup_type, created_at) for every successful, not-deleted
+            backup (protected ones included: they count towards the floor).
+        min_count: the GFS "Safety Net" count; None means the model default.
+            Values below 1 are raised to 1.
+
+    Returns:
+        The ids of the newest max(min_count, 1) backups of each backup type, plus
+        every backup without a created_at (which cannot be ordered).
+    """
+    floor = max(DEFAULT_MIN_COUNT if min_count is None else int(min_count), 1)
+    protected: Set[int] = set()
+    by_type: Dict[Hashable, List[Tuple[datetime, int]]] = {}
+    for backup_id, backup_type, created_at in backups:
+        if created_at is None:
+            protected.add(backup_id)
+            continue
+        by_type.setdefault(backup_type, []).append(
+            (_localize(created_at, timezone.utc), backup_id)
+        )
+    for items in by_type.values():
+        items.sort(reverse=True)  # newest first, id as tie-break
+        protected.update(backup_id for _, backup_id in items[:floor])
+    return protected

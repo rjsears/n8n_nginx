@@ -211,3 +211,91 @@ def test_newest_always_kept(hours_between):
     keep, delete = select_gfs_retention(backups, RetentionConfig(daily=1, weekly=1, monthly=1, min_count=1))
     assert 1 in keep
     _partition_ok(backups, keep, delete)
+
+
+def test_rows_without_created_at_are_kept_and_do_not_abort():
+    backups = [
+        (1, datetime(2026, 9, 30, 2, tzinfo=UTC)),
+        (2, None),
+        (3, datetime(2026, 9, 29, 2, tzinfo=UTC)),
+        (4, datetime(2026, 9, 28, 2, tzinfo=UTC)),
+    ]
+    keep, delete = select_gfs_retention(backups, RetentionConfig(daily=1, weekly=0, monthly=0, min_count=1))
+    assert keep == {1, 2}
+    assert delete == {3, 4}
+    _partition_ok(backups, keep, delete)
+
+
+def test_rows_without_created_at_do_not_count_towards_min_count():
+    backups = [(1, None), (2, None), (3, datetime(2026, 9, 30, tzinfo=UTC)), (4, datetime(2026, 9, 1, tzinfo=UTC))]
+    keep, delete = select_gfs_retention(backups, RetentionConfig(daily=0, weekly=0, monthly=0, min_count=1))
+    assert keep == {1, 2, 3}
+    assert delete == {4}
+
+
+# ---------------------------------------------------------------------------
+# Retention floor shared by every pruning path (select_floor_ids)
+# ---------------------------------------------------------------------------
+
+select_floor_ids = retention.select_floor_ids
+
+
+def _typed(backup_type, first_id, count, start=datetime(2026, 9, 30, 2, tzinfo=UTC)):
+    """`count` daily backups of one type; first_id is the newest."""
+    return [(first_id + i, backup_type, start - timedelta(days=i)) for i in range(count)]
+
+
+def test_floor_keeps_newest_n_of_each_type():
+    rows = _typed("postgres_full", 1, 10) + _typed("postgres_n8n", 101, 10)
+    assert select_floor_ids(rows, 3) == {1, 2, 3, 101, 102, 103}
+
+
+def test_floor_is_at_least_one():
+    rows = _typed("postgres_full", 1, 5) + _typed("postgres_mgmt", 50, 2)
+    for min_count in (0, -4):
+        assert select_floor_ids(rows, min_count) == {1, 50}
+
+
+def test_floor_none_uses_model_default():
+    rows = _typed("postgres_full", 1, 10)
+    assert select_floor_ids(rows, None) == {1, 2, 3}
+
+
+def test_floor_covers_everything_when_fewer_backups_than_min_count():
+    rows = _typed("postgres_full", 1, 2)
+    assert select_floor_ids(rows, 3) == {1, 2}
+
+
+def test_floor_input_order_and_tie_break():
+    ts = datetime(2026, 9, 30, 2, tzinfo=UTC)
+    rows = [(5, "t", ts), (7, "t", ts), (6, "t", ts), (1, "t", ts - timedelta(days=1))]
+    assert select_floor_ids(rows, 1) == {7}
+    assert select_floor_ids(list(reversed(rows)), 2) == {7, 6}
+
+
+def test_floor_protects_rows_without_created_at_and_mixed_naive_aware():
+    rows = [
+        (1, "t", None),
+        (2, "t", datetime(2026, 9, 30, 5)),  # naive = UTC
+        (3, "t", datetime(2026, 9, 30, 4, tzinfo=UTC)),
+    ]
+    assert select_floor_ids(rows, 1) == {1, 2}
+
+
+def test_floor_leaves_nothing_to_delete_when_only_min_count_backups_exist():
+    # Emergency/space pruning takes the oldest candidates after removing the
+    # floor: with 3 old backups and min_count=3 nothing may be deleted.
+    rows = _typed("postgres_full", 1, 3, start=datetime(2020, 1, 1, tzinfo=UTC))
+    floor = select_floor_ids(rows, 3)
+    oldest_first = sorted(rows, key=lambda r: r[2])
+    assert [r[0] for r in oldest_first if r[0] not in floor] == []
+
+
+def test_gfs_never_deletes_a_floor_backup():
+    # GFS keeps the newest min_count UNPROTECTED backups; the floor counts
+    # protected ones too, so it is never stricter than GFS.
+    rows = _typed("postgres_full", 1, 40)
+    protected = {2, 5}
+    unprotected = [(i, ts) for i, _, ts in rows if i not in protected]
+    _, delete = select_gfs_retention(unprotected, RetentionConfig(daily=0, weekly=0, monthly=0, min_count=3))
+    assert not delete & select_floor_ids(rows, 3)

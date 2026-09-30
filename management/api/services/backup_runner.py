@@ -19,8 +19,11 @@ Sequence:
   2. Release the lock, then run auto-verification if requested. Verification
      may take the lock itself; the lock is not reentrant, so it must not run
      while the backup still holds it.
-  3. Run GFS retention + pruning (skipped if another operation is busy; the
-     hourly maintenance job catches up).
+  3. Run GFS retention + the automatic pruning checks (skipped if another
+     operation is busy; the hourly maintenance job catches up). Automatic runs
+     never delete for space/size reasons and always keep the newest
+     max(retention_min_count, 1) backups of each type; see
+     PruningService.run_all_pruning_checks().
 
 BackupService.run_backup_with_metadata() itself does NOT take the lock, so code
 that already holds it (e.g. a pre-restore safety backup) can call it directly.
