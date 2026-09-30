@@ -26,17 +26,24 @@ logger = logging.getLogger(__name__)
 
 
 async def get_client_ip(request: Request) -> str:
-    """Extract client IP from request, handling proxies."""
-    # Check X-Forwarded-For header (from nginx)
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # Take the first IP in the chain
-        return forwarded_for.split(",")[0].strip()
+    """Extract client IP from request, handling proxies.
 
-    # Check X-Real-IP header
-    real_ip = request.headers.get("X-Real-IP")
+    The container's nginx always overwrites X-Real-IP (and X-Forwarded-For)
+    with the client address it got from n8n_nginx, so prefer X-Real-IP. Never
+    trust the first X-Forwarded-For entry: a client can put anything there to
+    dodge login rate limiting or the allowed-subnet check. If only
+    X-Forwarded-For is present, use its last entry - the one appended by the
+    proxy directly in front of us.
+    """
+    real_ip = request.headers.get("X-Real-IP", "").strip()
     if real_ip:
         return real_ip
+
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        last = forwarded_for.split(",")[-1].strip()
+        if last:
+            return last
 
     # Fall back to direct client
     return request.client.host if request.client else "unknown"
