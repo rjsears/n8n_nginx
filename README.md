@@ -116,10 +116,12 @@ Verification is not a checksum. On demand or on a schedule, the console:
 On top of that: four backup types (full cluster, n8n DB, config, individual flows), hourly-to-monthly scheduling with tiered retention, four independent pruning modes with emergency low-disk handling, **selective restore** (mount a backup, browse workflows/credentials/config, restore one item with rename/overwrite/skip conflict handling), and a **bare-metal recovery archive** that embeds its own `restore.sh` — recovery does not depend on having this repo checked out.
 
 ```bash
-tar -xzf n8n-baremetal-2026-07-31.tar.gz
-cd n8n-baremetal-2026-07-31
-./restore.sh
+mkdir n8n-restore && tar -xzf backup_20260731_020000.n8n_backup.tar.gz -C n8n-restore
+cd n8n-restore
+sudo ./restore.sh --dry-run   # preview, then run without --dry-run
 ```
+
+`restore.sh` starts only PostgreSQL, restores every database in a single transaction (stopping on the first error), and only then brings up the rest of the stack. **Archives created before restore script v3.2.0 embed a `restore.sh` that cannot complete** — download the current one from *Backups → Bare Metal → Download latest restore.sh* (or `GET /api/backups/restore-script`), copy it over the one in the extracted archive, and take a fresh backup after upgrading. The in-app restore only restores the n8n database (stopping n8n, with a safety dump and the previous database kept); the management database is restored with `restore.sh`. See the [Backup Guide](docs/BACKUP_GUIDE.md#restoring-data).
 
 ### 🛡️ One exposed port — and a deliberate public/private split
 

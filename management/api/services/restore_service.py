@@ -11,6 +11,8 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
+import contextlib
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -187,6 +189,165 @@ def _clear_credential_cache() -> None:
             logger.info("Cleared credential cache")
     except Exception as e:
         logger.warning(f"Failed to clear credential cache: {e}")
+
+
+# ============================================================================
+# In-app database restore safety helpers
+# ============================================================================
+
+# Timeouts for subprocesses in the in-app restore path (seconds)
+PG_LONG_TIMEOUT = 3 * 60 * 60   # pg_dump / pg_restore of a large database
+PG_SHORT_TIMEOUT = 120          # psql admin statements, pg_restore --list
+DOCKER_TIMEOUT = 180            # stopping / starting the n8n container
+
+# Cap on stderr returned to API clients
+_STDERR_LIMIT = 8000
+
+_SAFE_DB_NAME = re.compile(r"^[A-Za-z0-9_]+$")
+
+# certbot's configuration root as mounted in the management container
+LETSENCRYPT_ROOT = "/etc/letsencrypt"
+
+MANAGEMENT_DB_REFUSAL = (
+    "The management database ({name}) cannot be restored from inside the management "
+    "console, because the console itself is running on it. Use the bare-metal "
+    "procedure instead: download the backup (Bare Metal > Download Recovery Archive), "
+    "stop the stack, extract the archive and run ./restore.sh (see the Backup Guide, "
+    "'Restoring the management database')."
+)
+
+
+def _database_name_from_url(url: str, default: str) -> str:
+    try:
+        from sqlalchemy.engine import make_url
+        return make_url(url).database or default
+    except Exception:
+        return default
+
+
+def management_database_name() -> str:
+    """Name of the management console's own database (never restored in-app)."""
+    return _database_name_from_url(settings.database_url, "n8n_management")
+
+
+def n8n_database_name() -> str:
+    """Name of the live n8n database (the only database restorable in-app)."""
+    return _database_name_from_url(settings.n8n_database_url, "n8n")
+
+
+def _tail(text: str, limit: int = _STDERR_LIMIT) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return "...(truncated)...\n" + text[-limit:]
+
+
+async def _run_subprocess(
+    cmd: List[str],
+    env: Optional[Dict[str, str]] = None,
+    timeout: float = PG_SHORT_TIMEOUT,
+) -> Tuple[int, str, str]:
+    """
+    Run a command without blocking the event loop.
+
+    Returns (returncode, stdout, stderr). A timeout kills the process and is
+    reported as returncode -1.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return -1, "", f"{cmd[0]} timed out after {int(timeout)}s and was killed"
+    return (
+        proc.returncode,
+        stdout.decode("utf-8", errors="replace"),
+        stderr.decode("utf-8", errors="replace"),
+    )
+
+
+def _extract_tar_sync(archive_path: str, dest_dir: str) -> None:
+    """Extract a .tar.gz, refusing absolute paths / path traversal where supported."""
+    with tarfile.open(archive_path, "r:gz") as tar:
+        try:
+            tar.extractall(dest_dir, filter="tar")
+        except TypeError:
+            # Python without extraction filters (< 3.11.4)
+            tar.extractall(dest_dir)
+
+
+def _restore_letsencrypt_tree_sync(src_root: str, dest_root: str, backup_dir: Optional[str]) -> Dict[str, Any]:
+    """
+    Replace each top-level entry of dest_root (/etc/letsencrypt) with the
+    archive's copy, preserving symlinks, so live/ keeps pointing into archive/
+    and certbot can still renew the restored lineages.
+    """
+    backup_created = None
+    if backup_dir and os.path.isdir(dest_root):
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_created = os.path.join(
+            backup_dir, f"letsencrypt.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        shutil.copytree(dest_root, backup_created, symlinks=True)
+
+    os.makedirs(dest_root, exist_ok=True)
+    for entry in sorted(os.listdir(src_root)):
+        src = os.path.join(src_root, entry)
+        dst = os.path.join(dest_root, entry)
+        if os.path.islink(dst) or os.path.isfile(dst):
+            os.unlink(dst)
+        elif os.path.isdir(dst):
+            shutil.rmtree(dst)
+        if os.path.isdir(src) and not os.path.islink(src):
+            shutil.copytree(src, dst, symlinks=True)
+        else:
+            shutil.copy2(src, dst, follow_symlinks=False)
+
+    return {
+        "status": "success",
+        "config_path": "letsencrypt/",
+        "target_path": dest_root,
+        "backup_created": backup_created,
+        "message": "Restored the complete certificate tree (symlinks preserved)",
+    }
+
+
+def _find_n8n_container_sync():
+    """Return the n8n docker container object, or None if it cannot be identified."""
+    import docker
+    from docker.errors import NotFound
+
+    client = docker.from_env()
+    for name in (os.environ.get("N8N_CONTAINER"), "n8n"):
+        if not name:
+            continue
+        try:
+            return client.containers.get(name)
+        except NotFound:
+            continue
+    matches = client.containers.list(all=True, filters={"label": "com.docker.compose.service=n8n"})
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _stop_container_sync(container) -> bool:
+    """Stop the container if running. Returns True if it was running."""
+    container.reload()
+    if container.status != "running":
+        return False
+    container.stop(timeout=60)
+    return True
+
+
+def _start_container_sync(container) -> None:
+    container.start()
 
 
 class RestoreService:
@@ -1306,19 +1467,25 @@ class RestoreService:
         """
         Extract a backup archive to a temp directory.
         Returns (temp_dir_path, metadata_dict) or (None, error_dict).
+
+        The request's DB transaction is ended before extracting, and the
+        extraction runs in a worker thread, so a long extraction neither holds
+        locks on the management database nor blocks the event loop.
         """
         backup = await self.backup_service.get_backup(backup_id)
         if not backup:
             return None, {"error": "Backup not found"}
+        filepath = backup.filepath
 
-        if not os.path.exists(backup.filepath):
-            return None, {"error": f"Backup file not found: {backup.filepath}"}
+        # Release the snapshot/locks taken by the lookup above.
+        await self.db.commit()
 
+        if not filepath or not os.path.exists(filepath):
+            return None, {"error": f"Backup file not found: {filepath}"}
+
+        temp_dir = tempfile.mkdtemp(prefix="n8n_restore_")
         try:
-            temp_dir = tempfile.mkdtemp(prefix="n8n_restore_")
-
-            with tarfile.open(backup.filepath, "r:gz") as tar:
-                tar.extractall(temp_dir)
+            await asyncio.to_thread(_extract_tar_sync, filepath, temp_dir)
 
             # Read metadata
             metadata_path = os.path.join(temp_dir, "metadata.json")
@@ -1331,6 +1498,7 @@ class RestoreService:
 
         except Exception as e:
             logger.error(f"Failed to extract backup: {e}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return None, {"error": str(e)}
 
     async def list_config_files_in_backup(self, backup_id: int) -> List[Dict[str, Any]]:
@@ -1456,9 +1624,24 @@ class RestoreService:
             return {"status": "failed", "error": metadata.get("error", "Extract failed")}
 
         try:
-            source_path = os.path.join(temp_dir, config_path)
+            return self._restore_config_from_dir(temp_dir, config_path, target_path, create_backup)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _restore_config_from_dir(
+        self,
+        temp_dir: str,
+        config_path: str,
+        target_path: Optional[str] = None,
+        create_backup: bool = True,
+    ) -> Dict[str, Any]:
+        """Restore one config/SSL file from an already-extracted archive directory."""
+        try:
+            source_path = os.path.realpath(os.path.join(temp_dir, config_path))
+            if not source_path.startswith(os.path.realpath(temp_dir) + os.sep):
+                return {"status": "failed", "config_path": config_path, "error": f"Invalid config path: {config_path}"}
             if not os.path.exists(source_path):
-                return {"status": "failed", "error": f"Config file not found in backup: {config_path}"}
+                return {"status": "failed", "config_path": config_path, "error": f"Config file not found in backup: {config_path}"}
 
             # Determine target path
             if not target_path:
@@ -1479,6 +1662,7 @@ class RestoreService:
                     "config/tailscale-serve.json": "/app/host_project/tailscale-serve.json",
                     "config/dozzle/users.yml": "/app/host_project/dozzle/users.yml",
                     "config/ntfy/server.yml": "/app/host_project/ntfy/server.yml",
+                    "config/filebrowser.db": "/app/host_project/filebrowser.db",
                 }
                 target_path = path_mappings.get(config_path)
 
@@ -1489,7 +1673,7 @@ class RestoreService:
                     target_path = f"/etc/letsencrypt/live/{ssl_relative}"
 
                 if not target_path:
-                    return {"status": "failed", "error": f"No target path for: {config_path}"}
+                    return {"status": "failed", "config_path": config_path, "error": f"No target path for: {config_path}"}
 
             # Create backup of existing file
             # NOTE: Config files are bind-mounted as individual files, not directories.
@@ -1532,7 +1716,7 @@ class RestoreService:
                            f"(size: {stat_info.st_size} bytes, inode: {stat_info.st_ino})")
             else:
                 logger.error(f"File not found after restore: {target_path}")
-                return {"status": "failed", "error": f"File not found after restore: {target_path}"}
+                return {"status": "failed", "config_path": config_path, "error": f"File not found after restore: {target_path}"}
 
             return {
                 "status": "success",
@@ -1544,10 +1728,262 @@ class RestoreService:
 
         except Exception as e:
             logger.error(f"Failed to restore config file: {e}")
-            return {"status": "failed", "error": str(e)}
+            return {"status": "failed", "config_path": config_path, "error": str(e)}
 
+    # ------------------------------------------------------------------
+    # In-app database restore (n8n database only)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _pg_conn() -> Tuple[str, str, Dict[str, str]]:
+        """Return (host, user, env) for the live PostgreSQL server."""
+        host = os.environ.get("POSTGRES_HOST", "postgres")
+        user = os.environ.get("POSTGRES_USER", "n8n")
+        env = {
+            **os.environ,
+            "PGPASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
+            "PGCONNECT_TIMEOUT": "15",
+            # Never queue forever behind another session's lock.
+            "PGOPTIONS": "-c lock_timeout=30s",
+        }
+        return host, user, env
+
+    async def _psql(self, sql: str, database: str = "postgres") -> Tuple[int, str, str]:
+        host, user, env = self._pg_conn()
+        cmd = [
+            "psql", "-h", host, "-U", user, "-d", database,
+            "-v", "ON_ERROR_STOP=1", "-X", "-q", "-t", "-A",
+            "-c", sql,
+        ]
+        return await _run_subprocess(cmd, env=env, timeout=PG_SHORT_TIMEOUT)
+
+    async def _database_exists(self, name: str) -> bool:
+        rc, out, err = await self._psql(f"SELECT 1 FROM pg_database WHERE datname = '{name}'")
+        if rc != 0:
+            raise RuntimeError(f"Could not query PostgreSQL: {_tail(err)}")
+        return out.strip() == "1"
+
+    async def _terminate_connections(self, name: str) -> None:
+        await self._psql(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            f"WHERE datname = '{name}' AND pid <> pg_backend_pid()"
+        )
+
+    def check_database_restorable(self, database_name: str, target_database: Optional[str] = None) -> Optional[str]:
+        """Return None if the in-app restore is allowed, otherwise the reason it is refused."""
+        target = target_database or database_name
+        mgmt_db = management_database_name()
+        if database_name == mgmt_db or target == mgmt_db:
+            return MANAGEMENT_DB_REFUSAL.format(name=mgmt_db)
+        n8n_db = n8n_database_name()
+        if target != n8n_db:
+            return (
+                f"Only the n8n database ({n8n_db}) can be restored from the management console; "
+                f"'{target}' is not supported. Use the bare-metal restore.sh for other databases."
+            )
+        if not _SAFE_DB_NAME.match(database_name) or not _SAFE_DB_NAME.match(target):
+            return "Invalid database name"
+        return None
+
+    async def _safety_dump_dir(self) -> str:
+        try:
+            base = await self.backup_service._get_storage_location()
+        except Exception as e:
+            logger.warning(f"Could not determine backup storage location, using staging dir: {e}")
+            base = settings.backup_staging_dir
+        return os.path.join(base, "pre_restore")
+
+    async def _restore_n8n_database_from_dump(
+        self,
+        dump_path: str,
+        database_name: str,
+        safety_dir: str,
+    ) -> Dict[str, Any]:
+        """
+        Restore the live n8n database from a pg_dump custom-format file.
+
+        Steps (anything failing before step 5 leaves the live database and n8n
+        untouched):
+          1. Validate the dump (pg_restore --list).
+          2. Safety dump of the live database (pg_dump -Fc) into safety_dir.
+          3. Create an empty temporary database <target>_restore_tmp.
+          4. pg_restore --exit-on-error --single-transaction into the temp DB.
+          5. Stop n8n, terminate remaining connections, rename the live DB to
+             <target>_pre_restore_<ts> and the temp DB to <target>.
+          6. Start n8n again (always, in a finally block, if it was running).
+
+        The previous database is kept as <target>_pre_restore_<ts> for instant
+        rollback; the operator drops it once satisfied (see the Backup Guide).
+        """
+        target = n8n_database_name()
+        tmp_db = f"{target}_restore_tmp"
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        old_db = f"{target}_pre_restore_{ts}"
+        host, user, env = self._pg_conn()
+
+        result: Dict[str, Any] = {
+            "status": "failed",
+            "database": database_name,
+            "target": target,
+            "safety_dump": None,
+            "previous_database": None,
+            "n8n_restarted": None,
+        }
+
+        def fail(message: str, stderr: str = "") -> Dict[str, Any]:
+            result["error"] = message
+            if stderr:
+                result["stderr"] = _tail(stderr)
+            logger.error(f"Database restore of {database_name} failed: {message} {_tail(stderr, 2000)}")
+            return result
+
+        # 1. Validate the dump before touching anything
+        rc, _, err = await _run_subprocess(["pg_restore", "--list", dump_path], timeout=PG_SHORT_TIMEOUT)
+        if rc != 0:
+            return fail("The database dump in this backup is unreadable; nothing was changed.", err)
+
+        try:
+            target_exists = await self._database_exists(target)
+            suffix = 1
+            while await self._database_exists(old_db):
+                suffix += 1
+                old_db = f"{target}_pre_restore_{ts}_{suffix}"
+        except RuntimeError as e:
+            return fail(str(e))
+
+        # 2. Safety dump of the live database
+        if target_exists:
+            os.makedirs(safety_dir, exist_ok=True)
+            safety_path = os.path.join(safety_dir, f"{old_db}.dump")
+            rc, _, err = await _run_subprocess(
+                ["pg_dump", "-h", host, "-U", user, "-d", target,
+                 "--no-owner", "--no-acl", "-F", "c", "-f", safety_path],
+                env=env, timeout=PG_LONG_TIMEOUT,
+            )
+            if rc != 0:
+                with contextlib.suppress(OSError):
+                    os.remove(safety_path)
+                return fail("Could not take a safety dump of the current database; nothing was changed.", err)
+            result["safety_dump"] = safety_path
+            logger.info(f"Safety dump of {target} written to {safety_path}")
+
+        # 3. Fresh temporary database
+        rc, _, err = await self._psql(f'DROP DATABASE IF EXISTS "{tmp_db}" WITH (FORCE)')
+        if rc == 0:
+            rc, _, err = await self._psql(f'CREATE DATABASE "{tmp_db}" TEMPLATE template0')
+        if rc != 0:
+            return fail(f"Could not create temporary database {tmp_db}; nothing was changed.", err)
+
+        async def drop_tmp() -> None:
+            drc, _, derr = await self._psql(f'DROP DATABASE IF EXISTS "{tmp_db}" WITH (FORCE)')
+            if drc != 0:
+                logger.warning(f"Could not drop {tmp_db}: {derr}")
+
+        # 4. Restore into the temporary database (all-or-nothing)
+        rc, _, err = await _run_subprocess(
+            ["pg_restore", "-h", host, "-U", user, "-d", tmp_db,
+             "--exit-on-error", "--single-transaction", "--no-owner", "--no-acl",
+             dump_path],
+            env=env, timeout=PG_LONG_TIMEOUT,
+        )
+        if rc != 0:
+            await drop_tmp()
+            return fail(
+                "pg_restore failed; the live database and n8n were not touched.",
+                err or f"pg_restore exited with code {rc}",
+            )
+
+        # 5. Stop n8n and swap databases
+        try:
+            container = await asyncio.wait_for(
+                asyncio.to_thread(_find_n8n_container_sync), timeout=DOCKER_TIMEOUT
+            )
+        except Exception as e:
+            container = None
+            logger.error(f"Docker lookup of the n8n container failed: {e}")
+        if container is None:
+            await drop_tmp()
+            return fail(
+                "Could not identify the n8n container to stop it; the live database was not touched. "
+                "Set N8N_CONTAINER for the management container or use the bare-metal restore.sh."
+            )
+
+        was_running = False
+        renamed_old = False
+        swap_error: Optional[str] = None
+        swap_stderr = ""
+        try:
+            was_running = await asyncio.wait_for(
+                asyncio.to_thread(_stop_container_sync, container), timeout=DOCKER_TIMEOUT
+            )
+            logger.info(f"n8n container stopped for restore (was running: {was_running})")
+
+            for attempt in range(1, 4):
+                await self._terminate_connections(target)
+                if target_exists and not renamed_old:
+                    rc, _, err = await self._psql(f'ALTER DATABASE "{target}" RENAME TO "{old_db}"')
+                    if rc != 0:
+                        swap_stderr = err
+                        if "being accessed by other users" in err and attempt < 3:
+                            await asyncio.sleep(2)
+                            continue
+                        swap_error = f"Could not rename {target} out of the way; the live database is unchanged."
+                        break
+                    renamed_old = True
+                rc, _, err = await self._psql(f'ALTER DATABASE "{tmp_db}" RENAME TO "{target}"')
+                if rc != 0:
+                    swap_stderr = err
+                    swap_error = f"Could not rename {tmp_db} to {target}."
+                    break
+                if target_exists:
+                    result["previous_database"] = old_db
+                result["status"] = "success"
+                result["message"] = f"Restored database {database_name} into {target}"
+                break
+        except Exception as e:
+            swap_error = f"Restore aborted while swapping databases: {e}"
         finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            if result["status"] != "success" and renamed_old:
+                try:
+                    brc, _, berr = await self._psql(f'ALTER DATABASE "{old_db}" RENAME TO "{target}"')
+                except Exception as e:
+                    brc, berr = 1, str(e)
+                if brc == 0:
+                    swap_error = (swap_error or "Swap failed.") + " The previous database was put back; nothing changed."
+                else:
+                    swap_error = (swap_error or "Swap failed.") + (
+                        f" ROLLBACK ALSO FAILED - the previous database is named {old_db}; "
+                        f"rename it back to {target} manually. ({_tail(berr, 1000)})"
+                    )
+            if was_running:
+                try:
+                    await asyncio.shield(asyncio.wait_for(
+                        asyncio.to_thread(_start_container_sync, container), timeout=DOCKER_TIMEOUT
+                    ))
+                    result["n8n_restarted"] = True
+                except Exception as e:
+                    result["n8n_restarted"] = False
+                    result.setdefault("warnings", []).append(
+                        f"n8n could not be restarted automatically: {e}. Start it with 'docker compose up -d n8n'."
+                    )
+                    logger.error(f"Failed to restart n8n after restore: {e}")
+
+        if result["status"] != "success":
+            await drop_tmp()
+            return fail(swap_error or "Database swap failed.", swap_stderr)
+
+        # Drop pooled connections of the API's own n8n engine to the old database.
+        try:
+            from api.database import n8n_engine
+            await n8n_engine.dispose()
+        except Exception as e:
+            logger.debug(f"Could not dispose n8n engine pool: {e}")
+
+        logger.info(
+            f"Database restored: {database_name} -> {target}; previous database kept as "
+            f"{result['previous_database']}; safety dump {result['safety_dump']}"
+        )
+        return result
 
     async def restore_database(
         self,
@@ -1556,74 +1992,33 @@ class RestoreService:
         target_database: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Restore a database from backup to the running PostgreSQL.
+        Restore the n8n database from a backup into the running PostgreSQL.
 
-        WARNING: This overwrites the target database!
+        Only the n8n database can be restored in-app; the management database
+        is refused (use the bare-metal restore.sh). See
+        _restore_n8n_database_from_dump for the safety procedure.
 
-        Args:
-            backup_id: The backup to restore from
-            database_name: Database name in backup (e.g., "n8n")
-            target_database: Target database (defaults to same name)
-
-        Returns:
-            Dict with status and details
+        Callers must hold the operation lock (see api.services.operation_lock).
         """
-        if not target_database:
-            target_database = database_name
+        refusal = self.check_database_restorable(database_name, target_database)
+        if refusal:
+            return {"status": "failed", "database": database_name, "error": refusal, "refused": True}
 
+        safety_dir = await self._safety_dump_dir()
         temp_dir, metadata = await self.extract_backup_archive(backup_id)
         if not temp_dir:
-            return {"status": "failed", "error": metadata.get("error", "Extract failed")}
+            return {"status": "failed", "database": database_name, "error": metadata.get("error", "Extract failed")}
 
         try:
             dump_path = os.path.join(temp_dir, "databases", f"{database_name}.dump")
             if not os.path.exists(dump_path):
-                return {"status": "failed", "error": f"Database dump not found: {database_name}"}
-
-            # Get connection info
-            host = os.environ.get("POSTGRES_HOST", "postgres")
-            user = os.environ.get("POSTGRES_USER", "n8n")
-            password = os.environ.get("POSTGRES_PASSWORD", "")
-
-            env = {**os.environ, "PGPASSWORD": password}
-
-            # Restore the dump
-            restore_cmd = [
-                "pg_restore",
-                "-h", host,
-                "-U", user,
-                "-d", target_database,
-                "--clean",
-                "--if-exists",
-                "--no-owner",
-                "--no-acl",
-                dump_path,
-            ]
-
-            result = subprocess.run(restore_cmd, capture_output=True, text=True, env=env)
-
-            # pg_restore may return non-zero even for warnings
-            if result.returncode != 0 and "ERROR" in result.stderr:
-                logger.warning(f"pg_restore had errors: {result.stderr}")
-                return {
-                    "status": "partial",
-                    "database": database_name,
-                    "target": target_database,
-                    "warnings": result.stderr,
-                    "message": f"Restored {database_name} with warnings",
-                }
-
-            logger.info(f"Database restored: {database_name} -> {target_database}")
-            return {
-                "status": "success",
-                "database": database_name,
-                "target": target_database,
-                "message": f"Restored database {database_name}",
-            }
+                return {"status": "failed", "database": database_name,
+                        "error": f"Database dump not found in backup: {database_name}"}
+            return await self._restore_n8n_database_from_dump(dump_path, database_name, safety_dir)
 
         except Exception as e:
             logger.error(f"Failed to restore database: {e}")
-            return {"status": "failed", "error": str(e)}
+            return {"status": "failed", "database": database_name, "error": str(e)}
 
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1647,6 +2042,8 @@ class RestoreService:
                 "ssl_certificates": [],
                 "workflow_count": metadata.get("workflow_count", 0),
                 "credential_count": metadata.get("credential_count", 0),
+                "restore_script_version": metadata.get("restore_script_version"),
+                "letsencrypt_tree": os.path.isdir(os.path.join(temp_dir, "letsencrypt", "live")),
             }
 
             # Check databases
@@ -1657,21 +2054,24 @@ class RestoreService:
                         db_name = filename[:-5]  # Remove .dump
                         dump_path = os.path.join(db_dir, filename)
                         stat = os.stat(dump_path)
+                        blocked_reason = self.check_database_restorable(db_name)
                         preview["databases"].append({
                             "name": db_name,
                             "size": stat.st_size,
                             "row_counts": metadata.get("row_counts", {}).get(db_name, {}),
+                            "restorable": blocked_reason is None,
+                            "restore_blocked_reason": blocked_reason,
                         })
 
             # Check config files
             config_dir = os.path.join(temp_dir, "config")
-            if os.path.exists(config_dir):
-                for filename in os.listdir(config_dir):
-                    filepath = os.path.join(config_dir, filename)
-                    if os.path.isfile(filepath):
+            if os.path.isdir(config_dir):
+                for root, _dirs, files in os.walk(config_dir):
+                    for filename in sorted(files):
+                        filepath = os.path.join(root, filename)
                         stat = os.stat(filepath)
                         preview["config_files"].append({
-                            "name": filename,
+                            "name": os.path.relpath(filepath, config_dir),
                             "size": stat.st_size,
                         })
 
@@ -1710,19 +2110,23 @@ class RestoreService:
         """
         Perform a full system restore from a backup.
 
-        This is a comprehensive restore that can restore:
-        - Databases (n8n, n8n_management)
-        - Config files (.env, docker-compose.yaml, nginx.conf)
+        This can restore:
+        - The n8n database (the management database is refused - it can only be
+          restored with the bare-metal restore.sh)
+        - Config files (.env, docker-compose.yaml, nginx.conf, ...)
         - SSL certificates
 
-        WARNING: This will overwrite existing data!
+        The archive is extracted once. Any failure is reported in "errors" and
+        makes the overall status "partial" or "failed" - never "success".
+
+        Callers must hold the operation lock (see api.services.operation_lock).
 
         Args:
             backup_id: The backup to restore from
             restore_databases: Whether to restore databases
             restore_configs: Whether to restore config files
             restore_ssl: Whether to restore SSL certificates
-            database_names: Specific databases to restore (None = all)
+            database_names: Specific databases to restore (None = the n8n database, [] = none)
             config_files: Specific config files to restore (None = all)
             create_backups: Create backups of existing files before overwriting
 
@@ -1741,74 +2145,152 @@ class RestoreService:
             "warnings": [],
         }
 
+        # Refuse disallowed databases before doing any work
+        if restore_databases and database_names:
+            for db_name in database_names:
+                refusal = self.check_database_restorable(db_name)
+                if refusal:
+                    results["databases"].append(
+                        {"status": "failed", "database": db_name, "error": refusal, "refused": True}
+                    )
+                    results["errors"].append(f"Database {db_name}: {refusal}")
+            if results["errors"]:
+                results["status"] = "failed"
+                results["error"] = "; ".join(results["errors"])
+                return results
+
+        safety_dir = await self._safety_dump_dir() if restore_databases else ""
         temp_dir, metadata = await self.extract_backup_archive(backup_id)
         if not temp_dir:
             return {"status": "failed", "error": metadata.get("error", "Extract failed")}
 
+        attempted = 0
         try:
             # Restore databases
             if restore_databases:
                 db_dir = os.path.join(temp_dir, "databases")
-                if os.path.exists(db_dir):
-                    for filename in os.listdir(db_dir):
-                        if filename.endswith(".dump"):
-                            db_name = filename[:-5]
-                            if database_names and db_name not in database_names:
-                                continue
+                available = sorted(
+                    f[:-5] for f in os.listdir(db_dir) if f.endswith(".dump")
+                ) if os.path.isdir(db_dir) else []
 
-                            result = await self.restore_database(backup_id, db_name)
-                            results["databases"].append(result)
-                            if result["status"] == "failed":
-                                results["errors"].append(f"Database {db_name}: {result.get('error')}")
-                            elif result["status"] == "partial":
-                                results["warnings"].append(f"Database {db_name}: {result.get('warnings')}")
+                if database_names is not None:
+                    wanted = list(database_names)
+                else:
+                    # Default: only the n8n database. The management DB is never
+                    # restored in-app.
+                    wanted = [n for n in available if self.check_database_restorable(n) is None]
+                    for n in available:
+                        if n not in wanted:
+                            results["warnings"].append(
+                                f"Database {n} skipped: "
+                                + (self.check_database_restorable(n) or "not restorable in-app")
+                            )
 
-            # Restore config files
+                for db_name in wanted:
+                    attempted += 1
+                    dump_path = os.path.join(db_dir, f"{db_name}.dump")
+                    if not os.path.exists(dump_path):
+                        result = {"status": "failed", "database": db_name,
+                                  "error": f"Database dump not found in backup: {db_name}"}
+                    else:
+                        result = await self._restore_n8n_database_from_dump(dump_path, db_name, safety_dir)
+                    results["databases"].append(result)
+                    if result["status"] != "success":
+                        detail = result.get("error", "unknown error")
+                        if result.get("stderr"):
+                            detail += f" | {result['stderr']}"
+                        results["errors"].append(f"Database {db_name}: {detail}")
+                    for warning in result.get("warnings", []):
+                        results["warnings"].append(f"Database {db_name}: {warning}")
+
+            # Restore config files (including files in sub-directories)
             if restore_configs:
                 config_dir = os.path.join(temp_dir, "config")
-                if os.path.exists(config_dir):
-                    for filename in os.listdir(config_dir):
-                        if config_files and filename not in config_files:
-                            continue
-
-                        config_path = f"config/{filename}"
-                        result = await self.restore_config_file(
-                            backup_id, config_path, create_backup=create_backups
-                        )
-                        results["config_files"].append(result)
-                        if result["status"] == "failed":
-                            results["errors"].append(f"Config {filename}: {result.get('error')}")
+                if os.path.isdir(config_dir):
+                    for root, _dirs, files in os.walk(config_dir):
+                        for filename in sorted(files):
+                            rel = os.path.relpath(os.path.join(root, filename), config_dir)
+                            if config_files and rel not in config_files and filename not in config_files:
+                                continue
+                            attempted += 1
+                            config_path = f"config/{rel}"
+                            result = self._restore_config_from_dir(
+                                temp_dir, config_path, create_backup=create_backups
+                            )
+                            results["config_files"].append(result)
+                            if result["status"] == "failed":
+                                results["errors"].append(f"Config {rel}: {result.get('error')}")
 
             # Restore SSL certificates
             if restore_ssl:
+                le_dir = os.path.join(temp_dir, "letsencrypt")
                 ssl_dir = os.path.join(temp_dir, "ssl")
-                if os.path.exists(ssl_dir):
+                if os.path.isdir(os.path.join(le_dir, "live")):
+                    # Full certbot tree: keeps live/ symlinks so renewal keeps working.
+                    attempted += 1
+                    try:
+                        result = await asyncio.to_thread(
+                            _restore_letsencrypt_tree_sync,
+                            le_dir,
+                            LETSENCRYPT_ROOT,
+                            "/app/backups/config_backups" if create_backups else None,
+                        )
+                    except Exception as e:
+                        result = {"status": "failed", "config_path": "letsencrypt/", "error": str(e)}
+                    results["ssl_certificates"].append(result)
+                    if result["status"] == "failed":
+                        results["errors"].append(f"SSL certificate tree: {result.get('error')}")
+                elif os.path.isdir(ssl_dir):
+                    results["warnings"].append(
+                        "This backup predates full certificate-tree backups: certificates were restored "
+                        "as plain files and certbot may be unable to renew them. Re-issue the certificate "
+                        "if renewal fails."
+                    )
                     for domain in os.listdir(ssl_dir):
                         domain_path = os.path.join(ssl_dir, domain)
                         if os.path.isdir(domain_path):
                             for cert_file in os.listdir(domain_path):
+                                attempted += 1
                                 cert_path = f"ssl/{domain}/{cert_file}"
-                                result = await self.restore_config_file(
-                                    backup_id, cert_path, create_backup=create_backups
+                                result = self._restore_config_from_dir(
+                                    temp_dir, cert_path, create_backup=create_backups
                                 )
                                 results["ssl_certificates"].append(result)
                                 if result["status"] == "failed":
                                     results["errors"].append(f"SSL {domain}/{cert_file}: {result.get('error')}")
 
-            # Determine overall status
+            # Determine overall status - any error means not "success"
+            succeeded = sum(
+                1 for r in results["databases"] + results["config_files"] + results["ssl_certificates"]
+                if r.get("status") == "success"
+            )
             if results["errors"]:
-                results["status"] = "partial" if (results["databases"] or results["config_files"]) else "failed"
+                results["status"] = "partial" if succeeded else "failed"
+                results["error"] = "; ".join(results["errors"])
+            elif attempted == 0:
+                results["status"] = "failed"
+                results["error"] = "Nothing was restored: no matching items in this backup"
             else:
                 results["status"] = "success"
 
-            results["message"] = f"Restored {len(results['databases'])} databases, {len(results['config_files'])} config files, {len(results['ssl_certificates'])} SSL certs"
-            logger.info(f"Full system restore completed: {results['message']}")
+            db_ok = sum(1 for r in results["databases"] if r.get("status") == "success")
+            cfg_ok = sum(1 for r in results["config_files"] if r.get("status") == "success")
+            ssl_ok = sum(1 for r in results["ssl_certificates"] if r.get("status") == "success")
+            results["message"] = (
+                f"Restored {db_ok}/{len(results['databases'])} databases, "
+                f"{cfg_ok}/{len(results['config_files'])} config files, "
+                f"{ssl_ok}/{len(results['ssl_certificates'])} SSL files"
+            )
+            logger.info(f"Full system restore finished ({results['status']}): {results['message']}")
 
             return results
 
         except Exception as e:
             logger.error(f"Full system restore failed: {e}")
-            return {"status": "failed", "error": str(e)}
+            results["status"] = "failed"
+            results["error"] = str(e)
+            results["errors"].append(str(e))
+            return results
 
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)

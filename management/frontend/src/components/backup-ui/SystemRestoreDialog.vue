@@ -15,7 +15,16 @@ import { ref, watch, computed } from 'vue'
 import { useBackupStore } from '../../stores/backups'
 import { useNotificationStore } from '../../stores/notifications'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
-import { XMarkIcon } from '@heroicons/vue/24/outline'
+import {
+  XMarkIcon,
+  ArrowPathIcon,
+  TableCellsIcon,
+  Cog6ToothIcon,
+  ShieldCheckIcon,
+  ExclamationTriangleIcon,
+  CheckCircleIcon,
+  LockClosedIcon,
+} from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   open: Boolean,
@@ -32,9 +41,14 @@ const step = ref('preview') // 'preview', 'confirm', 'restoring', 'complete'
 const loading = ref(false)
 const preview = ref(null)
 
-// Restore options
+// The management console's own database can only be restored with the
+// bare-metal restore.sh (the API refuses it as well).
+const MANAGEMENT_DB = 'n8n_management'
+const CONFIRM_WORD = 'RESTORE'
+
+// Restore options - databases are opt-in
 const restoreOptions = ref({
-  databases: true,
+  databases: false,
   configs: true,
   ssl: true,
   createBackups: true,
@@ -42,8 +56,20 @@ const restoreOptions = ref({
   selectedConfigs: [],
 })
 
+// Typed confirmation for database restores
+const confirmText = ref('')
+
 // Results
 const restoreResult = ref(null)
+
+function isDatabaseRestorable(db) {
+  return db.restorable !== false && db.name !== MANAGEMENT_DB
+}
+
+function databaseBlockedReason(db) {
+  return db.restore_blocked_reason ||
+    'The management console runs on this database, so it can only be restored with the bare-metal restore.sh.'
+}
 
 // Reset state when dialog opens
 watch(() => props.open, async (isOpen) => {
@@ -52,8 +78,9 @@ watch(() => props.open, async (isOpen) => {
     loading.value = true
     preview.value = null
     restoreResult.value = null
+    confirmText.value = ''
     restoreOptions.value = {
-      databases: true,
+      databases: false,
       configs: true,
       ssl: true,
       createBackups: true,
@@ -63,10 +90,7 @@ watch(() => props.open, async (isOpen) => {
 
     try {
       preview.value = await backupStore.fetchRestorePreview(props.backup.id)
-      // Pre-select all items
-      if (preview.value.databases) {
-        restoreOptions.value.selectedDatabases = preview.value.databases.map(d => d.name)
-      }
+      // Databases are never pre-selected; config files are
       if (preview.value.config_files) {
         restoreOptions.value.selectedConfigs = preview.value.config_files.map(c => c.name)
       }
@@ -80,6 +104,14 @@ watch(() => props.open, async (isOpen) => {
 })
 
 // Computed
+const restoresDatabase = computed(() =>
+  restoreOptions.value.databases && restoreOptions.value.selectedDatabases.length > 0
+)
+
+const confirmationOk = computed(() =>
+  !restoresDatabase.value || confirmText.value.trim() === CONFIRM_WORD
+)
+
 const canRestore = computed(() => {
   if (!preview.value) return false
   const hasDatabase = restoreOptions.value.databases && restoreOptions.value.selectedDatabases.length > 0
@@ -123,6 +155,7 @@ function formatDate(dateStr) {
 }
 
 function toggleDatabase(dbName) {
+  if (dbName === MANAGEMENT_DB) return
   const idx = restoreOptions.value.selectedDatabases.indexOf(dbName)
   if (idx > -1) {
     restoreOptions.value.selectedDatabases.splice(idx, 1)
@@ -141,6 +174,7 @@ function toggleConfig(configName) {
 }
 
 function proceedToConfirm() {
+  confirmText.value = ''
   step.value = 'confirm'
 }
 
@@ -149,15 +183,18 @@ function backToPreview() {
 }
 
 async function performRestore() {
+  if (!confirmationOk.value) return
   step.value = 'restoring'
   loading.value = true
 
   try {
     restoreResult.value = await backupStore.fullSystemRestore(props.backup.id, {
-      restoreDatabases: restoreOptions.value.databases,
+      restoreDatabases: restoresDatabase.value,
       restoreConfigs: restoreOptions.value.configs,
       restoreSsl: restoreOptions.value.ssl,
-      databaseNames: restoreOptions.value.selectedDatabases,
+      databaseNames: restoresDatabase.value
+        ? restoreOptions.value.selectedDatabases.filter(name => name !== MANAGEMENT_DB)
+        : [],
       configFiles: restoreOptions.value.selectedConfigs,
       createBackups: restoreOptions.value.createBackups,
     })
@@ -167,19 +204,26 @@ async function performRestore() {
     if (restoreResult.value.status === 'success') {
       notificationStore.success('System restore completed successfully')
     } else if (restoreResult.value.status === 'partial') {
-      notificationStore.warning('System restore completed with some warnings')
+      notificationStore.warning('System restore only partly succeeded - see the errors listed')
     } else {
-      notificationStore.error('System restore failed')
+      notificationStore.error(`System restore failed: ${restoreResult.value.error || 'unknown error'}`)
     }
 
     emit('restored', restoreResult.value)
   } catch (err) {
-    restoreResult.value = {
-      status: 'failed',
-      error: err.message || 'Unknown error',
+    // The API returns the full result object as `detail` for a failed restore,
+    // a plain message for refusals, and 409 when another operation is running.
+    const detail = err.response?.data?.detail
+    if (detail && typeof detail === 'object') {
+      restoreResult.value = { status: 'failed', ...detail }
+    } else {
+      restoreResult.value = {
+        status: 'failed',
+        error: detail || err.message || 'Unknown error',
+      }
     }
     step.value = 'complete'
-    notificationStore.error('System restore failed')
+    notificationStore.error(`System restore failed: ${restoreResult.value.error || 'unknown error'}`)
   } finally {
     loading.value = false
   }
@@ -277,13 +321,22 @@ function close() {
                   </label>
                 </div>
 
+                <p class="ml-6 mb-2 text-xs text-secondary">
+                  Restoring the n8n database stops n8n, replaces its database and starts it again.
+                  A safety dump is taken first and the current database is kept as
+                  <code>n8n_pre_restore_&lt;timestamp&gt;</code>.
+                </p>
+
                 <div v-if="restoreOptions.databases" class="ml-6 space-y-2">
                   <div
                     v-for="db in preview.databases"
                     :key="db.name"
                     class="flex items-center justify-between p-3 rounded-lg bg-surface-hover border border-gray-200 dark:border-gray-600"
                   >
-                    <label class="flex items-center gap-3 cursor-pointer">
+                    <label
+                      v-if="isDatabaseRestorable(db)"
+                      class="flex items-center gap-3 cursor-pointer"
+                    >
                       <input
                         type="checkbox"
                         :checked="restoreOptions.selectedDatabases.includes(db.name)"
@@ -295,6 +348,13 @@ function close() {
                         <p class="text-xs text-secondary">{{ formatBytes(db.size) }}</p>
                       </div>
                     </label>
+                    <div v-else class="flex items-start gap-3 opacity-75">
+                      <LockClosedIcon class="h-4 w-4 mt-1 text-gray-400 flex-shrink-0" />
+                      <div>
+                        <p class="font-medium text-primary">{{ db.name }} <span class="text-xs text-secondary">(not restorable here)</span></p>
+                        <p class="text-xs text-secondary">{{ databaseBlockedReason(db) }}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -428,7 +488,21 @@ function close() {
               </div>
 
               <!-- Confirmation -->
-              <p class="text-sm text-secondary">
+              <div v-if="restoresDatabase" class="space-y-2">
+                <p class="text-sm text-secondary">
+                  n8n will be stopped while its database is replaced and started again afterwards.
+                  Type <strong class="font-mono">{{ CONFIRM_WORD }}</strong> to confirm.
+                </p>
+                <input
+                  v-model="confirmText"
+                  type="text"
+                  autocomplete="off"
+                  :placeholder="CONFIRM_WORD"
+                  class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-primary font-mono"
+                  @keyup.enter="performRestore"
+                />
+              </div>
+              <p v-else class="text-sm text-secondary">
                 Are you sure you want to proceed with the system restore?
               </p>
             </div>
@@ -440,6 +514,7 @@ function close() {
               </button>
               <button
                 @click="performRestore"
+                :disabled="!confirmationOk"
                 class="btn-danger flex items-center gap-2"
               >
                 <ArrowPathIcon class="h-4 w-4" />
@@ -516,17 +591,27 @@ function close() {
                   <div
                     v-for="db in restoreResult.databases"
                     :key="db.database"
-                    class="flex items-center justify-between p-2 rounded bg-surface-hover"
+                    class="p-2 rounded bg-surface-hover"
                   >
-                    <span class="text-sm text-primary">{{ db.database }}</span>
-                    <span :class="[
-                      'text-xs px-2 py-0.5 rounded-full',
-                      db.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' :
-                      db.status === 'partial' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
-                      'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
-                    ]">
-                      {{ db.status }}
-                    </span>
+                    <div class="flex items-center justify-between">
+                      <span class="text-sm text-primary">{{ db.database }}</span>
+                      <span :class="[
+                        'text-xs px-2 py-0.5 rounded-full',
+                        db.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' :
+                        db.status === 'partial' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
+                        'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                      ]">
+                        {{ db.status }}
+                      </span>
+                    </div>
+                    <p v-if="db.error" class="mt-1 text-xs text-red-600 dark:text-red-400">{{ db.error }}</p>
+                    <pre v-if="db.stderr" class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-xs p-2 rounded bg-gray-100 dark:bg-gray-900 text-red-700 dark:text-red-300">{{ db.stderr }}</pre>
+                    <p v-if="db.safety_dump" class="mt-1 text-xs text-secondary">
+                      Safety dump of the previous database: <code>{{ db.safety_dump }}</code>
+                    </p>
+                    <p v-if="db.previous_database" class="mt-1 text-xs text-secondary">
+                      Previous database kept as <code>{{ db.previous_database }}</code> (drop it once you are satisfied).
+                    </p>
                   </div>
                 </div>
               </div>

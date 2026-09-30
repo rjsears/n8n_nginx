@@ -128,7 +128,7 @@ When you're done restoring items, click **Unmount Backup** in the top-right. Thi
 
 - PostgreSQL dump for both databases (n8n + management).
 - n8n configuration files and workflow exports.
-- SSL certificates and private keys (Let's Encrypt volume contents).
+- SSL certificates and private keys: the complete Let's Encrypt tree (`archive/`, `live/`, `renewal/`, …) with symlinks preserved, so restored certificates keep renewing.
 - `.env` with deployment configuration.
 - Public website files if Public Website Files was enabled in [Contents](#config-contents).
 - `restore.sh` — a self-contained shell script that takes a fresh host and rebuilds the stack.
@@ -137,9 +137,13 @@ When you're done restoring items, click **Unmount Backup** in the top-right. Thi
 
 1. Provision a fresh host with Docker installed.
 2. Copy the downloaded archive to the host (scp, USB stick, etc.).
-3. Extract: `tar -xzf bare-metal-recovery-<date>.tar.gz`.
-4. `cd` into the extracted directory.
-5. Run `./restore.sh` — the script handles everything else.
+3. Extract: `mkdir restore && tar -xzf backup_<date>.n8n_backup.tar.gz -C restore`.
+4. `cd restore`.
+5. Run `sudo ./restore.sh --dry-run` to preview, then `sudo ./restore.sh`. The script starts only PostgreSQL, restores each database in a single transaction (any error stops the script and nothing else is started), then starts the rest of the stack.
+
+!!! warning "Archives from older versions"
+
+    Archives created before restore script v3.2.0 embed a `restore.sh` that stops after the first config file. Use **Download latest restore.sh** in the Bare Metal panel, copy it over the `restore.sh` in the extracted archive, and run that instead. After upgrading, take a fresh backup so the newest archive contains the fixed script.
 
 !!! danger
 
