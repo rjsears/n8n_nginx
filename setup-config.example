@@ -193,3 +193,10 @@ SKIP_DEPLOY=false
 
 # Auto-confirm all prompts (fully unattended)
 AUTO_CONFIRM=false
+
+# Re-running with AUTO_CONFIRM=true on an existing installation always reuses
+# the existing PostgreSQL password and n8n encryption key (read from .env and
+# the data volumes). It refuses to change the password of an existing database
+# or to generate a new encryption key for existing n8n data unless this is set
+# to true. Leave false unless you know exactly why you need it.
+FORCE_REGENERATE_SECRETS=false

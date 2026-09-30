@@ -182,17 +182,18 @@ prompt_with_default() {
     # In auto-confirm mode, use the existing/default value without prompting
     if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
         print_info "Using: $prompt = $default"
-        eval "$var_name='$default'"
+        printf -v "$var_name" '%s' "$default"
         return
     fi
 
     echo -ne "${WHITE}  $prompt [$default]${NC}: "
-    read value
+    read -r value
 
+    # printf -v (not eval) so values containing quotes or $ are stored verbatim
     if [ -z "$value" ]; then
-        eval "$var_name='$default'"
+        printf -v "$var_name" '%s' "$default"
     else
-        eval "$var_name='$value'"
+        printf -v "$var_name" '%s' "$value"
     fi
 }
 
@@ -1050,27 +1051,16 @@ load_preconfig() {
     AUTOGEN_MGMT_SECRET=false
     AUTOGEN_ADMIN_PASS=false
 
-    # Auto-generate security credentials if not provided
-    if [ -z "$POSTGRES_PASSWORD" ] || [ "$POSTGRES_PASSWORD" = "" ]; then
-        if command_exists openssl; then
-            DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
-        else
-            DB_PASSWORD=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
-        fi
-        AUTOGEN_DB_PASSWORD=true
-        print_info "Auto-generated PostgreSQL password"
-    else
-        DB_PASSWORD="$POSTGRES_PASSWORD"
-    fi
+    # Database password and n8n encryption key are NOT generated here: an
+    # existing installation must keep the secrets stored in its data volumes.
+    # configure_database / generate_encryption_key reuse the existing values
+    # (or generate new ones for a brand-new install).
+    DB_PASSWORD="${POSTGRES_PASSWORD:-}"
+    N8N_ENCRYPTION_KEY="${N8N_ENCRYPTION_KEY:-}"
 
-    if [ -z "$N8N_ENCRYPTION_KEY" ] || [ "$N8N_ENCRYPTION_KEY" = "" ]; then
-        if command_exists openssl; then
-            N8N_ENCRYPTION_KEY=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
-        else
-            N8N_ENCRYPTION_KEY=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
-        fi
-        AUTOGEN_ENCRYPTION_KEY=true
-        print_info "Auto-generated n8n encryption key"
+    # Reuse the existing management secret (rotating it logs everyone out)
+    if [ -z "$MGMT_SECRET_KEY" ] && [ -f "${SCRIPT_DIR}/.env" ]; then
+        MGMT_SECRET_KEY=$(env_get_key "${SCRIPT_DIR}/.env" MGMT_SECRET_KEY) || MGMT_SECRET_KEY=""
     fi
 
     if [ -z "$MGMT_SECRET_KEY" ] || [ "$MGMT_SECRET_KEY" = "" ]; then
@@ -1556,6 +1546,8 @@ handle_version_detection() {
             echo ""
             echo -e "    ${CYAN}1)${NC} ${GREEN}Reconfigure${NC} existing installation"
             echo -e "    ${CYAN}2)${NC} Start ${RED}Fresh${NC} (will backup existing config)"
+            echo -e "       ${GRAY}Docker volumes keep existing data, DB password and encryption key${NC}"
+            echo -e "       ${GRAY}unless you choose to delete them in the next step${NC}"
             echo -e "    ${CYAN}3)${NC} Exit"
             echo ""
 
@@ -1571,6 +1563,9 @@ handle_version_detection() {
                     ;;
                 2)
                     backup_existing_config
+                    # Existing volumes keep the old DB password / n8n key:
+                    # keep them (secrets are reused) or explicitly delete them
+                    handle_existing_data_on_fresh
                     INSTALL_MODE="fresh"
                     ;;
                 3)
@@ -2226,6 +2221,27 @@ run_migration_v2_to_v3() {
         docker_compose_cmd="$DOCKER_SUDO $docker_compose_cmd"
     fi
 
+    # Recover the existing secrets BEFORE touching anything. The v2 .env uses
+    # POSTGRES_PASSWORD (not DB_PASSWORD) and the database/n8n volumes are
+    # kept, so the migrated .env must carry the exact same values.
+    env_adopt_existing_values "${SCRIPT_DIR}/.env"
+    DB_USER="${DB_USER:-$DEFAULT_DB_USER}"
+    DB_NAME="${DB_NAME:-$DEFAULT_DB_NAME}"
+    POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}"
+    if [ -z "${DB_PASSWORD:-}" ]; then
+        DB_PASSWORD=$(detect_running_postgres_password 2>/dev/null) || DB_PASSWORD=""
+    fi
+    if [ -z "${N8N_ENCRYPTION_KEY:-}" ]; then
+        N8N_ENCRYPTION_KEY=$(read_n8n_encryption_key_from_volume 2>/dev/null) || N8N_ENCRYPTION_KEY=""
+    fi
+    if [ -z "${DB_PASSWORD:-}" ] || [ -z "${N8N_ENCRYPTION_KEY:-}" ]; then
+        print_error "Could not determine the existing PostgreSQL password and/or n8n encryption key."
+        print_info "Make sure ${SCRIPT_DIR}/.env contains POSTGRES_PASSWORD and N8N_ENCRYPTION_KEY"
+        print_info "(or that the v2 containers still exist) and re-run. Nothing has been changed."
+        exit 1
+    fi
+    print_success "Existing database password and encryption key will be preserved"
+
     # Phase 1: Pre-migration backup
     print_section "Phase 1: Pre-Migration Backup"
     save_state "migration" "backup"
@@ -2270,12 +2286,11 @@ run_migration_v2_to_v3() {
     print_section "Phase 3: Database Preparation"
     save_state "migration" "database"
 
-    # Generate management database password
-    if command_exists openssl; then
-        MGMT_DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
-    else
-        MGMT_DB_PASSWORD=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
-    fi
+    # The management console connects with the existing n8n role
+    # (init-db.sh never runs on an already-initialised volume, so no separate
+    # role exists). generate_env_file writes MGMT_DB_USER/MGMT_DB_PASSWORD
+    # from DB_USER/DB_PASSWORD.
+    MGMT_DB_USER="${MGMT_DB_USER:-$DB_USER}"
 
     print_info "Creating management database..."
     $DOCKER_SUDO docker exec $POSTGRES_CONTAINER psql -U $DB_USER -c "CREATE DATABASE ${DEFAULT_MGMT_DB_NAME};" 2>/dev/null || true
@@ -2876,36 +2891,572 @@ EOF
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# .env HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+# These functions are self-contained (no dependency on installer state) so that
+# tests/test_env_helpers.sh can extract and exercise them without Docker.
+#
+# Encoding rules (must stay compatible with `docker compose`, `source .env` in
+# bash, and the management console's parser in management/api/services/env_file.py):
+#   * plain values ([A-Za-z0-9_./:@,+=%-]) are written unquoted
+#   * anything else without a single quote is written '...'  (literal, no $-interpolation)
+#   * values containing a single quote are written "..." with \ " $ escaped
+#   * values containing newlines, or both a single quote and a backtick, are
+#     rejected (compose and bash disagree on escaping ` inside "...")
+
+# Encode a value for a .env file. Returns 1 for values that cannot be stored.
+env_quote_value() {
+    local v="$1"
+    case "$v" in
+        *$'\n'*|*$'\r'*) return 1 ;;
+        *"'"*'`'*|*'`'*"'"*) return 1 ;;
+    esac
+    if [[ "$v" =~ ^[A-Za-z0-9_./:@,+=%-]*$ ]]; then
+        printf '%s' "$v"
+    elif [[ "$v" != *"'"* ]]; then
+        printf "'%s'" "$v"
+    else
+        v="${v//\\/\\\\}"
+        v="${v//\"/\\\"}"
+        v="${v//\$/\\\$}"
+        printf '"%s"' "$v"
+    fi
+}
+
+# Decode the raw right-hand side of a KEY=VALUE line.
+env_unquote_value() {
+    local raw="$1" out="" ch i n
+    raw="${raw#"${raw%%[![:space:]]*}"}"
+    case "$raw" in
+        \'*)
+            raw="${raw#\'}"
+            printf '%s' "${raw%%\'*}"
+            ;;
+        \"*)
+            raw="${raw#\"}"
+            n=${#raw}
+            for ((i = 0; i < n; i++)); do
+                ch="${raw:i:1}"
+                if [ "$ch" = "\\" ] && [ $((i + 1)) -lt "$n" ]; then
+                    i=$((i + 1))
+                    out+="${raw:i:1}"
+                elif [ "$ch" = '"' ]; then
+                    break
+                else
+                    out+="$ch"
+                fi
+            done
+            printf '%s' "$out"
+            ;;
+        *)
+            # Unquoted: drop an inline " # comment" and trailing whitespace
+            raw="${raw%%[[:space:]]#*}"
+            raw="${raw%"${raw##*[![:space:]]}"}"
+            printf '%s' "$raw"
+            ;;
+    esac
+}
+
+# env_get_key FILE KEY - print the decoded value of KEY (last occurrence wins).
+# Returns 1 if the file or key does not exist.
+env_get_key() {
+    local file="$1" key="$2" line raw="" found=1
+    [ -f "$file" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]] \
+            && [ "${BASH_REMATCH[2]}" = "$key" ]; then
+            raw="${BASH_REMATCH[3]}"
+            found=0
+        fi
+    done < "$file"
+    [ "$found" -eq 0 ] || return 1
+    env_unquote_value "$raw"
+}
+
+# env_set_key FILE KEY VALUE - set KEY in FILE, preserving every other line
+# (comments, ordering, keys the installer does not manage). The file is
+# rewritten atomically (temp file created with umask 077, then mv) and left
+# with mode 600. A key whose decoded value is already VALUE is left untouched.
+env_set_key() {
+    local file="$1" key="$2" value="$3" encoded current tmp src
+    if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "env_set_key: invalid key name '$key'" >&2
+        return 1
+    fi
+    if ! encoded=$(env_quote_value "$value"); then
+        echo "env_set_key: value for $key cannot be stored in .env (newline, or both ' and \`)" >&2
+        return 1
+    fi
+    if [ -f "$file" ] && current=$(env_get_key "$file" "$key") && [ "$current" = "$value" ]; then
+        return 0
+    fi
+    src="$file"
+    [ -f "$src" ] || src=/dev/null
+    tmp=$(umask 077 && mktemp "${file}.tmp.XXXXXX") || return 1
+    if ! ENV_SET_KEY="$key" ENV_SET_LINE="${key}=${encoded}" awk '
+        BEGIN { key = ENVIRON["ENV_SET_KEY"]; line = ENVIRON["ENV_SET_LINE"]; done = 0 }
+        {
+            probe = $0
+            sub(/\r$/, "", probe)
+            sub(/^[ \t]+/, "", probe)
+            sub(/^export[ \t]+/, "", probe)
+            if (match(probe, /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=/)) {
+                name = substr(probe, 1, RLENGTH - 1)
+                sub(/[ \t]+$/, "", name)
+                if (name == key) {
+                    if (!done) { print line; done = 1 }
+                    next
+                }
+            }
+            print
+        }
+        END { if (!done) print line }
+    ' "$src" > "$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    chmod 600 "$tmp"
+    if [ -f "$file" ]; then
+        chown --reference="$file" "$tmp" 2>/dev/null || true
+    fi
+    mv -f "$tmp" "$file"
+}
+
+# Mapping between .env keys and installer variables, used both to read an
+# existing .env back into the installer and to write it out again.
+#   KEY=VAR    adopt the .env value when VAR is empty
+#   KEY=VAR?   optional setting: adopt only when VAR is unset (empty = disabled)
+# Keys NOT listed here (N8N_API_KEY, NTFY_TOKEN, MGMT_ENCRYPTION_KEY, NTFY_*,
+# anything edited in the management console, ...) are never touched on an
+# existing .env.
+env_key_map() {
+    cat << 'EOF'
+DOMAIN=N8N_DOMAIN
+N8N_MANAGEMENT_HOST_IP=N8N_MANAGEMENT_HOST_IP?
+POSTGRES_USER=DB_USER
+POSTGRES_PASSWORD=DB_PASSWORD
+POSTGRES_DB=DB_NAME
+N8N_ENCRYPTION_KEY=N8N_ENCRYPTION_KEY
+MGMT_SECRET_KEY=MGMT_SECRET_KEY
+MGMT_DB_USER=MGMT_DB_USER
+MGMT_DB_PASSWORD=MGMT_DB_PASSWORD
+MGMT_PORT=MGMT_PORT
+ADMIN_USER=ADMIN_USER
+ADMIN_PASS=ADMIN_PASS
+ADMIN_EMAIL=ADMIN_EMAIL
+TIMEZONE=N8N_TIMEZONE
+NFS_SERVER=NFS_SERVER?
+NFS_PATH=NFS_PATH?
+NFS_LOCAL_MOUNT=NFS_LOCAL_MOUNT?
+CLOUDFLARE_TUNNEL_TOKEN=CLOUDFLARE_TUNNEL_TOKEN
+TAILSCALE_AUTH_KEY=TAILSCALE_AUTH_KEY
+TAILSCALE_HOSTNAME=TAILSCALE_HOSTNAME
+TAILSCALE_ROUTES=TAILSCALE_ROUTES?
+PUBLIC_SITE_ENABLE=INSTALL_PUBLIC_WEBSITE
+DNS_CERTBOT_IMAGE=DNS_CERTBOT_IMAGE
+DNS_CERTBOT_FLAGS=DNS_CERTBOT_FLAGS?
+DNS_CREDENTIALS_FILE=DNS_CREDENTIALS_FILE
+DNS_CREDENTIALS_TARGET=DNS_CREDENTIALS_TARGET
+POSTGRES_CONTAINER=POSTGRES_CONTAINER
+N8N_CONTAINER=N8N_CONTAINER
+NGINX_CONTAINER=NGINX_CONTAINER
+CERTBOT_CONTAINER=CERTBOT_CONTAINER
+MANAGEMENT_CONTAINER=MANAGEMENT_CONTAINER
+EOF
+}
+
+# Load values from an existing .env into installer variables (POSTGRES_PASSWORD
+# -> DB_PASSWORD, TIMEZONE -> N8N_TIMEZONE, ...) without overriding anything
+# the installer already knows.
+env_adopt_existing_values() {
+    local file="$1" key var optional val
+    [ -f "$file" ] || return 0
+    while IFS='=' read -r key var; do
+        [ -n "$key" ] || continue
+        optional=false
+        if [ "${var%\?}" != "$var" ]; then
+            optional=true
+            var="${var%\?}"
+        fi
+        if [ "$optional" = true ]; then
+            [ -z "${!var+x}" ] || continue
+        else
+            [ -z "${!var:-}" ] || continue
+        fi
+        if val=$(env_get_key "$file" "$key"); then
+            if [ "$optional" = true ] || [ -n "$val" ]; then
+                printf -v "$var" '%s' "$val"
+            fi
+        fi
+    done < <(env_key_map)
+    return 0
+}
+
+# Extract "encryptionKey" from n8n's ~/.n8n/config JSON (no jq dependency)
+n8n_config_extract_key() {
+    tr -d '\r\n' | sed -n 's/.*"encryptionKey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXISTING DATA / SECRET RECOVERY
+# ═══════════════════════════════════════════════════════════════════════════════
+# PostgreSQL ignores POSTGRES_PASSWORD once its volume is initialised and n8n
+# keeps its encryption key in the n8n_data volume, so an existing install must
+# keep using the secrets it was created with.
+
+random_secret() {
+    local len="${1:-32}"
+    if command_exists openssl; then
+        openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c "$len"
+    else
+        head -c 256 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c "$len"
+    fi
+}
+
+# Make sure DOCKER_SUDO is set and the daemon is reachable (safe to call
+# before check_and_install_docker, e.g. from the reconfigure/start-fresh menu).
+ensure_docker_access() {
+    command_exists docker || return 1
+    if [ -z "${DOCKER_SUDO+x}" ]; then
+        if [ "$(id -u)" -eq 0 ] || docker ps >/dev/null 2>&1; then
+            DOCKER_SUDO=""
+        elif command_exists sudo; then
+            DOCKER_SUDO="sudo"
+        else
+            return 1
+        fi
+    fi
+    $DOCKER_SUDO docker info >/dev/null 2>&1
+}
+
+run_compose() {
+    local -a cmd=()
+    [ -n "${DOCKER_SUDO:-}" ] && cmd+=("$DOCKER_SUDO")
+    if [ "${USE_STANDALONE_COMPOSE:-}" = true ] || ! $DOCKER_SUDO docker compose version >/dev/null 2>&1; then
+        cmd+=(docker-compose)
+    else
+        cmd+=(docker compose)
+    fi
+    (cd "$SCRIPT_DIR" && "${cmd[@]}" "$@")
+}
+
+# find_compose_volume NAME - print the real Docker volume name of the compose
+# volume NAME (e.g. n8n_data -> n8n_nginx_n8n_data). Returns 1 if absent.
+find_compose_volume() {
+    local vol="$1" project="" name="" c
+    ensure_docker_access || return 1
+    for c in "${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}" "${N8N_CONTAINER:-$DEFAULT_N8N_CONTAINER}"; do
+        project=$($DOCKER_SUDO docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$c" 2>/dev/null) || project=""
+        [ -n "$project" ] && [ "$project" != "<no value>" ] && break
+        project=""
+    done
+    if [ -z "$project" ]; then
+        project="${COMPOSE_PROJECT_NAME:-}"
+        [ -n "$project" ] || project=$(env_get_key "${SCRIPT_DIR}/.env" COMPOSE_PROJECT_NAME 2>/dev/null) || project=""
+        [ -n "$project" ] || project=$(basename "$SCRIPT_DIR")
+        project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+    fi
+    name=$($DOCKER_SUDO docker volume ls -q \
+        --filter "label=com.docker.compose.project=${project}" \
+        --filter "label=com.docker.compose.volume=${vol}" 2>/dev/null | head -n 1)
+    if [ -z "$name" ] && $DOCKER_SUDO docker volume inspect "${project}_${vol}" >/dev/null 2>&1; then
+        name="${project}_${vol}"
+    fi
+    [ -n "$name" ] || return 1
+    printf '%s\n' "$name"
+}
+
+# Print the encryption key n8n stored in its data volume (~/.n8n/config).
+read_n8n_encryption_key_from_volume() {
+    local cfg="" vol="" img="" candidate c="${N8N_CONTAINER:-$DEFAULT_N8N_CONTAINER}" key
+    ensure_docker_access || return 1
+    # 1) From the n8n container itself (running or stopped) - no image pull needed
+    cfg=$($DOCKER_SUDO docker cp "${c}:/home/node/.n8n/config" - 2>/dev/null | tar -xOf - 2>/dev/null) || cfg=""
+    # 2) Straight from the volume with a throwaway container
+    if [ -z "$cfg" ]; then
+        vol=$(find_compose_volume n8n_data) || return 1
+        for candidate in alpine:latest alpine pgvector/pgvector:pg16 nginx:alpine; do
+            if $DOCKER_SUDO docker image inspect "$candidate" >/dev/null 2>&1; then
+                img="$candidate"
+                break
+            fi
+        done
+        cfg=$($DOCKER_SUDO docker run --rm --network none --entrypoint cat \
+            -v "${vol}:/n8n_data:ro" "${img:-alpine:latest}" /n8n_data/config 2>/dev/null) || cfg=""
+    fi
+    key=$(printf '%s' "$cfg" | n8n_config_extract_key)
+    [ -n "$key" ] || return 1
+    printf '%s' "$key"
+}
+
+# Print POSTGRES_PASSWORD from the existing postgres container's environment.
+detect_running_postgres_password() {
+    local c="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}" line
+    ensure_docker_access || return 1
+    line=$($DOCKER_SUDO docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" 2>/dev/null \
+        | grep -m 1 '^POSTGRES_PASSWORD=') || return 1
+    line="${line#POSTGRES_PASSWORD=}"
+    [ -n "$line" ] || return 1
+    printf '%s' "$line"
+}
+
+wait_for_postgres_container() {
+    local c="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}" i
+    if [ "$($DOCKER_SUDO docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]; then
+        print_info "Starting PostgreSQL container..."
+        run_compose up -d postgres >/dev/null 2>&1 || return 1
+    fi
+    for i in $(seq 1 30); do
+        if $DOCKER_SUDO docker exec "$c" pg_isready -q >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+# Change the password of the existing superuser role inside the running
+# database. Must succeed BEFORE the new password is written to .env.
+apply_db_password_change() {
+    local new_pw="$1" role="${2:-$DB_USER}" db="${3:-$DB_NAME}"
+    local c="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}" ident lit
+    # Validate first: the new password must be storable in .env afterwards
+    if [ -z "$new_pw" ] || ! env_quote_value "$new_pw" >/dev/null; then
+        print_error "The new database password is empty or cannot be stored in .env (newline, or both ' and \`)"
+        return 1
+    fi
+    if ! ensure_docker_access; then
+        print_error "Docker is not reachable - cannot change the password of the existing database role"
+        return 1
+    fi
+    if ! wait_for_postgres_container; then
+        print_error "PostgreSQL container '${c}' is not running/ready - password not changed"
+        return 1
+    fi
+    ident="\"${role//\"/\"\"}\""
+    lit="'${new_pw//\'/\'\'}'"
+    # Send the statement on stdin so the password never appears in a process list
+    if printf 'ALTER ROLE %s WITH PASSWORD %s;\n' "$ident" "$lit" \
+        | $DOCKER_SUDO docker exec -i "$c" psql -v ON_ERROR_STOP=1 -q -U "$role" -d "${db:-postgres}" >/dev/null; then
+        print_success "Database password for role '${role}' changed (ALTER ROLE)"
+        print_warning "Running containers keep the old password until the stack is redeployed"
+        DB_PASSWORD_CHANGE_APPLIED=true
+        return 0
+    fi
+    print_error "ALTER ROLE failed - the database password was NOT changed"
+    return 1
+}
+
+# Called when the user picks "Start Fresh" on an existing installation.
+handle_existing_data_on_fresh() {
+    local n8n_vol="" pg_vol="" v typed choice="" ts dump_file c
+    local -a vols=()
+    ensure_docker_access || return 0
+    n8n_vol=$(find_compose_volume n8n_data 2>/dev/null) || n8n_vol=""
+    pg_vol=$(find_compose_volume postgres_data 2>/dev/null) || pg_vol=""
+    [ -n "$n8n_vol" ] && vols+=("$n8n_vol")
+    [ -n "$pg_vol" ] && vols+=("$pg_vol")
+    [ ${#vols[@]} -gt 0 ] || return 0
+
+    print_section "Existing Data Volumes Detected"
+    echo -e "  ${YELLOW}Start Fresh regenerates configuration files, but Docker volumes are NOT removed:${NC}"
+    for v in "${vols[@]}"; do
+        echo -e "    • ${CYAN}${v}${NC}"
+    done
+    echo ""
+    echo -e "  ${GRAY}PostgreSQL keeps the password it was created with and n8n keeps its${NC}"
+    echo -e "  ${GRAY}encryption key inside these volumes. New secrets would NOT match them and${NC}"
+    echo -e "  ${GRAY}n8n / the management console would fail to start.${NC}"
+    echo ""
+    echo -e "  ${WHITE}Options:${NC}"
+    echo -e "    ${CYAN}1)${NC} Keep existing data and reuse the existing secrets ${GREEN}(recommended)${NC}"
+    echo -e "    ${CYAN}2)${NC} ${RED}DELETE${NC} the volumes above and start with empty data"
+    echo -e "    ${CYAN}3)${NC} Exit"
+    echo ""
+
+    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+        print_info "AUTO_CONFIRM: keeping existing data (volumes are never deleted automatically)"
+        return 0
+    fi
+    while [[ ! "$choice" =~ ^[123]$ ]]; do
+        echo -ne "${WHITE}  Enter your choice [1-3]${NC}: "
+        read choice
+    done
+    case $choice in
+        1)
+            print_success "Existing data will be kept; existing secrets will be reused"
+            return 0
+            ;;
+        3)
+            print_info "Exiting. Your installation remains unchanged."
+            exit 0
+            ;;
+    esac
+
+    if [ -n "$pg_vol" ] && confirm_prompt "Create a pg_dumpall backup of the database before deleting?" "y"; then
+        c="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}"
+        ts=$(date +%Y%m%d_%H%M%S)
+        dump_file="${SCRIPT_DIR}/backups/pre_fresh_${ts}.sql.gz"
+        mkdir -p "${SCRIPT_DIR}/backups"
+        local dump_user
+        dump_user=$(env_get_key "${SCRIPT_DIR}/.env" POSTGRES_USER 2>/dev/null) || dump_user=""
+        dump_user="${dump_user:-${DB_USER:-$DEFAULT_DB_USER}}"
+        if wait_for_postgres_container \
+            && (umask 077 && set -o pipefail && $DOCKER_SUDO docker exec "$c" pg_dumpall -U "$dump_user" | gzip > "$dump_file") \
+            && [ -s "$dump_file" ]; then
+            print_success "Database backup saved to ${dump_file}"
+        else
+            rm -f "$dump_file"
+            print_error "Database backup failed"
+            if ! confirm_prompt "Continue deleting WITHOUT a database backup?" "n"; then
+                print_info "Keeping existing data; existing secrets will be reused"
+                return 0
+            fi
+        fi
+    fi
+
+    echo ""
+    echo -e "  ${RED}This permanently deletes all n8n workflows, credentials, executions and${NC}"
+    echo -e "  ${RED}management console data stored in the volumes listed above.${NC}"
+    echo -ne "${WHITE}  Type DELETE to confirm${NC}: "
+    read typed
+    if [ "$typed" != "DELETE" ]; then
+        print_info "Not confirmed - keeping existing data; existing secrets will be reused"
+        return 0
+    fi
+
+    print_info "Stopping the stack..."
+    run_compose down --remove-orphans >/dev/null 2>&1 || true
+    for v in "${vols[@]}"; do
+        # Remove any remaining container still holding the volume
+        $DOCKER_SUDO docker ps -aq --filter "volume=${v}" | while read -r c; do
+            $DOCKER_SUDO docker rm -f "$c" >/dev/null 2>&1 || true
+        done
+        if $DOCKER_SUDO docker volume rm "$v" >/dev/null; then
+            print_success "Removed volume ${v}"
+        else
+            print_error "Could not remove volume ${v} - aborting"
+            exit 1
+        fi
+    done
+
+    # The old .env belongs to the deleted data (a copy is in .backups/); start clean
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        mv -f "${SCRIPT_DIR}/.env" "${SCRIPT_DIR}/.env.pre-fresh.$(date +%Y%m%d_%H%M%S)"
+        print_info "Previous .env moved aside (.env.pre-fresh.*)"
+    fi
+    unset DB_PASSWORD N8N_ENCRYPTION_KEY MGMT_SECRET_KEY MGMT_DB_USER MGMT_DB_PASSWORD
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # GENERATE .env FILE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 generate_env_file() {
+    local env_file="${SCRIPT_DIR}/.env" key var val old_pw vol_key tmp
+    local -a missing=()
     print_info "Generating .env file..."
 
-    # Read existing .env file to preserve values not stored in config
-    if [ -f "${SCRIPT_DIR}/.env" ]; then
-        # Source existing .env to get values we might not have in memory
-        # Use a subshell to avoid polluting current environment unexpectedly
-        while IFS='=' read -r key value; do
-            # Skip comments and empty lines
-            [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
-            # Remove any leading/trailing whitespace from key
-            key=$(echo "$key" | xargs)
-            # Only set if not already set in current environment
-            if [ -z "${!key}" ] && [ -n "$value" ]; then
-                export "$key=$value"
-            fi
-        done < "${SCRIPT_DIR}/.env"
+    # Map an existing .env back onto installer variables
+    # (POSTGRES_PASSWORD -> DB_PASSWORD, TIMEZONE -> N8N_TIMEZONE, ...)
+    env_adopt_existing_values "$env_file"
+
+    # Last-resort recovery of secrets from the existing stack
+    if [ -z "${N8N_ENCRYPTION_KEY:-}" ]; then
+        N8N_ENCRYPTION_KEY=$(read_n8n_encryption_key_from_volume 2>/dev/null) || N8N_ENCRYPTION_KEY=""
+    fi
+    if [ -z "${DB_PASSWORD:-}" ]; then
+        DB_PASSWORD=$(detect_running_postgres_password 2>/dev/null) || DB_PASSWORD=""
+    fi
+
+    # Never write a key that does not match the one n8n stored in its volume
+    if [ "${N8N_KEY_VERIFIED:-false}" != true ]; then
+        if vol_key=$(read_n8n_encryption_key_from_volume 2>/dev/null) && [ -n "$vol_key" ] \
+            && [ "$vol_key" != "${N8N_ENCRYPTION_KEY:-}" ]; then
+            print_warning "N8N_ENCRYPTION_KEY does not match the key stored in the n8n data volume - using the volume's key"
+            N8N_ENCRYPTION_KEY="$vol_key"
+        fi
+    fi
+
+    # Never change POSTGRES_PASSWORD in .env unless the role was actually changed
+    if [ -f "$env_file" ] && [ "${DB_PASSWORD_CHANGE_APPLIED:-false}" != true ] \
+        && old_pw=$(env_get_key "$env_file" POSTGRES_PASSWORD) && [ -n "$old_pw" ] \
+        && [ "$old_pw" != "${DB_PASSWORD:-}" ] && find_compose_volume postgres_data >/dev/null 2>&1; then
+        print_warning "POSTGRES_PASSWORD differs from the password of the existing database and was not applied with ALTER ROLE - keeping the existing password"
+        DB_PASSWORD="$old_pw"
     fi
 
     # Generate secrets if not already set
-    if command_exists openssl; then
-        MGMT_SECRET_KEY=${MGMT_SECRET_KEY:-$(openssl rand -base64 32)}
-    else
-        MGMT_SECRET_KEY=${MGMT_SECRET_KEY:-$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)}
+    if [ -z "${MGMT_SECRET_KEY:-}" ]; then
+        if command_exists openssl; then
+            MGMT_SECRET_KEY=$(openssl rand -base64 32)
+        else
+            MGMT_SECRET_KEY=$(random_secret 32)
+        fi
     fi
 
-    cat > "${SCRIPT_DIR}/.env" << EOF
+    # Defaults
+    MGMT_PORT="${MGMT_PORT:-${DEFAULT_MGMT_PORT:-3333}}"
+    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
+    TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-n8n-server}"
+    DNS_CERTBOT_IMAGE="${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}"
+    DNS_CREDENTIALS_FILE="${DNS_CREDENTIALS_FILE:-cloudflare.ini}"
+    # The mount target follows the provider; keep the stored one only when the
+    # provider is unknown (e.g. a reconfigure that did not touch DNS settings)
+    if [ -n "${DNS_PROVIDER_NAME:-}" ] || [ -z "${DNS_CREDENTIALS_TARGET:-}" ]; then
+        DNS_CREDENTIALS_TARGET=$(dns_credentials_target)
+    fi
+    POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}"
+    N8N_CONTAINER="${N8N_CONTAINER:-$DEFAULT_N8N_CONTAINER}"
+    NGINX_CONTAINER="${NGINX_CONTAINER:-$DEFAULT_NGINX_CONTAINER}"
+    CERTBOT_CONTAINER="${CERTBOT_CONTAINER:-$DEFAULT_CERTBOT_CONTAINER}"
+    MANAGEMENT_CONTAINER="${MANAGEMENT_CONTAINER:-$DEFAULT_MANAGEMENT_CONTAINER}"
+
+    # Management console uses the n8n role unless a separate role was configured
+    MGMT_DB_USER="${MGMT_DB_USER:-$DB_USER}"
+    if [ "$MGMT_DB_USER" = "$DB_USER" ]; then
+        MGMT_DB_PASSWORD="$DB_PASSWORD"
+    else
+        MGMT_DB_PASSWORD="${MGMT_DB_PASSWORD:-${DB_PASSWORD_PREVIOUS:-$DB_PASSWORD}}"
+    fi
+
+    # Abort rather than write a .env the stack cannot start with
+    for var in N8N_DOMAIN:DOMAIN DB_USER:POSTGRES_USER DB_PASSWORD:POSTGRES_PASSWORD DB_NAME:POSTGRES_DB \
+               N8N_ENCRYPTION_KEY:N8N_ENCRYPTION_KEY MGMT_SECRET_KEY:MGMT_SECRET_KEY MGMT_DB_PASSWORD:MGMT_DB_PASSWORD; do
+        val="${var%%:*}"
+        if [ -z "${!val:-}" ]; then
+            missing+=("${var#*:}")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        print_error "Refusing to write .env - required value(s) are empty: ${missing[*]}"
+        print_info "Restore a previous .env from ${SCRIPT_DIR}/.backups/ or set the value(s) in your setup-config and re-run."
+        exit 1
+    fi
+    while IFS='=' read -r key var; do
+        var="${var%\?}"
+        if ! env_quote_value "${!var:-}" >/dev/null; then
+            print_error "Value for ${key} cannot be written to .env (it contains a newline, or both ' and \`)"
+            exit 1
+        fi
+    done < <(env_key_map)
+
+    if [ -f "$env_file" ]; then
+        # Existing install: update installer-managed keys in place; everything
+        # else (console-managed keys, custom variables, comments) is preserved.
+        while IFS='=' read -r key var; do
+            var="${var%\?}"
+            if ! env_set_key "$env_file" "$key" "${!var:-}"; then
+                print_error "Failed to update ${key} in .env"
+                exit 1
+            fi
+        done < <(env_key_map)
+        chmod 600 "$env_file"
+        print_success ".env file updated (existing secrets and custom keys preserved)"
+    else
+        tmp=$(umask 077 && mktemp "${env_file}.tmp.XXXXXX")
+        cat > "$tmp" << EOF
 # n8n Management System v3.0 - Environment Variables
 # Generated by setup.sh on $(date)
 # WARNING: This file contains sensitive credentials - do not commit to git!
@@ -2915,78 +3466,81 @@ generate_env_file() {
 # ===========================================
 
 # Domain name for n8n (used for URLs, SSL certificates, etc.)
-DOMAIN=${N8N_DOMAIN}
+DOMAIN=$(env_quote_value "$N8N_DOMAIN")
 
 # Host IP address (local IP that matches the domain)
-N8N_MANAGEMENT_HOST_IP=${N8N_MANAGEMENT_HOST_IP:-}
+N8N_MANAGEMENT_HOST_IP=$(env_quote_value "${N8N_MANAGEMENT_HOST_IP:-}")
 
 # PostgreSQL credentials
-POSTGRES_USER=${DB_USER}
-POSTGRES_PASSWORD=${DB_PASSWORD}
-POSTGRES_DB=${DB_NAME}
+POSTGRES_USER=$(env_quote_value "$DB_USER")
+POSTGRES_PASSWORD=$(env_quote_value "$DB_PASSWORD")
+POSTGRES_DB=$(env_quote_value "$DB_NAME")
 
 # n8n encryption key
-N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+N8N_ENCRYPTION_KEY=$(env_quote_value "$N8N_ENCRYPTION_KEY")
 
 # Management console (uses same DB credentials as n8n)
-MGMT_SECRET_KEY=${MGMT_SECRET_KEY}
-MGMT_DB_USER=${DB_USER}
-MGMT_DB_PASSWORD=${DB_PASSWORD}
-MGMT_PORT=${MGMT_PORT:-3333}
+MGMT_SECRET_KEY=$(env_quote_value "$MGMT_SECRET_KEY")
+MGMT_DB_USER=$(env_quote_value "$MGMT_DB_USER")
+MGMT_DB_PASSWORD=$(env_quote_value "$MGMT_DB_PASSWORD")
+MGMT_PORT=$(env_quote_value "$MGMT_PORT")
 
 # Admin credentials (for management console)
-ADMIN_USER=${ADMIN_USER}
-ADMIN_PASS=${ADMIN_PASS}
-ADMIN_EMAIL=${ADMIN_EMAIL:-admin@localhost}
+ADMIN_USER=$(env_quote_value "${ADMIN_USER:-}")
+ADMIN_PASS=$(env_quote_value "${ADMIN_PASS:-}")
+ADMIN_EMAIL=$(env_quote_value "$ADMIN_EMAIL")
 
 # Timezone
-TIMEZONE=${N8N_TIMEZONE}
+TIMEZONE=$(env_quote_value "${N8N_TIMEZONE:-}")
 
 # ===========================================
 # Optional: NFS Backup Storage
 # ===========================================
-NFS_SERVER=${NFS_SERVER:-}
-NFS_PATH=${NFS_PATH:-}
-NFS_LOCAL_MOUNT=${NFS_LOCAL_MOUNT:-}
+NFS_SERVER=$(env_quote_value "${NFS_SERVER:-}")
+NFS_PATH=$(env_quote_value "${NFS_PATH:-}")
+NFS_LOCAL_MOUNT=$(env_quote_value "${NFS_LOCAL_MOUNT:-}")
 
 # ===========================================
 # Optional: Cloudflare Tunnel
 # ===========================================
-CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+CLOUDFLARE_TUNNEL_TOKEN=$(env_quote_value "${CLOUDFLARE_TUNNEL_TOKEN:-}")
 
 # ===========================================
 # Optional: Tailscale VPN
 # ===========================================
-TAILSCALE_AUTH_KEY=${TAILSCALE_AUTH_KEY:-}
-TAILSCALE_HOSTNAME=${TAILSCALE_HOSTNAME:-n8n-server}
-TAILSCALE_ROUTES=${TAILSCALE_ROUTES:-}
+TAILSCALE_AUTH_KEY=$(env_quote_value "${TAILSCALE_AUTH_KEY:-}")
+TAILSCALE_HOSTNAME=$(env_quote_value "$TAILSCALE_HOSTNAME")
+TAILSCALE_ROUTES=$(env_quote_value "${TAILSCALE_ROUTES:-}")
 
 # ===========================================
 # Optional: Public Website
 # ===========================================
-PUBLIC_SITE_ENABLE=${INSTALL_PUBLIC_WEBSITE}
+PUBLIC_SITE_ENABLE=$(env_quote_value "${INSTALL_PUBLIC_WEBSITE:-false}")
 
 # ===========================================
 # DNS Provider / SSL Certificate Settings
 # ===========================================
-DNS_CERTBOT_IMAGE=${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
-DNS_CERTBOT_FLAGS=${DNS_CERTBOT_FLAGS:-}
-DNS_CREDENTIALS_FILE=${DNS_CREDENTIALS_FILE:-cloudflare.ini}
-DNS_CREDENTIALS_TARGET=$(dns_credentials_target)
+DNS_CERTBOT_IMAGE=$(env_quote_value "$DNS_CERTBOT_IMAGE")
+DNS_CERTBOT_FLAGS=$(env_quote_value "${DNS_CERTBOT_FLAGS:-}")
+DNS_CREDENTIALS_FILE=$(env_quote_value "${DNS_CREDENTIALS_FILE:-cloudflare.ini}")
+DNS_CREDENTIALS_TARGET=$(env_quote_value "$DNS_CREDENTIALS_TARGET")
 
 # ===========================================
 # Container Names (generally don't change)
 # ===========================================
-POSTGRES_CONTAINER=${POSTGRES_CONTAINER}
-N8N_CONTAINER=${N8N_CONTAINER}
-NGINX_CONTAINER=${NGINX_CONTAINER}
-CERTBOT_CONTAINER=${CERTBOT_CONTAINER}
-MANAGEMENT_CONTAINER=${DEFAULT_MANAGEMENT_CONTAINER}
+POSTGRES_CONTAINER=$(env_quote_value "$POSTGRES_CONTAINER")
+N8N_CONTAINER=$(env_quote_value "$N8N_CONTAINER")
+NGINX_CONTAINER=$(env_quote_value "$NGINX_CONTAINER")
+CERTBOT_CONTAINER=$(env_quote_value "$CERTBOT_CONTAINER")
+MANAGEMENT_CONTAINER=$(env_quote_value "$MANAGEMENT_CONTAINER")
 EOF
+        chmod 600 "$tmp"
+        mv -f "$tmp" "$env_file"
+        print_success ".env file generated"
+    fi
 
     # Secure the .env file
-    chmod 600 "${SCRIPT_DIR}/.env"
-    print_success ".env file generated"
+    chmod 600 "$env_file"
 
     # Create env_backups directory for environment variable backups
     mkdir -p "${SCRIPT_DIR}/env_backups"
@@ -4811,8 +5365,115 @@ validate_domain() {
 configure_database() {
     print_section "PostgreSQL Database Configuration"
 
+    local env_file="${SCRIPT_DIR}/.env" pg_volume="" existing_pw="" existing_user="" existing_db=""
+    local new_pw="" new_pw_confirm=""
+    if [ -f "$env_file" ]; then
+        existing_user=$(env_get_key "$env_file" POSTGRES_USER) || existing_user=""
+        existing_db=$(env_get_key "$env_file" POSTGRES_DB) || existing_db=""
+        existing_pw=$(env_get_key "$env_file" POSTGRES_PASSWORD) || existing_pw=""
+    fi
+    pg_volume=$(find_compose_volume postgres_data 2>/dev/null) || pg_volume=""
+    if [ -n "$pg_volume" ] && [ -z "$existing_pw" ]; then
+        existing_pw=$(detect_running_postgres_password 2>/dev/null) || existing_pw=""
+    fi
+
+    # ── Existing PostgreSQL data: the role/password are fixed by the volume ──
+    if [ -n "$pg_volume" ]; then
+        print_warning "Existing PostgreSQL data volume detected: ${pg_volume}"
+        echo -e "  ${GRAY}PostgreSQL ignores POSTGRES_PASSWORD once initialised - the existing${NC}"
+        echo -e "  ${GRAY}password is kept unless you change it here (applied with ALTER ROLE).${NC}"
+        echo ""
+        if [ -n "$existing_user" ] && [ -n "${DB_USER:-}" ] && [ "$DB_USER" != "$existing_user" ]; then
+            print_warning "Database user '${DB_USER}' ignored - existing data uses '${existing_user}'"
+        fi
+        if [ -n "$existing_db" ] && [ -n "${DB_NAME:-}" ] && [ "$DB_NAME" != "$existing_db" ]; then
+            print_warning "Database name '${DB_NAME}' ignored - existing data uses '${existing_db}'"
+        fi
+        DB_USER="${existing_user:-${DB_USER:-$DEFAULT_DB_USER}}"
+        DB_NAME="${existing_db:-${DB_NAME:-$DEFAULT_DB_NAME}}"
+        print_info "Database: ${DB_NAME} (user: ${DB_USER})"
+
+        if [ "$PRECONFIG_MODE" = "true" ]; then
+            if [ -z "${DB_PASSWORD:-}" ]; then
+                if [ -z "$existing_pw" ]; then
+                    print_error "Cannot determine the password of the existing database."
+                    print_info "Set POSTGRES_PASSWORD in your config file to the CURRENT database password."
+                    exit 1
+                fi
+                DB_PASSWORD="$existing_pw"
+                print_success "Reusing the existing PostgreSQL password"
+            elif [ -n "$existing_pw" ] && [ "$DB_PASSWORD" != "$existing_pw" ]; then
+                print_warning "POSTGRES_PASSWORD in the config differs from the existing database password"
+                if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ] && [ "${FORCE_REGENERATE_SECRETS:-false}" != "true" ]; then
+                    print_error "Refusing to change the password of an existing database in AUTO_CONFIRM mode."
+                    print_info "Remove POSTGRES_PASSWORD from the config to keep the existing password, or"
+                    print_info "set FORCE_REGENERATE_SECRETS=true to apply the new one with ALTER ROLE."
+                    exit 1
+                fi
+                if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ] || confirm_prompt "Change the existing database password now (ALTER ROLE)?" "n"; then
+                    if ! apply_db_password_change "$DB_PASSWORD" "$DB_USER" "$DB_NAME"; then
+                        print_error "Aborting - .env was not modified"
+                        exit 1
+                    fi
+                    DB_PASSWORD_PREVIOUS="$existing_pw"
+                else
+                    DB_PASSWORD="$existing_pw"
+                    print_success "Keeping the existing PostgreSQL password"
+                fi
+            fi
+            return
+        fi
+
+        if [ -n "$existing_pw" ]; then
+            if confirm_prompt "Keep the existing database password?" "y"; then
+                DB_PASSWORD="$existing_pw"
+                print_success "Keeping the existing PostgreSQL password"
+                return
+            fi
+            while true; do
+                echo -ne "${WHITE}  New database password${NC}: "
+                read -rs new_pw
+                echo ""
+                echo -ne "${WHITE}  Confirm new password${NC}: "
+                read -rs new_pw_confirm
+                echo ""
+                if [ -z "$new_pw" ]; then
+                    print_error "Password cannot be empty"
+                elif [ "$new_pw" != "$new_pw_confirm" ]; then
+                    print_error "Passwords do not match"
+                elif ! env_quote_value "$new_pw" >/dev/null; then
+                    print_error "Password cannot contain newlines, or both ' and \`"
+                else
+                    break
+                fi
+            done
+            if [ "$new_pw" != "$existing_pw" ]; then
+                if ! apply_db_password_change "$new_pw" "$DB_USER" "$DB_NAME"; then
+                    print_error "Aborting - .env was not modified"
+                    exit 1
+                fi
+                DB_PASSWORD_PREVIOUS="$existing_pw"
+            fi
+            DB_PASSWORD="$new_pw"
+        else
+            print_warning "Could not determine the current database password (no .env, container not found)."
+            while [ -z "${DB_PASSWORD:-}" ]; do
+                echo -ne "${WHITE}  Enter the CURRENT database password${NC}: "
+                read -rs DB_PASSWORD
+                echo ""
+            done
+        fi
+        return
+    fi
+
+    # ── New database ──
     # In preconfig mode, database is already configured by load_preconfig
     if [ "$PRECONFIG_MODE" = "true" ]; then
+        if [ -z "${DB_PASSWORD:-}" ]; then
+            DB_PASSWORD=$(random_secret 32)
+            AUTOGEN_DB_PASSWORD=true
+            print_info "Auto-generated PostgreSQL password"
+        fi
         print_info "Using pre-configured database: $DB_NAME (user: $DB_USER)"
         return
     fi
@@ -4990,6 +5651,68 @@ set_host_timezone() {
 generate_encryption_key() {
     print_section "Encryption Key Configuration"
 
+    local vol_key="" env_key="" n8n_volume=""
+
+    # 1) n8n refuses to start if the key differs from the one in its data
+    #    volume, so an existing volume's key always wins.
+    vol_key=$(read_n8n_encryption_key_from_volume 2>/dev/null) || vol_key=""
+    if [ -n "$vol_key" ]; then
+        if [ -n "${N8N_ENCRYPTION_KEY:-}" ] && [ "$N8N_ENCRYPTION_KEY" != "$vol_key" ]; then
+            print_warning "The configured N8N_ENCRYPTION_KEY does not match the key stored in the"
+            print_warning "existing n8n data volume (n8n would refuse to start) - using the volume's key."
+        fi
+        N8N_ENCRYPTION_KEY="$vol_key"
+        N8N_KEY_VERIFIED=true
+        AUTOGEN_ENCRYPTION_KEY=false
+        print_success "Reusing the encryption key from the existing n8n data volume"
+        return 0
+    fi
+
+    # 2) Key supplied via setup-config / environment / resumed state
+    if [ -n "${N8N_ENCRYPTION_KEY:-}" ]; then
+        print_success "Using the configured encryption key"
+        return 0
+    fi
+
+    # 3) Key from an existing .env
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        env_key=$(env_get_key "${SCRIPT_DIR}/.env" N8N_ENCRYPTION_KEY) || env_key=""
+    fi
+    if [ -n "$env_key" ]; then
+        N8N_ENCRYPTION_KEY="$env_key"
+        print_success "Reusing the encryption key from the existing .env"
+        return 0
+    fi
+
+    # 4) Data exists but its key could not be recovered: generating a new one
+    #    would make every stored credential undecryptable.
+    n8n_volume=$(find_compose_volume n8n_data 2>/dev/null) || n8n_volume=""
+    if [ -n "$n8n_volume" ]; then
+        print_warning "Existing n8n data volume '${n8n_volume}' found, but its encryption key could not be read."
+        if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+            if [ "${FORCE_REGENERATE_SECRETS:-false}" != "true" ]; then
+                print_error "Refusing to generate a new encryption key for existing n8n data in AUTO_CONFIRM mode."
+                print_info "Set N8N_ENCRYPTION_KEY in your config to the existing key, or set"
+                print_info "FORCE_REGENERATE_SECRETS=true to accept that stored credentials become unreadable."
+                exit 1
+            fi
+            print_warning "FORCE_REGENERATE_SECRETS=true - generating a NEW key; stored n8n credentials will be unreadable"
+        else
+            echo -ne "${WHITE}  Enter the existing encryption key (blank = generate a new one)${NC}: "
+            read -rs N8N_ENCRYPTION_KEY
+            echo ""
+            if [ -n "$N8N_ENCRYPTION_KEY" ]; then
+                print_success "Using the entered encryption key"
+                return 0
+            fi
+            if ! confirm_prompt "Generate a NEW key? Credentials stored in n8n will become unreadable" "n"; then
+                print_error "Aborting - no encryption key available"
+                exit 1
+            fi
+        fi
+    fi
+
+    AUTOGEN_ENCRYPTION_KEY=true
     if command_exists openssl; then
         N8N_ENCRYPTION_KEY=$(openssl rand -base64 32)
         print_success "Generated secure encryption key"
@@ -6626,6 +7349,13 @@ main() {
         print_info "Running in non-interactive mode (AUTO_CONFIRM=true)"
         # Set install mode to fresh for preconfig
         INSTALL_MODE="fresh"
+        # Re-running on an existing install: back up and reuse its secrets.
+        # configure_database / generate_encryption_key refuse to regenerate
+        # secrets for existing data unless FORCE_REGENERATE_SECRETS=true.
+        if [ -f "${SCRIPT_DIR}/.env" ] || [ "$(detect_current_version)" != "none" ]; then
+            print_warning "Existing installation detected - existing secrets and data volumes will be kept"
+            backup_existing_config
+        fi
     else
         # Check for existing installation FIRST - before showing feature list
         local detected_version=$(detect_current_version)

@@ -38,6 +38,7 @@ from api.schemas.settings import (
     AddExternalRouteRequest,
 )
 from api.schemas.common import SuccessResponse
+from api.services.env_file import read_env_value, update_env_file_key
 import logging
 
 logger = logging.getLogger(__name__)
@@ -743,18 +744,10 @@ async def get_env_variable(
     value = None
 
     # Check host .env file
-    if os.path.exists(HOST_ENV_PATH):
-        try:
-            with open(HOST_ENV_PATH, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        k, v = line.split('=', 1)
-                        if k.strip() == key:
-                            value = v.strip().strip('"').strip("'")
-                            break
-        except Exception as e:
-            pass
+    try:
+        value = read_env_value(HOST_ENV_PATH, key)
+    except Exception:
+        value = None
 
     # Fall back to environment variable
     if value is None:
@@ -798,27 +791,16 @@ async def update_env_variable(
             detail="Value is required",
         )
 
+    if not isinstance(value, str) or "\n" in value or "\r" in value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Value must be a single-line string",
+        )
+
     try:
-        # Read existing .env content
-        env_content = {}
-        if os.path.exists(HOST_ENV_PATH):
-            with open(HOST_ENV_PATH, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        k, v = line.split('=', 1)
-                        env_content[k.strip()] = v.strip()
-
-        # Update or add the key
-        env_content[key] = value
-
-        # Write back to file
-        with open(HOST_ENV_PATH, 'w') as f:
-            for k, v in env_content.items():
-                # Quote values with spaces or special characters
-                if ' ' in v or '"' in v or "'" in v:
-                    v = f'"{v}"'
-                f.write(f"{k}={v}\n")
+        # Update only this key; every other line of .env (installer-managed
+        # secrets, comments, quoting) is preserved byte-for-byte.
+        update_env_file_key(HOST_ENV_PATH, key, value)
 
         # Also update os.environ so the change takes effect immediately
         # This allows services like n8n_api_service to see the new value
