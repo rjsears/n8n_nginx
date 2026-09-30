@@ -180,20 +180,28 @@ async def run_backup(
     logger = logging.getLogger(__name__)
     logger.info(f"run_backup called: backup_type={data.backup_type}, skip_auto_verify={data.skip_auto_verify}")
 
-    service = BackupService(db)
+    from api.services.backup_runner import run_backup_exclusive
+    from api.services.operation_lock import OperationBusyError
 
     try:
-        history = await service.run_backup_with_metadata(
+        history = await run_backup_exclusive(
+            db,
+            n8n_db,
             backup_type=data.backup_type.value,
             compression=data.compression.value,
-            n8n_db=n8n_db,
             skip_auto_verify=data.skip_auto_verify,
+            wait=False,
         )
 
         return BackupRunResponse(
             backup_id=history.id,
             status=history.status,
             message=f"Backup {history.status}",
+        )
+    except OperationBusyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         )
     except Exception as e:
         raise HTTPException(
@@ -437,9 +445,15 @@ async def delete_backup(
     return SuccessResponse(message="Backup deleted")
 
 
-# Retention Policies
+# Retention Policies (legacy)
+#
+# DEPRECATED: the per-type RetentionPolicy table is no longer enforced. The
+# only retention that runs is the GFS policy in BackupConfiguration
+# (retention_* fields, edited on Backup Settings > Retention) applied by
+# PruningService.apply_gfs_retention(). These endpoints are kept only for API
+# compatibility.
 
-@router.get("/retention", response_model=List[RetentionPolicyResponse])
+@router.get("/retention", response_model=List[RetentionPolicyResponse], deprecated=True)
 async def list_retention_policies(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -450,7 +464,7 @@ async def list_retention_policies(
     return [RetentionPolicyResponse.model_validate(p) for p in policies]
 
 
-@router.put("/retention/{backup_type}", response_model=RetentionPolicyResponse)
+@router.put("/retention/{backup_type}", response_model=RetentionPolicyResponse, deprecated=True)
 async def update_retention_policy(
     backup_type: str,
     data: RetentionPolicyUpdate,
@@ -590,20 +604,28 @@ async def run_full_backup(
     This creates a complete archive with workflow manifest, config files,
     database schemas, and an embedded restore.sh script.
     """
-    service = BackupService(db)
+    from api.services.backup_runner import run_backup_exclusive
+    from api.services.operation_lock import OperationBusyError
 
     try:
-        history = await service.run_backup_with_metadata(
+        history = await run_backup_exclusive(
+            db,
+            n8n_db,
             backup_type=data.backup_type.value,
             compression=data.compression.value,
-            n8n_db=n8n_db,
             skip_auto_verify=data.skip_auto_verify,
+            wait=False,
         )
 
         return BackupRunResponse(
             backup_id=history.id,
             status=history.status,
             message=f"Full backup {history.status} - {history.filename}",
+        )
+    except OperationBusyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         )
     except Exception as e:
         raise HTTPException(
@@ -1438,9 +1460,15 @@ async def get_pruning_candidates(
     """
     service = PruningService(db)
     settings = await service.get_settings()
+    # Preview of what GFS retention (Backup Settings > Retention) would delete.
+    gfs_preview = await service.apply_gfs_retention(dry_run=True)
 
     if not settings:
-        return {"message": "No pruning settings configured", "candidates": []}
+        return {
+            "message": "No pruning settings configured",
+            "candidates": [],
+            "gfs_retention": gfs_preview,
+        }
 
     result = {
         "settings": {
@@ -1456,6 +1484,7 @@ async def get_pruning_candidates(
             "oldest_unprotected": [],
         },
         "storage": service.get_storage_usage(),
+        "gfs_retention": gfs_preview,
     }
 
     if settings.time_based_enabled:
@@ -1525,18 +1554,32 @@ async def run_pruning_manually(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Manually trigger all pruning checks.
+    Manually trigger retention and all pruning checks (same as the hourly job).
     This will:
-    1. Execute any pending deletions that are past their scheduled time
-    2. Check space-based pruning conditions
-    3. Check size-based pruning conditions
-    4. Check time-based pruning conditions
+    1. Apply GFS retention (Backup Settings > Retention)
+    2. Execute any pending deletions that are past their scheduled time
+    3. Check space-based pruning conditions
+    4. Check size-based pruning conditions
+    5. Check time-based pruning conditions
+
+    Returns 409 if a backup, restore, verification or pruning run is in progress.
     """
+    from api.services.operation_lock import exclusive_operation, OperationBusyError
+
     service = PruningService(db)
 
     try:
-        results = await service.run_all_pruning_checks()
+        async with exclusive_operation("pruning", wait=False):
+            results = {
+                "gfs_retention": await service.apply_gfs_retention(),
+                **(await service.run_all_pruning_checks()),
+            }
         return results
+    except OperationBusyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1551,12 +1594,21 @@ async def execute_pending_deletions(
 ):
     """
     Execute all pending deletions that have passed their scheduled time.
+    Returns 409 if a backup, restore, verification or pruning run is in progress.
     """
+    from api.services.operation_lock import exclusive_operation, OperationBusyError
+
     service = PruningService(db)
 
     try:
-        results = await service.execute_pending_deletions()
+        async with exclusive_operation("pruning", wait=False):
+            results = await service.execute_pending_deletions()
         return results
+    except OperationBusyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

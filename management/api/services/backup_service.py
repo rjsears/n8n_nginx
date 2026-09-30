@@ -72,6 +72,22 @@ PUBLIC_WEBSITE_VOLUME = settings.public_website_volume
 PUBLIC_WEBSITE_INDICATOR = "/app/host_project/filebrowser.db"
 
 
+# Free-space pre-check (see BackupService._check_free_space_for_backup)
+BACKUP_SIZE_GROWTH_FACTOR = 1.2
+
+
+def _backup_min_free_bytes() -> int:
+    """Headroom to leave free on the backup disk (env BACKUP_MIN_FREE_MB, default 1024)."""
+    try:
+        return max(int(os.environ.get("BACKUP_MIN_FREE_MB", "1024")), 0) * 1024 * 1024
+    except ValueError:
+        return 1024 * 1024 * 1024
+
+
+class InsufficientBackupSpaceError(Exception):
+    """Raised before a backup starts when the destination lacks free space."""
+
+
 def calculate_file_checksum(filepath: str, algorithm: str = None) -> str:
     """
     Calculate file checksum using configured algorithm.
@@ -2618,6 +2634,70 @@ fi
 exit 0
 '''
 
+    async def _estimate_backup_size(self, backup_type: str) -> int:
+        """Size of the most recent successful backup of this type (or any type), in bytes."""
+        for type_filter in (backup_type, None):
+            stmt = select(BackupHistory.file_size).where(
+                BackupHistory.status == "success",
+                BackupHistory.file_size.is_not(None),
+            )
+            if type_filter:
+                stmt = stmt.where(BackupHistory.backup_type == type_filter)
+            stmt = stmt.order_by(BackupHistory.created_at.desc()).limit(1)
+            result = await self.db.execute(stmt)
+            size = result.scalar()
+            if size:
+                return int(size)
+        return 0
+
+    async def _check_free_space_for_backup(self, backup_type: str) -> None:
+        """
+        Raise InsufficientBackupSpaceError if the backup destination (or the
+        temp staging directory) does not have room for the next backup.
+
+        Estimate: last successful backup size x BACKUP_SIZE_GROWTH_FACTOR,
+        needed on the destination and again in the temp staging directory
+        (dumps are staged there before being archived), summed when both are on
+        the same filesystem, plus BACKUP_MIN_FREE_MB of headroom so the disk is
+        never filled to the last byte (Postgres needs room for WAL).
+        """
+        storage_dir = await self._get_storage_location()
+        staging_dir = tempfile.gettempdir()
+        last_size = await self._estimate_backup_size(backup_type)
+        estimate = int(last_size * BACKUP_SIZE_GROWTH_FACTOR)
+        headroom = _backup_min_free_bytes()
+
+        required: Dict[int, int] = {}
+        paths: Dict[int, List[str]] = {}
+        available: Dict[int, int] = {}
+        for path in (storage_dir, staging_dir):
+            try:
+                st_dev = os.stat(path).st_dev
+                vfs = os.statvfs(path)
+            except OSError as e:
+                logger.warning(f"Free-space pre-check: cannot stat {path}: {e}; skipping check for it")
+                continue
+            required[st_dev] = required.get(st_dev, 0) + estimate
+            paths.setdefault(st_dev, []).append(path)
+            available[st_dev] = vfs.f_bavail * vfs.f_frsize
+
+        for st_dev, need in required.items():
+            need += headroom
+            free = available[st_dev]
+            where = ", ".join(paths[st_dev])
+            logger.info(
+                f"Free-space pre-check: {where}: free {free / 1024**2:.0f} MiB, need ~{need / 1024**2:.0f} MiB"
+            )
+            if free < need:
+                raise InsufficientBackupSpaceError(
+                    f"Insufficient disk space for backup on {where}: "
+                    f"{free / 1024**2:.0f} MiB free, ~{need / 1024**2:.0f} MiB needed "
+                    f"(last backup {last_size / 1024**2:.0f} MiB x {BACKUP_SIZE_GROWTH_FACTOR} "
+                    f"per copy + {headroom / 1024**2:.0f} MiB headroom). "
+                    f"Backup aborted to avoid filling the disk. Free up space, reduce the "
+                    f"retention settings, or move backup storage to another disk."
+                )
+
     async def run_backup_with_metadata(
         self,
         backup_type: str,
@@ -2647,6 +2727,10 @@ exit 0
         await self.db.refresh(history)
 
         try:
+            # Fail fast (recorded as a failed backup + failure notification
+            # below) instead of filling the disk that Postgres also lives on.
+            await self._check_free_space_for_backup(backup_type)
+
             # Notify start
             await dispatch_notification("backup_started", {
                 "backup_type": backup_type,
