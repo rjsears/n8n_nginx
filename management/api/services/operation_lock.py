@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 _lock = asyncio.Lock()
 _holder: Optional[str] = None
+# Callers waiting in acquire(). Right after release() the lock reads as
+# unlocked until the first waiter is resumed, so a no-wait caller must also
+# treat queued waiters as "busy" or it would silently queue behind them.
+_waiters = 0
 
 
 class OperationBusyError(RuntimeError):
@@ -40,7 +44,7 @@ class OperationBusyError(RuntimeError):
 
 def is_busy() -> bool:
     """Return True if a backup/restore/verify/prune operation holds the lock."""
-    return _lock.locked()
+    return _lock.locked() or _waiters > 0
 
 
 def current_operation() -> Optional[str]:
@@ -57,10 +61,14 @@ async def exclusive_operation(name: str, wait: bool = True) -> AsyncIterator[Non
         name: Human-readable operation name, e.g. "backup", "restore", "pruning".
         wait: If False, raise OperationBusyError instead of waiting when busy.
     """
-    global _holder
-    if not wait and _lock.locked():
+    global _holder, _waiters
+    if not wait and (_lock.locked() or _waiters > 0):
         raise OperationBusyError(name, _holder)
-    await _lock.acquire()
+    _waiters += 1
+    try:
+        await _lock.acquire()
+    finally:
+        _waiters -= 1
     _holder = name
     logger.debug("Operation lock acquired by %s", name)
     try:

@@ -139,7 +139,7 @@ When you're done restoring items, click **Unmount Backup** in the top-right. Thi
 2. Copy the downloaded archive to the host (scp, USB stick, etc.).
 3. Extract: `mkdir restore && tar -xzf backup_<date>.n8n_backup.tar.gz -C restore`.
 4. `cd restore`.
-5. Run `sudo ./restore.sh --dry-run` to preview, then `sudo ./restore.sh`. The script starts only PostgreSQL, restores each database in a single transaction (any error stops the script and nothing else is started), then starts the rest of the stack.
+5. Run `sudo ./restore.sh --dry-run` to preview, then `sudo ./restore.sh`. If a stack is already running from the target directory, the script stops it first (`docker compose down`, volumes are kept; it asks unless `--force`/`--auto`, and `--dry-run` only reports it). It then starts only PostgreSQL, waits until it accepts TCP connections (so the image's first-start initialisation has finished), restores each database in a single transaction (any error stops the script and nothing else is started), makes `MGMT_DB_USER` the owner of the restored management tables, then starts the rest of the stack. `MGMT_DB_USER` in `.env` must consist of letters, digits and underscores only; otherwise the script refuses to run.
 
 !!! warning "Archives from older versions"
 
@@ -237,7 +237,7 @@ Retention controls when backups age out. The console implements a **GFS (Grandfa
 
 Retention runs **every hour (at minute 15)** and **right after every successful backup**. Each backup type (Full, n8n only, Management only) is evaluated on its own. A backup is kept if **any** of these rules keeps it:
 
-1. It is one of the **Safety Net** newest backups (never fewer than 1, so the most recent successful backup is never deleted).
+1. It is one of the **Safety Net** newest backups (never fewer than 1, so the most recent successful backup is never deleted). The Safety Net is also a hard floor for **every** automatic deletion path described below (pruning rules, emergency deletion, pending deletions): the newest *Safety Net* successful backups of each backup type are never marked for deletion or deleted, protected or not, whatever the disk looks like.
 2. It is the newest backup of one of the **Daily** most recent calendar days that have a backup.
 3. It is the newest backup of one of the **Weekly** most recent ISO weeks (Monday–Sunday) that have a backup.
 4. It is the newest backup of one of the **Monthly** most recent calendar months that have a backup.
@@ -259,7 +259,7 @@ Turning **Automatic Retention** off disables this GFS cleanup entirely; nothing 
 
 Deletions follow the pruning setting **Notify before delete** (on by default, 24 hours): backups selected by retention are first marked *pending deletion*, a `backup_pending_deletion` notification is sent, and they are removed by the hourly job once the notice period has passed. During that window you can protect a backup to keep it. (Cancelling a pending deletion without protecting the backup only defers it: the next hourly run selects it again.) If *Notify before delete* is turned off, retention deletes immediately.
 
-A deleted backup's archive file is removed from disk and its history row is marked deleted (it disappears from Backup History). A file that is already missing is simply marked deleted.
+A deleted backup's archive file is removed from disk and its history row is marked deleted (it disappears from Backup History). A file that is already missing is simply marked deleted, but only when its folder still exists: if the folder itself is gone (for example the NFS share is not mounted) the deletion is skipped, logged, and retried on a later run. A pending deletion whose backup has meanwhile become one of the Safety Net newest (for example because newer backups were deleted by hand) is cancelled instead of executed.
 
 !!! warning "First run after upgrading"
 
@@ -267,7 +267,19 @@ A deleted backup's archive file is removed from disk and its history row is mark
 
 #### Additional pruning rules
 
-The optional space-, size- and age-based pruning rules (pruning settings) run in the same hourly job, after GFS retention. All retention and pruning work takes the same exclusive lock as backups and restores: if a backup, restore or verification is running, that hour's run is skipped and the next one catches up. Manually triggering pruning (`POST /api/backups/pruning/run`) or a manual backup returns HTTP 409 while another backup, restore, verification or pruning run is in progress.
+The optional pruning rules (pruning settings) are applied after GFS retention. What the automatic runs (hourly and after each backup) do differs from a manual run:
+
+| Rule | Automatic run (hourly / after each backup) | Manual run (`POST /api/backups/pruning/run`) |
+|---|---|---|
+| Due pending deletions | Executed | Executed |
+| Age-based (*older than X days*) | Marks (or deletes, if *Notify before delete* is off) | Same |
+| Space-based (*free space below X%*) | **Alert only**: warning in the log and a `backup_critical_space` notification; nothing is marked or deleted | Marks the 5 oldest eligible backups |
+| Critical space (*below the critical threshold*) | **Alert only** (same notification) | *delete_oldest*: deletes the 3 oldest eligible backups immediately; *stop_and_alert*: notification only |
+| Size-based (*total above X GB*) | **Alert only** (same notification) | Marks the oldest eligible backups until under the limit |
+
+Space- and size-based deletion is manual-only on purpose: low disk space is often caused by something other than backups (the Postgres data volume, logs, Docker images), and deleting backups automatically in that situation — while the free-space check also makes new backups fail — could leave you without any backup. There is no setting to make it automatic; when you get the alert, free space or run pruning manually. "Eligible" always excludes protected backups and the Safety Net newest backups of each type, so even a manual emergency run never deletes the newest backups.
+
+All retention and pruning work takes the same exclusive lock as backups and restores: if a backup, restore or verification is running (or queued), that hour's run is skipped and the next one catches up. Manually triggering pruning (`POST /api/backups/pruning/run`) or a manual backup returns HTTP 409 while another backup, restore, verification or pruning run is in progress or waiting to start.
 
 #### Free-space check before each backup
 
