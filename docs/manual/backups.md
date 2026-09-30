@@ -227,8 +227,51 @@ Retention controls when backups age out. The console implements a **GFS (Grandfa
 | **Daily (Son)** | Keep 7 daily backups | Quick recovery from yesterday's mistake. |
 | **Weekly (Father)** | Keep 4 weekly backups | Recover from issues discovered a week or two later. |
 | **Monthly (Grandfather)** | Keep 6 monthly backups | Long-tail archives — quarterly audits, "I need to see what we had in March" requests. |
+| **Safety Net** | Keep the 3 newest | Always kept, whatever their age. |
 
-With defaults, the rotation keeps roughly: 7 days at daily granularity + 4 weeks at weekly + 6 months at monthly = ~6 months of usable history with about 17 backup files retained at any time, regardless of how many runs occur in between.
+#### Exactly what is kept
+
+Retention runs **every hour (at minute 15)** and **right after every successful backup**. Each backup type (Full, n8n only, Management only) is evaluated on its own. A backup is kept if **any** of these rules keeps it:
+
+1. It is one of the **Safety Net** newest backups (never fewer than 1, so the most recent successful backup is never deleted).
+2. It is the newest backup of one of the **Daily** most recent calendar days that have a backup.
+3. It is the newest backup of one of the **Weekly** most recent ISO weeks (Monday–Sunday) that have a backup.
+4. It is the newest backup of one of the **Monthly** most recent calendar months that have a backup.
+
+Everything else is deleted. Days, weeks and months are computed in the console's configured timezone (`TZ`).
+
+Things retention **never** touches:
+
+- **Protected** backups (the **Protect** row action in Backup History). Protect a backup to keep it permanently; protected backups also do not count toward any tier.
+- Failed or still-running backups, and backups that were already deleted.
+
+Because tiers count only periods that *have* a backup, retention never deletes more just because time passes: if backups stop running, the existing ones stay.
+
+With daily backups and the defaults you end up with roughly 7 dailies + 2–3 older weeklies + 4–5 older monthlies ≈ **13–15 backup files** per backup type (tiers overlap: the newest backup of this week and this month is also today's daily). With several backups per day, only the newest of each day survives once it is past the Safety Net, so an hourly schedule does **not** give you 24 hourly restore points for yesterday.
+
+Turning **Automatic Retention** off disables this GFS cleanup entirely; nothing is then deleted except by the optional pruning rules below or by hand.
+
+#### Deletion notice
+
+Deletions follow the pruning setting **Notify before delete** (on by default, 24 hours): backups selected by retention are first marked *pending deletion*, a `backup_pending_deletion` notification is sent, and they are removed by the hourly job once the notice period has passed. During that window you can protect a backup to keep it. (Cancelling a pending deletion without protecting the backup only defers it: the next hourly run selects it again.) If *Notify before delete* is turned off, retention deletes immediately.
+
+A deleted backup's archive file is removed from disk and its history row is marked deleted (it disappears from Backup History). A file that is already missing is simply marked deleted.
+
+!!! warning "First run after upgrading"
+
+    Older releases never applied these settings, so every backup ever taken is still on disk. On the first hourly run after upgrading, **every backup outside the rules above is scheduled for deletion** (and removed 24 hours later with the default notice, or immediately if *Notify before delete* is off). Before upgrading — or within that 24-hour window — protect any older backup you want to keep, or raise the tier counts. `GET /api/backups/pruning/candidates` includes a `gfs_retention` preview listing exactly which backups would be deleted.
+
+#### Additional pruning rules
+
+The optional space-, size- and age-based pruning rules (pruning settings) run in the same hourly job, after GFS retention. All retention and pruning work takes the same exclusive lock as backups and restores: if a backup, restore or verification is running, that hour's run is skipped and the next one catches up. Manually triggering pruning (`POST /api/backups/pruning/run`) or a manual backup returns HTTP 409 while another backup, restore, verification or pruning run is in progress.
+
+#### Free-space check before each backup
+
+Before writing anything, every backup checks free space on the backup destination and on the temporary staging directory. It needs about **1.2 × the size of the last successful backup** on each (summed when they are the same disk) plus **1 GiB of headroom** (override with the `BACKUP_MIN_FREE_MB` environment variable on the management container). If there is not enough room the backup fails immediately with an "Insufficient disk space" error and the normal backup-failure notification, instead of filling the disk.
+
+!!! danger "Backups and the database share a disk by default"
+
+    The default "NFS" destination `/opt/n8n_backups` is an ordinary directory on the host's root disk unless you actually mount an NFS share there. That is usually the same disk as the Postgres data volume: if backups fill it, Postgres cannot write its WAL and n8n stops. Keep retention enabled, and put backups on a separate disk or a real network share for production.
 
 !!! tip
 

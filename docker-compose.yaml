@@ -262,7 +262,9 @@ services:
       - ./:/app/host_project:rw
       # SSL certificates for backup/restore (read-write for selective restore)
       - letsencrypt:/etc/letsencrypt:rw
-      # NFS backup mount
+      # NFS backup mount. Unless an NFS share is actually mounted at
+      # /opt/n8n_backups on the host, this is the host root disk (usually the
+      # same disk as postgres_data) - keep backup retention enabled.
       - /opt/n8n_backups:/mnt/backups
       # Public Website Files
       - public_web_root:/app/public_website:ro
