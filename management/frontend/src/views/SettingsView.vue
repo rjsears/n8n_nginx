@@ -1050,8 +1050,8 @@ watch(activeTab, (newTab) => {
                   </span>
                 </p>
                 <p v-if="cloudflareRunning" class="text-sm text-green-600 dark:text-green-300 mt-1">
-                  External users access your services through Cloudflare Tunnel. Traffic arrives from the internal Docker network,
-                  bypassing IP-based restrictions. The IP ranges below control direct network access only.
+                  External users reach only public endpoints (webhooks, forms) through Cloudflare Tunnel. Traffic from the Docker
+                  network is always treated as external (entries marked [managed]); the IP ranges below control direct network access.
                 </p>
                 <p v-else class="text-sm text-red-600 dark:text-red-300 mt-1">
                   Cloudflare Tunnel is configured but currently not running. External access may be unavailable.
