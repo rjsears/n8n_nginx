@@ -312,6 +312,13 @@ async def update_nfs_config(
 # Protected IP ranges that cannot be removed (required for system functionality)
 PROTECTED_IP_RANGES = ["127.0.0.1/32"]
 
+# geo entries written by setup.sh carry this marker in their comment, e.g. the
+# pinned Docker network (n8n_network) as "external" and the Tailscale container
+# /32 as "internal". They are what keeps traffic arriving through a Docker hop
+# (Cloudflare Tunnel, docker-proxy, other containers) from being treated as
+# internal, so the UI must never drop, change or undercut them.
+MANAGED_IP_RANGE_MARKER = "[managed]"
+
 # Default IP ranges shown as suggestions (user can choose to add these)
 DEFAULT_IP_RANGES = [
     {"cidr": "127.0.0.1/32", "description": "Localhost (required)", "access_level": "internal", "protected": True},
@@ -366,10 +373,57 @@ def parse_nginx_geo_block(config_content: str) -> List[Dict[str, Any]]:
                 "cidr": cidr,
                 "description": comment,
                 "access_level": access_level,
-                "protected": cidr in PROTECTED_IP_RANGES,
+                "protected": cidr in PROTECTED_IP_RANGES or comment.startswith(MANAGED_IP_RANGE_MARKER),
             })
 
     return ip_ranges
+
+
+def _is_managed_ip_range(ip_range: Dict[str, Any]) -> bool:
+    return str(ip_range.get("description") or "").startswith(MANAGED_IP_RANGE_MARKER)
+
+
+def _merge_managed_ip_ranges(config_content: str, ip_ranges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep setup.sh-managed geo entries exactly as they are in the current config.
+
+    Also rejects user "internal" ranges that fall inside a managed "external"
+    range (e.g. 172.30.0.0/25 inside the Docker network): geo is longest-prefix
+    match, so such an entry would make proxied traffic internal again.
+    """
+    import ipaddress
+
+    managed = [r for r in parse_nginx_geo_block(config_content) if _is_managed_ip_range(r)]
+    managed_cidrs = {r["cidr"] for r in managed}
+    managed_external = []
+    for r in managed:
+        if r["access_level"] == "external":
+            try:
+                managed_external.append(ipaddress.ip_network(r["cidr"], strict=False))
+            except ValueError:
+                pass
+
+    user_ranges = [
+        r for r in ip_ranges
+        if r.get("cidr") not in managed_cidrs and not _is_managed_ip_range(r)
+    ]
+    for r in user_ranges:
+        if r.get("access_level", "internal") != "internal":
+            continue
+        try:
+            net = ipaddress.ip_network(r.get("cidr", ""), strict=False)
+        except ValueError:
+            continue
+        for ext in managed_external:
+            if net.version == ext.version and net.subnet_of(ext):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"{r.get('cidr')} is inside the Docker network {ext} used for proxied "
+                        "traffic (Cloudflare Tunnel, docker-proxy) and cannot be marked internal"
+                    ),
+                )
+
+    return user_ranges + managed
 
 
 def generate_nginx_geo_block(ip_ranges: List[Dict[str, Any]]) -> str:
@@ -395,6 +449,7 @@ def update_nginx_config_geo_block(config_content: str, ip_ranges: List[Dict[str,
     """Update the geo block in nginx.conf content."""
     import re
 
+    ip_ranges = _merge_managed_ip_ranges(config_content, ip_ranges)
     new_geo_block = generate_nginx_geo_block(ip_ranges)
 
     # Try to replace existing geo block
@@ -581,6 +636,12 @@ async def delete_ip_range(
 
         # Get existing ranges
         ip_ranges = parse_nginx_geo_block(content)
+
+        if any(r["cidr"] == cidr and r.get("protected") for r in ip_ranges):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete {cidr} - this IP range is managed by setup.sh",
+            )
 
         # Find and remove the range
         original_count = len(ip_ranges)

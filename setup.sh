@@ -92,9 +92,19 @@ AUTOGEN_ADMIN_PASS=false
 
 # Internal IP ranges that get full access (space-separated CIDR blocks)
 # 127.0.0.1/32 is required for nginx healthchecks - DO NOT REMOVE
+# These are meant for your real LAN / VPN clients. Traffic that reaches nginx
+# through a Docker hop (Cloudflare Tunnel, docker-proxy, other containers) comes
+# from N8N_NETWORK_SUBNET, which is always emitted as a more specific
+# "external" entry in the nginx geo block (longest prefix wins).
 DEFAULT_INTERNAL_IP_RANGES="127.0.0.1/32 100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
 INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
 CUSTOM_INTERNAL_IPS=""
+
+# Pinned subnet for n8n_network (IPv4, network address ending in .0, prefix
+# /8-/24). Containers that proxy client traffic get static addresses in it
+# (see compute_docker_network_addrs) so nginx can tell them apart.
+DEFAULT_N8N_NETWORK_SUBNET="172.30.0.0/24"
+N8N_NETWORK_SUBNET="${N8N_NETWORK_SUBNET:-$DEFAULT_N8N_NETWORK_SUBNET}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COLORS & STYLING
@@ -454,6 +464,47 @@ get_local_ips() {
     ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'
 }
 
+# Derive the pinned n8n_network addresses from N8N_NETWORK_SUBNET.
+# Sets: N8N_NETWORK_SUBNET, N8N_NETWORK_GATEWAY, N8N_NETWORK_IP_RANGE,
+#       NGINX_ROUTER_IP, CLOUDFLARED_IP, TAILSCALE_IP
+# Static addresses live in .2-.127 of the first /24; Docker hands out dynamic
+# addresses only from .128/25 so they can never collide.
+compute_docker_network_addrs() {
+    local subnet="${N8N_NETWORK_SUBNET:-$DEFAULT_N8N_NETWORK_SUBNET}"
+    local re='^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.0/([0-9]{1,2})$'
+    if ! [[ "$subnet" =~ $re ]] || [ "${BASH_REMATCH[4]}" -lt 8 ] || [ "${BASH_REMATCH[4]}" -gt 24 ] || \
+       [ "${BASH_REMATCH[1]}" -gt 255 ] || [ "${BASH_REMATCH[2]}" -gt 255 ] || [ "${BASH_REMATCH[3]}" -gt 255 ]; then
+        print_warning "Invalid N8N_NETWORK_SUBNET '${subnet}' (expected e.g. 172.30.0.0/24, prefix /8-/24) - using ${DEFAULT_N8N_NETWORK_SUBNET}"
+        subnet="$DEFAULT_N8N_NETWORK_SUBNET"
+        [[ "$subnet" =~ $re ]]
+    fi
+    local base="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+    N8N_NETWORK_SUBNET="$subnet"
+    N8N_NETWORK_GATEWAY="${base}.1"
+    N8N_NETWORK_IP_RANGE="${base}.128/25"
+    NGINX_ROUTER_IP="${base}.10"
+    CLOUDFLARED_IP="${base}.11"
+    TAILSCALE_IP="${base}.12"
+}
+
+# Returns 0 (true) when the running stack's n8n_network does not use the pinned
+# N8N_NETWORK_SUBNET (installs from before the subnet was pinned). Such a
+# network must be recreated (docker compose down && docker compose up -d):
+# until then the nginx geo/realip rules do not match the real addresses.
+n8n_network_needs_recreate() {
+    compute_docker_network_addrs
+    local nginx_c="${NGINX_CONTAINER:-n8n_nginx}"
+    local existing_net existing_subnets
+    existing_net=$($DOCKER_SUDO docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$nginx_c" 2>/dev/null | grep 'n8n_network$' | head -1)
+    [ -z "$existing_net" ] && return 1
+    existing_subnets=$($DOCKER_SUDO docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' "$existing_net" 2>/dev/null)
+    case " ${existing_subnets} " in
+        *" ${N8N_NETWORK_SUBNET} "*) return 1 ;;
+    esac
+    print_warning "Network ${existing_net} uses '${existing_subnets% }', expected ${N8N_NETWORK_SUBNET}"
+    return 0
+}
+
 # Check if running inside an LXC container
 is_lxc_container() {
     # Check systemd-detect-virt
@@ -774,6 +825,7 @@ SAVED_PUBLIC_WEBSITE_INCLUDE_ROOT="$PUBLIC_WEBSITE_INCLUDE_ROOT"
 # Access Control
 SAVED_INTERNAL_IP_RANGES="$INTERNAL_IP_RANGES"
 SAVED_CUSTOM_INTERNAL_IPS="$CUSTOM_INTERNAL_IPS"
+SAVED_N8N_NETWORK_SUBNET="$N8N_NETWORK_SUBNET"
 EOF
     chmod 600 "$STATE_FILE"
 }
@@ -839,6 +891,7 @@ load_state() {
         # Access Control
         INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
         CUSTOM_INTERNAL_IPS="${SAVED_CUSTOM_INTERNAL_IPS:-}"
+        N8N_NETWORK_SUBNET="${SAVED_N8N_NETWORK_SUBNET:-$N8N_NETWORK_SUBNET}"
 
         CURRENT_STEP="${SAVED_STEP_NUM:-0}"
         return 0
@@ -965,6 +1018,10 @@ restore_optional_services_from_config() {
     # Public Website
     if [ -n "$PUBLIC_WEBSITE_ENABLED" ]; then
         INSTALL_PUBLIC_WEBSITE="$PUBLIC_WEBSITE_ENABLED"
+    elif [ -f "${SCRIPT_DIR}/filebrowser.db" ]; then
+        # Configs saved by older versions did not record the public website;
+        # filebrowser.db only exists when it was installed.
+        INSTALL_PUBLIC_WEBSITE=true
     fi
 
 }
@@ -2957,6 +3014,10 @@ EOF
 generate_docker_compose_v3() {
     print_info "Generating docker-compose.yaml for v3.0..."
 
+    # Pinned n8n_network subnet + static IPs for the containers that proxy
+    # client traffic (must match the geo/realip rules in nginx.conf)
+    compute_docker_network_addrs
+
     # Determine credential mount
     local cred_mount=""
     case $DNS_PROVIDER_NAME in
@@ -3082,7 +3143,7 @@ EOF
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         # With public website: nginx_router handles SSL and port 443
         # n8n_nginx is internal only (port 80)
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   # ===========================================================================
   # Nginx Router (hostname-based routing for internal access)
   # ===========================================================================
@@ -3107,8 +3168,12 @@ EOF
       retries: 3
       start_period: 10s
     networks:
-      - n8n_network
+      n8n_network:
+        # Static IP: n8n_nginx trusts X-Real-IP only from this address
+        ipv4_address: ${NGINX_ROUTER_IP}
 
+EOF
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
   # ===========================================================================
   # Nginx Reverse Proxy (internal - SSL terminated by router)
   # ===========================================================================
@@ -3133,6 +3198,8 @@ EOF
       start_period: 10s
     networks:
       - n8n_network
+      # Only nginx can reach File Browser
+      - filebrowser_network
 EOF
     else
         # Without public website: n8n_nginx handles SSL directly on port 443
@@ -3443,19 +3510,23 @@ EOF
 
     # Add Cloudflare Tunnel if configured
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   # ===========================================================================
   # Cloudflare Tunnel
   # ===========================================================================
+  # Point the tunnel's public hostname at HTTP -> n8n_nginx:8080 (webhook-only
+  # listener). The static IP is classified "external" by nginx, so even a
+  # tunnel pointed elsewhere can never reach the admin paths.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: n8n_cloudflared
     restart: always
     command: tunnel run
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      - TUNNEL_TOKEN=\${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
-      - n8n_network
+      n8n_network:
+        ipv4_address: ${CLOUDFLARED_IP}
 
 EOF
     fi
@@ -3465,7 +3536,7 @@ EOF
         # Generate tailscale-serve.json for Tailscale Serve
         generate_tailscale_serve_config
 
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
   # ===========================================================================
   # Tailscale VPN
   # ===========================================================================
@@ -3475,12 +3546,12 @@ EOF
     restart: always
     hostname: n8n-tailscale
     environment:
-      - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
-      - TS_HOSTNAME=${TAILSCALE_HOSTNAME}
+      - TS_AUTHKEY=\${TAILSCALE_AUTH_KEY}
+      - TS_HOSTNAME=\${TAILSCALE_HOSTNAME}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_EXTRA_ARGS=--accept-routes
-      - TS_ROUTES=${TAILSCALE_ROUTES}
+      - TS_ROUTES=\${TAILSCALE_ROUTES}
       - TS_AUTH_ONCE=true
       - TS_SERVE_CONFIG=/config/tailscale-serve.json
     volumes:
@@ -3489,7 +3560,10 @@ EOF
     cap_add:
       - NET_ADMIN
     networks:
-      - n8n_network
+      n8n_network:
+        # Static IP: Tailscale Serve proxies tailnet users to nginx from this
+        # address, which nginx trusts as "internal"
+        ipv4_address: ${TAILSCALE_IP}
 
 EOF
     fi
@@ -3598,10 +3672,16 @@ EOF
     # Add File Browser if configured (Public Website)
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         touch "${SCRIPT_DIR}/filebrowser.db"
-        # filebrowser runs as non-root (UID 1000), needs write access
-        chmod 666 "${SCRIPT_DIR}/filebrowser.db"
+        # filebrowser runs as non-root (UID 1000) and needs write access.
+        # The DB holds File Browser users and its JWT signing key: owner-only.
+        run_privileged chown 1000:1000 "${SCRIPT_DIR}/filebrowser.db" 2>/dev/null || \
+            print_warning "Could not chown filebrowser.db to 1000:1000"
+        run_privileged chmod 600 "${SCRIPT_DIR}/filebrowser.db"
 
-        # Create File Browser config file with proxy auth
+        # Create File Browser config file with proxy auth. nginx only sets
+        # X-Remote-User after auth_request has validated the management
+        # console session, and File Browser is reachable only from nginx
+        # (filebrowser_network), so the header cannot be spoofed.
         cat > "${SCRIPT_DIR}/.filebrowser.json" << 'FBEOF'
 {
   "port": 80,
@@ -3633,7 +3713,9 @@ FBEOF
       - ./filebrowser.db:/database/filebrowser.db
       - ./.filebrowser.json:/config/settings.json:ro
     networks:
-      - n8n_network
+      # Isolated: only nginx is attached to this network. Any other container
+      # could otherwise send its own X-Remote-User header.
+      - filebrowser_network
 
   # ===========================================================================
   # Public Website Nginx (separate from main nginx)
@@ -3730,7 +3812,23 @@ EOF
 networks:
   n8n_network:
     driver: bridge
+    # Pinned subnet: nginx treats this whole range as "external" (except the
+    # Tailscale container) so traffic arriving through a Docker hop is never
+    # trusted. Change it with N8N_NETWORK_SUBNET and re-run setup.sh.
+    ipam:
+      config:
+        - subnet: ${N8N_NETWORK_SUBNET}
+          ip_range: ${N8N_NETWORK_IP_RANGE}
+          gateway: ${N8N_NETWORK_GATEWAY}
 EOF
+
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+  filebrowser_network:
+    driver: bridge
+    internal: true
+EOF
+    fi
 
     # Inject public_web_root volume into nginx service if configured
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
@@ -3756,6 +3854,9 @@ EOF
 
 generate_nginx_conf_v3() {
     print_info "Generating nginx.conf for v3.0..."
+
+    # Pinned Docker network addresses (same values as docker-compose.yaml)
+    compute_docker_network_addrs
 
     # Extract root domain for public website config
     local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
@@ -3795,20 +3896,35 @@ http {
     # IP-based Access Control
     # ===========================================================================
     # Classifies requests as "internal" (full access) or "external" (restricted)
-    # Internal: Tailscale, Docker networks, private IP ranges
-    # External: Cloudflare Tunnel, public internet
+    # Internal: localhost, your LAN/VPN ranges, the Tailscale container
+    # External: everything arriving through a Docker hop (Cloudflare Tunnel,
+    #           docker-proxy for IPv6/localhost, other containers), public internet
+    # geo uses longest-prefix match, so the pinned Docker subnet below overrides
+    # broader private ranges such as 172.16.0.0/12 or 10.0.0.0/8.
+    # Entries tagged [managed] are maintained by setup.sh - do not remove them.
     geo \$access_level {
         default          "external";
+        127.0.0.1/32     "internal";  # [managed] Localhost (healthchecks)
 EOF
 
-    # Add internal IP ranges to geo block
+    # Add internal IP ranges to geo block (skipping the managed entries)
     for range in $INTERNAL_IP_RANGES $CUSTOM_INTERNAL_IPS; do
-        if [ -n "$range" ]; then
-            cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+        case "$range" in
+            ""|127.0.0.1/32|"$N8N_NETWORK_SUBNET"|"${TAILSCALE_IP}/32") continue ;;
+        esac
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
         ${range}    "internal";
 EOF
-        fi
     done
+
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+        ${N8N_NETWORK_SUBNET}    "external";  # [managed] Docker network n8n_network (proxied traffic)
+EOF
+    if [ "$INSTALL_TAILSCALE" = "true" ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+        ${TAILSCALE_IP}/32    "internal";  # [managed] Tailscale container (tailnet users via Tailscale Serve)
+EOF
+    fi
 
     # Continue with ACCESS CONTROL SUMMARY and server block
     cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
@@ -3821,9 +3937,14 @@ EOF
     #   - /webhook/     - n8n workflow webhooks
     #   - /ntfy/        - NTFY push notifications (if enabled)
     #
+    # CLOUDFLARE TUNNEL LISTENER (port 8080, not published on the host):
+    #   - /webhook/, /webhook-test/, /webhook-waiting/, /form/, /form-test/,
+    #     /form-waiting/, /ntfy/ (if enabled) - everything else is dropped
+    #
     # INTERNAL ACCESS ONLY (Tailscale, VPN, whitelisted IPs):
     #   - /             - n8n editor
     #   - /management/  - Management console
+    #   - /files/       - File Browser (also needs a management console session)
     #   - /portainer/   - Container management (if enabled)
     #   - /adminer/     - Database management (if enabled)
     #   - /dozzle/      - Log viewer (if enabled)
@@ -3841,6 +3962,12 @@ EOF
     server {
         listen 80;
         server_name ${N8N_DOMAIN};
+
+        # Clients arrive via nginx_router: use the X-Real-IP it sets as the
+        # client address, but only when the connection comes from the router's
+        # static IP. Anything else keeps its real source address.
+        set_real_ip_from ${NGINX_ROUTER_IP}/32;
+        real_ip_header X-Real-IP;
 
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
@@ -3951,6 +4078,11 @@ EOF
         }
 
         location /portainer/api/websocket/ {
+            # Block external access (container exec/attach websockets)
+            if ($access_level = "external") {
+                return 403;
+            }
+
             proxy_pass http://n8n_portainer:9000/api/websocket/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -4057,15 +4189,17 @@ EOF
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
         # File Browser - Public Website Management - INTERNAL ACCESS ONLY
+        # Also requires a valid management console session.
         location /files/ {
             # Block external access
             if ($access_level = "external") {
                 return 403;
             }
 
-            # Authenticate via internal API
-            # Note: auth_request disabled - causes 500 errors; using IP-based access control instead
-            #auth_request /management/api/auth/verify;
+            # Authenticate against the management console session (HttpOnly
+            # "session" cookie set at login). 401 if missing/expired.
+            auth_request /_auth/management-session;
+            auth_request_set $files_auth_user $upstream_http_x_auth_user;
 
             # Proxy to filebrowser (uses --baseurl=/files via config)
             proxy_pass http://n8n_filebrowser:80;
@@ -4077,8 +4211,22 @@ EOF
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
 
-            # Pass authenticated user to File Browser
-            proxy_set_header X-Remote-User admin;
+            # File Browser proxy auth: always overwrite any client-supplied
+            # X-Remote-User with the user validated by auth_request
+            proxy_set_header X-Remote-User $files_auth_user;
+        }
+
+        # Internal-only session check used by auth_request above
+        location = /_auth/management-session {
+            internal;
+            proxy_pass http://management/api/auth/verify;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Original-URI $request_uri;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
         }
 EOF
     fi
@@ -4143,6 +4291,91 @@ EOF
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_buffering off;
+        }
+    }
+EOF
+
+    # Cloudflare Tunnel listener: plain HTTP on 8080 inside the Docker network
+    # only (never published on the host). It serves just the public n8n
+    # endpoints, so a tunnel pointed here cannot reach any admin path even if
+    # the geo rules were misconfigured.
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+    # ===========================================================================
+    # Cloudflare Tunnel listener (port 8080 - NOT published on the host)
+    # ===========================================================================
+    # Cloudflare Tunnel public hostname -> Service: HTTP -> n8n_nginx:8080
+    # Only public n8n endpoints are served; everything else is dropped (444).
+    server {
+        listen 8080 default_server;
+        server_name _;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+
+        # n8n webhooks and forms - PUBLICLY ACCESSIBLE
+        location ~ ^/(webhook|webhook-test|webhook-waiting|form|form-test|form-waiting)/ {
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+            add_header X-Frame-Options "SAMEORIGIN" always;
+
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' '*';
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
+                add_header 'Access-Control-Max-Age' 86400;
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+
+            proxy_pass http://n8n;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            # TLS is terminated by Cloudflare
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
+        }
+EOF
+
+    if [ "$INSTALL_NTFY" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # NTFY Push Notification Server - PUBLICLY ACCESSIBLE
+        location /ntfy/ {
+            set $ntfy_upstream http://n8n_ntfy:80;
+            proxy_pass $ntfy_upstream/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_redirect off;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
+EOF
+    fi
+
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        location = /healthz {
+            access_log off;
+            default_type application/json;
+            return 200 '{"status":"ok"}';
+        }
+
+        # Everything else (editor, /rest/, /management/, /files/, tools): drop
+        location / {
+            return 444;
         }
     }
 EOF
@@ -4275,7 +4508,7 @@ EOF
 # This container ONLY routes traffic - it has no access to internal services.
 #
 # Architecture:
-#   External traffic → Cloudflare Tunnel → n8n_nginx / nginx_public
+#   External traffic → Cloudflare Tunnel → n8n_nginx:8080 (webhooks only) / nginx_public
 #   Internal traffic → nginx_router:443 → n8n_nginx / nginx_public
 #
 # This container is ONLY added when public website is enabled.
@@ -4303,7 +4536,7 @@ generate_nginx_router_conf() {
 # website without hairpinning through Cloudflare Tunnel.
 #
 # Architecture:
-#   External traffic → Cloudflare Tunnel → n8n_nginx / nginx_public
+#   External traffic → Cloudflare Tunnel → n8n_nginx:8080 (webhooks only) / nginx_public
 #   Internal traffic → nginx_router:443 → n8n_nginx / nginx_public
 #
 # This container is ONLY added when public website is enabled.
@@ -4330,7 +4563,9 @@ http {
 
     # ===========================================================================
     # Internal Services (n8n, management, adminer, dozzle, portainer, ntfy, files)
-    # Routes to n8n_nginx which handles access control and proxying
+    # Routes to n8n_nginx which handles access control and proxying.
+    # n8n_nginx trusts the X-Real-IP set below only from this container's
+    # static IP (NGINX_ROUTER_IP), so it must always overwrite, never pass on.
     # ===========================================================================
     server {
         listen 443 ssl;
@@ -5250,8 +5485,7 @@ configure_public_website() {
                 echo -e "  ${YELLOW}Since you are using Cloudflare Tunnel:${NC}"
                 echo -e "  You must add a Public Hostname in Cloudflare Zero Trust:"
                 echo -e "    - Hostname: ${CYAN}${public_domain}${NC}"
-                echo -e "    - Service:  ${CYAN}HTTPS${NC} -> ${CYAN}n8n_nginx:443${NC}"
-                echo -e "    - Settings: ${WHITE}No TLS Verify${NC}"
+                echo -e "    - Service:  ${CYAN}HTTP${NC} -> ${CYAN}nginx_public:80${NC}"
             else
                 echo -e "  ${YELLOW}This will cause the website to fail because:${NC}"
                 echo -e "    - SSL certificate validation may fail"
@@ -5382,11 +5616,16 @@ generate_tailscale_serve_config() {
         rm -rf "$ts_config_file"
     fi
 
-    # Use N8N_DOMAIN if DOMAIN is not set
-    local proxy_domain="${DOMAIN:-${N8N_DOMAIN}}"
-    if [ -z "$proxy_domain" ]; then
-        print_error "DOMAIN is not set - cannot generate tailscale-serve.json"
-        return 1
+    # Proxy straight to the nginx container over n8n_network. Going through
+    # the host's published port 443 would make docker-proxy re-originate the
+    # connection from the network gateway, which nginx treats as external.
+    # From here the source is the Tailscale container's static IP, which is
+    # the one Docker address nginx trusts as internal.
+    local nginx_c="${NGINX_CONTAINER:-n8n_nginx}"
+    local proxy_target="https+insecure://${nginx_c}:443"
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        # n8n_nginx listens on plain HTTP 80 behind nginx_router
+        proxy_target="http://${nginx_c}:80"
     fi
 
     cat > "$ts_config_file" << EOF
@@ -5395,7 +5634,7 @@ generate_tailscale_serve_config() {
   "Web": {
     "\${TS_CERT_DOMAIN}:443": {
       "Handlers": {
-        "/": { "Proxy": "https://${proxy_domain}:443" }
+        "/": { "Proxy": "${proxy_target}" }
       }
     }
   }
@@ -5717,9 +5956,18 @@ deploy_stack() {
         docker_compose_cmd="$DOCKER_SUDO $docker_compose_cmd"
     fi
 
+    cd "$SCRIPT_DIR"
+
+    # Existing installs: n8n_network used to get a random Docker subnet. The
+    # nginx access control now depends on the pinned subnet, and Docker cannot
+    # change the subnet of an existing network, so recreate it (volumes kept).
+    if n8n_network_needs_recreate; then
+        print_info "Recreating the stack network (docker compose down; data volumes are kept)..."
+        $docker_compose_cmd down
+    fi
+
     # Start PostgreSQL
     print_step "1" "4" "Starting PostgreSQL database"
-    cd "$SCRIPT_DIR"
     $docker_compose_cmd up -d postgres
 
     echo -e "  ${GRAY}Waiting for PostgreSQL...${NC}"
@@ -6187,8 +6435,10 @@ show_final_summary_v3() {
         echo -e "    2. Find your ${WHITE}${TAILSCALE_HOSTNAME:-n8n-tailscale}${NC} node"
         echo -e "    3. Click the node and approve the advertised route: ${YELLOW}${TAILSCALE_ROUTES}${NC}"
         echo ""
-        echo -e "    ${RED}${BOLD}NOTE:${NC} ${WHITE}The management console will NOT be accessible via Tailscale${NC}"
-        echo -e "          ${WHITE}until this route has been approved!${NC}"
+        echo -e "    ${RED}${BOLD}NOTE:${NC} ${WHITE}For the n8n editor and management console over Tailscale, use${NC}"
+        echo -e "          ${CYAN}https://${TAILSCALE_HOSTNAME:-n8n-tailscale}.<your-tailnet>.ts.net${NC} ${WHITE}(Tailscale Serve).${NC}"
+        echo -e "          ${WHITE}Connections to the host IP through the advertised route reach nginx${NC}"
+        echo -e "          ${WHITE}via Docker's port proxy and are treated as external.${NC}"
         echo ""
     fi
 
@@ -6203,15 +6453,25 @@ show_final_summary_v3() {
         echo -e "    1. Visit: ${CYAN}https://one.dash.cloudflare.com${NC}"
         echo -e "    2. Go to: Networks → Tunnels → [Your Tunnel] → Configure → Public Hostname"
         echo ""
-        echo -e "    ${WHITE}Hostname 1 (n8n/Management):${NC}"
+        echo -e "    ${WHITE}Hostname 1 (n8n webhooks/forms only):${NC}"
         echo -e "      Hostname: ${CYAN}${N8N_DOMAIN}${NC}"
-        echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}n8n_nginx:80${NC}"
+        echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}${NGINX_CONTAINER:-n8n_nginx}:8080${NC}"
         echo ""
         echo -e "    ${WHITE}Hostname 2 (Public Website):${NC}"
         echo -e "      Hostname: ${CYAN}${public_domain}${NC}"
         echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}nginx_public:80${NC}"
         echo ""
         echo -e "    ${GRAY}Note: Both use HTTP internally. SSL is terminated by Cloudflare.${NC}"
+        echo -e "    ${GRAY}Port 8080 only serves webhooks/forms; the editor, management console${NC}"
+        echo -e "    ${GRAY}and admin tools are never reachable through the tunnel.${NC}"
+        echo ""
+    elif [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
+        echo -e "  ${YELLOW}${BOLD}⚠ CLOUDFLARE ACTION REQUIRED:${NC}"
+        echo -e "    ${WHITE}Add a Public Hostname in Zero Trust (Networks → Tunnels → Configure):${NC}"
+        echo -e "      Hostname: ${CYAN}${N8N_DOMAIN}${NC}"
+        echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}${NGINX_CONTAINER:-n8n_nginx}:8080${NC}"
+        echo -e "    ${GRAY}Port 8080 only serves webhooks/forms; the editor, management console${NC}"
+        echo -e "    ${GRAY}and admin tools are never reachable through the tunnel.${NC}"
         echo ""
     fi
 
@@ -6241,7 +6501,7 @@ configure_access_control() {
     # Only configure if Cloudflare Tunnel is being used
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
         print_info "No Cloudflare Tunnel configured - skipping access control setup"
-        print_info "All access will be treated as internal (full access)"
+        print_info "Default internal IP ranges will be used (Docker network traffic is always external)"
         return
     fi
 
@@ -6253,9 +6513,10 @@ configure_access_control() {
     echo -e "  ${GRAY}sensitive endpoints from unauthorized access.${NC}"
     echo ""
     echo -e "  ${WHITE}${BOLD}How Access Control Works:${NC}"
-    echo -e "    - ${CYAN}Public Access${NC} (via Cloudflare Tunnel):"
+    echo -e "    - ${CYAN}Public Access${NC} (via Cloudflare Tunnel -> ${NGINX_CONTAINER:-n8n_nginx}:8080):"
     echo -e "      Only these endpoints are accessible:"
-    echo -e "        - ${GREEN}/webhook/${NC} - n8n workflow webhooks"
+    echo -e "        - ${GREEN}/webhook/${NC}, ${GREEN}/webhook-test/${NC}, ${GREEN}/webhook-waiting/${NC} - n8n webhooks"
+    echo -e "        - ${GREEN}/form/${NC}, ${GREEN}/form-test/${NC}, ${GREEN}/form-waiting/${NC} - n8n forms"
     echo -e "        - ${GREEN}/ntfy/${NC} - Push notification service"
     echo ""
     echo -e "    - ${CYAN}Internal Access${NC} (Tailscale, VPN, Local Network):"
@@ -6271,17 +6532,23 @@ configure_access_control() {
     CUSTOM_INTERNAL_IPS=""
 
     # Ask about Tailscale
+    compute_docker_network_addrs
     if [ "$INSTALL_TAILSCALE" = "true" ]; then
-        echo -e "  ${GREEN}[OK]${NC} Tailscale detected - Tailscale IPs (100.64.0.0/10) will have full access"
+        echo -e "  ${GREEN}[OK]${NC} Tailscale detected - tailnet users (via Tailscale Serve, ${TAILSCALE_IP}) will have full access"
         echo ""
     fi
 
     # Show default ranges
     echo -e "  ${WHITE}${BOLD}Default Internal IP Ranges:${NC}"
     echo -e "    ${CYAN}100.64.0.0/10${NC}  - Tailscale CGNAT range"
-    echo -e "    ${CYAN}172.16.0.0/12${NC}  - Docker/Internal networks"
+    echo -e "    ${CYAN}172.16.0.0/12${NC}  - Private network (Class B)"
     echo -e "    ${CYAN}10.0.0.0/8${NC}     - Private network (Class A)"
     echo -e "    ${CYAN}192.168.0.0/16${NC} - Private network (Class C)"
+    echo ""
+    echo -e "  ${WHITE}${BOLD}Always External:${NC}"
+    echo -e "    ${CYAN}${N8N_NETWORK_SUBNET}${NC} - Docker network n8n_network (Cloudflare Tunnel,"
+    echo -e "      docker-proxy/IPv6, other containers). More specific, so it wins over the"
+    echo -e "      private ranges above. Change with N8N_NETWORK_SUBNET."
     echo ""
 
     # Ask about custom IP ranges
@@ -6330,15 +6597,14 @@ update_access_control() {
     echo -e "  ${GRAY}without reinstalling other services.${NC}"
     echo ""
 
-    # Load existing state if available
+    # Load existing state if available (in-progress install), otherwise the
+    # saved configuration of a completed install. All optional-service flags
+    # are needed: nginx.conf is regenerated as a whole, not just the geo block.
     if [ -f "$STATE_FILE" ]; then
-        source "$STATE_FILE"
-        INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
-        CUSTOM_INTERNAL_IPS="${SAVED_CUSTOM_INTERNAL_IPS:-}"
-        N8N_DOMAIN="${SAVED_N8N_DOMAIN:-}"
-        SSL_CERT_DOMAIN="${SAVED_SSL_CERT_DOMAIN:-$N8N_DOMAIN}"
-        INSTALL_CLOUDFLARE_TUNNEL="${SAVED_INSTALL_CLOUDFLARE_TUNNEL:-false}"
-        INSTALL_TAILSCALE="${SAVED_INSTALL_TAILSCALE:-false}"
+        load_state
+    elif [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE" 2>/dev/null || true
+        restore_optional_services_from_config
     else
         print_error "No existing configuration found. Please run setup.sh first."
         exit 1
@@ -6372,6 +6638,12 @@ update_access_control() {
         generate_nginx_conf_v3
         generate_public_nginx_conf
         generate_nginx_router_conf
+
+        if ! grep -q 'ipam:' "${SCRIPT_DIR}/docker-compose.yaml" 2>/dev/null || n8n_network_needs_recreate; then
+            print_warning "SECURITY: docker-compose.yaml / the running network do not use the pinned subnet ${N8N_NETWORK_SUBNET}."
+            print_warning "Until fixed, proxied traffic may still be treated as internal. Run ./setup.sh,"
+            print_warning "choose 'Regenerate all config files', then: docker compose down && docker compose up -d"
+        fi
 
         # Reload nginx if running
         local nginx_container="${NGINX_CONTAINER:-n8n_nginx}"
@@ -6814,6 +7086,12 @@ NTFY_ENABLED=${INSTALL_NTFY}
 NTFY_BASE_URL=${NTFY_BASE_URL}
 NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL}
 NTFY_INTERNAL_URL=${NTFY_INTERNAL_URL:-http://n8n_ntfy:80}
+PUBLIC_WEBSITE_ENABLED=${INSTALL_PUBLIC_WEBSITE}
+PUBLIC_WEBSITE_DOMAIN=${PUBLIC_WEBSITE_DOMAIN}
+# Access control (reused by reconfigure when regenerating nginx.conf)
+INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES}"
+CUSTOM_INTERNAL_IPS="${CUSTOM_INTERNAL_IPS}"
+N8N_NETWORK_SUBNET=${N8N_NETWORK_SUBNET}
 EOF
         chmod 600 "${CONFIG_FILE}"
 

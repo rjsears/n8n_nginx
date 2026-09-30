@@ -135,16 +135,20 @@ The entire stack binds exactly two host ports: `443` (nginx router) and `127.0.0
 
 ```nginx
 geo $access_level {
-    default        "external";
-    127.0.0.1/32   "internal";
-    10.0.0.0/8     "internal";
-    172.16.0.0/12  "internal";
-    192.168.0.0/16 "internal";
-    100.64.0.0/10  "internal";   # Tailscale CGNAT — VPN clients are internal automatically
+    default          "external";
+    127.0.0.1/32     "internal";
+    10.0.0.0/8       "internal";   # your LAN
+    172.16.0.0/12    "internal";   # your LAN
+    192.168.0.0/16   "internal";   # your LAN
+    100.64.0.0/10    "internal";   # host-level Tailscale (CGNAT)
+    172.30.0.0/24    "external";   # the stack's own Docker network (pinned subnet)
+    172.30.0.12/32   "internal";   # the Tailscale container (Tailscale Serve)
 }
 ```
 
-`/webhook/` stays reachable from anywhere so third-party services can deliver callbacks. The n8n editor, management console, and admin tools are internal-only. With Cloudflare Tunnel or Tailscale enabled, you can run with **zero inbound ports**.
+`geo` is longest-prefix match, so the pinned Docker network (`N8N_NETWORK_SUBNET`, default `172.30.0.0/24`) overrides the broad private ranges: anything that reaches nginx through a Docker hop — Cloudflare Tunnel, Docker's port proxy (IPv6 clients, `localhost`), any other container such as an n8n HTTP Request node — is **external**. The only trusted Docker addresses are the Tailscale container and, via `set_real_ip_from`, the `X-Real-IP` set by `nginx_router` from its static IP.
+
+`/webhook/` stays reachable from anywhere so third-party services can deliver callbacks. The n8n editor, management console, and admin tools are internal-only. Cloudflare Tunnel points at a separate webhook-only listener (`n8n_nginx:8080`, not published on the host) that serves only `/webhook*` and `/form*` and drops everything else. With Cloudflare Tunnel or Tailscale enabled, you can run with **zero inbound ports**.
 
 ### 🧩 Proxmox LXC support that actually detects the problem
 
@@ -268,7 +272,8 @@ ADMIN_PASS=a-long-passphrase-you-choose
 ADMIN_EMAIL=admin@example.com
 
 N8N_TIMEZONE=America/Los_Angeles
-INTERNAL_IP_RANGES=100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16
+INTERNAL_IP_RANGES="127.0.0.1/32 100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
+N8N_NETWORK_SUBNET=172.30.0.0/24   # pinned Docker network, always "external" in nginx
 AUTO_CONFIRM=true
 ```
 
@@ -344,6 +349,19 @@ INTERNAL_IP_RANGES="10.0.0.0/8 192.168.0.0/16 203.0.113.7/32" ./setup.sh --updat
 # always test before reload — a malformed geo block takes the proxy down:
 docker exec n8n_nginx nginx -t && docker exec n8n_nginx nginx -s reload
 ```
+
+### Upgrading an existing install (pinned Docker network)
+
+Older installs let Docker pick the `n8n_network` subnet and trusted all of `172.16.0.0/12` / `10.0.0.0/8` — which includes every Docker address, so Cloudflare Tunnel, the router and IPv6 clients were all "internal". To move to the fixed layout:
+
+```bash
+git pull
+./setup.sh                        # choose "7) Regenerate all config files"
+docker compose down               # the network must be recreated: Docker cannot change a network's subnet
+docker compose up -d
+```
+
+`setup.sh` does the `down` for you when it deploys and detects the old network. Then, in Cloudflare Zero Trust, change the tunnel's public hostname for your n8n domain to **HTTP → `n8n_nginx:8080`** (see [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)). Tailscale users should browse the Tailscale Serve URL (`https://<hostname>.<tailnet>.ts.net`). If `172.30.0.0/24` clashes with a network you already use, set `N8N_NETWORK_SUBNET` before regenerating.
 
 ### Driving backups from the API
 
@@ -456,6 +474,9 @@ Honest accounting — what's enforced today, where it lives, and what's on the r
 | Zero-inbound-port operation | ✅ optional | Cloudflare Tunnel / Tailscale |
 | TLS 1.2/1.3 only, ECDHE AEAD ciphers | ✅ | `nginx.conf` / `nginx-router.conf` |
 | Editor internal-only, `/webhook/` public | ✅ | nginx `geo $access_level` |
+| Docker hops (tunnel, docker-proxy, containers) never internal | ✅ | pinned `n8n_network` subnet as `external` in `geo` |
+| Cloudflare Tunnel reaches webhooks/forms only | ✅ | `n8n_nginx:8080` listener |
+| File Browser requires a console session | ✅ | nginx `auth_request` → `/api/auth/verify`, isolated `filebrowser_network` |
 | Security headers (`nosniff`, `X-Frame-Options`, `X-XSS-Protection`) | ✅ | `nginx.conf` |
 | bcrypt password hashing (12 rounds) | ✅ | console `security.py` |
 | DB-backed opaque session tokens (`secrets.token_urlsafe(48)`) | ✅ | console auth |

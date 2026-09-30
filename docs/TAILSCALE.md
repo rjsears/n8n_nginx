@@ -407,7 +407,7 @@ The `tailscale-serve.json` file configures the proxy:
     "${TS_CERT_DOMAIN}:443": {
       "Handlers": {
         "/": {
-          "Proxy": "https://your-domain.com:443"
+          "Proxy": "https+insecure://n8n_nginx:443"
         }
       }
     }
@@ -415,7 +415,11 @@ The `tailscale-serve.json` file configures the proxy:
 }
 ```
 
-Replace `your-domain.com` with your actual domain.
+`setup.sh` generates this file. With the public website enabled the target is `http://n8n_nginx:80` instead (nginx listens on plain HTTP behind `nginx_router`).
+
+Serve proxies **directly to the nginx container** over the Docker network. The `tailscale` container has a static address in the pinned `n8n_network` subnet (`.12`, e.g. `172.30.0.12`), and that single address is the one Docker address nginx trusts as *internal* — so tailnet users get the n8n editor and management console. Everything else arriving from the Docker network (Cloudflare Tunnel, Docker's port proxy, other containers) is *external*.
+
+> **Subnet route vs. Serve:** Older versions proxied to `https://your-domain.com:443`, i.e. through the host's published port. That path goes through Docker's userland port proxy, which re-originates the connection from the Docker network gateway — now classified as *external*. The same applies when a tailnet client reaches the host's LAN IP through the advertised subnet route (`TAILSCALE_ROUTES`). Use the Serve URL (`https://<hostname>.<tailnet>.ts.net`) for admin access. After upgrading, regenerate the config (`./setup.sh` → *Regenerate all config files*) and run `docker compose down && docker compose up -d`.
 
 ### Verifying Serve Status
 
@@ -426,7 +430,7 @@ docker exec n8n_tailscale tailscale serve status
 Expected output:
 ```
 https://n8n-tailscale.your-tailnet.ts.net (Tailscale Serve)
-|-- / proxy https://your-domain.com:443
+|-- / proxy https+insecure://n8n_nginx:443
 ```
 
 ---

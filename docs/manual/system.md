@@ -164,4 +164,4 @@ Use this for quick edits to public website assets without leaving the management
 
 !!! note
 
-    Authentication is "proxy auth" — the embedded File Browser trusts the management console's session, so you don't see a separate login. If File Browser ever shows its own login prompt, check the `.filebrowser.json` config (covered in [Troubleshooting → File Browser](../TROUBLESHOOTING.md#file-browser-issues)).
+    Authentication is "proxy auth" — nginx checks your management console session (the HttpOnly `session` cookie set at login) with an `auth_request` to `/api/auth/verify` and passes your username to File Browser, so you don't see a separate login. Without a valid session `/files/` returns 401 (log out and back in if an older session predates the cookie). File Browser users are created automatically on first access, without admin or command-execution rights. File Browser itself sits on an isolated Docker network that only nginx can reach, so no other container can impersonate a user. If File Browser ever shows its own login prompt, check the `.filebrowser.json` config (covered in [Troubleshooting → File Browser](../TROUBLESHOOTING.md#file-browser-issues)).

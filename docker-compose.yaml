@@ -134,7 +134,9 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - n8n_network
+      n8n_network:
+        # Static IP: n8n_nginx trusts X-Real-IP only from this address
+        ipv4_address: 172.30.0.10
 
   # ===========================================================================
   # Nginx Reverse Proxy (internal - SSL terminated by router)
@@ -163,6 +165,8 @@ services:
       start_period: 10s
     networks:
       - n8n_network
+      # Only nginx can reach File Browser
+      - filebrowser_network
 
   # ===========================================================================
   # Certbot (SSL certificate management)
@@ -344,6 +348,9 @@ services:
   # ===========================================================================
   # Cloudflare Tunnel
   # ===========================================================================
+  # Point the tunnel's public hostname at HTTP -> n8n_nginx:8080 (webhook-only
+  # listener). The static IP is classified "external" by nginx, so even a
+  # tunnel pointed elsewhere can never reach the admin paths.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: n8n_cloudflared
@@ -354,7 +361,8 @@ services:
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
-      - n8n_network
+      n8n_network:
+        ipv4_address: 172.30.0.11
 
   # ===========================================================================
   # Tailscale VPN
@@ -381,7 +389,10 @@ services:
     cap_add:
       - NET_ADMIN
     networks:
-      - n8n_network
+      n8n_network:
+        # Static IP: Tailscale Serve proxies tailnet users to nginx from this
+        # address, which nginx trusts as "internal"
+        ipv4_address: 172.30.0.12
 
   # ===========================================================================
   # Adminer - Database Management
@@ -487,7 +498,9 @@ services:
       - ./filebrowser.db:/database/filebrowser.db
       - ./.filebrowser.json:/config/settings.json:ro
     networks:
-      - n8n_network
+      # Isolated: only nginx is attached to this network. Any other container
+      # could otherwise send its own X-Remote-User header.
+      - filebrowser_network
 
   # ===========================================================================
   # Public Website Nginx (separate from main nginx)
@@ -551,3 +564,15 @@ volumes:
 networks:
   n8n_network:
     driver: bridge
+    # Pinned subnet: nginx treats this whole range as "external" (except the
+    # Tailscale container) so traffic arriving through a Docker hop is never
+    # trusted. setup.sh generates it from N8N_NETWORK_SUBNET; static IPs use
+    # .2-.127, Docker assigns dynamic ones from ip_range only.
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          ip_range: 172.30.0.128/25
+          gateway: 172.30.0.1
+  filebrowser_network:
+    driver: bridge
+    internal: true

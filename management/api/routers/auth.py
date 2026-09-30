@@ -117,13 +117,19 @@ async def logout(
 @router.get("/verify", status_code=status.HTTP_200_OK)
 async def verify_session(
     _: bool = Depends(verify_session_for_proxy),
+    user=Depends(get_current_user),
 ):
     """
     Verify session for nginx auth_request.
-    Used for SSO proxy to Adminer and Dozzle.
-    Returns 200 if valid, 401 if not.
+    Used to gate File Browser (/files/) and for SSO proxy to Adminer and Dozzle.
+    Returns 200 if valid, 401 if not. On success the authenticated username is
+    returned in the X-Auth-User header so nginx can hand it to File Browser's
+    proxy auth (auth_request_set) instead of trusting a client-supplied value.
     """
-    return Response(status_code=status.HTTP_200_OK)
+    return Response(
+        status_code=status.HTTP_200_OK,
+        headers={"X-Auth-User": user.username},
+    )
 
 
 @router.get("/session", response_model=SessionInfo)
