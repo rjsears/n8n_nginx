@@ -12,7 +12,7 @@ https://github.com/rjsears
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Optional
 from datetime import datetime, date
@@ -506,7 +506,12 @@ async def run_verification(
 ):
     """Manually verify a backup."""
     service = BackupService(db)
-    result = await service.verify_backup(backup_id)
+    try:
+        # exclusive_operation / _busy_conflict are defined in the restore section below
+        async with exclusive_operation("verification", wait=False):
+            result = await service.verify_backup(backup_id)
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     return VerificationRunResponse(
         backup_id=backup_id,
         status=result["status"],
@@ -992,6 +997,46 @@ async def get_restore_container_status(
 # Phase 4: Full System Restore
 # ============================================================================
 
+from api.services.operation_lock import exclusive_operation, OperationBusyError
+from api.services.restore_script import RESTORE_SCRIPT_VERSION, render_restore_script
+
+
+def _busy_conflict(e: OperationBusyError) -> HTTPException:
+    """409 for a restore/verification requested while another operation runs."""
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"{e}. Wait for it to finish and try again.",
+    )
+
+
+@router.get("/restore-script")
+async def download_current_restore_script(
+    _=Depends(get_current_user),
+):
+    """
+    Download the CURRENT bare-metal restore.sh.
+
+    Archives created by older versions embed a restore.sh that cannot complete
+    (it exits after the first config file). Copy this script over the one in
+    the extracted archive before running it.
+    """
+    try:
+        script = render_restore_script()
+    except (OSError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"restore.sh template unavailable: {e}",
+        )
+    return Response(
+        content=script,
+        media_type="text/x-shellscript",
+        headers={
+            "Content-Disposition": 'attachment; filename="restore.sh"',
+            "X-Restore-Script-Version": RESTORE_SCRIPT_VERSION,
+        },
+    )
+
+
 class FullRestoreRequest(BaseModel):
     """Request for full system restore."""
     restore_databases: bool = True
@@ -1111,12 +1156,13 @@ async def restore_config_file(
     service = RestoreService(db)
 
     try:
-        result = await service.restore_config_file(
-            backup_id=backup_id,
-            config_path=data.config_path,
-            target_path=data.target_path,
-            create_backup=data.create_backup,
-        )
+        async with exclusive_operation("restore", wait=False):
+            result = await service.restore_config_file(
+                backup_id=backup_id,
+                config_path=data.config_path,
+                target_path=data.target_path,
+                create_backup=data.create_backup,
+            )
 
         if result["status"] == "failed":
             raise HTTPException(
@@ -1126,6 +1172,8 @@ async def restore_config_file(
 
         return result
 
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     except HTTPException:
         raise
     except Exception as e:
@@ -1149,27 +1197,41 @@ async def restore_database(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Restore a database from backup.
+    Restore the n8n database from backup.
 
-    WARNING: This will OVERWRITE the target database!
+    WARNING: This will REPLACE the live n8n database!
+
+    n8n is stopped during the swap and always restarted. A safety dump is taken
+    first and the previous database is kept as <name>_pre_restore_<timestamp>.
+    The management database cannot be restored here (use restore.sh).
+
+    Returns 409 if a backup/restore/verification is already running. On
+    failure returns 400 with the full result (error, stderr, safety_dump) as detail.
     """
     service = RestoreService(db)
 
-    try:
-        result = await service.restore_database(
-            backup_id=backup_id,
-            database_name=data.database_name,
-            target_database=data.target_database,
-        )
+    refusal = service.check_database_restorable(data.database_name, data.target_database)
+    if refusal:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=refusal)
 
-        if result["status"] == "failed":
+    try:
+        async with exclusive_operation("restore", wait=False):
+            result = await service.restore_database(
+                backup_id=backup_id,
+                database_name=data.database_name,
+                target_database=data.target_database,
+            )
+
+        if result["status"] != "success":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Restore failed"),
+                detail=result,
             )
 
         return result
 
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     except HTTPException:
         raise
     except Exception as e:
@@ -1197,28 +1259,36 @@ async def full_system_restore(
     WARNING: This will OVERWRITE existing data! Use with caution.
 
     By default, existing files are backed up before overwriting (create_backups=true).
+    Only the n8n database can be restored in-app; n8n_management is refused.
+
+    Returns 409 if another backup/restore/verification is running. A "failed"
+    result is returned as 400 with the full result as detail; "partial" is 200
+    with the errors listed.
     """
     service = RestoreService(db)
 
     try:
-        result = await service.full_system_restore(
-            backup_id=backup_id,
-            restore_databases=data.restore_databases,
-            restore_configs=data.restore_configs,
-            restore_ssl=data.restore_ssl,
-            database_names=data.database_names,
-            config_files=data.config_files,
-            create_backups=data.create_backups,
-        )
+        async with exclusive_operation("restore", wait=False):
+            result = await service.full_system_restore(
+                backup_id=backup_id,
+                restore_databases=data.restore_databases,
+                restore_configs=data.restore_configs,
+                restore_ssl=data.restore_ssl,
+                database_names=data.database_names,
+                config_files=data.config_files,
+                create_backups=data.create_backups,
+            )
 
         if result["status"] == "failed":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Restore failed"),
+                detail=result,
             )
 
         return result
 
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     except HTTPException:
         raise
     except Exception as e:
@@ -1280,11 +1350,12 @@ async def verify_backup_comprehensive(
     service = VerificationService(db)
 
     try:
-        result = await service.verify_backup(
-            backup_id=backup_id,
-            verify_all_workflows=data.verify_all_workflows,
-            workflow_sample_size=data.workflow_sample_size,
-        )
+        async with exclusive_operation("verification", wait=False):
+            result = await service.verify_backup(
+                backup_id=backup_id,
+                verify_all_workflows=data.verify_all_workflows,
+                workflow_sample_size=data.workflow_sample_size,
+            )
 
         return VerifyBackupResponse(
             backup_id=backup_id,
@@ -1297,6 +1368,8 @@ async def verify_backup_comprehensive(
             duration_seconds=result.get("duration_seconds"),
         )
 
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

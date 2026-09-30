@@ -388,7 +388,9 @@ export const useBackupStore = defineStore('backups', () => {
       }, { timeout: 1800000 }) // 30 minute timeout for database restore
       return response.data
     } catch (err) {
-      error.value = err.response?.data?.detail || 'Failed to restore database'
+      // A failed restore returns the full result object as detail
+      const detail = err.response?.data?.detail
+      error.value = (detail && typeof detail === 'object' ? detail.error : detail) || 'Failed to restore database'
       throw err
     }
   }
@@ -405,7 +407,9 @@ export const useBackupStore = defineStore('backups', () => {
       }, { timeout: 1800000 }) // 30 minute timeout for full system restore
       return response.data
     } catch (err) {
-      error.value = err.response?.data?.detail || 'Failed to perform full system restore'
+      // A failed restore returns the full result object as detail
+      const detail = err.response?.data?.detail
+      error.value = (detail && typeof detail === 'object' ? detail.error : detail) || 'Failed to perform full system restore'
       throw err
     }
   }

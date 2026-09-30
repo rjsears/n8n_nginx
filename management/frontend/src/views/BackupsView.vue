@@ -870,6 +870,30 @@ async function createBareMetalRecovery(backup) {
   }
 }
 
+// Download the CURRENT restore.sh (fixes archives whose embedded script is outdated)
+const downloadingRestoreScript = ref(false)
+async function downloadRestoreScript() {
+  downloadingRestoreScript.value = true
+  try {
+    const response = await api.get('/backups/restore-script', { responseType: 'blob' })
+    const blob = new Blob([response.data], { type: 'text/x-shellscript' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'restore.sh'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    notificationStore.success('Latest restore.sh downloaded. Copy it over the restore.sh in the extracted archive before running it.')
+  } catch (error) {
+    console.error('Download error:', error)
+    notificationStore.error(`Failed to download restore.sh: ${error.response?.data?.detail || error.message || 'Unknown error'}`)
+  } finally {
+    downloadingRestoreScript.value = false
+  }
+}
+
 // Download Backup Data Only (without restore scripts)
 async function downloadBackupData(backup) {
   downloadingBackup.value = backup.id
@@ -2058,6 +2082,21 @@ onMounted(async () => {
                         <ArrowDownTrayIcon v-else class="h-4 w-4" />
                         {{ creatingBareMetal === backup.id ? 'Preparing...' : 'Download Recovery Archive' }}
                       </button>
+                      <div class="mt-4 pt-3 border-t border-purple-100 dark:border-purple-800">
+                        <p class="text-xs text-secondary mb-2">
+                          Archives created before restore script v3.2.0 contain a <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">restore.sh</code> that stops after the first config file.
+                          Download the latest script and copy it over the one in the extracted archive before running it.
+                        </p>
+                        <button
+                          @click="downloadRestoreScript"
+                          :disabled="downloadingRestoreScript"
+                          class="btn-secondary flex items-center gap-2 text-sm"
+                        >
+                          <LoadingSpinner v-if="downloadingRestoreScript" size="sm" />
+                          <ArrowDownTrayIcon v-else class="h-4 w-4" />
+                          Download latest restore.sh
+                        </button>
+                      </div>
                     </div>
                   </div>
 
