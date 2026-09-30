@@ -417,7 +417,7 @@ echo | openssl s_client -connect your-domain.com:443 2>/dev/null | openssl x509 
 
 **Solutions:**
 
-1. **Check certbot logs first** — if they show `Unable to find deploy-hook command docker in the PATH` every 12 hours, renewals have been silently failing entirely. See [Renewals Silently Failing](./CERTBOT.md#renewals-silently-failing-deploy-hook-cannot-find-docker) in the Certbot guide: update `docker-compose.yaml` to the current version (its certbot entrypoint installs the Docker CLI at container start) and `docker compose up -d --force-recreate certbot`.
+1. **Check certbot logs first** — look for `ERROR: certbot renew FAILED`, `broken certificate lineage`, or (older installs) `Unable to find deploy-hook command docker in the PATH`. See [Renewals Silently Failing (Older Installs)](./CERTBOT.md#renewals-silently-failing-older-installs) and [Repairing a Broken Certificate Lineage](./CERTBOT.md#repairing-a-broken-certificate-lineage) in the Certbot guide: update to the current version, run `./scripts/repair_ssl_lineage.sh`, and `docker compose up -d --force-recreate certbot`.
    ```bash
    docker logs n8n_certbot --tail 100
    ```
