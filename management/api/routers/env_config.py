@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_current_user
+from api.services.env_file import decode_env_value, encode_env_value, parse_env_line
 
 logger = logging.getLogger(__name__)
 
@@ -434,23 +435,13 @@ def parse_env_file() -> Dict[str, str]:
     try:
         with open(ENV_FILE_PATH, "r") as f:
             for line in f:
-                line = line.strip()
-                # Skip comments and empty lines
-                if not line or line.startswith("#"):
+                # Skip comments, empty lines and non KEY=VALUE lines
+                parsed = parse_env_line(line)
+                if not parsed:
                     continue
-
-                # Parse KEY=VALUE
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    value = value.strip()
-
-                    # Remove quotes if present
-                    if (value.startswith('"') and value.endswith('"')) or \
-                       (value.startswith("'") and value.endswith("'")):
-                        value = value[1:-1]
-
-                    env_vars[key] = value
+                key, raw_value = parsed
+                # Decode with the same rules setup.sh uses to write values
+                env_vars[key] = decode_env_value(raw_value)
 
     except Exception as e:
         logger.error(f"Error parsing .env file: {e}")
@@ -476,17 +467,19 @@ def write_env_file(env_vars: Dict[str, str]) -> bool:
                         continue
 
                     # Update existing variables
-                    if "=" in stripped:
-                        key = stripped.split("=", 1)[0].strip()
-                        if key in env_vars:
-                            # Escape value if it contains special characters
+                    parsed = parse_env_line(line)
+                    if parsed:
+                        key, raw_value = parsed
+                        if key in env_vars and key not in seen_keys:
                             value = env_vars[key]
-                            if " " in value or '"' in value or "'" in value or "$" in value:
-                                value = f'"{value}"'
-                            lines.append(f"{key}={value}")
+                            if decode_env_value(raw_value) == value:
+                                # Unchanged: keep the original line verbatim
+                                lines.append(line.rstrip("\n"))
+                            else:
+                                lines.append(f"{key}={encode_env_value(value)}")
                             seen_keys.add(key)
                         else:
-                            # Key was deleted, skip it
+                            # Key was deleted (or is a duplicate), skip it
                             continue
                     else:
                         lines.append(line.rstrip("\n"))
@@ -495,9 +488,7 @@ def write_env_file(env_vars: Dict[str, str]) -> bool:
         new_vars = []
         for key, value in env_vars.items():
             if key not in seen_keys:
-                if " " in value or '"' in value or "'" in value or "$" in value:
-                    value = f'"{value}"'
-                new_vars.append(f"{key}={value}")
+                new_vars.append(f"{key}={encode_env_value(value)}")
 
         if new_vars:
             if lines and lines[-1]:  # Add blank line before new vars
