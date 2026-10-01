@@ -122,7 +122,7 @@ Settings specific to the management console application.
 **Valid Timezone Values:**
 Use standard IANA timezone names: `America/New_York`, `Europe/London`, `Asia/Tokyo`, `UTC`, etc.
 
-| `ENABLE_HOST_TERMINAL` | Allow the console's web terminal to open a root shell on the Docker host (privileged container with `/` mounted). Container terminals are not affected. | `false` | No | No |
+| `ENABLE_HOST_TERMINAL` | Allow the console's web terminal to open a root shell on the Docker host (privileged container with `/` mounted). While `false`, terminals into containers that amount to host root (privileged, host PID/network namespace, or with `/var/run/docker.sock` or `/` bind-mounted, e.g. `n8n_management`, `n8n_portainer`, `n8n_dozzle`, `n8n_status`) are refused as well; the flag only keeps host root out of the console because of that check. Other container terminals are not affected. | `false` | No | No |
 | `ALLOWED_ORIGINS` | Extra comma-separated origins (e.g. `https://manage.example.com`) allowed to send state-changing requests and open the terminal WebSocket; also enables CORS for exactly these origins | *empty* | No | No |
 
 **Example:**

@@ -613,7 +613,11 @@ def get_terminal_targets(
         # enable it, but only usable with ENABLE_HOST_TERMINAL=true (the
         # WebSocket enforces this, not the UI).
         from api.config import settings as app_settings
-        from api.routers.terminal import HOST_TERMINAL_DISABLED_MESSAGE
+        from api.routers.terminal import (
+            HOST_TERMINAL_DISABLED_MESSAGE,
+            host_equivalent_reason,
+            host_equivalent_refusal,
+        )
 
         host_enabled = bool(app_settings.enable_host_terminal)
         targets.append({
@@ -632,13 +636,21 @@ def get_terminal_targets(
         # List running containers
         containers = client.containers.list(all=False)  # Only running containers
         for container in containers:
-            targets.append({
+            target = {
                 "id": container.id[:12],
                 "name": container.name,
                 "type": "container",
                 "status": container.status,
                 "image": container.image.tags[0] if container.image.tags else "unknown",
-            })
+            }
+            # Containers that amount to host root access are refused by the
+            # WebSocket while the host terminal is disabled; show them as such.
+            reason = None if host_enabled else host_equivalent_reason(container.attrs)
+            if reason:
+                target["enabled"] = False
+                target["status"] = "disabled"
+                target["description"] = host_equivalent_refusal(container.name, reason)
+            targets.append(target)
 
         return {"targets": targets}
 

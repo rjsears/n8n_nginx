@@ -30,6 +30,7 @@ def svc(monkeypatch, tmp_path):
         "https://ntfy.example.com",
         "https://NTFY.example.com/",
         "https://n8n.example.com/ntfy/",
+        "https://ntfy.example.com:443/",
     ],
 )
 def test_own_server_urls(svc, url):
@@ -44,12 +45,30 @@ def test_own_server_urls(svc, url):
         "https://evil.net/?u=https://ntfy.example.com",
         "https://n8n.example.com/ntfyx",
         "https://ntfy.example.com:8443",
+        "http://ntfy.example.com",              # same host, plain http: token would travel in clear
+        "http://ntfy.example.com:443",
+        "http://n8n.example.com/ntfy/",
+        "https://n8n_ntfy",                     # bare container names: http on port 80 only
+        "http://n8n_ntfy:8080",
+        "ftp://ntfy",
+        "ws://ntfy.example.com",
+        "https://ntfy.example.com:notaport",
         "",
         None,
     ],
 )
 def test_foreign_server_urls(svc, url):
     assert not svc.is_own_server(url)
+
+
+def test_own_server_scheme_follows_configuration(monkeypatch, tmp_path):
+    monkeypatch.setattr(ntfy_mod, "HOST_ENV_PATH", str(tmp_path / "missing.env"))
+    monkeypatch.delenv("DOMAIN", raising=False)
+    svc = NtfyService(base_url="http://ntfy.lan:8080", public_url="https://ntfy.example.com")
+    assert svc.is_own_server("http://ntfy.lan:8080/topic")
+    assert not svc.is_own_server("https://ntfy.lan:8080")
+    assert not svc.is_own_server("http://ntfy.lan")
+    assert not svc.is_own_server("http://ntfy.example.com")
 
 
 def test_auth_headers_use_token(svc):

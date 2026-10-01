@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # that the console uses to publish.
 HOST_ENV_PATH = "/app/host_project/.env"
 LOCAL_NTFY_HOSTS = {"n8n_ntfy", "ntfy"}
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 def get_ntfy_token() -> Optional[str]:
@@ -578,19 +579,26 @@ class NtfyService:
         """True if server_url points at the ntfy server this console manages.
 
         Used to decide whether a notification channel may be sent NTFY_TOKEN;
-        the token must never be sent to a third-party server such as ntfy.sh.
+        the token must never be sent to a third-party server such as ntfy.sh,
+        nor over a different scheme or port than the configured URLs use
+        (http://ntfy.<domain> would carry it in clear text). The bare
+        container names are only accepted as http on port 80, which is how
+        the internal Docker network reaches the server.
         """
         if not server_url:
             return False
         try:
             target = urlsplit(server_url.strip())
+            target_port = target.port
         except ValueError:
             return False
         host = (target.hostname or "").lower()
-        if not host:
+        scheme = (target.scheme or "").lower()
+        if not host or scheme not in _DEFAULT_PORTS:
             return False
         if host in LOCAL_NTFY_HOSTS:
-            return True
+            return scheme == "http" and target_port in (None, 80)
+        target_port = target_port or _DEFAULT_PORTS[scheme]
         target_path = target.path.rstrip("/")
         candidates = [self.base_url, self.public_url]
         domain = os.environ.get("DOMAIN", "").strip()
@@ -602,9 +610,13 @@ class NtfyService:
                 continue
             try:
                 own = urlsplit(candidate)
+                own_port = own.port
             except ValueError:
                 continue
-            if (own.hostname or "").lower() != host or own.port != target.port:
+            own_scheme = (own.scheme or "").lower()
+            if own_scheme != scheme or (own.hostname or "").lower() != host:
+                continue
+            if (own_port or _DEFAULT_PORTS.get(own_scheme)) != target_port:
                 continue
             own_path = own.path.rstrip("/")
             if target_path == own_path or target_path.startswith(own_path + "/"):

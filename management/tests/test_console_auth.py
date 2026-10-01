@@ -39,7 +39,7 @@ def _compile_inet_for_sqlite(type_, compiler, **kw):  # noqa: ARG001
     return "VARCHAR(45)"
 
 
-SAME_ORIGIN = "http://testserver"
+SAME_ORIGIN = "https://testserver"
 
 
 # --- Origin helper -------------------------------------------------------------------------
@@ -56,6 +56,9 @@ SAME_ORIGIN = "http://testserver"
     ("", "n8n.example.com", False),
     ("file:///etc/passwd", "n8n.example.com", False),
     ("https://n8n.example.com", None, False),
+    ("http://n8n.example.com", "n8n.example.com", False),         # plain-http page on the same host
+    ("http://n8n.example.com:80", "n8n.example.com", False),
+    ("ws://n8n.example.com", "n8n.example.com", False),
 ])
 def test_is_origin_allowed(origin, host, expected):
     assert is_origin_allowed(origin, host) is expected
@@ -66,6 +69,12 @@ def test_allowed_origins_setting_extends_the_list(monkeypatch):
     assert is_origin_allowed("https://manage.example.com", "n8n.example.com")
     assert is_origin_allowed("https://other.example.com", "n8n.example.com")
     assert not is_origin_allowed("https://evil.example", "n8n.example.com")
+
+
+def test_allowed_origins_can_list_an_http_origin_explicitly(monkeypatch):
+    monkeypatch.setattr(settings, "allowed_origins", "http://n8n.example.com")
+    assert is_origin_allowed("http://n8n.example.com", "n8n.example.com")
+    assert not is_origin_allowed("http://other.example.com", "other.example.com")
 
 
 # --- Terminal WebSocket ----------------------------------------------------------------------
@@ -209,6 +218,24 @@ def test_host_terminal_disabled_by_default(ws_env):
         assert exc.value.code == terminal.CLOSE_FORBIDDEN
     assert FakeTerminal.instances == []
     assert [a["action"] for a in ws_env.audit] == ["terminal_denied"]
+
+
+def test_host_equivalent_container_refusal_closes_forbidden_and_audits(ws_env, monkeypatch):
+    class RefusingTerminal(FakeTerminal):
+        async def start(self):
+            self.refused = "it mounts /var/run/docker.sock from the host"
+            await self.websocket.send_text(json.dumps({"type": "error", "message": "refused"}))
+            return False
+
+    monkeypatch.setattr(terminal, "TerminalSession", RefusingTerminal)
+    with _connect(ws_env.client, target="n8n_portainer") as ws:
+        assert ws.receive_json()["type"] == "connecting"
+        assert ws.receive_json() == {"type": "error", "message": "refused"}
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+        assert exc.value.code == terminal.CLOSE_FORBIDDEN
+    assert [a["action"] for a in ws_env.audit] == ["terminal_denied"]
+    assert "docker.sock" in ws_env.audit[0]["reason"]
 
 
 def test_host_terminal_opens_when_enabled(ws_env, monkeypatch):
@@ -368,6 +395,62 @@ async def test_logout_with_csrf_header_ends_session_and_terminals(http, monkeypa
     assert closed == [(True, None, "logged out")]
     # Cookie cleared and the session itself is dead even if replayed
     assert (await http.get("/api/auth/me")).status_code == 401
+
+
+@pytest.mark.parametrize("prefix", [
+    'prefs={"theme":"dark"}',   # JSON value: SimpleCookie stops parsing here
+    "a=b c",                    # space inside an unquoted value
+    'x="unbalanced',            # unbalanced quote
+    "k[1]=v",                   # illegal key character
+])
+async def test_malformed_cookie_header_does_not_skip_csrf(http, prefix):
+    """Auth still finds the session cookie behind a malformed one, so CSRF must not skip it."""
+    await _login(http)
+    token = http.cookies.get("session")
+    assert token
+    http.cookies.clear()
+    cookie = f"{prefix}; session={token}"
+    # The session really authenticates with this header ...
+    assert (await http.get("/api/auth/me", headers={"Cookie": cookie})).status_code == 200
+    # ... so a state-changing request with it must pass the CSRF check.
+    resp = await http.post("/api/auth/logout", headers={"Cookie": cookie})
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "CSRF check failed"
+    resp = await http.post(
+        "/api/auth/logout",
+        headers={"Cookie": cookie, "X-Requested-With": "XMLHttpRequest", "Origin": "https://evil.example"},
+    )
+    assert resp.status_code == 403
+    assert (await http.get("/api/auth/me", headers={"Cookie": cookie})).status_code == 200
+
+
+async def test_any_cookie_header_requires_csrf_header(http):
+    resp = await http.post("/api/auth/login", json={"username": "admin"}, headers={"Cookie": "unrelated=1"})
+    assert resp.status_code == 403
+
+
+async def test_http_origin_on_console_host_is_rejected(http):
+    await _login(http)
+    resp = await http.post(
+        "/api/auth/logout",
+        headers={"X-Requested-With": "XMLHttpRequest", "Origin": "http://testserver"},
+    )
+    assert resp.status_code == 403
+    assert (await http.get("/api/auth/me")).status_code == 200
+
+
+async def test_authorization_header_requests_skip_csrf(http):
+    await _login(http)
+    token = http.cookies.get("session")
+    http.cookies.clear()
+    resp = await http.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+
+
+async def test_get_with_cookie_is_not_csrf_checked(http):
+    """nginx auth_request (GET /api/auth/verify) carries the cookie and no CSRF header."""
+    await _login(http)
+    assert (await http.get("/api/auth/me")).status_code == 200
 
 
 async def test_requests_without_session_cookie_skip_csrf(http):

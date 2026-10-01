@@ -15,7 +15,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.datastructures import Headers
-from http.cookies import CookieError, SimpleCookie
 from contextlib import asynccontextmanager
 import logging
 import sys
@@ -126,7 +125,6 @@ import os
 
 from api.security import (
     CSRF_HEADER_NAME,
-    SESSION_COOKIE_NAME,
     UNSAFE_METHODS,
     configured_allowed_origins,
     is_origin_allowed,
@@ -156,9 +154,16 @@ class CSRFMiddleware:
     PATCH/DELETE that carries the cookie must also carry the custom
     X-Requested-With header - which a cross-origin page cannot add without a
     CORS preflight we never grant - and, if the browser sent an Origin
-    header, it must name this console. Requests without the cookie (bearer
-    API clients, n8n calling the notification webhook with its API key) are
-    not exposed to CSRF and pass through unchanged.
+    header, it must name this console.
+
+    The rule keys on the presence of any Cookie header rather than on finding
+    the session cookie in it: cookie parsers disagree on malformed input
+    (http.cookies.SimpleCookie silently stops at the first value it cannot
+    parse, e.g. a JSON value), so a request the auth dependency accepts must
+    never be one this check skipped. Requests with an Authorization header
+    authenticate with it alone (the cookie is ignored), and requests without
+    any cookie (bearer API clients, n8n calling the notification webhook with
+    its API key) are not exposed to CSRF; both pass through unchanged.
     """
 
     def __init__(self, app):
@@ -167,12 +172,7 @@ class CSRFMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and scope["method"] in UNSAFE_METHODS:
             headers = Headers(scope=scope)
-            cookies = SimpleCookie()
-            try:
-                cookies.load(headers.get("cookie", ""))
-            except CookieError:
-                pass
-            if SESSION_COOKIE_NAME in cookies:
+            if not headers.get("authorization") and headers.get("cookie", "").strip():
                 origin = headers.get("origin")
                 reason = None
                 if not headers.get(CSRF_HEADER_NAME):

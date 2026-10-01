@@ -140,6 +140,14 @@ ENV_VARIABLE_GROUPS = {
                 "warning": "Store a copy OFF this server. Without it, encrypted backups cannot be restored. "
                            "Changing it does not re-encrypt existing backups: keep the old passphrase for them.",
             },
+            "PORTAINER_AGENT_SECRET": {
+                "label": "Portainer Agent Secret",
+                "description": "Shared secret (AGENT_SECRET) between the Portainer Agent and your Portainer server",
+                "type": "password",
+                "required": False,
+                "sensitive": True,
+                "editable": True,
+            },
             "ADMIN_USER": {
                 "label": "Admin Username",
                 "description": "Username for management console login",
@@ -355,6 +363,31 @@ ENV_VARIABLE_GROUPS = {
                 "sensitive": False,
                 "editable": True,
             },
+            "NTFY_ADMIN_PASS": {
+                "label": "NTFY Admin Password",
+                "description": "Password of the local ntfy admin user (set by setup.sh)",
+                "type": "password",
+                "required": False,
+                "sensitive": True,
+                "editable": True,
+                "warning": "NTFY_ADMIN_PASSWORD_HASH is not regenerated from this value; re-run setup.sh after changing it.",
+            },
+            "NTFY_ADMIN_PASSWORD_HASH": {
+                "label": "NTFY Admin Password Hash",
+                "description": "bcrypt hash of the ntfy admin password, provisioned into the ntfy server",
+                "type": "password",
+                "required": False,
+                "sensitive": True,
+                "editable": True,
+            },
+            "NTFY_TOKEN": {
+                "label": "NTFY Access Token",
+                "description": "Token the management console uses to publish to the local ntfy server (tk_...)",
+                "type": "password",
+                "required": False,
+                "sensitive": True,
+                "editable": True,
+            },
         },
     },
     "n8n_api": {
@@ -381,6 +414,17 @@ ENV_VARIABLE_GROUPS = {
         "variables": {},  # Populated dynamically
     },
 }
+
+# Variables not described above are shown as custom ones. Their values are
+# hidden when the name looks like a secret, so a credential setup.sh (or the
+# operator) adds later is never returned in clear just because nobody listed it.
+SENSITIVE_KEY_PATTERN = re.compile(r"PASS|SECRET|TOKEN|KEY|HASH|CREDENTIAL", re.IGNORECASE)
+
+
+def is_sensitive_key(key: str) -> bool:
+    """True when an environment variable name looks like it holds a secret."""
+    return bool(SENSITIVE_KEY_PATTERN.search(key))
+
 
 # System variables that should never be deleted
 SYSTEM_VARIABLES = set()
@@ -544,13 +588,14 @@ def get_variable_metadata(key: str) -> Dict[str, Any]:
             return meta
 
     # Not found in known groups - it's a custom variable
+    sensitive = is_sensitive_key(key)
     return {
         "group": "custom",
         "label": key,
         "description": "User-defined environment variable",
-        "type": "string",
+        "type": "password" if sensitive else "string",
         "required": False,
-        "sensitive": False,
+        "sensitive": sensitive,
         "editable": True,
         "is_custom": True,
     }
@@ -605,15 +650,16 @@ async def get_env_config(_=Depends(get_current_user)):
     custom_vars = []
     for key, value in env_vars.items():
         if key not in assigned_vars:
+            sensitive = is_sensitive_key(key)
             custom_vars.append(EnvVariable(
                 key=key,
-                value=value,
+                value="" if sensitive else value,  # Hide values of secret-looking names
                 group="custom",
                 label=key,
                 description="User-defined environment variable",
-                type="string",
+                type="password" if sensitive else "string",
                 required=False,
-                sensitive=False,
+                sensitive=sensitive,
                 editable=True,
                 is_custom=True,
             ))

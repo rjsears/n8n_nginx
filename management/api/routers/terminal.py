@@ -42,6 +42,7 @@ class TerminalSession:
         self.exec_id = None
         self.socket = None
         self._running = False
+        self.refused: Optional[str] = None
 
     async def start(self):
         """Start the terminal session."""
@@ -84,6 +85,16 @@ class TerminalSession:
                         json.dumps({"type": "error", "message": f"Container is not running: {self.container.status}"})
                     )
                     return False
+
+                if not settings.enable_host_terminal:
+                    reason = host_equivalent_reason(self.container.attrs)
+                    if reason:
+                        self.refused = reason
+                        await self.websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": host_equivalent_refusal(self.container.name, reason),
+                        }))
+                        return False
 
             # Determine shell to use
             shell = await asyncio.to_thread(self._detect_shell)
@@ -274,12 +285,49 @@ class TerminalSession:
 HOST_TERMINAL_DISABLED_MESSAGE = (
     "The host terminal is disabled. It gives a root shell on the Docker host, so it is "
     "off unless the operator opts in: set ENABLE_HOST_TERMINAL=true in the n8n_management "
-    "environment (docker-compose.yaml / .env) and recreate the container. Container "
-    "terminals are not affected."
+    "environment (docker-compose.yaml / .env) and recreate the container. Terminals in "
+    "ordinary containers are not affected; containers that would give host root access "
+    "(privileged, or with the Docker socket mounted) are disabled too."
 )
 
 CLOSE_UNAUTHORIZED = 4001
 CLOSE_FORBIDDEN = 4003
+
+# A shell in some containers is a host root shell by another name: a
+# privileged container, one sharing the host's PID or network namespace, or
+# one with the Docker socket (n8n_management, Portainer, Dozzle, the status
+# page) or the host's root filesystem mounted can take over the host. With
+# ENABLE_HOST_TERMINAL=false those containers are refused too, otherwise the
+# flag would not hold.
+_HOST_EQUIVALENT_MOUNT_SOURCES = frozenset({
+    "/", "/var/run", "/run", "/var/run/docker.sock", "/run/docker.sock",
+})
+
+
+def host_equivalent_reason(attrs: dict) -> Optional[str]:
+    """Why a shell in the container described by `attrs` (docker inspect output) is host access, or None."""
+    host_config = (attrs or {}).get("HostConfig") or {}
+    if host_config.get("Privileged"):
+        return "it runs privileged"
+    if (host_config.get("PidMode") or "") == "host":
+        return "it shares the host PID namespace"
+    if (host_config.get("NetworkMode") or "") == "host":
+        return "it shares the host network namespace"
+    sources = [m.get("Source") or "" for m in (attrs or {}).get("Mounts") or [] if m.get("Type", "bind") == "bind"]
+    sources += [b.split(":", 1)[0] for b in host_config.get("Binds") or []]
+    for source in sources:
+        normalized = "/" + source.strip("/") if source else ""
+        if normalized in _HOST_EQUIVALENT_MOUNT_SOURCES or normalized.endswith("/docker.sock"):
+            return f"it mounts {normalized} from the host"
+    return None
+
+
+def host_equivalent_refusal(name: str, reason: str) -> str:
+    """Message shown when a host-equivalent container is refused with the host terminal disabled."""
+    return (
+        f"A shell in {name} is equivalent to host root access ({reason}), so it is only "
+        "available when the host terminal is enabled (ENABLE_HOST_TERMINAL=true)."
+    )
 
 
 @dataclass(eq=False)
@@ -463,7 +511,9 @@ async def terminal_websocket(
     Connect with: wss://host/management/api/ws/terminal?target=container_id
     from the console page. Authentication is the HttpOnly session cookie set
     at login; the Origin header must be this console. Host shells
-    (target=host) additionally require ENABLE_HOST_TERMINAL=true.
+    (target=host) and shells in host-equivalent containers (privileged, host
+    PID/network namespace, Docker socket or / mounted) additionally require
+    ENABLE_HOST_TERMINAL=true.
 
     Messages from client:
     - {"type": "input", "data": "command"} - Send input to terminal
@@ -516,7 +566,13 @@ async def terminal_websocket(
     session = await asyncio.to_thread(TerminalSession, websocket, target, target_type)
 
     if not await session.start():
-        await websocket.close()
+        refused = getattr(session, "refused", None)
+        if refused:
+            await _audit("terminal_denied", user.id, user.username, client_ip, user_agent,
+                         {**audit_details, "reason": f"host terminal disabled and {refused}"})
+            await websocket.close(code=CLOSE_FORBIDDEN, reason="Host terminal disabled")
+        else:
+            await websocket.close()
         return
 
     if session.container is not None and target_type == "container":

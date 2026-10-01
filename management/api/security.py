@@ -177,8 +177,11 @@ def is_origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
 
     Same-origin means the Origin's host equals the Host header the request
     arrived with (both nginx layers forward the client's Host unchanged).
-    Ports are not compared because nginx's $host drops them. Anything listed
-    in ALLOWED_ORIGINS is also accepted. A missing or "null" Origin is
+    Ports are not compared because nginx's $host drops them. The console is
+    only served over https (nginx, Tailscale Serve), so a same-host Origin
+    must be https too: a page on http://<host> is a different origin that
+    anyone on the path can inject into. Anything listed in ALLOWED_ORIGINS
+    (scheme included) is also accepted. A missing or "null" Origin is
     rejected here; callers decide whether a request without one is acceptable.
     """
     if not origin or origin == "null":
@@ -189,7 +192,7 @@ def is_origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
     if "://" not in origin:
         return False
     scheme, authority = origin.split("://", 1)
-    if scheme not in ("https", "http") or not authority or not host:
+    if scheme != "https" or not authority or not host:
         return False
     return _hostname(authority) == _hostname(host)
 

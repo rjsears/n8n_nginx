@@ -76,10 +76,11 @@ Rules that apply to every request:
 
 - **Network:** `/management/` (and therefore the API) is internal-only in the
   outer nginx (`geo $access_level`); external clients get `403`.
-- **CSRF:** a `POST`/`PUT`/`PATCH`/`DELETE` that carries the `session` cookie
-  must also send an `X-Requested-With` header (any value), and if the client
-  sends an `Origin` header it must be this console's host or one listed in
-  `ALLOWED_ORIGINS`. Otherwise the request is rejected with `403 CSRF check failed`.
+- **CSRF:** a `POST`/`PUT`/`PATCH`/`DELETE` that carries any `Cookie` header
+  and no `Authorization` header must also send an `X-Requested-With` header
+  (any value), and if the client sends an `Origin` header it must be
+  `https://` plus this console's host, or one listed in `ALLOWED_ORIGINS`.
+  Otherwise the request is rejected with `403 CSRF check failed`.
 - **CORS:** none by default; `ALLOWED_ORIGINS` (comma-separated) enables CORS
   for exactly those origins.
 - **Login throttling:** the management container's nginx allows 5 login
