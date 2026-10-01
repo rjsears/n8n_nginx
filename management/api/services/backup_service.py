@@ -542,6 +542,8 @@ class BackupService:
             # Notify failure
             try:
                 await dispatch_notification("backup_failure", {
+                    # Throttle per backup type and schedule, not globally
+                    "target_id": f"{backup_type}:{history.schedule_id or 'manual'}",
                     "backup_type": backup_type,
                     "backup_id": history.id,
                     "error": str(e),
@@ -2005,6 +2007,8 @@ class BackupService:
             # Notify failure
             try:
                 await dispatch_notification("backup_failure", {
+                    # Throttle per backup type and schedule, not globally
+                    "target_id": f"{backup_type}:{history.schedule_id or 'manual'}",
                     "backup_type": backup_type,
                     "backup_id": history.id,
                     "error": str(e),

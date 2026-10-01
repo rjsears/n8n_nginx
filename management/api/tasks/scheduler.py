@@ -92,7 +92,12 @@ async def _persist_backup_next_run_times() -> None:
                 await db.execute(
                     update(BackupSchedule)
                     .where(BackupSchedule.id == schedule_id)
-                    .values(apscheduler_job_id=job.id, next_run=job.next_run_time)
+                    # Keep updated_at as is: a restart is not an edit.
+                    .values(
+                        apscheduler_job_id=job.id,
+                        next_run=job.next_run_time,
+                        updated_at=BackupSchedule.updated_at,
+                    )
                 )
             await db.commit()
     except Exception as e:
@@ -362,6 +367,7 @@ async def add_backup_job(schedule) -> None:
                 .values(
                     apscheduler_job_id=job_id,
                     next_run=next_run_time,
+                    updated_at=BackupSchedule.updated_at,  # not an edit
                 )
             )
             await db.commit()

@@ -110,6 +110,63 @@ async def test_cooldown_suppresses_second_occurrence_with_reason(db, channel, ma
     assert rows[1].suppression_reason == "cooldown (15min)"
 
 
+async def test_failed_delivery_does_not_start_the_cooldown(db, channel, make_event, add_target, sent, history_rows):
+    """An alert nobody received must not suppress the next occurrence."""
+    event = await make_event(cooldown_minutes=60)
+    await add_target(event, channel)
+
+    sent.fail = True
+    await _dispatch(event.event_type)
+    sent.fail = False
+    await _dispatch(event.event_type)
+    await _dispatch(event.event_type)
+
+    rows = await history_rows(event.event_type)
+    assert [r.status for r in rows] == ["failed", "sent", "suppressed"]
+
+
+async def test_undelivered_problem_alert_does_not_open_a_recovery_episode(
+    db, channel, make_event, add_target, sent, state_row
+):
+    from api.services import system_monitors as monitors
+
+    event = await make_event("container_unhealthy", notify_on_recovery=True)
+    await add_target(event, channel)
+    healthy = await make_event("container_healthy")
+    await add_target(healthy, channel)
+
+    sent.fail = True
+    await _dispatch("container_unhealthy", {"container": "n8n_postgres"})
+    state = await state_row("container_unhealthy", "n8n_postgres")
+    assert state is not None and state.last_sent_at is None
+    sent.fail = False
+    sent.calls.clear()
+
+    assert await monitors.check_container_recovery({"healthy": ["n8n_postgres"]}) == []
+    assert sent.calls == [], "announced recovery from a problem nobody was told about"
+
+
+async def test_backup_failures_throttle_per_type_and_schedule(db, channel, make_event, add_target, sent, history_rows):
+    """A failing manual flows backup must not hide a failing scheduled database backup."""
+    import inspect
+
+    from api.services import backup_service
+
+    src = inspect.getsource(backup_service)
+    assert src.count("\"target_id\": f\"{backup_type}:{history.schedule_id or 'manual'}\"") == 2
+
+    event = await make_event("backup_failure", category="backup", severity="critical", cooldown_minutes=60)
+    await add_target(event, channel)
+    await _dispatch("backup_failure", {"target_id": "flows:manual", "backup_type": "flows"})
+    await _dispatch("backup_failure", {"target_id": "postgres_full:3", "backup_type": "postgres_full"})
+    await _dispatch("backup_failure", {"target_id": "flows:manual", "backup_type": "flows"})
+
+    rows = await history_rows("backup_failure")
+    assert [(r.target_id, r.status) for r in rows] == [
+        ("flows:manual", "sent"), ("postgres_full:3", "sent"), ("flows:manual", "suppressed"),
+    ]
+
+
 async def test_unregistered_event_is_dropped_without_delivery(db, channel, sent):
     await _dispatch("not_a_real_event")
     assert sent.calls == []

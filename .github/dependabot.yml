@@ -26,6 +26,9 @@ updates:
     directory: /nginx_public
     schedule:
       interval: weekly
+  # Bumps the reference docker-compose.yaml only; installs use the compose
+  # file setup.sh generates. tests/test_image_pins.sh (Tests workflow) fails
+  # until the same tag is set in setup.sh, so these PRs need that follow-up.
   - package-ecosystem: docker-compose
     directory: /
     schedule:

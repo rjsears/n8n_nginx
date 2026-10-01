@@ -48,6 +48,10 @@ class BackupSchedule(Base):
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    # Last time a person created, edited, enabled or disabled the schedule.
+    # Unlike updated_at it is not touched by the scheduler stamping last_run /
+    # next_run, so the backup-overdue monitor can use it as a baseline.
+    config_changed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     # Relationships
     history = relationship("BackupHistory", back_populates="schedule")

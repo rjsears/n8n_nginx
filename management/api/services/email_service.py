@@ -17,6 +17,7 @@ from datetime import datetime, UTC
 from typing import Optional, List, Dict, Any
 import asyncio
 import smtplib
+import ssl
 import time
 import logging
 
@@ -48,6 +49,25 @@ def wants_implicit_tls(port: Any, use_ssl: Optional[bool] = None) -> bool:
         return False
 
 
+def tls_context() -> ssl.SSLContext:
+    """
+    Verifying TLS context for SMTP: certificate chain and host name are
+    checked against the system CA store. smtplib's own default for STARTTLS
+    (and for SMTP_SSL without a context) does not verify the certificate, so
+    a man-in-the-middle could read the SMTP credentials and every alert.
+    There is deliberately no switch to turn this off; a server with a
+    self-signed certificate needs its CA added to the container's trust store.
+    """
+    return ssl.create_default_context()
+
+
+class VerifiedSMTP(smtplib.SMTP):
+    """smtplib.SMTP whose STARTTLS verifies the server certificate by default."""
+
+    def starttls(self, keyfile=None, certfile=None, context=None):  # noqa: D401
+        return super().starttls(context=context or tls_context())
+
+
 def build_email_sender(
     host: str,
     port: Any,
@@ -59,7 +79,8 @@ def build_email_sender(
 ):
     """
     A red-mail EmailSender with a socket timeout, using SMTP_SSL for implicit
-    TLS (port 465) and SMTP (+ optional STARTTLS) otherwise.
+    TLS (port 465) and SMTP (+ optional STARTTLS) otherwise. Either way the
+    server certificate is verified (see tls_context).
     """
     from redmail import EmailSender
 
@@ -68,11 +89,14 @@ def build_email_sender(
     kwargs: Dict[str, Any] = {
         "host": host,
         "port": port,
-        "cls_smtp": smtplib.SMTP_SSL if implicit_tls else smtplib.SMTP,
+        "cls_smtp": smtplib.SMTP_SSL if implicit_tls else VerifiedSMTP,
         # STARTTLS on an already-encrypted SMTPS connection is an error.
         "use_starttls": False if implicit_tls else bool(use_starttls),
         "timeout": timeout,
     }
+    if implicit_tls:
+        # red-mail passes extra keywords to the SMTP class constructor.
+        kwargs["context"] = tls_context()
     if username or password:
         kwargs["username"] = username
         kwargs["password"] = password
