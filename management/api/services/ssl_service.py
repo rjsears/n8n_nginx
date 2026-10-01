@@ -14,6 +14,10 @@ Reads the Let's Encrypt certificates the stack serves and reports how long
 each has left. Used by the /api/system/ssl endpoint and by the daily
 certificate-expiry check that produces the ``certificate_expiring`` event.
 
+Reads /etc/letsencrypt/live directly (the management container mounts the
+letsencrypt volume) and falls back to the nginx container (NGINX_CONTAINER)
+when nothing is found locally.
+
 Blocking (Docker exec / subprocess); call from async code via
 ``asyncio.to_thread``.
 """
@@ -23,6 +27,17 @@ import os
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+LETSENCRYPT_LIVE = "/etc/letsencrypt/live"
+
+
+def nginx_container_names() -> list:
+    """Containers that may hold the certificates, most specific first."""
+    names = []
+    for name in (os.environ.get("NGINX_CONTAINER", "").strip(), "n8n_nginx", "n8n_nginx_router"):
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def get_ssl_info() -> dict:
@@ -79,90 +94,85 @@ def get_ssl_info() -> dict:
 
         return cert_info
 
-    # Try to get SSL info from nginx container
-    try:
-        import docker
-        client = docker.from_env()
+    def read_local() -> None:
+        """The management container mounts the letsencrypt volume: read it directly."""
+        import subprocess
 
-        # Find nginx container (prioritize router, then main nginx)
-        # Skip n8n_nginx_public as it has no SSL config
-        nginx_container = None
+        letsencrypt_path = LETSENCRYPT_LIVE
         try:
-            nginx_container = client.containers.get("n8n_nginx_router")
-        except Exception:
-            try:
-                nginx_container = client.containers.get("n8n_nginx")
-            except Exception:
-                pass
-
-        if nginx_container:
-            # First, list certificate directories
-            try:
-                exit_code, output = nginx_container.exec_run(
-                    "ls /etc/letsencrypt/live/",
-                    demux=True
+            if not os.path.isdir(letsencrypt_path):
+                return
+            for domain_dir in sorted(os.listdir(letsencrypt_path)):
+                if domain_dir.startswith("README"):
+                    continue
+                cert_path = os.path.join(letsencrypt_path, domain_dir, "cert.pem")
+                if not os.path.exists(cert_path):
+                    continue
+                result = subprocess.run(
+                    ["openssl", "x509", "-in", cert_path, "-noout",
+                     "-subject", "-issuer", "-dates", "-ext", "subjectAltName"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
+                if result.returncode == 0:
+                    ssl_info["certificates"].append(parse_cert_output(result.stdout, domain_dir, cert_path))
+                    ssl_info["configured"] = True
+                    ssl_info["source"] = "local"
+        except PermissionError:
+            ssl_info["local_error"] = "Permission denied reading certificate directory"
+        except Exception as e:
+            ssl_info["local_error"] = str(e)
+
+    def read_from_nginx() -> None:
+        """Fallback: ask the nginx container (NGINX_CONTAINER, then the old names)."""
+        try:
+            import docker
+            client = docker.from_env()
+
+            nginx_container = None
+            for name in nginx_container_names():
+                try:
+                    nginx_container = client.containers.get(name)
+                    break
+                except Exception:
+                    continue
+
+            if not nginx_container:
+                ssl_info["error"] = "Nginx container not found"
+                ssl_info["source"] = "none"
+                return
+
+            ssl_info["source"] = "nginx_container"
+            try:
+                exit_code, output = nginx_container.exec_run(f"ls {LETSENCRYPT_LIVE}/", demux=True)
                 if exit_code == 0 and output[0]:
                     domains = output[0].decode("utf-8").strip().split("\n")
                     domains = [d for d in domains if d and not d.startswith("README")]
 
                     for domain in domains:
-                        cert_path = f"/etc/letsencrypt/live/{domain}/cert.pem"
-
-                        # Get certificate info using openssl
+                        cert_path = f"{LETSENCRYPT_LIVE}/{domain}/cert.pem"
                         exit_code, output = nginx_container.exec_run(
-                            f"openssl x509 -in {cert_path} -noout -subject -issuer -dates -ext subjectAltName",
-                            demux=True
-                        )
-
-                        if exit_code == 0 and output[0]:
-                            cert_output = output[0].decode("utf-8")
-                            cert_info = parse_cert_output(cert_output, domain, cert_path)
-                            ssl_info["certificates"].append(cert_info)
-                            ssl_info["configured"] = True
-
-            except Exception as e:
-                ssl_info["error"] = f"Failed to read certificates from nginx: {str(e)}"
-
-            ssl_info["source"] = "nginx_container"
-        else:
-            ssl_info["error"] = "Nginx container not found"
-            ssl_info["source"] = "none"
-
-    except Exception as e:
-        ssl_info["error"] = f"Docker error: {str(e)}"
-
-    # Fallback: check local paths if no certs found via nginx
-    if not ssl_info["configured"] and not ssl_info.get("error"):
-        letsencrypt_path = "/etc/letsencrypt/live"
-        try:
-            if os.path.exists(letsencrypt_path):
-                for domain_dir in os.listdir(letsencrypt_path):
-                    if domain_dir.startswith("README"):
-                        continue
-                    cert_path = os.path.join(letsencrypt_path, domain_dir, "cert.pem")
-
-                    if os.path.exists(cert_path):
-                        import subprocess
-                        result = subprocess.run(
                             ["openssl", "x509", "-in", cert_path, "-noout",
                              "-subject", "-issuer", "-dates", "-ext", "subjectAltName"],
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
+                            demux=True,
                         )
-
-                        if result.returncode == 0:
-                            cert_info = parse_cert_output(result.stdout, domain_dir, cert_path)
-                            ssl_info["certificates"].append(cert_info)
+                        if exit_code == 0 and output[0]:
+                            cert_output = output[0].decode("utf-8")
+                            ssl_info["certificates"].append(parse_cert_output(cert_output, domain, cert_path))
                             ssl_info["configured"] = True
-                            ssl_info["source"] = "local"
-
-        except PermissionError:
-            if not ssl_info.get("error"):
-                ssl_info["error"] = "Permission denied reading certificate directory"
+            except Exception as e:
+                ssl_info["error"] = f"Failed to read certificates from nginx: {str(e)}"
         except Exception as e:
-            if not ssl_info.get("error"):
-                ssl_info["error"] = str(e)
+            ssl_info["error"] = f"Docker error: {str(e)}"
+
+    read_local()
+    if not ssl_info["configured"]:
+        local_error = ssl_info.pop("local_error", None)
+        read_from_nginx()
+        if local_error and not ssl_info["configured"] and not ssl_info.get("error"):
+            ssl_info["error"] = local_error
+    else:
+        ssl_info.pop("local_error", None)
 
     return ssl_info

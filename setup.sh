@@ -4337,6 +4337,8 @@ EOF
       - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
       - POSTGRES_USER=${POSTGRES_USER:-n8n}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # nginx container (certificate status falls back to reading it there)
+      - NGINX_CONTAINER=${NGINX_CONTAINER:-n8n_nginx}
       # Redis connection (for status caching)
       - REDIS_HOST=redis
       - REDIS_PORT=6379
