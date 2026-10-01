@@ -363,10 +363,12 @@ class NtfyServerConfigUpdate(BaseModel):
 
 
 class NtfyServerConfigResponse(BaseModel):
-    """NTFY server configuration response."""
+    """Effective NTFY server configuration (read from the running container)."""
+    source: str = "container"  # "container" or "unavailable"
     base_url: Optional[str] = None
-    upstream_base_url: str = "https://ntfy.sh"
-    default_access: str = "read-write"
+    upstream_base_url: Optional[str] = None
+    auth_enabled: bool = False
+    default_access: Optional[str] = None
     enable_login: bool = True
     enable_signup: bool = False
     cache_duration: str = "24h"
@@ -376,6 +378,7 @@ class NtfyServerConfigResponse(BaseModel):
     visitor_message_daily_limit: int = 0
     smtp_configured: bool = False
     web_push_configured: bool = False
+    token_configured: bool = False
     health_status: str = "unknown"
     last_health_check: Optional[datetime] = None
 

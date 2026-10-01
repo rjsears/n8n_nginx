@@ -250,8 +250,12 @@ Or add to your `.env` file:
 # NTFY public URL - MUST be a subdomain
 NTFY_BASE_URL=https://ntfy.yourdomain.com
 
-# Authentication settings
-NTFY_AUTH_DEFAULT_ACCESS=read-write
+# Authentication (setup.sh generates these; anonymous access is denied)
+NTFY_ADMIN_USER=admin
+NTFY_ADMIN_PASS=<generated>
+NTFY_ADMIN_PASSWORD_HASH='<bcrypt hash of NTFY_ADMIN_PASS>'
+NTFY_TOKEN=tk_<29 characters>
+NTFY_AUTH_DEFAULT_ACCESS=deny-all
 NTFY_ENABLE_LOGIN=true
 NTFY_ENABLE_SIGNUP=false
 
@@ -299,49 +303,53 @@ Self-hosted NTFY requires an additional public hostname in your Cloudflare Tunne
 
 > **Important:** Notice the URL is `HTTP` to `n8n_ntfy:80`, not HTTPS. The NTFY container exposes port 80 internally. Cloudflare provides the HTTPS termination.
 
-#### Step 3: Create NTFY Users
+#### Step 3: Users and Access Tokens (provisioned automatically)
 
-After deployment, create user accounts for authentication:
+The server runs with `auth-default-access: deny-all`: nobody can read or
+publish without credentials. setup.sh generates and ntfy provisions at
+startup (via `NTFY_AUTH_USERS` / `NTFY_AUTH_TOKENS` in docker-compose.yaml):
 
-```bash
-# Enter the NTFY container
-docker exec -it n8n_ntfy sh
+- an admin user, `NTFY_ADMIN_USER` / `NTFY_ADMIN_PASS` from `.env`. Use it to
+  log in to the ntfy web app and to subscribe from the Android/iOS apps
+  (add the server with "Use another server" and enter these credentials);
+- an access token, `NTFY_TOKEN`, that the Management Console sends as
+  `Authorization: Bearer ...` for every message to this server (it is never
+  sent to other ntfy servers such as ntfy.sh).
 
-# Add a user
-ntfy user add admin
+To change the admin password, set `NTFY_ADMIN_PASS`, clear
+`NTFY_ADMIN_PASSWORD_HASH` and re-run setup.sh (or put a new cost-12 bcrypt
+hash in `NTFY_ADMIN_PASSWORD_HASH` yourself), then recreate the ntfy
+container. For extra users with per-topic rights use `ntfy user add` /
+`ntfy access` inside the container.
 
-# Set password when prompted
-# Grant admin role if needed
-ntfy user change-role admin admin
+The ntfy server settings shown in the console (NTFY > Settings) are
+read-only: they are what the running container enforces. Change the
+`NTFY_*` keys in `.env` and recreate the container to change them.
 
-# List users
-ntfy user list
-
-# Exit container
-exit
-```
-
-#### Step 4: Configure Access Tokens
-
-For the Management Console to send notifications:
-
-```bash
-# Create an access token for the management console
-docker exec n8n_ntfy ntfy token add admin
-
-# This outputs a token like: tk_xxxxxxxxxxxxxxxxxxxxx
-# Save this token for the notification channel configuration
-```
-
-#### Step 5: Add NTFY Channel in Management Console
+#### Step 4: Add NTFY Channel in Management Console
 
 1. Go to **Settings** > **Notifications** > **Add Channel**
 2. Select **NTFY**
 3. Configure:
-   - **Server:** `https://ntfy.yourdomain.com`
+   - **Server:** `https://ntfy.yourdomain.com` (or `http://n8n_ntfy:80`)
    - **Topic:** `alerts` (or any topic name)
-   - **Token:** `tk_xxxxxxxxxxxxxxxxxxxxx` (from Step 4)
+   - **Token:** leave empty for this server; `NTFY_TOKEN` is used automatically
 4. Test and save
+
+#### Upgrading an existing install
+
+Older installs ran ntfy with anonymous read-write access. After updating:
+
+1. Re-run `setup.sh` (reconfigure) so it generates `NTFY_ADMIN_*` and
+   `NTFY_TOKEN` in `.env` and regenerates docker-compose.yaml. A previous
+   `NTFY_TOKEN` that is not an ntfy token (`tk_` + 29 characters) is replaced.
+2. Recreate the container: `docker compose up -d ntfy n8n_management`.
+3. Every existing subscriber (phone apps, web app, scripts, n8n workflows
+   that call ntfy directly) must now authenticate: add the admin login in
+   the apps, or send `Authorization: Bearer <token>` from scripts. Topics
+   subscribed anonymously stop receiving messages until then.
+4. iOS instant push needs `NTFY_UPSTREAM_BASE_URL=https://ntfy.sh` in `.env`
+   (it is no longer set by default).
 
 ### Self-Hosted NTFY Advanced Features
 

@@ -129,8 +129,15 @@ class NotificationDispatcher:
                 "Content-Type": "application/json",
             }
 
-            if config.get("token"):
-                headers["Authorization"] = f"Bearer {config['token']}"
+            token = config.get("token")
+            if not token:
+                # Channels on the self-hosted server use the installer's
+                # publisher token (the server denies anonymous access).
+                from api.services.ntfy_service import get_ntfy_token, ntfy_service
+                if ntfy_service.is_own_server(server):
+                    token = get_ntfy_token()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
 
             # Build JSON payload - this properly handles UTF-8 encoding
             payload = {

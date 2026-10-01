@@ -246,8 +246,10 @@ services:
       # Redis connection (for status caching)
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # NTFY Push Notifications
-      - NTFY_BASE_URL=https://ntfy.n8nmanagement.net
+      # NTFY Push Notifications (internal URL; the server denies anonymous
+      # access, the console publishes with the installer-provisioned token)
+      - NTFY_BASE_URL=http://n8n_ntfy:80
+      - NTFY_TOKEN=${NTFY_TOKEN:-}
       - PUBLIC_SITE_ENABLE=${PUBLIC_SITE_ENABLE:-false}
       - STATUS_COLLECTOR_URL=${STATUS_COLLECTOR_URL:-http://host.docker.internal:8080}
     extra_hosts:
@@ -348,7 +350,11 @@ services:
     restart: always
     security_opt:
       - apparmor:unconfined
-    command: --base-url /portainer --admin-password='$$2y$$05$$TGAtNjzruuxLJsEVv3MIBeXHrSDzU8Ymu3AaMWhz00XRhbyPriqCW'
+    # Initial admin password (first start only) from a file written by
+    # setup.sh with mode 600; Portainer hashes it itself.
+    command: --base-url /portainer --admin-password-file /run/secrets/portainer_admin_password
+    secrets:
+      - portainer_admin_password
     expose:
       - "9000"
     volumes:
@@ -462,12 +468,17 @@ services:
     environment:
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # NTFY_BASE_URL: Public URL for NTFY (must match Cloudflare Tunnel hostname)
-      - NTFY_BASE_URL=https://ntfy.n8nmanagement.net
-      - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
+      - NTFY_BASE_URL=${NTFY_PUBLIC_URL:-https://ntfy.${DOMAIN}}
+      # Only needed for iOS instant push (forwards a poll request to ntfy.sh)
+      - NTFY_UPSTREAM_BASE_URL=${NTFY_UPSTREAM_BASE_URL:-}
       - NTFY_BEHIND_PROXY=true
       - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
+      # Authentication: nobody may read or publish anonymously. setup.sh
+      # provisions the admin user and the console's publish token in .env.
       - NTFY_AUTH_FILE=/var/lib/ntfy/auth.db
-      - NTFY_AUTH_DEFAULT_ACCESS=${NTFY_AUTH_DEFAULT_ACCESS:-read-write}
+      - NTFY_AUTH_DEFAULT_ACCESS=${NTFY_AUTH_DEFAULT_ACCESS:-deny-all}
+      - NTFY_AUTH_USERS=${NTFY_ADMIN_USER:-admin}:${NTFY_ADMIN_PASSWORD_HASH:?NTFY_ADMIN_PASSWORD_HASH is required (re-run setup.sh)}:admin
+      - NTFY_AUTH_TOKENS=${NTFY_ADMIN_USER:-admin}:${NTFY_TOKEN:?NTFY_TOKEN is required (re-run setup.sh)}:management-console
       - NTFY_ENABLE_LOGIN=${NTFY_ENABLE_LOGIN:-true}
       - NTFY_ENABLE_SIGNUP=${NTFY_ENABLE_SIGNUP:-false}
       - NTFY_CACHE_DURATION=${NTFY_CACHE_DURATION:-24h}
@@ -569,6 +580,13 @@ volumes:
     driver: local
   ntfy_data:
     driver: local
+
+# ===========================================================================
+# Secrets
+# ===========================================================================
+secrets:
+  portainer_admin_password:
+    file: ./portainer_password.txt
 
 # ===========================================================================
 # Networks
