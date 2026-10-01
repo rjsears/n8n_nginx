@@ -2485,6 +2485,11 @@ MIGRATION_PROGRESS_FILE="${SCRIPT_DIR}/.migration_progress"
 MIGRATION_STACK_TOUCHED=false
 MIGRATION_HAD_ENV=false
 MIGRATION_DB_DUMP=""
+# Set once v3.0's n8n may have started: it migrates the n8n schema on start,
+# which v2.0's n8n cannot read, so a rollback must also restore the database.
+MIGRATION_DB_TOUCHED=false
+# Result of the last restore_v2_stack database step: skipped|restored|failed
+MIGRATION_DB_RESTORE_RESULT="skipped"
 
 save_migration_progress() {
     local num="$1" name="$2"
@@ -2504,12 +2509,79 @@ migration_compose_cmd() {
     echo "$cmd"
 }
 
+# The pre-migration dump recorded in MIGRATION_STATE_FILE, else the newest
+# backups/n8n_pre_migration_*.dump. Prints the path relative to SCRIPT_DIR.
+find_pre_migration_dump() {
+    local dump=""
+    if [ -f "$MIGRATION_STATE_FILE" ]; then
+        dump=$(grep -o '"backups/n8n_pre_migration_[^"]*\.dump"' "$MIGRATION_STATE_FILE" 2>/dev/null | head -n1 | tr -d '"')
+    fi
+    if [ -z "$dump" ] || [ ! -s "${SCRIPT_DIR}/${dump}" ]; then
+        dump=$(cd "$SCRIPT_DIR" 2>/dev/null && find backups -maxdepth 1 -name 'n8n_pre_migration_*.dump' -size +0 2>/dev/null | sort | tail -n1)
+    fi
+    [ -n "$dump" ] && [ -s "${SCRIPT_DIR}/${dump}" ] || return 1
+    printf '%s\n' "$dump"
+}
+
+# Put the n8n database back to the pre-migration dump: stop everything that
+# connects to it (n8n, management console), make sure PostgreSQL is up, then
+# pg_restore --clean --if-exists in one transaction. Uses the running
+# (v3.0) PostgreSQL container, so call it before the v3.0 stack is taken down.
+restore_pre_migration_db() {
+    local dump="$1" attempt
+    local pg="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}"
+    local db_user="${DB_USER:-$DEFAULT_DB_USER}" db_name="${DB_NAME:-$DEFAULT_DB_NAME}"
+
+    if [ -z "$dump" ] || [ ! -s "${SCRIPT_DIR}/${dump}" ]; then
+        print_error "Pre-migration database dump not found (${dump:-none})"
+        return 1
+    fi
+
+    print_info "Stopping n8n and the management console before restoring the database..."
+    $DOCKER_SUDO docker stop "${N8N_CONTAINER:-$DEFAULT_N8N_CONTAINER}" >/dev/null 2>&1 || true
+    $DOCKER_SUDO docker stop "${MANAGEMENT_CONTAINER:-$DEFAULT_MANAGEMENT_CONTAINER}" >/dev/null 2>&1 || true
+
+    if ! $DOCKER_SUDO docker exec "$pg" pg_isready -U "$db_user" >/dev/null 2>&1; then
+        $DOCKER_SUDO docker start "$pg" >/dev/null 2>&1 || true
+        for attempt in $(seq 1 30); do
+            $DOCKER_SUDO docker exec "$pg" pg_isready -U "$db_user" >/dev/null 2>&1 && break
+            [ "$attempt" -eq 30 ] && { print_error "PostgreSQL (${pg}) is not running; cannot restore the database"; return 1; }
+            sleep 2
+        done
+    fi
+
+    print_info "Restoring the n8n database from ${dump}..."
+    if $DOCKER_SUDO docker exec -i "$pg" pg_restore -U "$db_user" -d "$db_name" \
+            --clean --if-exists --single-transaction --exit-on-error < "${SCRIPT_DIR}/${dump}"; then
+        print_success "n8n database restored to its pre-migration state"
+        return 0
+    fi
+    print_error "Database restore failed. Restore it by hand before starting n8n v2.0:"
+    print_info "  docker exec -i ${pg} pg_restore -U ${db_user} -d ${db_name} --clean --if-exists --single-transaction < ${SCRIPT_DIR}/${dump}"
+    return 1
+}
+
 # Put the v2.0 files back and (if the stack was touched) restart the v2 stack.
-# Backups are copied, not moved, so they survive a failed restore.
+# Backups are copied, not moved, so they survive a failed restore. With
+# "restore_db" (and MIGRATION_DB_DUMP set) the n8n database is first put back
+# to the pre-migration dump; if that fails v2.0 is NOT started, since its n8n
+# cannot run on a schema v3.0 has migrated.
 restore_v2_stack() {
-    local docker_compose_cmd rc=0
+    local with_db="${1:-}"
+    local docker_compose_cmd rc=0 start_v2=true
     docker_compose_cmd=$(migration_compose_cmd)
     cd "$SCRIPT_DIR" || return 1
+
+    MIGRATION_DB_RESTORE_RESULT="skipped"
+    if [ "$with_db" = "restore_db" ]; then
+        if restore_pre_migration_db "$MIGRATION_DB_DUMP"; then
+            MIGRATION_DB_RESTORE_RESULT="restored"
+        else
+            MIGRATION_DB_RESTORE_RESULT="failed"
+            start_v2=false
+            rc=1
+        fi
+    fi
 
     if [ "$MIGRATION_STACK_TOUCHED" = true ]; then
         print_info "Stopping v3.0 services..."
@@ -2529,7 +2601,10 @@ restore_v2_stack() {
         rm -f "${SCRIPT_DIR}/.env"
     fi
 
-    if [ "$MIGRATION_STACK_TOUCHED" = true ]; then
+    if [ "$MIGRATION_STACK_TOUCHED" = true ] && [ "$start_v2" != true ]; then
+        print_warning "v2.0 files are back but the stack was NOT started (database not restored)."
+        print_info "After restoring the database: cd ${SCRIPT_DIR} && docker compose up -d"
+    elif [ "$MIGRATION_STACK_TOUCHED" = true ]; then
         print_info "Starting v2.0 services..."
         if $docker_compose_cmd up -d; then
             print_success "v2.0 stack restarted"
@@ -2551,8 +2626,16 @@ migration_on_exit() {
     set +e
     echo ""
     print_error "Migration aborted (exit code ${rc}) - restoring v2.0"
-    if restore_v2_stack; then
-        print_success "v2.0 restored. Nothing was migrated."
+    local db_mode=""
+    if [ "$MIGRATION_DB_TOUCHED" = true ] && [ -n "$MIGRATION_DB_DUMP" ]; then
+        db_mode="restore_db"
+    fi
+    if restore_v2_stack "$db_mode"; then
+        if [ "$MIGRATION_DB_RESTORE_RESULT" = "restored" ]; then
+            print_success "v2.0 restored, including the n8n database as it was before the migration."
+        else
+            print_success "v2.0 restored. n8n v3.0 never started, so the n8n database was not changed."
+        fi
     else
         print_error "Automatic restore was incomplete - see the *.v2.backup files in ${SCRIPT_DIR}"
     fi
@@ -2723,6 +2806,9 @@ run_migration_v2_to_v3() {
     save_migration_progress 5 "start_services"
 
     print_info "Starting all services..."
+    # n8n v3.0 migrates its schema as soon as it starts, even if "up" later
+    # fails: from here on a rollback restores the database too.
+    MIGRATION_DB_TOUCHED=true
     $docker_compose_cmd up -d --remove-orphans
 
     # Phase 6: Verification
@@ -2867,8 +2953,33 @@ rollback_to_v2() {
 
     MIGRATION_STACK_TOUCHED=true
     MIGRATION_HAD_ENV=true
-    if restore_v2_stack; then
-        print_success "Rollback complete. System restored to v2.0"
+
+    # Container names and DB login of the running (v3.0) install
+    env_adopt_existing_values "${SCRIPT_DIR}/.env"
+
+    # n8n v3.0 has migrated the n8n schema; v2.0's n8n cannot use it.
+    local db_mode="" dump
+    if dump=$(find_pre_migration_dump); then
+        print_warning "n8n v3.0 has migrated the n8n database; n8n v2.0 needs the pre-migration copy."
+        print_info "Restoring ${dump} discards everything changed in n8n since the migration"
+        print_info "(workflows, credentials, executions). Export anything you need first."
+        if confirm_prompt "Restore the n8n database from ${dump}?" "y"; then
+            MIGRATION_DB_DUMP="$dump"
+            db_mode="restore_db"
+        else
+            print_warning "Keeping the current database: n8n v2.0 may fail to start on the migrated schema."
+        fi
+    else
+        print_warning "No pre-migration database dump found in ${SCRIPT_DIR}/backups."
+        print_warning "Only files are restored; n8n v2.0 may fail to start on the migrated schema."
+    fi
+
+    if restore_v2_stack "$db_mode"; then
+        if [ "$MIGRATION_DB_RESTORE_RESULT" = "restored" ]; then
+            print_success "Rollback complete. System and n8n database restored to v2.0"
+        else
+            print_success "Rollback complete. Files restored to v2.0 (database unchanged)"
+        fi
     else
         print_error "Rollback incomplete - check the *.v2.backup files in ${SCRIPT_DIR}"
         return 1
@@ -7336,6 +7447,49 @@ deploy_stack() {
     show_final_summary_v3
 }
 
+# Persist the installer's choices (read back by reconfigure, --update-access
+# and the migration). Called after a fresh install and after every
+# reconfigure, so a changed domain, certificate lineage or service selection
+# is what the next run starts from.
+save_setup_config() {
+    cat > "${CONFIG_FILE}" << EOF
+N8N_DOMAIN=${N8N_DOMAIN}
+DNS_PROVIDER=${DNS_PROVIDER_NAME}
+DB_NAME=${DB_NAME}
+DB_USER=${DB_USER}
+POSTGRES_CONTAINER=${POSTGRES_CONTAINER}
+N8N_CONTAINER=${N8N_CONTAINER}
+NGINX_CONTAINER=${NGINX_CONTAINER}
+CERTBOT_CONTAINER=${CERTBOT_CONTAINER}
+LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+SSL_CERT_DOMAIN=${SSL_CERT_DOMAIN}
+N8N_TIMEZONE=${N8N_TIMEZONE}
+PORTAINER_ENABLED=${INSTALL_PORTAINER}
+PORTAINER_AGENT_ENABLED=${INSTALL_PORTAINER_AGENT}
+MGMT_PORT=${MGMT_PORT}
+NFS_CONFIGURED=${NFS_CONFIGURED}
+ADMIN_USER=${ADMIN_USER}
+# Optional Services
+CLOUDFLARE_TUNNEL_ENABLED=${INSTALL_CLOUDFLARE_TUNNEL}
+TAILSCALE_ENABLED=${INSTALL_TAILSCALE}
+ADMINER_ENABLED=${INSTALL_ADMINER}
+ADMINER_PORT=${ADMINER_PORT:-$DEFAULT_ADMINER_PORT}
+DOZZLE_ENABLED=${INSTALL_DOZZLE}
+DOZZLE_PORT=${DOZZLE_PORT:-$DEFAULT_DOZZLE_PORT}
+NTFY_ENABLED=${INSTALL_NTFY}
+NTFY_BASE_URL=${NTFY_BASE_URL}
+NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL}
+NTFY_INTERNAL_URL=${NTFY_INTERNAL_URL:-http://n8n_ntfy:80}
+PUBLIC_WEBSITE_ENABLED=${INSTALL_PUBLIC_WEBSITE}
+PUBLIC_WEBSITE_DOMAIN=${PUBLIC_WEBSITE_DOMAIN}
+# Access control (reused by reconfigure when regenerating nginx.conf)
+INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES}"
+CUSTOM_INTERNAL_IPS="${CUSTOM_INTERNAL_IPS}"
+N8N_NETWORK_SUBNET=${N8N_NETWORK_SUBNET}
+EOF
+    chmod 600 "${CONFIG_FILE}"
+}
+
 # =============================================================================
 # SSL CERTIFICATE MANAGEMENT
 # =============================================================================
@@ -7379,13 +7533,18 @@ determine_ssl_cert_domain() {
         return 0
     fi
 
-    # Reuse a certificate that already exists in the letsencrypt volume
+    # Reuse a certificate that already exists in the letsencrypt volume,
+    # unless it has expired (then it is no better than none).
     if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
         local name
         for name in "$root_domain" "$N8N_DOMAIN"; do
             if [ "$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
                     -v letsencrypt:/etc/letsencrypt:ro "$ALPINE_IMAGE" \
                     sh -c "[ -f /etc/letsencrypt/live/${name}/fullchain.pem ] && echo exists" 2>/dev/null)" = "exists" ]; then
+                if [ "$(ssl_lineage_validity "$name")" = "expired" ]; then
+                    print_warning "Existing certificate lineage ${name} has expired - not reusing it"
+                    continue
+                fi
                 SSL_CERT_DOMAIN="$name"
                 print_info "Found existing certificate lineage: $SSL_CERT_DOMAIN"
                 return 0
@@ -7412,6 +7571,20 @@ determine_ssl_cert_domain() {
 
     print_info "SSL certificate domain set to: $SSL_CERT_DOMAIN"
     return 0
+}
+
+# valid / expired / unknown for the certificate of lineage $1 in the
+# letsencrypt volume ("unknown" when openssl could not be run on it).
+ssl_lineage_validity() {
+    local rc=0
+    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
+        -v letsencrypt:/etc/letsencrypt:ro --entrypoint openssl "$OPENSSL_IMAGE" \
+        x509 -checkend 0 -noout -in "/etc/letsencrypt/live/${1}/fullchain.pem" >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+        0) echo valid ;;
+        1) echo expired ;;   # openssl -checkend: the certificate has expired
+        *) echo unknown ;;   # docker/image problem: keep the old behaviour
+    esac
 }
 
 # True if a lineage named $1 (exact name or wildcard parent) covers N8N_DOMAIN.
@@ -8146,7 +8319,11 @@ handle_rollback() {
 
     print_warning "This will rollback your installation to v2.0"
     if confirm_prompt "Are you sure you want to rollback?"; then
-        rollback_to_v2
+        if ! ensure_docker_access; then
+            print_error "Docker is not reachable; cannot roll back."
+            exit 1
+        fi
+        rollback_to_v2 || exit 1
     fi
 }
 
@@ -8394,6 +8571,7 @@ main() {
             generate_nginx_conf_v3
             generate_public_nginx_conf
             generate_nginx_router_conf
+            save_setup_config
 
             print_success "Configuration files regenerated!"
             echo ""
@@ -8523,43 +8701,7 @@ main() {
         generate_nginx_router_conf
         create_letsencrypt_volume
 
-        # Save config
-        cat > "${CONFIG_FILE}" << EOF
-N8N_DOMAIN=${N8N_DOMAIN}
-DNS_PROVIDER=${DNS_PROVIDER_NAME}
-DB_NAME=${DB_NAME}
-DB_USER=${DB_USER}
-POSTGRES_CONTAINER=${POSTGRES_CONTAINER}
-N8N_CONTAINER=${N8N_CONTAINER}
-NGINX_CONTAINER=${NGINX_CONTAINER}
-CERTBOT_CONTAINER=${CERTBOT_CONTAINER}
-LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
-SSL_CERT_DOMAIN=${SSL_CERT_DOMAIN}
-N8N_TIMEZONE=${N8N_TIMEZONE}
-PORTAINER_ENABLED=${INSTALL_PORTAINER}
-PORTAINER_AGENT_ENABLED=${INSTALL_PORTAINER_AGENT}
-MGMT_PORT=${MGMT_PORT}
-NFS_CONFIGURED=${NFS_CONFIGURED}
-ADMIN_USER=${ADMIN_USER}
-# Optional Services
-CLOUDFLARE_TUNNEL_ENABLED=${INSTALL_CLOUDFLARE_TUNNEL}
-TAILSCALE_ENABLED=${INSTALL_TAILSCALE}
-ADMINER_ENABLED=${INSTALL_ADMINER}
-ADMINER_PORT=${ADMINER_PORT:-$DEFAULT_ADMINER_PORT}
-DOZZLE_ENABLED=${INSTALL_DOZZLE}
-DOZZLE_PORT=${DOZZLE_PORT:-$DEFAULT_DOZZLE_PORT}
-NTFY_ENABLED=${INSTALL_NTFY}
-NTFY_BASE_URL=${NTFY_BASE_URL}
-NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL}
-NTFY_INTERNAL_URL=${NTFY_INTERNAL_URL:-http://n8n_ntfy:80}
-PUBLIC_WEBSITE_ENABLED=${INSTALL_PUBLIC_WEBSITE}
-PUBLIC_WEBSITE_DOMAIN=${PUBLIC_WEBSITE_DOMAIN}
-# Access control (reused by reconfigure when regenerating nginx.conf)
-INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES}"
-CUSTOM_INTERNAL_IPS="${CUSTOM_INTERNAL_IPS}"
-N8N_NETWORK_SUBNET=${N8N_NETWORK_SUBNET}
-EOF
-        chmod 600 "${CONFIG_FILE}"
+        save_setup_config
 
         print_success "Configuration files generated!"
 

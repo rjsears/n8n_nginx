@@ -10,8 +10,13 @@
 #     determine_ssl_cert_domain is what certbot is asked for (--cert-name)
 #     and what nginx.conf points at, for wildcard and exact-domain choices
 #   * v2 -> v3 migration: aborts before stopping anything if the database
-#     dump fails, restores v2 (files + stack) on any later failure, checks
-#     health inside the containers and prints the /management/ URL
+#     dump fails, restores v2 (files + stack) on any later failure, restores
+#     the n8n database from the pre-migration dump once n8n v3 may have
+#     started, checks health inside the containers and prints the
+#     /management/ URL
+#   * --rollback restores the pre-migration database dump (when confirmed)
+#   * an expired certificate lineage is not reused
+#   * reconfigure persists its choices to .n8n_setup_config
 #   * load_state never yields a non-numeric resume step
 #
 # Usage: bash tests/test_setup_flows.sh
@@ -159,6 +164,68 @@ run_case "${WORK_DIR}/reuse" reuse_case
 assert_contains "saved wildcard lineage is reused" "SSL_CERT_DOMAIN=example.com" "${WORK_DIR}/out"
 assert_not_contains "saved lineage: no second prompt" "ASKED" "${WORK_DIR}/out"
 
+# Existing lineages in the volume: an expired one is skipped
+#   EXPIRED_LINEAGE=<name>   openssl -checkend fails for that lineage
+#   OPENSSL_BROKEN=1         the openssl container cannot run (exit 125)
+existing_lineage_case() {
+    stub_docker() {
+        echo "docker $*" >> "$DOCKER_LOG"
+        case "$*" in
+            "volume inspect letsencrypt") return 0 ;;
+            *"echo exists"*) echo exists; return 0 ;;
+            *"--entrypoint openssl"*)
+                [ "${OPENSSL_BROKEN:-0}" = 1 ] && return 125
+                case "$*" in *"/live/${EXPIRED_LINEAGE:-none}/"*) return 1 ;; esac
+                return 0 ;;
+        esac
+        return 0
+    }
+    N8N_DOMAIN="n8n.example.com"; INSTALL_PUBLIC_WEBSITE=false
+    SSL_CERT_DOMAIN=""; SAVED_SSL_CERT_DOMAIN=""
+    confirm_prompt() { echo "ASKED"; return 1; }
+    determine_ssl_cert_domain
+    echo "SSL_CERT_DOMAIN=$SSL_CERT_DOMAIN"
+}
+run_case "${WORK_DIR}/lineage_valid" existing_lineage_case
+assert_contains "valid existing wildcard lineage is reused" "SSL_CERT_DOMAIN=example.com" "${WORK_DIR}/out"
+EXPIRED_LINEAGE=example.com run_case "${WORK_DIR}/lineage_expired" existing_lineage_case
+assert_contains "expired wildcard lineage skipped for the valid exact one" "SSL_CERT_DOMAIN=n8n.example.com" "${WORK_DIR}/out"
+assert_contains "expired lineage: warned" "example.com has expired" "${WORK_DIR}/out"
+OPENSSL_BROKEN=1 run_case "${WORK_DIR}/lineage_unknown" existing_lineage_case
+assert_contains "validity unknown: existing lineage still reused" "SSL_CERT_DOMAIN=example.com" "${WORK_DIR}/out"
+
+# Reconfigure persists its choices: save_setup_config round-trips through
+# the loader reconfigure uses, and the reconfigure branch calls it.
+save_config_case() {
+    stub_docker() { return 1; }
+    N8N_DOMAIN="new.example.org"; DNS_PROVIDER_NAME="route53"; SSL_CERT_DOMAIN="example.org"
+    DB_NAME=n8n; DB_USER=n8n; POSTGRES_CONTAINER=n8n_postgres; N8N_CONTAINER=n8n
+    NGINX_CONTAINER=n8n_nginx; CERTBOT_CONTAINER=n8n_certbot; MGMT_PORT=3333
+    INSTALL_NTFY=true; INSTALL_DOZZLE=false; INSTALL_PORTAINER=true; INSTALL_PUBLIC_WEBSITE=false
+    INTERNAL_IP_RANGES="10.0.0.0/8 192.168.0.0/16"
+    save_setup_config
+    (
+        unset N8N_DOMAIN DNS_PROVIDER_NAME SSL_CERT_DOMAIN INSTALL_NTFY INSTALL_PORTAINER INTERNAL_IP_RANGES
+        # shellcheck disable=SC1090
+        source "$CONFIG_FILE"
+        restore_dns_settings_from_provider
+        restore_optional_services_from_config
+        echo "RELOADED $N8N_DOMAIN $DNS_PROVIDER_NAME $SSL_CERT_DOMAIN ntfy=$INSTALL_NTFY portainer=$INSTALL_PORTAINER ranges=[$INTERNAL_IP_RANGES]"
+    )
+    stat -c '%a' "$CONFIG_FILE"
+}
+run_case "${WORK_DIR}/save_config" save_config_case
+assert_contains "saved config reloads the changed choices" \
+    "RELOADED new.example.org route53 example.org ntfy=true portainer=true ranges=[10.0.0.0/8 192.168.0.0/16]" "${WORK_DIR}/out"
+assert_contains "saved config is private" "600" "${WORK_DIR}/out"
+reconf_block=$(awk '/elif \[ "\$INSTALL_MODE" = "reconfigure" \]; then/{p=1} p{print} p && /exit 0/ && ++n == 4 {exit}' "$SETUP_SH")
+if printf '%s\n' "$reconf_block" | grep -q 'generate_nginx_router_conf' \
+        && printf '%s\n' "$reconf_block" | grep -A1 'generate_nginx_router_conf' | grep -q 'save_setup_config'; then
+    pass "reconfigure saves .n8n_setup_config after regenerating files"
+else
+    fail "reconfigure saves .n8n_setup_config after regenerating files"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. load_state: non-numeric step from older migration runs
 # ---------------------------------------------------------------------------
@@ -181,20 +248,24 @@ echo "3. v2 -> v3 migration"
 #   PG_DUMP_FAIL=1  pg_dump fails       COMPOSE_UP_FAIL=1  v3 "up -d" fails
 #   GEN_FAIL=1      generate_env_file exits 1
 #   UNHEALTHY=1     n8n health check never passes
+#   PG_RESTORE_FAIL=1  restoring the pre-migration dump fails
+migration_stub_docker() {
+    echo "docker $*" >> "$DOCKER_LOG"
+    case "$*" in
+        "exec n8n_postgres pg_dump"*) [ "${PG_DUMP_FAIL:-0}" = 1 ] && return 1; echo "PGDMP-fake"; return 0 ;;
+        "exec -i n8n_postgres pg_restore -l") cat > /dev/null; return 0 ;;
+        "exec -i n8n_postgres pg_restore -U"*) cat > /dev/null; [ "${PG_RESTORE_FAIL:-0}" = 1 ] && return 1; return 0 ;;
+        "exec n8n wget"*) [ "${UNHEALTHY:-0}" = 1 ] && return 1; return 0 ;;
+        "compose up -d --remove-orphans") [ "${COMPOSE_UP_FAIL:-0}" = 1 ] && return 1; return 0 ;;
+        "ps --format"*) printf 'n8n\nn8n_postgres\nn8n_nginx\nn8n_management\n'; return 0 ;;
+        "inspect --format"*) echo healthy; return 0 ;;
+        "exec n8n_postgres psql"*) return 0 ;;
+    esac
+    return 0
+}
+
 migration_case() {
-    stub_docker() {
-        echo "docker $*" >> "$DOCKER_LOG"
-        case "$*" in
-            "exec n8n_postgres pg_dump"*) [ "${PG_DUMP_FAIL:-0}" = 1 ] && return 1; echo "PGDMP-fake"; return 0 ;;
-            "exec -i n8n_postgres pg_restore -l") cat > /dev/null; return 0 ;;
-            "exec n8n wget"*) [ "${UNHEALTHY:-0}" = 1 ] && return 1; return 0 ;;
-            "compose up -d --remove-orphans") [ "${COMPOSE_UP_FAIL:-0}" = 1 ] && return 1; return 0 ;;
-            "ps --format"*) printf 'n8n\nn8n_postgres\nn8n_nginx\nn8n_management\n'; return 0 ;;
-            "inspect --format"*) echo healthy; return 0 ;;
-            "exec n8n_postgres psql"*) return 0 ;;
-        esac
-        return 0
-    }
+    stub_docker() { migration_stub_docker "$@"; }
     echo "services: {n8n: {image: n8nio/n8n}}  # v2" > "${SCRIPT_DIR}/docker-compose.yaml"
     echo "v2 nginx" > "${SCRIPT_DIR}/nginx.conf"
     printf 'POSTGRES_PASSWORD=pw\nN8N_ENCRYPTION_KEY=key\n' > "${SCRIPT_DIR}/.env"
@@ -236,6 +307,9 @@ assert_not_contains "generation failure: stack not stopped" "compose stop" "${WO
 assert_not_contains "generation failure: stack not restarted" "compose up" "${WORK_DIR}/docker.log"
 assert_contains "generation failure: v2 compose restored" "# v2" "$d/docker-compose.yaml"
 assert_contains "generation failure: v2 .env restored" "POSTGRES_PASSWORD=pw" "$d/.env"
+assert_not_contains "generation failure: database left alone" "pg_restore -U" "${WORK_DIR}/docker.log"
+assert_contains "generation failure: says the database was not changed" "the n8n database was not changed" "${WORK_DIR}/out"
+assert_not_contains "generation failure: no 'Nothing was migrated' claim" "Nothing was migrated" "${WORK_DIR}/out"
 
 # 3c. v3 "up -d" fails after v2 was stopped (set -e): v2 restarted
 d="${WORK_DIR}/mig_upfail"
@@ -248,6 +322,26 @@ assert_contains "up failure: v2 compose restored" "# v2" "$d/docker-compose.yaml
 assert_contains "up failure: v2 nginx.conf restored" "v2 nginx" "$d/nginx.conf"
 assert_contains "up failure: v2 .env restored" "POSTGRES_PASSWORD=pw" "$d/.env"
 assert_not_contains "up failure: no success message" "MIGRATION_RETURNED" "${WORK_DIR}/out"
+assert_contains "up failure: database restored from the dump" \
+    "pg_restore -U n8n -d n8n --clean --if-exists --single-transaction" "${WORK_DIR}/docker.log"
+first_restore=$(grep -n 'pg_restore -U' "${WORK_DIR}/docker.log" | head -n1 | cut -d: -f1)
+first_down=$(grep -n 'compose down' "${WORK_DIR}/docker.log" | head -n1 | cut -d: -f1)
+stop_n8n=$(grep -n '^docker stop n8n$' "${WORK_DIR}/docker.log" | head -n1 | cut -d: -f1)
+if [ -n "$first_restore" ] && [ -n "$first_down" ] && [ -n "$stop_n8n" ] \
+        && [ "$stop_n8n" -lt "$first_restore" ] && [ "$first_restore" -lt "$first_down" ]; then
+    pass "up failure: n8n stopped, then restore, then v3 taken down"
+else
+    fail "up failure: order stop n8n < restore < down (lines ${stop_n8n:-none} ${first_restore:-none} ${first_down:-none})"
+fi
+assert_contains "up failure: says the database was restored" "including the n8n database" "${WORK_DIR}/out"
+
+# 3c'. database restore fails: v2 files back but v2 NOT started on a migrated schema
+d="${WORK_DIR}/mig_restorefail"
+COMPOSE_UP_FAIL=1 PG_RESTORE_FAIL=1 run_case "$d" migration_case; rc=$?
+assert_eq "restore failure: non-zero exit" "1" "$rc"
+assert_eq "restore failure: v2 not started" "docker compose down --remove-orphans" "$(grep 'compose' "${WORK_DIR}/docker.log" | tail -n1)"
+assert_contains "restore failure: manual restore command shown" "pg_restore -U n8n -d n8n --clean --if-exists" "${WORK_DIR}/out"
+assert_contains "restore failure: v2 compose restored" "# v2" "$d/docker-compose.yaml"
 
 # 3d. services never become healthy -> rollback accepted -> v2 back
 d="${WORK_DIR}/mig_unhealthy"
@@ -256,6 +350,7 @@ assert_eq "unhealthy: non-zero exit" "1" "$rc"
 assert_eq "unhealthy: v2 'up -d' is the last compose call" "docker compose up -d" "$(grep 'compose' "${WORK_DIR}/docker.log" | tail -n1)"
 assert_contains "unhealthy: v2 compose restored" "# v2" "$d/docker-compose.yaml"
 assert_contains "unhealthy: n8n health checked inside the container" "exec n8n wget" "${WORK_DIR}/docker.log"
+assert_contains "unhealthy: database restored from the dump" "pg_restore -U n8n -d n8n --clean" "${WORK_DIR}/docker.log"
 
 # 3e. success
 d="${WORK_DIR}/mig_ok"
@@ -277,6 +372,46 @@ assert_contains "success: v3 compose in place" "# v3" "$d/docker-compose.yaml"
 assert_contains "success: rollback record written" ".env.v2.backup" "$d/.migration_state"
 [ -f "$d/.migration_progress" ] && fail "success: progress file removed" || pass "success: progress file removed"
 [ -f "$d/.n8n_setup_state" ] && fail "success: no fresh-install state file left" || pass "success: no fresh-install state file left"
+assert_not_contains "success: database not restored" "pg_restore -U" "${WORK_DIR}/docker.log"
+
+# 3f. --rollback after a completed migration
+#   ROLLBACK_DB=y|n  answer to "Restore the n8n database ...?"
+rollback_case() {
+    stub_docker() { migration_stub_docker "$@"; }
+    mkdir -p "${SCRIPT_DIR}/backups"
+    echo "services: {n8n: {}}  # v2" > "${SCRIPT_DIR}/docker-compose.yaml.v2.backup"
+    echo "v2 nginx" > "${SCRIPT_DIR}/nginx.conf.v2.backup"
+    printf 'POSTGRES_PASSWORD=pw\n' > "${SCRIPT_DIR}/.env.v2.backup"
+    echo "services: {n8n_management: {}}  # v3" > "${SCRIPT_DIR}/docker-compose.yaml"
+    printf 'POSTGRES_USER=n8n\nPOSTGRES_DB=n8n\nPOSTGRES_CONTAINER=n8n_postgres\nN8N_CONTAINER=n8n\n' > "${SCRIPT_DIR}/.env"
+    echo "PGDMP-old" > "${SCRIPT_DIR}/backups/n8n_pre_migration_20260101_000000.dump"
+    echo "PGDMP-new" > "${SCRIPT_DIR}/backups/n8n_pre_migration_20260102_000000.dump"
+    write_migration_state "backups/n8n_pre_migration_20260101_000000.dump"
+    confirm_prompt() {
+        case "$1" in
+            *"Restore the n8n database"*) [ "${ROLLBACK_DB:-y}" = y ] ;;
+            *) return 0 ;;
+        esac
+    }
+    handle_rollback
+    echo "ROLLBACK_RC=$?"
+}
+d="${WORK_DIR}/rollback_db"
+ROLLBACK_DB=y run_case "$d" rollback_case
+assert_contains "--rollback: restores the recorded dump" \
+    "pg_restore -U n8n -d n8n --clean --if-exists --single-transaction" "${WORK_DIR}/docker.log"
+assert_contains "--rollback: uses the dump named in the rollback record" \
+    "n8n_pre_migration_20260101_000000.dump" "${WORK_DIR}/out"
+assert_eq "--rollback: v2 'up -d' is the last compose call" "docker compose up -d" "$(grep 'compose' "${WORK_DIR}/docker.log" | tail -n1)"
+assert_contains "--rollback: v2 compose restored" "# v2" "$d/docker-compose.yaml"
+assert_contains "--rollback: reports the database restore" "n8n database restored to v2.0" "${WORK_DIR}/out"
+[ -f "$d/.migration_state" ] && fail "--rollback: rollback record removed" || pass "--rollback: rollback record removed"
+
+d="${WORK_DIR}/rollback_nodb"
+ROLLBACK_DB=n run_case "$d" rollback_case
+assert_not_contains "--rollback declined DB: no restore" "pg_restore -U" "${WORK_DIR}/docker.log"
+assert_contains "--rollback declined DB: warns about the schema" "may fail to start on the migrated schema" "${WORK_DIR}/out"
+assert_contains "--rollback declined DB: files restored" "# v2" "$d/docker-compose.yaml"
 
 # ---------------------------------------------------------------------------
 # 4. --config files
