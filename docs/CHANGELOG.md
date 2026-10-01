@@ -7,6 +7,141 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### September 2026 Updates
+
+#### Removed
+- **Controls that were stored and displayed but never did anything.** A
+  setting that looks configured and is not enforced is worse than no
+  setting, so these are gone from the UI and the API (the database columns
+  stay so existing installs load, marked RETIRED in the models):
+  - *Daily Digest* card and the per-event `include_in_digest` flag. A real
+    digest needs a queue and a delivery job; it was a checkbox.
+  - *Emergency Contact* channel select. Nothing ever sent to it, and no
+    behaviour was ever defined for it.
+  - Per-event *flapping detection* fields (`flapping_*`) and the flapping
+    columns on the state endpoint. Never implemented; without an
+    acknowledgement concept it would only hide the second alert.
+  - Container `custom_targets`. No UI wrote it and dispatch never read it.
+  - `escalation_timeout_minutes` on events and targets. The delayed L2 path
+    that read it was removed earlier this month.
+  - `retry_count` and `rule_id` on history responses. There is no retry
+    worker and no rules.
+- **The `notification_rules` engine.** `NotificationService.dispatch`, the
+  rules CRUD endpoints (`/api/notifications/rules`) and their schemas had
+  no callers and no UI. They implemented a second, independent suppression
+  scheme (own `cooldown_minutes`, own `last_triggered`) beside the real
+  one. Deleted so the next person fixes the right dispatcher. The
+  `notification_rules` table is left in place.
+- The `severity` argument to `dispatch_notification`. Every caller passed
+  one and the dispatcher ignored all of them in favour of the event's
+  configured severity, which is what the Settings page shows. The
+  parameter is gone so it cannot look meaningful again.
+- **Eight registered notification events that could never fire now have
+  producers.** `disk_space_low`, `high_memory`, `high_cpu`,
+  `container_high_cpu`, `container_high_memory`, `container_healthy`,
+  `certificate_expiring` and `security_event` each had a card, a toggle and
+  threshold controls in Settings → System Notifications, but no code path
+  dispatched them. Now (`api/services/system_monitors.py`):
+  - Host disk / memory / CPU are compared against the event's threshold at
+    every 5-minute metrics sample. `high_cpu` honours its
+    `duration_minutes`: every sample inside that window must be over the
+    threshold.
+  - Per-container CPU / memory use each container's own thresholds from
+    Containers → Alerts (a new 5-minute job; skipped entirely when no
+    container has resource monitoring on).
+  - `container_healthy` fires when a container that was announced unhealthy
+    or stopped is healthy again, if the problem event's "notify on
+    recovery" is on. Recovery closes the episode, so the next problem
+    alerts immediately instead of waiting out the cooldown.
+  - `certificate_expiring` is checked daily at 06:00 against the "days
+    before expiration" threshold; each certificate throttles separately and
+    an already-expired certificate is sent as critical.
+  - `security_event` fires on an account lockout (with the client IP) and
+    on a notification-webhook call with a wrong API key.
+- **`update_available` removed.** No update checker exists anywhere in the
+  codebase, so the event could never fire. The registry row is deleted on
+  next start (its targets cascade). Writing a real update check is a
+  feature for another day, not a notification fix.
+- **Quiet hours, rate limiting, frequency and blackout window are now
+  enforced.** All four were stored, shown in the UI and documented, but the
+  dispatcher never read them. They are now checked by a single gate
+  (`api/services/notification_gate.py`) that every delivery path consults:
+  - *Frequency*: an event set to `once_per_hour`, `once_per_day` and so on
+    is throttled to that window. Previously only `cooldown_minutes`
+    throttled anything, whatever the frequency select said. Cooldown now
+    applies only to `every_time` events, which is what the UI already
+    implied by hiding the cooldown slider for other frequencies.
+  - *Quiet hours*: critical events pass untouched. Non-critical events are
+    delivered at low priority or muted, per a new choice in the Quiet Hours
+    dialog (the stored `quiet_hours_reduce_priority` setting, previously
+    unexposed). Times are in the console's `TIMEZONE`.
+  - *Rate limit*: the "This Hour" counter now counts real deliveries, and
+    notifications over `max_notifications_per_hour` are suppressed. The UI
+    text claiming they were "queued and delivered when the limit resets"
+    described a queue that never existed; it now says what happens.
+  - *Blackout window* (API only): total suppression, critical included.
+  Every suppression writes a history row whose `suppression_reason` names
+  the dial that stopped it (`maintenance`, `blackout`,
+  `frequency (once_per_day)`, `cooldown (15min)`, `quiet_hours`,
+  `rate_limit (50/hour)`).
+- **The n8n webhook endpoint (`POST /api/notifications/webhook`) now honours
+  the global controls.** It previously checked only the API key, so
+  workflow messages went out during maintenance windows and ignored quiet
+  hours and the rate limit. It now passes through the same gate (global
+  dials only; it has no event, so cooldown and frequency do not apply). A
+  suppressed call returns `success: false` with a new `suppressed` field
+  naming the reason, and is recorded in the notification history.
+- **Maintenance mode now expires.** The dispatcher only checked the
+  `maintenance_mode` flag and ignored `maintenance_until`, so a window that
+  had lapsed kept suppressing every notification (the UI showed "Expired"
+  while nothing was delivered). A lapsed window now clears itself on the
+  next event, and notifications suppressed by an active window are recorded
+  in history with `suppression_reason = "maintenance"` instead of vanishing.
+- **`container_recreated` notifications were dropped silently.** The
+  management console dispatched the event when recreating a container, but
+  it was not in the event registry, so it was discarded with no history row.
+  It is now a registered Container event (seeded on next start) with its own
+  message.
+- **L2 escalation ignored its own switch.** `escalation_enabled` was stored
+  and shown in the UI but never read; L2 targets fired whenever they
+  existed. It is now enforced.
+- **L2 escalation could only ever fire once per event/target.** The
+  `escalation_sent` state flag was set on the first escalation and never
+  cleared, so every later occurrence skipped L2. Each new occurrence now
+  starts a fresh escalation cycle.
+- **`POST /api/system-notifications/test` did not send anything.** It
+  recorded a `sent` history row without contacting any channel, so a broken
+  channel passed the test. It now delivers a real test message to every
+  target on the event and returns `502` when none accepts it.
+- **`GET /api/notifications/services/{id}` returned channel secrets in
+  clear text** while the list and group endpoints masked them. All channel
+  responses now use the same redaction.
+- The System Notifications "N/M enabled" badge counted hidden SSL events in
+  both numbers when SSL was not configured. It now counts only the events
+  shown.
+
+#### Changed
+- The four copies of the transport `if/elif` chain (apprise / ntfy /
+  webhook / email) are replaced by one `NotificationDispatcher.send()`.
+  Webhook channels now receive a consistent payload (`event_data` plus
+  `priority`) from every sender instead of a different shape from each.
+- **Time-delayed L2 escalation removed.** The "Escalation Timeout" on L2
+  targets scheduled a job that re-sent to L2 after N minutes unconditionally:
+  it checked neither maintenance mode nor whether the event was still
+  enabled, and the UI's "if L1 hasn't acknowledged" had no acknowledgement
+  behind it. L2 targets now fire immediately when the event is critical or
+  when no L1 target accepted the message. The timeout picker is gone from
+  the add-target dialog; the stored `escalation_timeout_minutes` value is
+  no longer read.
+
+#### Added
+- **Backend test suite** under `management/tests/` (`cd management && pytest`).
+  Runs the real models and dispatcher against in-memory SQLite with the
+  transports stubbed. Includes a registry check that fails when an event is
+  dispatched but not registered, or registered without a producer beyond the
+  known list, and a column check that fails when a notification setting is
+  added without being either enforced or explicitly classified as pending.
+
 ### July 2026 Updates
 
 #### Fixed

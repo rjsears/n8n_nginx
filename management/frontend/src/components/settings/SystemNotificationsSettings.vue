@@ -75,7 +75,6 @@ const showAddTargetModal = ref(false)
 const selectedEventForTarget = ref(null)
 const addingTarget = ref(false)
 const expandedRateLimiting = ref(false)
-const expandedDailyDigest = ref(false)
 
 // Maintenance mode form state
 const maintenanceDuration = ref('1h')
@@ -84,9 +83,10 @@ const maintenanceReason = ref('')
 // Quiet hours form state
 const quietHoursStart = ref('22:00')
 const quietHoursEnd = ref('07:00')
+// true: non-critical notifications go out at low (silent) priority; false: they are muted
+const quietHoursReducePriority = ref(true)
 
 // Add target form state
-const newTargetEscalationTimeout = ref(30)
 
 // Confirm disable event modal state
 const showDisableEventModal = ref(false)
@@ -179,12 +179,16 @@ function eventHasTargets(event) {
   return event.targets && event.targets.length > 0
 }
 
+// Only the events that are actually shown (eventsByCategory hides ssl when
+// SSL is not configured), so numerator and denominator agree with the cards.
+const visibleEvents = computed(() => Object.values(eventsByCategory.value).flat())
+
 // An event is only truly "enabled" if it has targets
 const enabledEventsCount = computed(() => {
-  return events.value.filter(e => e.enabled && eventHasTargets(e)).length
+  return visibleEvents.value.filter(e => e.enabled && eventHasTargets(e)).length
 })
 
-const totalEventsCount = computed(() => events.value.length)
+const totalEventsCount = computed(() => visibleEvents.value.length)
 
 const hasNoTargets = computed(() => {
   return (event) => !eventHasTargets(event)
@@ -369,6 +373,7 @@ async function loadGlobalSettings() {
     if (response.data) {
       quietHoursStart.value = response.data.quiet_hours_start || '22:00'
       quietHoursEnd.value = response.data.quiet_hours_end || '07:00'
+      quietHoursReducePriority.value = response.data.quiet_hours_reduce_priority !== false
     }
   } catch (error) {
     console.error('Failed to load global settings:', error)
@@ -458,7 +463,6 @@ async function performEventUpdate(event, field, value) {
       frequency: `Frequency updated for "${event.display_name}"`,
       severity: `Severity changed to ${value} for "${event.display_name}"`,
       cooldown_minutes: `Cooldown updated for "${event.display_name}"`,
-      flapping_enabled: value ? `Flapping detection enabled for "${event.display_name}"` : `Flapping detection disabled for "${event.display_name}"`,
       escalation_enabled: value ? `Escalation enabled for "${event.display_name}"` : `Escalation disabled for "${event.display_name}"`,
     }
     notificationStore.success(fieldMessages[field] || `Settings saved for "${event.display_name}"`)
@@ -558,6 +562,7 @@ async function saveQuietHours() {
     quiet_hours_enabled: true,
     quiet_hours_start: quietHoursStart.value,
     quiet_hours_end: quietHoursEnd.value,
+    quiet_hours_reduce_priority: quietHoursReducePriority.value,
   })
   showQuietHoursModal.value = false
 }
@@ -574,7 +579,7 @@ function openAddTargetModal(event) {
   showAddTargetModal.value = true
 }
 
-async function addTarget(eventId, targetType, targetId, level, escalationTimeout = 30) {
+async function addTarget(eventId, targetType, targetId, level) {
   // Prevent multiple clicks
   if (addingTarget.value) return
 
@@ -604,18 +609,10 @@ async function addTarget(eventId, targetType, targetId, level, escalationTimeout
       data.group_id = targetId
     }
 
-    // Include escalation timeout for L2 targets
-    if (level === 2) {
-      data.escalation_timeout_minutes = escalationTimeout
-    }
-
     await api.post(`/system-notifications/events/${eventId}/targets`, data)
     await loadEvents()
     notificationStore.success('Notification target added successfully')
     showAddTargetModal.value = false
-
-    // Reset form
-    newTargetEscalationTimeout.value = 30
   } catch (error) {
     console.error('Failed to add target:', error)
     notificationStore.error(error.response?.data?.detail || 'Failed to add notification target')
@@ -811,7 +808,7 @@ onMounted(() => {
             </p>
             <p v-else class="font-semibold text-primary">Quiet Hours</p>
             <p :class="['text-xs', isInQuietHours ? 'text-indigo-300' : 'text-secondary']">
-              {{ isInQuietHours ? 'Non-critical muted' : globalSettings?.quiet_hours_enabled ? 'Scheduled' : 'Click to configure' }}
+              {{ isInQuietHours ? (globalSettings?.quiet_hours_reduce_priority ? 'Non-critical at low priority' : 'Non-critical muted') : globalSettings?.quiet_hours_enabled ? 'Scheduled' : 'Click to configure' }}
             </p>
           </div>
         </div>
@@ -1536,39 +1533,13 @@ onMounted(() => {
                   </div>
                 </div>
 
-                <!-- Divider -->
-                <div class="border-t border-[var(--color-border)]"></div>
-
-                <!-- Emergency Contact -->
-                <div class="space-y-3">
-                  <div class="flex items-start gap-3">
-                    <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-500/20 mt-0.5">
-                      <ExclamationTriangleIcon class="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                    </div>
-                    <div class="flex-1">
-                      <p class="font-medium text-primary">Emergency Contact</p>
-                      <p class="text-sm text-secondary mt-0.5">When the rate limit is exceeded, this channel will receive an alert</p>
-                    </div>
-                  </div>
-                  <select
-                    :value="globalSettings?.emergency_contact_id || ''"
-                    @change="updateGlobalSettings({ emergency_contact_id: $event.target.value ? parseInt($event.target.value) : null })"
-                    class="select-field w-full"
-                  >
-                    <option value="">No emergency contact configured</option>
-                    <option v-for="channel in channels" :key="channel.id" :value="channel.id">
-                      {{ channel.name }}
-                    </option>
-                  </select>
-                </div>
-
                 <!-- Info Box -->
                 <div class="rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 p-3">
                   <div class="flex gap-2">
                     <InformationCircleIcon class="h-5 w-5 text-blue-500 flex-shrink-0" />
                     <div class="text-sm text-blue-700 dark:text-blue-400">
                       <p class="font-medium">How rate limiting works</p>
-                      <p class="mt-1 text-blue-600 dark:text-blue-300">When the hourly limit is reached, additional notifications are queued and delivered when the limit resets. Lower limits help prevent notification fatigue during high-activity periods.</p>
+                      <p class="mt-1 text-blue-600 dark:text-blue-300">Counts notifications delivered in a rolling one-hour window that starts with the first delivery. Once the limit is reached, further notifications are not sent; each one is recorded in history with the reason <code>rate_limit</code>. The window resets an hour after it started. Lower limits help prevent notification fatigue during high-activity periods.</p>
                     </div>
                   </div>
                 </div>
@@ -1577,81 +1548,6 @@ onMounted(() => {
           </Transition>
         </div>
 
-        <!-- Daily Digest Card -->
-        <div class="bg-surface rounded-xl border border-[var(--color-border)] overflow-hidden">
-          <button
-            @click="expandedDailyDigest = !expandedDailyDigest"
-            class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-          >
-            <div class="flex items-center gap-3">
-              <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-500/20">
-                <EnvelopeIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div class="text-left">
-                <h3 class="font-semibold text-primary">Daily Digest</h3>
-                <p class="text-sm text-secondary">Batch low-priority notifications into a daily summary</p>
-              </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <span :class="[
-                'px-2 py-0.5 rounded-full text-xs font-medium',
-                globalSettings?.digest_enabled
-                  ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-              ]">
-                {{ globalSettings?.digest_enabled ? 'Enabled' : 'Disabled' }}
-              </span>
-              <ChevronDownIcon
-                :class="['h-5 w-5 text-gray-400 transition-transform duration-200', expandedDailyDigest ? 'rotate-180' : '']"
-              />
-            </div>
-          </button>
-
-          <Transition name="collapse">
-            <div v-if="expandedDailyDigest" class="border-t border-[var(--color-border)]">
-              <div class="p-4 space-y-4 bg-gray-50/50 dark:bg-gray-800/30">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium text-primary">Enable Daily Digest</p>
-                    <p class="text-sm text-secondary">Info-level events will be batched</p>
-                  </div>
-                  <label class="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      :checked="globalSettings?.digest_enabled"
-                      @change="updateGlobalSettings({ digest_enabled: $event.target.checked })"
-                      class="sr-only peer"
-                    />
-                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
-                  </label>
-                </div>
-
-                <div v-if="globalSettings?.digest_enabled" class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium text-primary">Digest Time</p>
-                    <p class="text-sm text-secondary">When to send the daily summary</p>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <ClockIcon class="h-4 w-4 text-gray-400" />
-                    <input
-                      type="time"
-                      :value="globalSettings?.digest_time"
-                      @change="updateGlobalSettings({ digest_time: $event.target.value })"
-                      class="input-field w-32"
-                    />
-                  </div>
-                </div>
-
-                <div class="pt-2 border-t border-[var(--color-border)]">
-                  <p class="text-xs text-secondary">
-                    <InformationCircleIcon class="inline h-4 w-4 mr-1" />
-                    Info-level events will be collected and sent as a single digest email at the specified time.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Transition>
-        </div>
       </div>
     </template>
 
@@ -1710,49 +1606,10 @@ onMounted(() => {
                 <label class="block text-sm font-medium text-primary mb-1">Escalation Level</label>
                 <select v-model="newTargetLevel" class="w-full px-3 py-2 rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                   <option :value="1">L1 - Primary (receives immediately)</option>
-                  <option :value="2">L2 - Escalation (receives after timeout)</option>
+                  <option :value="2">L2 - Escalation (receives when L1 delivery fails, or immediately for critical events)</option>
                 </select>
               </div>
 
-              <!-- Escalation Timeout (only shown for L2) -->
-              <div v-if="newTargetLevel === 2" class="bg-blue-50 dark:bg-blue-500/10 rounded-lg p-4 border border-blue-200 dark:border-blue-500/30">
-                <label class="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">
-                  Escalation Timeout
-                </label>
-                <p class="text-xs text-blue-600 dark:text-blue-400 mb-3">
-                  Time to wait before escalating to L2 if L1 hasn't acknowledged
-                </p>
-                <div class="grid grid-cols-4 gap-2">
-                  <button
-                    v-for="mins in [15, 30, 45, 60]"
-                    :key="mins"
-                    @click="newTargetEscalationTimeout = mins"
-                    :class="[
-                      'px-2 py-1.5 rounded-lg text-sm font-medium border transition-all',
-                      newTargetEscalationTimeout === mins
-                        ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
-                        : 'bg-white dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
-                    ]"
-                  >
-                    {{ mins }}m
-                  </button>
-                </div>
-                <div class="grid grid-cols-3 gap-2 mt-2">
-                  <button
-                    v-for="mins in [90, 120, 180]"
-                    :key="mins"
-                    @click="newTargetEscalationTimeout = mins"
-                    :class="[
-                      'px-2 py-1.5 rounded-lg text-sm font-medium border transition-all',
-                      newTargetEscalationTimeout === mins
-                        ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400 text-blue-700 dark:text-blue-300'
-                        : 'bg-white dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-secondary hover:bg-gray-50 dark:hover:bg-gray-600'
-                    ]"
-                  >
-                    {{ mins >= 60 ? `${mins/60}h` : `${mins}m` }}
-                  </button>
-                </div>
-              </div>
             </div>
 
             <div class="flex justify-end gap-3 pt-4">
@@ -1760,7 +1617,7 @@ onMounted(() => {
                 Cancel
               </button>
               <button
-                @click="addTarget(selectedEventForTarget.id, newTargetType, newTargetId, newTargetLevel, newTargetEscalationTimeout)"
+                @click="addTarget(selectedEventForTarget.id, newTargetType, newTargetId, newTargetLevel)"
                 :disabled="!newTargetId || addingTarget"
                 class="btn-primary"
               >
@@ -2094,7 +1951,9 @@ onMounted(() => {
 
             <div class="bg-indigo-800/30 border border-indigo-500/30 rounded-lg p-4">
               <p class="text-sm text-indigo-200">
-                During quiet hours, <strong class="text-indigo-100">non-critical notifications</strong> will be suppressed. Critical alerts will still come through.
+                During quiet hours, <strong class="text-indigo-100">critical alerts</strong> always come through at full priority.
+                Non-critical notifications are either delivered silently at low priority or muted, as chosen below.
+                Muted notifications are recorded in history with the reason <code class="text-indigo-100">quiet_hours</code>.
               </p>
             </div>
 
@@ -2121,6 +1980,37 @@ onMounted(() => {
                     type="time"
                     class="w-full px-3 py-2.5 rounded-lg border border-indigo-500/50 bg-indigo-900/50 text-indigo-100 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
                   />
+                </div>
+              </div>
+
+              <!-- Non-critical handling -->
+              <div>
+                <label class="block text-sm font-medium text-indigo-200 mb-2">Non-critical notifications during quiet hours</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <button
+                    @click="quietHoursReducePriority = true"
+                    :class="[
+                      'px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left',
+                      quietHoursReducePriority
+                        ? 'bg-indigo-500/40 border-indigo-300 text-indigo-50'
+                        : 'bg-indigo-900/50 border-indigo-500/30 text-indigo-300 hover:bg-indigo-800/50'
+                    ]"
+                  >
+                    <span class="block">Deliver at low priority</span>
+                    <span class="block text-xs opacity-80">Arrives silently, no sound or vibration</span>
+                  </button>
+                  <button
+                    @click="quietHoursReducePriority = false"
+                    :class="[
+                      'px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left',
+                      !quietHoursReducePriority
+                        ? 'bg-indigo-500/40 border-indigo-300 text-indigo-50'
+                        : 'bg-indigo-900/50 border-indigo-500/30 text-indigo-300 hover:bg-indigo-800/50'
+                    ]"
+                  >
+                    <span class="block">Mute</span>
+                    <span class="block text-xs opacity-80">Not delivered; logged as suppressed</span>
+                  </button>
                 </div>
               </div>
 

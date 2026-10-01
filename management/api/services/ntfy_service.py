@@ -17,8 +17,35 @@ import os
 import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime, UTC
+from urllib.parse import urlsplit
+
+from api.services.env_file import read_env_value
 
 logger = logging.getLogger(__name__)
+
+# The self-hosted ntfy server runs with auth-default-access deny-all; the
+# installer provisions an admin user and an access token (NTFY_TOKEN in .env)
+# that the console uses to publish.
+HOST_ENV_PATH = "/app/host_project/.env"
+LOCAL_NTFY_HOSTS = {"n8n_ntfy", "ntfy"}
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def get_ntfy_token() -> Optional[str]:
+    """Return the ntfy access token used for publishing, if configured.
+
+    The host .env is read first so a token updated from the console takes
+    effect without recreating this container; the environment is the fallback.
+    """
+    value = None
+    try:
+        value = read_env_value(HOST_ENV_PATH, "NTFY_TOKEN")
+    except Exception:
+        value = None
+    if not value:
+        value = os.environ.get("NTFY_TOKEN")
+    value = (value or "").strip()
+    return value or None
 
 # Priority level mappings
 PRIORITY_NAMES = {
@@ -548,6 +575,59 @@ class NtfyService:
                     # Fallback to placeholder
                     self.public_url = "https://ntfy.your-domain.com"
 
+    def is_own_server(self, server_url: Optional[str]) -> bool:
+        """True if server_url points at the ntfy server this console manages.
+
+        Used to decide whether a notification channel may be sent NTFY_TOKEN;
+        the token must never be sent to a third-party server such as ntfy.sh,
+        nor over a different scheme or port than the configured URLs use
+        (http://ntfy.<domain> would carry it in clear text). The bare
+        container names are only accepted as http on port 80, which is how
+        the internal Docker network reaches the server.
+        """
+        if not server_url:
+            return False
+        try:
+            target = urlsplit(server_url.strip())
+            target_port = target.port
+        except ValueError:
+            return False
+        host = (target.hostname or "").lower()
+        scheme = (target.scheme or "").lower()
+        if not host or scheme not in _DEFAULT_PORTS:
+            return False
+        if host in LOCAL_NTFY_HOSTS:
+            return scheme == "http" and target_port in (None, 80)
+        target_port = target_port or _DEFAULT_PORTS[scheme]
+        target_path = target.path.rstrip("/")
+        candidates = [self.base_url, self.public_url]
+        domain = os.environ.get("DOMAIN", "").strip()
+        if domain:
+            # nginx also proxies the server at https://<domain>/ntfy/
+            candidates.append(f"https://{domain}/ntfy")
+        for candidate in candidates:
+            if not candidate:
+                continue
+            try:
+                own = urlsplit(candidate)
+                own_port = own.port
+            except ValueError:
+                continue
+            own_scheme = (own.scheme or "").lower()
+            if own_scheme != scheme or (own.hostname or "").lower() != host:
+                continue
+            if (own_port or _DEFAULT_PORTS.get(own_scheme)) != target_port:
+                continue
+            own_path = own.path.rstrip("/")
+            if target_path == own_path or target_path.startswith(own_path + "/"):
+                return True
+        return False
+
+    def auth_headers(self, auth_token: Optional[str] = None) -> Dict[str, str]:
+        """Authorization header for requests to this console's ntfy server."""
+        token = auth_token or get_ntfy_token()
+        return {"Authorization": f"Bearer {token}"} if token else {}
+
     async def health_check(self) -> Dict[str, Any]:
         """
         Check NTFY server health.
@@ -630,10 +710,8 @@ class NtfyService:
         try:
             headers = {
                 "Content-Type": "application/json",
+                **self.auth_headers(auth_token),
             }
-
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
 
             # Build JSON payload
             payload = {
@@ -690,7 +768,7 @@ class NtfyService:
                 elif response.status_code == 401:
                     return {
                         "success": False,
-                        "error": "Authentication required or invalid token",
+                        "error": "Authentication required or invalid token (check NTFY_TOKEN in .env)",
                         "status_code": 401
                     }
                 elif response.status_code == 403:
@@ -755,6 +833,7 @@ class NtfyService:
             headers = {
                 "Content-Type": "application/json",
                 "X-Template": template_name,
+                **self.auth_headers(),
             }
 
             if priority:

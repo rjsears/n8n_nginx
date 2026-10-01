@@ -13,7 +13,8 @@ https://github.com/rjsears
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.datastructures import Headers
 from contextlib import asynccontextmanager
 import logging
 import sys
@@ -48,6 +49,11 @@ async def lifespan(app: FastAPI):
         await init_db()
         logger.info("Database initialized")
 
+        # Backup/verify/restore jobs recorded as running belonged to the
+        # previous process: report them as interrupted.
+        from api.services.operation_jobs import mark_interrupted_jobs
+        await mark_interrupted_jobs()
+
         # Create default admin user if not exists
         from api.database import async_session_maker
         from api.services.auth_service import AuthService
@@ -74,6 +80,28 @@ async def lifespan(app: FastAPI):
             await create_default_templates(db)
         logger.info("Default email templates created")
 
+        # A verification container left by a crashed run holds a full copy of
+        # the database; nothing can be verifying yet, so remove it now.
+        try:
+            from api.services.verification_service import remove_stale_verify_container
+            await remove_stale_verify_container()
+        except Exception as e:
+            logger.warning(f"Leftover verification container cleanup failed: {e}")
+
+        # Temporary restore containers left behind by a crash or restart
+        try:
+            from api.services.restore_service import cleanup_leftover_restore_containers
+            await cleanup_leftover_restore_containers()
+        except Exception as e:
+            logger.warning(f"Leftover restore container cleanup failed: {e}")
+
+        # Partial archives / temp dirs left behind by a crash or restart
+        try:
+            from api.services.backup_service import cleanup_stale_backup_files
+            await cleanup_stale_backup_files()
+        except Exception as e:
+            logger.warning(f"Stale backup file cleanup failed: {e}")
+
         # Initialize scheduler
         await init_scheduler()
         logger.info("Scheduler initialized")
@@ -91,6 +119,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down n8n Management API")
     try:
+        from api.services.operation_jobs import cancel_all as cancel_operation_jobs
+        await cancel_operation_jobs()
         await shutdown_scheduler()
         await close_redis_cache()
         await close_db()
@@ -99,6 +129,13 @@ async def lifespan(app: FastAPI):
 
 
 import os
+
+from api.security import (
+    CSRF_HEADER_NAME,
+    UNSAFE_METHODS,
+    configured_allowed_origins,
+    is_origin_allowed,
+)
 
 # Get root path from environment (set by uvicorn --root-path or directly)
 ROOT_PATH = os.environ.get("ROOT_PATH", "/management")
@@ -114,14 +151,64 @@ app = FastAPI(
     root_path=ROOT_PATH,
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Will be configured properly in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class CSRFMiddleware:
+    """
+    Reject cross-site state-changing requests that ride on the session cookie.
+
+    The console authenticates with the HttpOnly "session" cookie (also used
+    by nginx auth_request for File Browser/Adminer/Dozzle), and a browser
+    attaches that cookie to requests other pages trigger. So a POST/PUT/
+    PATCH/DELETE that carries the cookie must also carry the custom
+    X-Requested-With header - which a cross-origin page cannot add without a
+    CORS preflight we never grant - and, if the browser sent an Origin
+    header, it must name this console.
+
+    The rule keys on the presence of any Cookie header rather than on finding
+    the session cookie in it: cookie parsers disagree on malformed input
+    (http.cookies.SimpleCookie silently stops at the first value it cannot
+    parse, e.g. a JSON value), so a request the auth dependency accepts must
+    never be one this check skipped. Requests with an Authorization header
+    authenticate with it alone (the cookie is ignored), and requests without
+    any cookie (bearer API clients, n8n calling the notification webhook with
+    its API key) are not exposed to CSRF; both pass through unchanged.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["method"] in UNSAFE_METHODS:
+            headers = Headers(scope=scope)
+            if not headers.get("authorization") and headers.get("cookie", "").strip():
+                origin = headers.get("origin")
+                reason = None
+                if not headers.get(CSRF_HEADER_NAME):
+                    reason = f"missing {CSRF_HEADER_NAME} header"
+                elif origin is not None and not is_origin_allowed(origin, headers.get("host")):
+                    reason = f"origin {origin!r} not allowed"
+                if reason:
+                    logger.warning(f"CSRF check failed for {scope['method']} {scope['path']}: {reason}")
+                    response = JSONResponse({"detail": "CSRF check failed"}, status_code=403)
+                    await response(scope, receive, send)
+                    return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(CSRFMiddleware)
+
+# CORS: the console is served from the same origin as the API, so no CORS is
+# needed and none is granted by default. Reflecting any Origin with
+# credentials (the old allow_origins=["*"] + allow_credentials) let any site
+# read authenticated responses. Only origins listed in ALLOWED_ORIGINS are
+# allowed when an operator really serves the UI from elsewhere.
+if configured_allowed_origins():
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=configured_allowed_origins(),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Content-Type", "Authorization", CSRF_HEADER_NAME],
+    )
 
 # Include routers
 from api.routers import auth, settings, notifications, backups, containers, system, email, flows, terminal, ntfy, system_notifications, env_config, cache

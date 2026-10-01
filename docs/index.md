@@ -61,7 +61,7 @@ The n8n Management Suite is a comprehensive, production-ready solution designed 
 
     ---
 
-    Complete REST API documentation for the FastAPI-driven Management Console, including JWT authentication.
+    Complete REST API documentation for the FastAPI-driven Management Console, including session-cookie authentication.
 
     [:octicons-arrow-right-24: API Reference](API.md)
 

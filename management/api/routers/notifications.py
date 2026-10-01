@@ -11,7 +11,7 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -23,6 +23,7 @@ from api.database import get_db
 from api.dependencies import get_current_user
 from api.config import settings
 from api.services.notification_service import NotificationService
+from api.services.notification_secrets import redact_config
 from api.schemas.notifications import (
     NotificationServiceCreate,
     NotificationServiceUpdate,
@@ -30,9 +31,6 @@ from api.schemas.notifications import (
     NotificationGroupCreate,
     NotificationGroupUpdate,
     NotificationGroupResponse,
-    NotificationRuleCreate,
-    NotificationRuleUpdate,
-    NotificationRuleResponse,
     NotificationHistoryResponse,
     NotificationTestRequest,
     NotificationEventType,
@@ -46,6 +44,17 @@ from api.models.notifications import NotificationService as NotificationServiceM
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+def _redacted_config(config: Optional[dict], service_type: Optional[str] = None) -> dict:
+    """Copy of a channel config with secret values masked. Used by every endpoint that returns one."""
+    return redact_config(config, service_type)
+
+
+def _service_response(svc: NotificationServiceModel) -> NotificationServiceResponse:
+    """Response model for one channel, with its config redacted."""
+    response = NotificationServiceResponse.model_validate(svc)
+    response.config = _redacted_config(svc.config, svc.service_type)
+    return response
 
 
 # Import sync function lazily to avoid circular imports
@@ -162,10 +171,7 @@ async def list_services(
     # Redact sensitive config values and add group info
     result = []
     for s in services:
-        config = dict(s.config)
-        for key in ["password", "token", "secret", "api_key"]:
-            if key in config:
-                config[key] = "***"
+        config = _redacted_config(s.config, s.service_type)
 
         # Get groups this service belongs to
         groups = await service.get_groups_for_service(s.id)
@@ -234,7 +240,7 @@ async def create_service(
     if data.service_type.value == "ntfy":
         await _sync_ntfy_channel_to_topic(db, created, "create")
 
-    return NotificationServiceResponse.model_validate(created)
+    return _service_response(created)
 
 
 @router.get("/services/{service_id}", response_model=NotificationServiceResponse)
@@ -253,7 +259,7 @@ async def get_service(
             detail="Service not found",
         )
 
-    return NotificationServiceResponse.model_validate(svc)
+    return _service_response(svc)
 
 
 @router.put("/services/{service_id}", response_model=NotificationServiceResponse)
@@ -302,7 +308,7 @@ async def update_service(
     if updated.service_type == "ntfy":
         await _sync_ntfy_channel_to_topic(db, updated, "update")
 
-    return NotificationServiceResponse.model_validate(updated)
+    return _service_response(updated)
 
 
 @router.delete("/services/{service_id}", response_model=SuccessResponse)
@@ -392,10 +398,7 @@ async def list_groups(
         channels = []
         for membership in g.memberships:
             s = membership.service
-            config = dict(s.config)
-            for key in ["password", "token", "secret", "api_key"]:
-                if key in config:
-                    config[key] = "***"
+            config = _redacted_config(s.config, s.service_type)
 
             channels.append(NotificationServiceResponse(
                 id=s.id,
@@ -456,10 +459,7 @@ async def create_group(
     channels = []
     for membership in created.memberships:
         s = membership.service
-        config = dict(s.config)
-        for key in ["password", "token", "secret", "api_key"]:
-            if key in config:
-                config[key] = "***"
+        config = _redacted_config(s.config, s.service_type)
 
         channels.append(NotificationServiceResponse(
             id=s.id,
@@ -511,10 +511,7 @@ async def get_group(
     channels = []
     for membership in group.memberships:
         s = membership.service
-        config = dict(s.config)
-        for key in ["password", "token", "secret", "api_key"]:
-            if key in config:
-                config[key] = "***"
+        config = _redacted_config(s.config, s.service_type)
 
         channels.append(NotificationServiceResponse(
             id=s.id,
@@ -581,10 +578,7 @@ async def update_group(
     channels = []
     for membership in updated.memberships:
         s = membership.service
-        config = dict(s.config)
-        for key in ["password", "token", "secret", "api_key"]:
-            if key in config:
-                config[key] = "***"
+        config = _redacted_config(s.config, s.service_type)
 
         channels.append(NotificationServiceResponse(
             id=s.id,
@@ -633,99 +627,6 @@ async def delete_group(
         )
 
     return SuccessResponse(message="Group deleted")
-
-
-# Rules
-
-@router.get("/rules", response_model=List[NotificationRuleResponse])
-async def list_rules(
-    event_type: str = None,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """List notification rules."""
-    service = NotificationService(db)
-    rules = await service.get_rules(event_type)
-    return [NotificationRuleResponse.model_validate(r) for r in rules]
-
-
-@router.post("/rules", response_model=NotificationRuleResponse, status_code=status.HTTP_201_CREATED)
-async def create_rule(
-    data: NotificationRuleCreate,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Create a notification rule."""
-    service = NotificationService(db)
-
-    kwargs = data.model_dump()
-    kwargs["priority"] = kwargs["priority"].value if hasattr(kwargs["priority"], "value") else kwargs["priority"]
-
-    created = await service.create_rule(**kwargs)
-    return NotificationRuleResponse.model_validate(created)
-
-
-@router.get("/rules/{rule_id}", response_model=NotificationRuleResponse)
-async def get_rule(
-    rule_id: int,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get a notification rule."""
-    service = NotificationService(db)
-    rule = await service.get_rule(rule_id)
-
-    if not rule:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found",
-        )
-
-    return NotificationRuleResponse.model_validate(rule)
-
-
-@router.put("/rules/{rule_id}", response_model=NotificationRuleResponse)
-async def update_rule(
-    rule_id: int,
-    data: NotificationRuleUpdate,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update a notification rule."""
-    service = NotificationService(db)
-
-    updates = data.model_dump(exclude_unset=True)
-    if "priority" in updates and hasattr(updates["priority"], "value"):
-        updates["priority"] = updates["priority"].value
-
-    updated = await service.update_rule(rule_id, **updates)
-
-    if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found",
-        )
-
-    return NotificationRuleResponse.model_validate(updated)
-
-
-@router.delete("/rules/{rule_id}", response_model=SuccessResponse)
-async def delete_rule(
-    rule_id: int,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Delete a notification rule."""
-    service = NotificationService(db)
-    deleted = await service.delete_rule(rule_id)
-
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rule not found",
-        )
-
-    return SuccessResponse(message="Rule deleted")
 
 
 # Event Types
@@ -807,9 +708,20 @@ async def list_history(
 
 # Webhook
 
+def request_client_ip(http_request: Optional[Request]) -> Optional[str]:
+    """Best-effort client address for security events (behind nginx, X-Forwarded-For)."""
+    if http_request is None:
+        return None
+    forwarded = http_request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return http_request.client.host if http_request.client else None
+
+
 @router.post("/webhook", response_model=WebhookNotificationResponse)
 async def send_webhook_notification(
     request: WebhookNotificationRequest,
+    http_request: Request,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
@@ -844,6 +756,15 @@ async def send_webhook_notification(
         )
 
     if not api_key or not secrets.compare_digest(api_key, expected_key):
+        if api_key:
+            # A wrong key (not a missing one) is someone guessing.
+            from api.services.system_monitors import report_security_event
+
+            await report_security_event(
+                "webhook_invalid_key",
+                target_id="webhook",
+                client_ip=request_client_ip(http_request),
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",

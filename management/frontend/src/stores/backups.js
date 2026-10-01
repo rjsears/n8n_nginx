@@ -213,23 +213,94 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
-  async function runBackup(backupType, compression = 'gzip', skipAutoVerify = false) {
+  // Background jobs
+  //
+  // Backups, verifications and restores run as background jobs on the server
+  // (they can take far longer than the proxy timeout). The POST returns 202
+  // with a job; we poll GET /backups/jobs/{id} until it finishes. onUpdate(job)
+  // is called with every poll so callers can show job.progress / job.message.
+
+  const JOB_POLL_INTERVAL_MS = 1500
+  // Consecutive failed polls tolerated (API restarting, network blip) before giving up
+  const JOB_POLL_MAX_ERRORS = 40
+  const FINAL_JOB_STATUSES = ['success', 'failed', 'interrupted']
+
+  function jobErrorMessage(job) {
+    const e = job.error
+    if (!e) return job.status === 'interrupted' ? 'The operation was interrupted' : 'Operation failed'
+    if (typeof e === 'string') return e
+    return e.error || e.message || 'Operation failed'
+  }
+
+  async function fetchJob(jobId) {
+    const response = await api.get(`/backups/jobs/${jobId}`)
+    return response.data
+  }
+
+  async function fetchJobs(limit = 20, kind = null) {
+    const params = { limit }
+    if (kind) params.kind = kind
+    const response = await api.get('/backups/jobs', { params })
+    return response.data.jobs
+  }
+
+  async function waitForJob(jobId, onUpdate = null) {
+    let errors = 0
+    for (;;) {
+      await new Promise(resolve => setTimeout(resolve, JOB_POLL_INTERVAL_MS))
+      let job
+      try {
+        job = await fetchJob(jobId)
+        errors = 0
+      } catch (err) {
+        // 401/404 will not get better by retrying
+        if ([401, 404].includes(err.response?.status) || ++errors >= JOB_POLL_MAX_ERRORS) throw err
+        continue
+      }
+      if (onUpdate) onUpdate(job)
+      if (FINAL_JOB_STATUSES.includes(job.status)) return job
+    }
+  }
+
+  // Start a job and wait for it. Resolves with the finished job; a failed or
+  // interrupted job rejects with an error shaped like an API error
+  // (err.response.data.detail = job.error), so callers keep one error path.
+  async function runJob(url, body, onUpdate = null) {
+    const response = await api.post(url, body)
+    const job = response.data
+    if (onUpdate) onUpdate(job)
+    const finished = await waitForJob(job.id, onUpdate)
+    if (finished.status === 'success') return finished
+    const err = new Error(jobErrorMessage(finished))
+    err.job = finished
+    err.response = { status: finished.status === 'interrupted' ? 503 : 400, data: { detail: finished.error ?? err.message } }
+    throw err
+  }
+
+  function apiErrorDetail(err, fallback) {
+    const detail = err.response?.data?.detail
+    if (detail && typeof detail === 'object') return detail.error || detail.message || fallback
+    return detail || err.message || fallback
+  }
+
+  async function runBackup(backupType, compression = 'gzip', skipAutoVerify = false, onUpdate = null) {
     try {
-      const response = await api.post('/backups/run', {
+      const job = await runJob('/backups/run', {
         backup_type: backupType,
         compression,
         skip_auto_verify: skipAutoVerify,
-      }, { timeout: 600000 }) // 10 minute timeout for backup creation
-      return response.data
+      }, onUpdate)
+      // Same shape the endpoint used to return synchronously
+      return { ...job.result, job }
     } catch (err) {
-      error.value = err.response?.data?.detail || 'Failed to run backup'
+      error.value = apiErrorDetail(err, 'Failed to run backup')
       throw err
     }
   }
 
-  async function triggerBackup(skipAutoVerify = false) {
+  async function triggerBackup(skipAutoVerify = false, onUpdate = null) {
     // Trigger a full backup with default settings
-    return await runBackup('postgres_full', 'gzip', skipAutoVerify)
+    return await runBackup('postgres_full', 'gzip', skipAutoVerify, onUpdate)
   }
 
   async function deleteBackup(id) {
@@ -279,15 +350,15 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
-  async function runFullBackup(backupType, compression = 'gzip') {
+  async function runFullBackup(backupType, compression = 'gzip', onUpdate = null) {
     try {
-      const response = await api.post('/backups/run-full', {
+      const job = await runJob('/backups/run-full', {
         backup_type: backupType,
         compression,
-      })
-      return response.data
+      }, onUpdate)
+      return { ...job.result, job }
     } catch (err) {
-      error.value = err.response?.data?.detail || 'Failed to run full backup'
+      error.value = apiErrorDetail(err, 'Failed to run full backup')
       throw err
     }
   }
@@ -380,13 +451,13 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
-  async function restoreDatabase(backupId, databaseName, targetDatabase = null) {
+  async function restoreDatabase(backupId, databaseName, targetDatabase = null, onUpdate = null) {
     try {
-      const response = await api.post(`/backups/${backupId}/restore/database`, {
+      const job = await runJob(`/backups/${backupId}/restore/database`, {
         database_name: databaseName,
         target_database: targetDatabase,
-      }, { timeout: 1800000 }) // 30 minute timeout for database restore
-      return response.data
+      }, onUpdate)
+      return job.result
     } catch (err) {
       // A failed restore returns the full result object as detail
       const detail = err.response?.data?.detail
@@ -395,17 +466,17 @@ export const useBackupStore = defineStore('backups', () => {
     }
   }
 
-  async function fullSystemRestore(backupId, options = {}) {
+  async function fullSystemRestore(backupId, options = {}, onUpdate = null) {
     try {
-      const response = await api.post(`/backups/${backupId}/restore/full`, {
+      const job = await runJob(`/backups/${backupId}/restore/full`, {
         restore_databases: options.restoreDatabases ?? true,
         restore_configs: options.restoreConfigs ?? true,
         restore_ssl: options.restoreSsl ?? true,
         database_names: options.databaseNames ?? null,
         config_files: options.configFiles ?? null,
         create_backups: options.createBackups ?? true,
-      }, { timeout: 1800000 }) // 30 minute timeout for full system restore
-      return response.data
+      }, onUpdate)
+      return job.result
     } catch (err) {
       // A failed restore returns the full result object as detail
       const detail = err.response?.data?.detail
@@ -449,25 +520,26 @@ export const useBackupStore = defineStore('backups', () => {
 
   // Phase 5: Backup Verification
 
-  async function verifyBackup(backupId, options = {}) {
+  async function verifyBackup(backupId, options = {}, onUpdate = null) {
     try {
-      // Use 10 minute timeout for verification (can take several minutes for large backups)
-      const response = await api.post(`/backups/${backupId}/verify`, {
+      // Runs as a background job: verification can take many minutes
+      const job = await runJob(`/backups/${backupId}/verify`, {
         verify_all_workflows: options.verifyAllWorkflows ?? false,
         workflow_sample_size: options.workflowSampleSize ?? 10,
-      }, { timeout: 600000 })
+      }, onUpdate)
+      const result = job.result
       // Update local state
       const index = history.value.findIndex(b => b.id === backupId)
       if (index > -1) {
         history.value[index] = {
           ...history.value[index],
-          verification_status: response.data.overall_status,
+          verification_status: result.overall_status,
           verification_date: new Date().toISOString(),
         }
       }
-      return response.data
+      return result
     } catch (err) {
-      error.value = err.response?.data?.detail || 'Failed to verify backup'
+      error.value = apiErrorDetail(err, 'Failed to verify backup')
       throw err
     }
   }
@@ -785,6 +857,10 @@ export const useBackupStore = defineStore('backups', () => {
     runBackup,
     triggerBackup,
     deleteBackup,
+    // Background jobs (backup / verify / restore)
+    fetchJob,
+    fetchJobs,
+    waitForJob,
     getDownloadUrl,
     // Pagination
     goToPage,

@@ -33,34 +33,33 @@ Each tile also has a **Top** / **Side** toggle for navigation layout — top hor
 
 ## System Notifications {: #sys-notifications }
 
-The System Notifications tab is where you tell the management console *which events should fire alerts* and configure rate-limiting / quiet hours / digest behavior. Actual delivery channels (Slack, NTFY, email) live under [Notifications](notifications.md) — this tab is purely about *when* and *what*, not *where*.
+The System Notifications tab is where you tell the management console *which events should fire alerts* and configure maintenance windows, quiet hours and rate limiting. Actual delivery channels (Slack, NTFY, email) live under [Notifications](notifications.md) — this tab is purely about *when* and *what*, not *where*.
 
-![Settings System Notifications tab showing a Maintenance toggle, Quiet Hours, four counter strip showing Events Enabled and This Hour totals, five event-category cards (Backup Events, Container Events, Security Events, SSL Certificate Events, Docker Host System Events) each with an enabled-of-total count, and a Global Settings section with Rate Limiting and Daily Digest options](../images/screenshots/settings-02-system-notifications.png)
+![Settings System Notifications tab showing a Maintenance toggle, Quiet Hours, four counter strip showing Events Enabled and This Hour totals, five event-category cards (Backup Events, Container Events, Security Events, SSL Certificate Events, Docker Host System Events) each with an enabled-of-total count, and a Global Settings section with Rate Limiting options](../images/screenshots/settings-02-system-notifications.png)
 *Figure 2: Settings → System Notifications tab.*
 
 ### Top strip controls
 
 - **Maintenance** — pause all notifications during scheduled work. Click to enable; while on, no events fire regardless of category settings.
-- **Quiet Hours** — define a daily window during which only critical events fire. Click to configure start/end times and severity threshold.
+- **Quiet Hours** — define a daily window (in the console's time zone, `TIMEZONE` in `.env`) during which critical events still fire at full priority and non-critical events are either delivered at low priority (silent) or muted, whichever you choose in the dialog. Muted events appear in the notification history as suppressed with the reason `quiet_hours`.
 - **Events Enabled** counter — current total enabled events out of available.
-- **This Hour** counter — events fired in the last 60 minutes.
+- **This Hour** counter — notifications delivered in the current rate-limit window (see Rate Limiting below).
 
 ### Event categories
 
 | Category | Covers |
 |---|---|
 | **Backup Events** | Backup success / failure / verification / retention rotation. |
-| **Container Events** | Health-check transitions, restarts, exit codes, resource thresholds. |
-| **Security Events** | Failed logins, account lockouts, unauthorized API attempts. |
-| **SSL Certificate Events** | Certificate expiration warnings, renewal success / failure. |
-| **Docker Host System Events** | Host CPU / memory / disk threshold breaches. |
+| **Container Events** | Stopped, unhealthy, restarted, started, removed, recreated, recovered (healthy again), and per-container CPU / memory thresholds (enable those per container under Containers → Alerts). |
+| **Security Events** | Account lockouts after repeated failed logins, and notification-webhook calls with a wrong API key. |
+| **SSL Certificate Events** | Certificate expiration warnings, checked daily against the "days before expiration" threshold on the event. |
+| **Docker Host System Events** | Host CPU (sustained for the configured minutes), memory and disk threshold breaches, sampled every 5 minutes. |
 
 Click any category to expand it and toggle individual events on/off. The "X/Y enabled" badge updates live.
 
 ### Global Settings
 
-- **Rate Limiting** — caps total notifications per hour to prevent storms (default 50/hour).
-- **Daily Digest** — batches low-priority events into a single daily summary instead of per-event firing.
+- **Rate Limiting** — caps total notifications per hour to prevent storms (default 50/hour). The window starts with the first delivery and resets an hour later. Notifications over the cap are not queued; they are dropped and recorded in history with the reason `rate_limit`. The cap also applies to messages sent by n8n workflows through the notification webhook.
 
 !!! tip
 
@@ -81,6 +80,10 @@ Session and login security policy. Every setting here applies to *every* managem
 | **Max Login Attempts** | Failed logins before the account is temporarily locked. | 5 — protects against brute force without locking out fat-fingers. |
 | **Lockout Duration** | How long the account stays locked after exceeding the max. | 15 min default; raise to hours for production. |
 
+!!! warning "Not enforced yet"
+
+    The values on this tab are stored but the backend does not read them. The policy that actually applies is built in: a session lasts 24 hours from login (not from last activity); after 5 failed passwords the account is locked for 30 minutes, and every further failure doubles the lock, up to 24 hours. Login requests are also limited to 5 per minute per client IP by the console's nginx.
+
 !!! warning
 
     Setting Session Timeout extremely high (e.g., 24 hours) defeats the purpose of session expiry. Setting it extremely low (e.g., 5 min) generates frustrated users who just stay logged in via "remember me" workarounds. Pick a value you'll actually live with.
@@ -91,7 +94,7 @@ Session and login security policy. Every setting here applies to *every* managem
 
 ## Access Control
 
-Access Control governs *direct* network access to the management host (the IP-range allowlist that nginx enforces). Traffic arriving via Cloudflare Tunnel *bypasses* these rules — that's a feature, not a bug, and the page banner explains why.
+Access Control governs which *direct* connections nginx treats as internal (the IP-range allowlist in the `geo $access_level` block). Internal clients can reach the n8n editor, the management console and the admin tools; everyone else only gets the public paths (webhooks, forms, ntfy). Traffic arriving via Cloudflare Tunnel is always external: the tunnel should point at the webhook-only listener `n8n_nginx:8080`, which cannot serve admin paths at all.
 
 ![Settings Access Control tab showing an information banner about External Access via Cloudflare Tunnel explaining that external users bypass IP-based restrictions, a Nginx Routes panel showing 11 routes configured, and an IP Ranges (Direct Access) panel showing 5 active ranges](../images/screenshots/settings-04-access-control.png)
 *Figure 4: Settings → Access Control tab.*
@@ -164,7 +167,7 @@ Past the gate, the editor shows every `.env` variable grouped by purpose. Top ac
 |---|---|
 | Required Settings | `DOMAIN`, `N8N_MANAGEMENT_HOST_IP` — must be set or system fails. |
 | Database Configuration | PostgreSQL credentials and settings (`POSTGRES_USER`, `POSTGRES_PASSWORD`, ...). |
-| Security & Authentication | Encryption keys, admin credentials, JWT secrets. |
+| Security & Authentication | Encryption keys, admin credentials, management secret key. |
 | Management Console | Console-specific settings (port, root path, log level). |
 | NFS Backup Storage | NFS server address, export path, mount options. |
 | Cloudflare Tunnel | Cloudflare credentials and tunnel ID. |

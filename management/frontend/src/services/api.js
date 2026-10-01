@@ -13,6 +13,7 @@ https://github.com/rjsears
 
 import axios from 'axios'
 import router from '../router'
+import { useAuthStore } from '../stores/auth'
 
 // Determine API base URL based on current path
 // If accessed via /management/, use /management/api, otherwise use /api
@@ -24,39 +25,56 @@ const getBaseUrl = () => {
   return '/api'
 }
 
-// Create axios instance
+// Create axios instance.
+// Authentication is the HttpOnly "session" cookie the browser attaches by
+// itself (same origin). X-Requested-With is the API's CSRF check: a request
+// that carries the cookie but not this header is refused, and another site
+// cannot add the header without a CORS grant the API never gives.
 const api = axios.create({
   baseURL: getBaseUrl(),
   timeout: 30000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
   },
 })
 
-// Request interceptor - add auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('auth_token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
-  }
-)
+// Session ended (expired, logged out elsewhere, password changed): forget the
+// user and go to the login page once, remembering where we were.
+let redirectingToLogin = false
+
+export function handleSessionExpired() {
+  useAuthStore().clearSession()
+
+  const current = router.currentRoute.value
+  if (redirectingToLogin || current.name === 'login') return
+  // Before the first navigation has resolved, the router guard decides
+  if (!current.matched.length) return
+
+  redirectingToLogin = true
+  router
+    .replace({ name: 'login', query: { redirect: current.fullPath } })
+    .catch(() => {})
+    .finally(() => {
+      redirectingToLogin = false
+    })
+}
 
 // Response interceptor - handle errors
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Handle 401 Unauthorized - redirect to login
+    // Handle 401 Unauthorized - clear the session and go to login. A failed
+    // login attempt is also a 401; the login page shows that itself.
     if (error.response?.status === 401) {
-      localStorage.removeItem('auth_token')
-      // Only redirect if not already on login page
-      if (router.currentRoute.value.name !== 'login') {
-        router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+      const isLoginAttempt = error.config?.url?.endsWith('/auth/login')
+      if (!isLoginAttempt) {
+        if (error.config?.skipAuthRedirect) {
+          useAuthStore().clearSession()
+        } else {
+          handleSessionExpired()
+        }
       }
     }
 
@@ -125,9 +143,12 @@ export const backupsApi = {
   updateSchedule: (id, data) => api.put(`/backups/schedules/${id}`, data),
   deleteSchedule: (id) => api.delete(`/backups/schedules/${id}`),
   getHistory: (params) => api.get('/backups/history', { params }),
-  runBackup: (data) => api.post('/backups/run', data, { timeout: 600000 }), // 10 minute timeout for backup creation
+  // Backups, verifications and restores return 202 with a background job; poll getJob(job.id)
+  runBackup: (data) => api.post('/backups/run', data),
   deleteBackup: (id) => api.delete(`/backups/${id}`),
-  verifyBackup: (id) => api.post(`/backups/verification/run/${id}`, {}, { timeout: 600000 }), // 10 minute timeout for verification
+  verifyBackup: (id) => api.post(`/backups/verification/run/${id}`, {}),
+  getJob: (jobId) => api.get(`/backups/jobs/${jobId}`),
+  listJobs: (params) => api.get('/backups/jobs', { params }),
   getStats: () => api.get('/backups/stats'),
   getRetention: () => api.get('/backups/retention'),
   updateRetention: (type, data) => api.put(`/backups/retention/${type}`, data),
@@ -157,11 +178,7 @@ export const notificationsApi = {
   createGroup: (data) => api.post('/notifications/groups', data),
   updateGroup: (id, data) => api.put(`/notifications/groups/${id}`, data),
   deleteGroup: (id) => api.delete(`/notifications/groups/${id}`),
-  // Rules
-  getRules: () => api.get('/notifications/rules'),
-  createRule: (data) => api.post('/notifications/rules', data),
-  updateRule: (id, data) => api.put(`/notifications/rules/${id}`, data),
-  deleteRule: (id) => api.delete(`/notifications/rules/${id}`),
+  // Event types and history
   getEventTypes: () => api.get('/notifications/event-types'),
   getHistory: (params) => api.get('/notifications/history', { params }),
   // Webhook integration for n8n workflows

@@ -433,7 +433,7 @@ After configuration, these variables are set in your `.env`:
 | Variable | Example | Purpose |
 |----------|---------|---------|
 | `DNS_PROVIDER` | `cloudflare` | Which DNS provider plugin to use |
-| `DNS_CERTBOT_IMAGE` | `certbot/dns-cloudflare:latest` | Docker image for Certbot |
+| `DNS_CERTBOT_IMAGE` | `certbot/dns-cloudflare:v5.8.0` | Docker image for Certbot |
 | `DNS_CERTBOT_FLAGS` | `--dns-cloudflare ...` | CLI flags for certificate issuance |
 | `DNS_CREDENTIALS_FILE` | `cloudflare.ini` | Credentials file (relative to the install directory) mounted into the certbot container |
 | `DNS_CREDENTIALS_TARGET` | `/credentials.ini` | Where that file is mounted inside the certbot container (`/credentials.ini` for Cloudflare/DigitalOcean/manual, `/credentials.json` for Google, `/root/.aws/credentials` for Route 53). Must match the path used at issuance, which certbot records in `renewal/<domain>.conf` |
@@ -516,7 +516,7 @@ The Certbot container runs continuously and checks for renewal:
 ```yaml
 # docker-compose.yaml
 certbot:
-  image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
+  image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:v5.8.0}
   restart: unless-stopped
   environment:
     - NGINX_CONTAINER=${NGINX_CONTAINER:-n8n_nginx}
@@ -783,6 +783,7 @@ Access to fetch at 'https://...' from origin 'https://...' has been blocked by C
 1. Verify SSL certificate is valid (not self-signed)
 2. Check certificate matches the domain being accessed
 3. Ensure nginx is properly configured with correct server_name
+4. For a browser calling an n8n webhook from another site: set the Webhook node's **Allowed Origins (CORS)** option in n8n. nginx does not add CORS headers to `/webhook/` or `/form/` responses; n8n sets them per webhook.
 
 ### Rate Limits
 
@@ -865,7 +866,7 @@ echo | openssl s_client -connect YOUR_DOMAIN:443 2>/dev/null | openssl x509 -noo
 | Variable | Example | Purpose |
 |----------|---------|---------|
 | `DNS_PROVIDER` | `cloudflare` | DNS provider selection |
-| `DNS_CERTBOT_IMAGE` | `certbot/dns-cloudflare:latest` | Certbot Docker image |
+| `DNS_CERTBOT_IMAGE` | `certbot/dns-cloudflare:v5.8.0` | Certbot Docker image |
 | `DNS_CERTBOT_FLAGS` | `--dns-cloudflare --dns-cloudflare-credentials /credentials.ini` | Certbot CLI flags |
 | `DNS_CREDENTIALS_FILE` | `cloudflare.ini` | Credentials file name |
 | `DNS_CREDENTIALS_TARGET` | `/credentials.ini` | Mount path of the credentials file inside the certbot container |

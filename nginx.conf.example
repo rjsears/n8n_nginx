@@ -111,19 +111,11 @@ http {
 
         # Webhook endpoint - PUBLICLY ACCESSIBLE
         location /webhook/ {
-            add_header 'Access-Control-Allow-Origin' '*' always;
-            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+            # No CORS headers here: n8n answers webhook preflights itself and sets
+            # Access-Control-Allow-Origin from each Webhook node's "Allowed Origins"
+            # option. Adding them in nginx too duplicates the header (browsers then
+            # reject the response) and overrides the per-workflow setting.
             add_header X-Frame-Options "SAMEORIGIN" always;
-
-            if ($request_method = 'OPTIONS') {
-                add_header 'Access-Control-Allow-Origin' '*';
-                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
-                add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
-                add_header 'Access-Control-Max-Age' 86400;
-                add_header 'Content-Length' 0;
-                return 204;
-            }
 
             proxy_pass http://n8n;
             proxy_set_header Host $host;

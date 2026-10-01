@@ -177,6 +177,7 @@ watch(() => form.value.service_type, (newType) => {
       smtp_password: form.value.config.smtp_password || '',
       use_tls: form.value.config.use_tls ?? true,
       use_starttls: form.value.config.use_starttls ?? true,
+      use_ssl: form.value.config.use_ssl ?? null,
       from_email: form.value.config.from_email || '',
       to_emails: form.value.config.to_emails || '',
     }
@@ -190,6 +191,14 @@ watch(() => form.value.service_type, (newType) => {
 })
 
 const isEditing = computed(() => !!props.service)
+
+// SMTPS: an explicit choice wins, otherwise port 465 means implicit TLS
+// (the same rule the server applies).
+const usesImplicitTls = computed(() => {
+  const useSsl = form.value.config.use_ssl
+  if (useSsl === true || useSsl === false) return useSsl
+  return Number(form.value.config.smtp_port) === 465
+})
 
 const dialogTitle = computed(() => isEditing.value ? 'Edit Notification Channel' : 'Add Notification Channel')
 
@@ -323,6 +332,10 @@ const appriseExamples = [
                     {{ type.name }} - {{ type.description }}
                   </option>
                 </select>
+                <p v-if="isEditing" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Saved secrets (passwords, tokens, credentials in URLs) are shown masked as ***.
+                  Leave them as they are to keep the stored value, or type a new one to replace it.
+                </p>
               </div>
 
               <!-- Apprise Config -->
@@ -536,6 +549,28 @@ const appriseExamples = [
                     <input
                       type="checkbox"
                       v-model="form.config.use_starttls"
+                      :disabled="usesImplicitTls"
+                      class="sr-only peer"
+                    />
+                    <div
+                      class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"
+                    ></div>
+                  </label>
+                </div>
+
+                <!-- Implicit TLS (SMTPS, usually port 465) -->
+                <div v-if="form.config.email_preset === 'custom'" class="flex items-center justify-between">
+                  <div>
+                    <label class="text-sm font-medium text-gray-900 dark:text-white">Use SSL/TLS (SMTPS)</label>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                      Encrypted from the first byte, usually port 465. On by default for port 465.
+                    </p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      :checked="usesImplicitTls"
+                      @change="form.config.use_ssl = $event.target.checked"
                       class="sr-only peer"
                     />
                     <div

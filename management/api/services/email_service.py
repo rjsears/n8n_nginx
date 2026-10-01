@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from datetime import datetime, UTC
 from typing import Optional, List, Dict, Any
+import asyncio
+import smtplib
+import ssl
 import time
 import logging
 
@@ -24,6 +27,80 @@ from api.security import encrypt_value, decrypt_value
 from api.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Socket timeout for every SMTP connection (connect, TLS handshake, each
+# command). Without one a mail server that accepts the TCP connection and then
+# says nothing hangs the sender forever.
+SMTP_TIMEOUT_SECONDS = 15
+
+SMTPS_PORT = 465
+
+
+def wants_implicit_tls(port: Any, use_ssl: Optional[bool] = None) -> bool:
+    """
+    SMTPS (TLS from the first byte) instead of plain SMTP + STARTTLS.
+    An explicit ``use_ssl`` wins; otherwise port 465 means SMTPS.
+    """
+    if use_ssl is not None:
+        return bool(use_ssl)
+    try:
+        return int(port) == SMTPS_PORT
+    except (TypeError, ValueError):
+        return False
+
+
+def tls_context() -> ssl.SSLContext:
+    """
+    Verifying TLS context for SMTP: certificate chain and host name are
+    checked against the system CA store. smtplib's own default for STARTTLS
+    (and for SMTP_SSL without a context) does not verify the certificate, so
+    a man-in-the-middle could read the SMTP credentials and every alert.
+    There is deliberately no switch to turn this off; a server with a
+    self-signed certificate needs its CA added to the container's trust store.
+    """
+    return ssl.create_default_context()
+
+
+class VerifiedSMTP(smtplib.SMTP):
+    """smtplib.SMTP whose STARTTLS verifies the server certificate by default."""
+
+    def starttls(self, keyfile=None, certfile=None, context=None):  # noqa: D401
+        return super().starttls(context=context or tls_context())
+
+
+def build_email_sender(
+    host: str,
+    port: Any,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    use_starttls: bool = True,
+    use_ssl: Optional[bool] = None,
+    timeout: float = SMTP_TIMEOUT_SECONDS,
+):
+    """
+    A red-mail EmailSender with a socket timeout, using SMTP_SSL for implicit
+    TLS (port 465) and SMTP (+ optional STARTTLS) otherwise. Either way the
+    server certificate is verified (see tls_context).
+    """
+    from redmail import EmailSender
+
+    port = int(port) if port not in (None, "") else 587
+    implicit_tls = wants_implicit_tls(port, use_ssl)
+    kwargs: Dict[str, Any] = {
+        "host": host,
+        "port": port,
+        "cls_smtp": smtplib.SMTP_SSL if implicit_tls else VerifiedSMTP,
+        # STARTTLS on an already-encrypted SMTPS connection is an error.
+        "use_starttls": False if implicit_tls else bool(use_starttls),
+        "timeout": timeout,
+    }
+    if implicit_tls:
+        # red-mail passes extra keywords to the SMTP class constructor.
+        kwargs["context"] = tls_context()
+    if username or password:
+        kwargs["username"] = username
+        kwargs["password"] = password
+    return EmailSender(**kwargs)
 
 
 class EmailService:
@@ -98,39 +175,34 @@ class EmailService:
             raise RuntimeError("Email not configured")
 
         try:
-            from redmail import EmailSender
-
             provider = config.get("provider")
 
             if provider == "gmail_relay":
-                self._sender = EmailSender(
-                    host="smtp-relay.gmail.com",
-                    port=587,
-                    use_starttls=True,
-                )
+                self._sender = build_email_sender("smtp-relay.gmail.com", 587, use_starttls=True)
             elif provider == "gmail_app_password":
-                self._sender = EmailSender(
-                    host="smtp.gmail.com",
-                    port=587,
-                    use_starttls=True,
+                self._sender = build_email_sender(
+                    "smtp.gmail.com",
+                    587,
                     username=config.get("smtp_username"),
                     password=config.get("smtp_password"),
+                    use_starttls=True,
                 )
             elif provider == "smtp":
-                self._sender = EmailSender(
-                    host=config["smtp_host"],
-                    port=config.get("smtp_port", 587),
-                    use_starttls=config.get("use_tls", True),
+                self._sender = build_email_sender(
+                    config["smtp_host"],
+                    config.get("smtp_port", 587),
                     username=config.get("smtp_username"),
                     password=config.get("smtp_password"),
+                    use_starttls=config.get("use_tls", True),
+                    use_ssl=config.get("use_ssl"),
                 )
             elif provider == "sendgrid":
-                self._sender = EmailSender(
-                    host="smtp.sendgrid.net",
-                    port=587,
-                    use_starttls=True,
+                self._sender = build_email_sender(
+                    "smtp.sendgrid.net",
+                    587,
                     username="apikey",
                     password=config.get("api_key"),
+                    use_starttls=True,
                 )
             else:
                 raise ValueError(f"Unsupported email provider: {provider}")
@@ -156,7 +228,9 @@ class EmailService:
         from_name = config.get("from_name", "n8n Management")
 
         try:
-            sender.send(
+            # smtplib is blocking; keep it off the event loop
+            await asyncio.to_thread(
+                sender.send,
                 sender=f"{from_name} <{from_email}>",
                 receivers=[to],
                 subject=subject,

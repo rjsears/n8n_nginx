@@ -23,6 +23,8 @@ from api.dependencies import (
     rate_limit_login,
     verify_session_for_proxy,
 )
+from api.routers.terminal import close_terminals
+from api.security import SESSION_COOKIE_NAME
 from api.services.auth_service import AuthService
 from api.schemas.auth import (
     LoginRequest,
@@ -48,8 +50,8 @@ async def login(
 ):
     """
     Authenticate user and create session.
-    Returns session token for subsequent requests.
-    Also sets a session cookie for nginx auth_request (used by iframes).
+    The session is returned only as an HttpOnly cookie, which the console,
+    the terminal WebSocket and nginx auth_request (File Browser) all use.
     """
     client_ip = await get_client_ip(request)
     user_agent = request.headers.get("User-Agent")
@@ -77,22 +79,23 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Set session cookie for nginx auth_request (used by iframes like File Browser)
-    # httponly=False allows JavaScript to read it if needed, but it's also sent with requests
-    # secure=True ensures it's only sent over HTTPS
-    # samesite="lax" allows the cookie to be sent with same-site requests and top-level navigations
+    # The session token travels only in this cookie. HttpOnly keeps it away
+    # from page scripts (no localStorage copy for an XSS to steal); Secure
+    # limits it to HTTPS; SameSite=Strict keeps other sites from sending it.
+    # Path "/" because nginx auth_request for File Browser (/files/), Adminer
+    # and Dozzle authenticates with the same cookie. State-changing API calls
+    # made with it must also pass the CSRF check in main.CSRFMiddleware.
     response.set_cookie(
-        key="session",
+        key=SESSION_COOKIE_NAME,
         value=session.token,
         httponly=True,
         secure=True,
-        samesite="lax",
+        samesite="strict",
         max_age=int((session.expires_at - session.created_at).total_seconds()),
         path="/",
     )
 
     return LoginResponse(
-        token=session.token,
         expires_at=session.expires_at,
         user=UserInfo.model_validate(user),
     )
@@ -107,9 +110,10 @@ async def logout(
     """Invalidate current session and clear session cookie."""
     auth_service = AuthService(db)
     await auth_service.logout(session.token)
+    await close_terminals(token=session.token, reason="logged out")
 
     # Clear the session cookie
-    response.delete_cookie(key="session", path="/")
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/", secure=True, httponly=True, samesite="strict")
 
     return SuccessResponse(message="Logged out successfully")
 
@@ -169,6 +173,9 @@ async def change_password(
             detail=error,
         )
 
+    # change_password ended every session of this user; end their terminals too
+    await close_terminals(user_id=user.id, reason="password changed")
+
     return SuccessResponse(message="Password changed successfully")
 
 
@@ -191,6 +198,7 @@ async def logout_all_sessions(
     """Logout all sessions for current user."""
     auth_service = AuthService(db)
     count = await auth_service.logout_all(user.id)
+    await close_terminals(user_id=user.id, reason="all sessions logged out")
     return SuccessResponse(message=f"Logged out {count} session(s)")
 
 

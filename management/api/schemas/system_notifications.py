@@ -55,7 +55,7 @@ class TargetBase(BaseModel):
 
 
 class TargetCreate(TargetBase):
-    escalation_timeout_minutes: Optional[int] = Field(default=None, ge=1)
+    pass
 
 
 class TargetResponse(TargetBase):
@@ -77,15 +77,9 @@ class EventBase(BaseModel):
     severity: Optional[SeverityLevel] = SeverityLevel.WARNING
     frequency: Optional[FrequencyOption] = FrequencyOption.EVERY_TIME
     cooldown_minutes: Optional[int] = Field(default=5, ge=0)
-    flapping_enabled: Optional[bool] = True
-    flapping_threshold_count: Optional[int] = Field(default=3, ge=2)
-    flapping_threshold_minutes: Optional[int] = Field(default=10, ge=1)
-    flapping_summary_interval: Optional[int] = Field(default=15, ge=1)
     notify_on_recovery: Optional[bool] = True
     thresholds: Optional[Dict[str, Any]] = None
     escalation_enabled: Optional[bool] = False
-    escalation_timeout_minutes: Optional[int] = Field(default=30, ge=1)
-    include_in_digest: Optional[bool] = False
 
 
 class EventUpdate(EventBase):
@@ -103,15 +97,9 @@ class EventResponse(BaseModel):
     severity: str
     frequency: str
     cooldown_minutes: int
-    flapping_enabled: bool
-    flapping_threshold_count: int
-    flapping_threshold_minutes: int
-    flapping_summary_interval: int
     notify_on_recovery: bool
     thresholds: Optional[Dict[str, Any]] = None
     escalation_enabled: bool
-    escalation_timeout_minutes: int
-    include_in_digest: bool
     created_at: datetime
     updated_at: datetime
     targets: List[TargetResponse] = []
@@ -130,7 +118,6 @@ class ContainerConfigBase(BaseModel):
     cpu_threshold: Optional[int] = Field(default=80, ge=1, le=100)
     monitor_high_memory: Optional[bool] = False
     memory_threshold: Optional[int] = Field(default=80, ge=1, le=100)
-    custom_targets: Optional[List[Dict[str, Any]]] = None
 
 
 class ContainerConfigCreate(ContainerConfigBase):
@@ -152,7 +139,6 @@ class ContainerConfigResponse(BaseModel):
     cpu_threshold: int
     monitor_high_memory: bool
     memory_threshold: int
-    custom_targets: Optional[List[Dict[str, Any]]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -173,10 +159,6 @@ class GlobalSettingsBase(BaseModel):
     blackout_start: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     blackout_end: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     max_notifications_per_hour: Optional[int] = Field(default=50, ge=1)
-    emergency_contact_id: Optional[int] = None
-    digest_enabled: Optional[bool] = False
-    digest_time: Optional[str] = Field(default="08:00", pattern=r"^\d{2}:\d{2}$")
-    digest_severity_levels: Optional[List[str]] = None
 
 
 class GlobalSettingsUpdate(GlobalSettingsBase):
@@ -198,12 +180,6 @@ class GlobalSettingsResponse(BaseModel):
     max_notifications_per_hour: int
     notifications_this_hour: int
     hour_started_at: Optional[datetime] = None
-    emergency_contact_id: Optional[int] = None
-    emergency_contact_name: Optional[str] = None
-    digest_enabled: bool
-    digest_time: str
-    digest_severity_levels: Optional[List[str]] = None
-    last_digest_sent: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -252,11 +228,6 @@ class StateResponse(BaseModel):
     event_type: str
     target_id: Optional[str] = None
     last_sent_at: Optional[datetime] = None
-    event_count_in_window: int
-    window_start: Optional[datetime] = None
-    is_flapping: bool
-    flapping_started_at: Optional[datetime] = None
-    last_summary_at: Optional[datetime] = None
     escalation_triggered_at: Optional[datetime] = None
     escalation_sent: bool
     created_at: datetime

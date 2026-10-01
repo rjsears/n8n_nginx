@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Dict, Any
 from datetime import datetime, timedelta, UTC
+import asyncio
 import os
 import psutil
 
@@ -49,7 +50,7 @@ def _run_alpine_container_sync(docker_client, command: list, **kwargs) -> bytes:
         # Docker daemon handles cleanup automatically when container exits
         # Disable AppArmor to avoid issues in LXC environments
         output = docker_client.containers.run(
-            "alpine:latest",
+            settings.helper_image,
             command=command,
             remove=True,
             security_opt=["apparmor=unconfined"],
@@ -79,7 +80,8 @@ async def health_check():
     # Check NFS if configured
     nfs_status = None
     if settings.nfs_server:
-        nfs_status = "connected" if os.path.ismount(settings.nfs_mount_point) else "disconnected"
+        from api.services.backup_storage import is_offsite_storage_async
+        nfs_status = "connected" if await is_offsite_storage_async(settings.nfs_mount_point) else "disconnected"
 
     return HealthResponse(
         status="healthy" if db_status == "connected" else "degraded",
@@ -91,7 +93,7 @@ async def health_check():
 
 
 @router.get("/metrics")
-async def get_system_metrics(
+def get_system_metrics(
     _=Depends(get_current_user),
 ):
     """Get current system metrics."""
@@ -200,7 +202,7 @@ async def list_audit_actions(
 
 
 @router.get("/info")
-async def get_system_info(
+def get_system_info(
     _=Depends(get_current_user),
 ):
     """Get system information."""
@@ -227,7 +229,7 @@ async def get_system_info(
 
 
 @router.get("/docker/info")
-async def get_docker_info(
+def get_docker_info(
     _=Depends(get_current_user),
 ):
     """Get Docker daemon information."""
@@ -318,7 +320,7 @@ async def get_network_info(
     # Fallback: Try to get host network info via Docker (since we're in a container)
     try:
         import docker
-        client = docker.from_env()
+        client = await asyncio.to_thread(docker.from_env)
 
         # Run commands in a container with host networking to get real host info
         # Use alpine since it's small and likely already pulled for terminal
@@ -329,7 +331,8 @@ ip -4 addr show | grep -E 'inet [0-9]' | grep -v '127.0.0.1'
 ip route | grep default | head -1
 cat /etc/resolv.conf | grep nameserver
 """
-        result = _run_alpine_container_sync(
+        result = await asyncio.to_thread(
+            _run_alpine_container_sync,
             client,
             command=["sh", "-c", commands],
             network_mode="host",
@@ -483,149 +486,19 @@ cat /etc/resolv.conf | grep nameserver
 
 
 @router.get("/ssl")
-async def get_ssl_info(
+async def get_ssl_info_endpoint(
     _=Depends(get_current_user),
 ):
     """Get SSL certificate information from the nginx container."""
-    import re
+    import asyncio
 
-    ssl_info = {
-        "configured": False,
-        "certificates": [],
-    }
+    from api.services.ssl_service import get_ssl_info
 
-    def parse_cert_output(output: str, domain: str, cert_path: str) -> dict:
-        """Parse openssl x509 output into certificate info dict."""
-        cert_info = {
-            "domain": domain,
-            "path": cert_path,
-            "type": "Let's Encrypt",
-        }
-
-        for line in output.split("\n"):
-            line = line.strip()
-            if line.startswith("subject="):
-                cert_info["subject"] = line.replace("subject=", "").strip()
-            elif line.startswith("issuer="):
-                cert_info["issuer"] = line.replace("issuer=", "").strip()
-            elif line.startswith("notBefore="):
-                cert_info["valid_from"] = line.replace("notBefore=", "").strip()
-            elif line.startswith("notAfter="):
-                cert_info["valid_until"] = line.replace("notAfter=", "").strip()
-            elif "DNS:" in line:
-                sans = [s.strip().replace("DNS:", "") for s in line.split(",") if "DNS:" in s]
-                cert_info["san"] = sans
-
-        # Calculate days until expiry
-        if "valid_until" in cert_info:
-            try:
-                expiry = datetime.strptime(
-                    cert_info["valid_until"],
-                    "%b %d %H:%M:%S %Y %Z"
-                )
-                days_left = (expiry.replace(tzinfo=None) - datetime.now()).days
-                cert_info["days_until_expiry"] = days_left
-                cert_info["status"] = "valid" if days_left > 0 else "expired"
-                if days_left <= 7:
-                    cert_info["warning"] = "Certificate expiring soon!"
-                elif days_left <= 30:
-                    cert_info["warning"] = "Certificate expires within 30 days"
-            except Exception:
-                pass
-
-        return cert_info
-
-    # Try to get SSL info from nginx container
-    try:
-        import docker
-        client = docker.from_env()
-
-        # Find nginx container (prioritize router, then main nginx)
-        # Skip n8n_nginx_public as it has no SSL config
-        nginx_container = None
-        try:
-            nginx_container = client.containers.get("n8n_nginx_router")
-        except Exception:
-            try:
-                nginx_container = client.containers.get("n8n_nginx")
-            except Exception:
-                pass
-
-        if nginx_container:
-            # First, list certificate directories
-            try:
-                exit_code, output = nginx_container.exec_run(
-                    "ls /etc/letsencrypt/live/",
-                    demux=True
-                )
-                if exit_code == 0 and output[0]:
-                    domains = output[0].decode("utf-8").strip().split("\n")
-                    domains = [d for d in domains if d and not d.startswith("README")]
-
-                    for domain in domains:
-                        cert_path = f"/etc/letsencrypt/live/{domain}/cert.pem"
-
-                        # Get certificate info using openssl
-                        exit_code, output = nginx_container.exec_run(
-                            f"openssl x509 -in {cert_path} -noout -subject -issuer -dates -ext subjectAltName",
-                            demux=True
-                        )
-
-                        if exit_code == 0 and output[0]:
-                            cert_output = output[0].decode("utf-8")
-                            cert_info = parse_cert_output(cert_output, domain, cert_path)
-                            ssl_info["certificates"].append(cert_info)
-                            ssl_info["configured"] = True
-
-            except Exception as e:
-                ssl_info["error"] = f"Failed to read certificates from nginx: {str(e)}"
-
-            ssl_info["source"] = "nginx_container"
-        else:
-            ssl_info["error"] = "Nginx container not found"
-            ssl_info["source"] = "none"
-
-    except Exception as e:
-        ssl_info["error"] = f"Docker error: {str(e)}"
-
-    # Fallback: check local paths if no certs found via nginx
-    if not ssl_info["configured"] and not ssl_info.get("error"):
-        letsencrypt_path = "/etc/letsencrypt/live"
-        try:
-            if os.path.exists(letsencrypt_path):
-                for domain_dir in os.listdir(letsencrypt_path):
-                    if domain_dir.startswith("README"):
-                        continue
-                    cert_path = os.path.join(letsencrypt_path, domain_dir, "cert.pem")
-
-                    if os.path.exists(cert_path):
-                        import subprocess
-                        result = subprocess.run(
-                            ["openssl", "x509", "-in", cert_path, "-noout",
-                             "-subject", "-issuer", "-dates", "-ext", "subjectAltName"],
-                            capture_output=True,
-                            text=True,
-                            timeout=10,
-                        )
-
-                        if result.returncode == 0:
-                            cert_info = parse_cert_output(result.stdout, domain_dir, cert_path)
-                            ssl_info["certificates"].append(cert_info)
-                            ssl_info["configured"] = True
-                            ssl_info["source"] = "local"
-
-        except PermissionError:
-            if not ssl_info.get("error"):
-                ssl_info["error"] = "Permission denied reading certificate directory"
-        except Exception as e:
-            if not ssl_info.get("error"):
-                ssl_info["error"] = str(e)
-
-    return ssl_info
+    return await asyncio.to_thread(get_ssl_info)
 
 
 @router.post("/ssl/renew")
-async def force_renew_ssl_certificate(
+def force_renew_ssl_certificate(
     _=Depends(get_current_user),
 ):
     """
@@ -726,7 +599,7 @@ async def force_renew_ssl_certificate(
 
 
 @router.get("/terminal/targets")
-async def get_terminal_targets(
+def get_terminal_targets(
     _=Depends(get_current_user),
 ):
     """Get available terminal connection targets (containers)."""
@@ -736,25 +609,48 @@ async def get_terminal_targets(
 
         targets = []
 
-        # Add option for host (if privileged mode is available)
+        # Host root shell: listed either way so the UI can explain how to
+        # enable it, but only usable with ENABLE_HOST_TERMINAL=true (the
+        # WebSocket enforces this, not the UI).
+        from api.config import settings as app_settings
+        from api.routers.terminal import (
+            HOST_TERMINAL_DISABLED_MESSAGE,
+            host_equivalent_reason,
+            host_equivalent_refusal,
+        )
+
+        host_enabled = bool(app_settings.enable_host_terminal)
         targets.append({
             "id": "host",
             "name": "Host System",
             "type": "host",
-            "status": "available",
-            "description": "Connect directly to the Docker host filesystem",
+            "status": "available" if host_enabled else "disabled",
+            "enabled": host_enabled,
+            "description": (
+                "Root shell on the Docker host"
+                if host_enabled
+                else HOST_TERMINAL_DISABLED_MESSAGE
+            ),
         })
 
         # List running containers
         containers = client.containers.list(all=False)  # Only running containers
         for container in containers:
-            targets.append({
+            target = {
                 "id": container.id[:12],
                 "name": container.name,
                 "type": "container",
                 "status": container.status,
                 "image": container.image.tags[0] if container.image.tags else "unknown",
-            })
+            }
+            # Containers that amount to host root access are refused by the
+            # WebSocket while the host terminal is disabled; show them as such.
+            reason = None if host_enabled else host_equivalent_reason(container.attrs)
+            if reason:
+                target["enabled"] = False
+                target["status"] = "disabled"
+                target["description"] = host_equivalent_refusal(container.name, reason)
+            targets.append(target)
 
         return {"targets": targets}
 
@@ -766,7 +662,7 @@ async def get_terminal_targets(
 
 
 @router.get("/external-services")
-async def get_external_services(
+def get_external_services(
     _=Depends(get_current_user),
 ):
     """Detect external services from nginx.conf location blocks."""
@@ -946,11 +842,11 @@ async def get_cloudflare_status(
 
     try:
         import docker
-        client = docker.from_env()
+        client = await asyncio.to_thread(docker.from_env)
 
         # Find cloudflared container (common names: cloudflared, cloudflare-tunnel, cf-tunnel)
         cf_container = None
-        for container in client.containers.list(all=True):
+        for container in await asyncio.to_thread(client.containers.list, all=True):
             name = container.name.lower()
             if "cloudflare" in name or "cloudflared" in name or "cf-tunnel" in name:
                 cf_container = container
@@ -966,7 +862,8 @@ async def get_cloudflare_status(
 
                 # Get cloudflared version
                 try:
-                    exit_code, output = cf_container.exec_run(
+                    exit_code, output = await asyncio.to_thread(
+                        cf_container.exec_run,
                         "cloudflared version",
                         demux=True
                     )
@@ -993,7 +890,8 @@ async def get_cloudflare_status(
                 # Try to get metrics/status from cloudflared
                 # cloudflared has a metrics endpoint on :2000/metrics by default
                 try:
-                    exit_code, output = cf_container.exec_run(
+                    exit_code, output = await asyncio.to_thread(
+                        cf_container.exec_run,
                         "wget -q -O- http://localhost:2000/ready 2>/dev/null || echo 'not_ready'",
                         demux=True
                     )
@@ -1006,7 +904,8 @@ async def get_cloudflare_status(
                 # Get full metrics from Prometheus endpoint
                 try:
                     # Try curl first (more common), then wget
-                    exit_code, output = cf_container.exec_run(
+                    exit_code, output = await asyncio.to_thread(
+                        cf_container.exec_run,
                         "curl -s http://localhost:2000/metrics 2>/dev/null || wget -q -O- http://localhost:2000/metrics 2>/dev/null",
                         demux=True
                     )
@@ -1193,11 +1092,11 @@ async def get_tailscale_status(
 
     try:
         import docker
-        client = docker.from_env()
+        client = await asyncio.to_thread(docker.from_env)
 
         # Find tailscale container
         ts_container = None
-        for container in client.containers.list(all=True):
+        for container in await asyncio.to_thread(client.containers.list, all=True):
             name = container.name.lower()
             if "tailscale" in name:
                 ts_container = container
@@ -1213,7 +1112,8 @@ async def get_tailscale_status(
 
                 # Get tailscale status
                 try:
-                    exit_code, output = ts_container.exec_run(
+                    exit_code, output = await asyncio.to_thread(
+                        ts_container.exec_run,
                         "tailscale status --json",
                         demux=True
                     )
@@ -1313,7 +1213,8 @@ async def get_tailscale_status(
 
                 except json_module.JSONDecodeError:
                     # Try plain text status
-                    exit_code, output = ts_container.exec_run(
+                    exit_code, output = await asyncio.to_thread(
+                        ts_container.exec_run,
                         "tailscale status",
                         demux=True
                     )
@@ -1327,7 +1228,8 @@ async def get_tailscale_status(
         else:
             # Try host tailscale via alpine container with host networking
             try:
-                result = _run_alpine_container_sync(
+                result = await asyncio.to_thread(
+                    _run_alpine_container_sync,
                     client,
                     command=["sh", "-c", "which tailscale && tailscale status --json 2>/dev/null || echo 'not_found'"],
                     network_mode="host",
@@ -1414,7 +1316,7 @@ async def get_full_health_check(
 
     try:
         import docker
-        client = docker.from_env()
+        client = await asyncio.to_thread(docker.from_env)
 
         # ========================================
         # Docker Container Health
@@ -1433,7 +1335,7 @@ async def get_full_health_check(
             client.ping()
 
             # Get all containers
-            containers = client.containers.list(all=True)
+            containers = await asyncio.to_thread(client.containers.list, all=True)
             core_containers = ["n8n", "n8n_postgres", "n8n_nginx", "n8n_management"]
 
             for container in containers:
@@ -1483,17 +1385,18 @@ async def get_full_health_check(
         # Skip n8n_nginx_public as it has no SSL
         nginx_container = None
         try:
-            nginx_container = client.containers.get("n8n_nginx_router")
+            nginx_container = await asyncio.to_thread(client.containers.get, "n8n_nginx_router")
         except Exception:
             try:
-                nginx_container = client.containers.get("n8n_nginx")
+                nginx_container = await asyncio.to_thread(client.containers.get, "n8n_nginx")
             except Exception:
                 pass
 
         # Check n8n API (with timeout)
         try:
             if nginx_container:
-                exit_code, output = nginx_container.exec_run(
+                exit_code, output = await asyncio.to_thread(
+                    nginx_container.exec_run,
                     "curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://n8n:5678/healthz",
                     demux=True
                 )
@@ -1516,7 +1419,7 @@ async def get_full_health_check(
         # Check Nginx
         try:
             if nginx_container:
-                exit_code, output = nginx_container.exec_run("nginx -t", demux=True)
+                exit_code, output = await asyncio.to_thread(nginx_container.exec_run, "nginx -t", demux=True)
                 if exit_code == 0:
                     services_details["nginx"] = "ok"
                 else:
@@ -1533,14 +1436,14 @@ async def get_full_health_check(
         # Check Public Website Nginx (if it exists)
         try:
             nginx_public_container = None
-            for c in client.containers.list(all=True):
+            for c in await asyncio.to_thread(client.containers.list, all=True):
                 if c.name == "n8n_nginx_public":
                     nginx_public_container = c
                     break
 
             if nginx_public_container:
                 if nginx_public_container.status == "running":
-                    exit_code, output = nginx_public_container.exec_run("nginx -t", demux=True)
+                    exit_code, output = await asyncio.to_thread(nginx_public_container.exec_run, "nginx -t", demux=True)
                     if exit_code == 0:
                         services_details["nginx_public"] = "ok"
                     else:
@@ -1568,7 +1471,7 @@ async def get_full_health_check(
 
         try:
             postgres_container = None
-            for c in client.containers.list():
+            for c in await asyncio.to_thread(client.containers.list):
                 if "postgres" in c.name.lower():
                     postgres_container = c
                     break
@@ -1589,7 +1492,8 @@ async def get_full_health_check(
                 database_details["user"] = db_user
 
                 # Check if PostgreSQL is accepting connections
-                exit_code, _ = postgres_container.exec_run(
+                exit_code, _ = await asyncio.to_thread(
+                    postgres_container.exec_run,
                     f"pg_isready -U {db_user}",
                     demux=True
                 )
@@ -1597,7 +1501,8 @@ async def get_full_health_check(
                     database_details["connection"] = "ok"
 
                     # Check n8n database
-                    exit_code, _ = postgres_container.exec_run(
+                    exit_code, _ = await asyncio.to_thread(
+                        postgres_container.exec_run,
                         f"psql -U {db_user} -d n8n -c 'SELECT 1' -t",
                         demux=True
                     )
@@ -1608,7 +1513,8 @@ async def get_full_health_check(
                         database_status = "error"
 
                     # Check management database
-                    exit_code, _ = postgres_container.exec_run(
+                    exit_code, _ = await asyncio.to_thread(
+                        postgres_container.exec_run,
                         f"psql -U {db_user} -d n8n_management -c 'SELECT 1' -t",
                         demux=True
                     )
@@ -1620,7 +1526,8 @@ async def get_full_health_check(
                             database_status = "warning"
 
                     # Get version
-                    exit_code, output = postgres_container.exec_run(
+                    exit_code, output = await asyncio.to_thread(
+                        postgres_container.exec_run,
                         f"psql -U {db_user} -d n8n -c 'SELECT version()' -t",
                         demux=True
                     )
@@ -1679,7 +1586,7 @@ async def get_full_health_check(
                     resources_status = "warning"
 
             # CPU (use interval=0.1 for faster response, interval=None uses cached value)
-            cpu_percent = psutil.cpu_percent(interval=0.1)
+            cpu_percent = await asyncio.to_thread(psutil.cpu_percent, 0.1)
             cpu_count = psutil.cpu_count()
             load_avg = psutil.getloadavg()
             load_percent = round((load_avg[0] / cpu_count) * 100, 1) if cpu_count else 0
@@ -1726,7 +1633,8 @@ async def get_full_health_check(
             ssl_status = "skipped"
             try:
                 if nginx_container:
-                    exit_code, output = nginx_container.exec_run(
+                    exit_code, output = await asyncio.to_thread(
+                        nginx_container.exec_run,
                         "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
                         demux=True
                     )
@@ -1744,7 +1652,8 @@ async def get_full_health_check(
                     # Get the domain from nginx.conf inside the container (like health_check.sh)
                     domain = None
 
-                    exit_code, output = nginx_container.exec_run(
+                    exit_code, output = await asyncio.to_thread(
+                        nginx_container.exec_run,
                         "grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf",
                         demux=True
                     )
@@ -1762,7 +1671,8 @@ async def get_full_health_check(
                         # Run openssl in alpine container sharing nginx's network
                         # This ensures openssl is available and can connect to nginx's localhost:443
                         try:
-                            result = _run_alpine_container_sync(
+                            result = await asyncio.to_thread(
+                                _run_alpine_container_sync,
                                 client,
                                 command=["sh", "-c", f"apk add --no-cache openssl >/dev/null 2>&1 && echo | openssl s_client -servername {domain} -connect localhost:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null"],
                                 network_mode=f"container:{nginx_container.id}",
@@ -1776,7 +1686,8 @@ async def get_full_health_check(
                         # Fallback: read cert file directly via nginx container with cat + python parsing
                         if not expiry_str:
                             try:
-                                exit_code, output = nginx_container.exec_run(
+                                exit_code, output = await asyncio.to_thread(
+                                    nginx_container.exec_run,
                                     f"cat /etc/letsencrypt/live/{domain}/fullchain.pem",
                                     demux=True
                                 )
@@ -1858,7 +1769,8 @@ async def get_full_health_check(
 
             # Internet connectivity (check npm registry like health_check.sh)
             if nginx_container:
-                exit_code, output = nginx_container.exec_run(
+                exit_code, output = await asyncio.to_thread(
+                    nginx_container.exec_run,
                     "curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 https://registry.npmjs.org/",
                     demux=True
                 )
@@ -2030,7 +1942,7 @@ async def get_full_health_check(
                     "Update check",
                 ]
 
-                for container in client.containers.list():
+                for container in await asyncio.to_thread(client.containers.list):
                     if container.name in containers_to_check:
                         container_errors = 0
                         container_warnings = 0

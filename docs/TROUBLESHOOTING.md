@@ -102,12 +102,12 @@ docker inspect <container_name>
 
 ### Alpine Containers Stuck in "Created" State (LXC/AppArmor)
 
-**Symptoms:** Many `alpine:latest` containers accumulate in `Created` state and never run. Common when running Docker inside an LXC container (e.g., Proxmox).
+**Symptoms:** Many helper `alpine:3.24.2` containers (older releases: `alpine:latest`) accumulate in `Created` state and never run. Common when running Docker inside an LXC container (e.g., Proxmox).
 
 **Diagnosis:**
 ```bash
 # List orphaned alpine containers
-docker ps -a --filter "ancestor=alpine:latest"
+docker ps -a --filter "ancestor=alpine:3.24.2"
 
 # Inspect a stuck container for the AppArmor error
 docker inspect <container_id> | grep -i error
@@ -126,8 +126,8 @@ docker compose up -d n8n_management
 **Cleanup orphaned containers:**
 ```bash
 # Remove all stuck alpine containers (safe — they have no running processes)
-docker ps -a --filter "ancestor=alpine:latest" --filter "status=created" -q | xargs -r docker rm -f
-docker ps -a --filter "ancestor=alpine:latest" --filter "status=exited" -q | xargs -r docker rm -f
+docker ps -a --filter "ancestor=alpine:3.24.2" --filter "status=created" -q | xargs -r docker rm -f
+docker ps -a --filter "ancestor=alpine:3.24.2" --filter "status=exited" -q | xargs -r docker rm -f
 ```
 
 ### Container Creation Fails: "docker-default profile could not be loaded" (LXC/AppArmor)

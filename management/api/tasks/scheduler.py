@@ -15,8 +15,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from typing import Optional
+import asyncio
 import logging
 import docker
 
@@ -91,7 +92,12 @@ async def _persist_backup_next_run_times() -> None:
                 await db.execute(
                     update(BackupSchedule)
                     .where(BackupSchedule.id == schedule_id)
-                    .values(apscheduler_job_id=job.id, next_run=job.next_run_time)
+                    # Keep updated_at as is: a restart is not an edit.
+                    .values(
+                        apscheduler_job_id=job.id,
+                        next_run=job.next_run_time,
+                        updated_at=BackupSchedule.updated_at,
+                    )
                 )
             await db.commit()
     except Exception as e:
@@ -106,6 +112,14 @@ async def shutdown_scheduler() -> None:
         scheduler.shutdown(wait=True)
         scheduler = None
         logger.info("Scheduler shutdown complete")
+
+    # Give notifications still being delivered in the background a moment
+    try:
+        from api.services.notification_service import drain_notifications
+
+        await drain_notifications(timeout=10)
+    except Exception as e:
+        logger.error(f"Failed to drain pending notifications: {e}")
 
 
 def get_scheduler() -> Optional[AsyncIOScheduler]:
@@ -176,6 +190,17 @@ async def _add_maintenance_jobs() -> None:
         replace_existing=True,
     )
 
+    # Backup health - hourly at minute 40: off-host (NFS) storage check and
+    # the VerificationSchedule slot (runs the comprehensive verification
+    # when due; see verification_service.run_scheduled_verification).
+    scheduler.add_job(
+        _run_backup_health_checks,
+        CronTrigger(minute=40),
+        id="maintenance_backup_health",
+        name="Backup Storage & Scheduled Verification",
+        replace_existing=True,
+    )
+
     # Notification history cleanup - run daily at 3 AM
     scheduler.add_job(
         _cleanup_notification_history,
@@ -194,175 +219,54 @@ async def _add_maintenance_jobs() -> None:
         replace_existing=True,
     )
 
-    logger.info("Maintenance jobs added")
-
-
-async def schedule_l2_escalation(
-    event_type: str,
-    event_data: dict,
-    event_id: int,
-    target_id: str,
-    timeout_minutes: int,
-) -> None:
-    """
-    Schedule an L2 escalation notification to be sent after a timeout.
-
-    Args:
-        event_type: The notification event type
-        event_data: The original event data
-        event_id: The SystemNotificationEvent ID
-        target_id: Target identifier (e.g., container name)
-        timeout_minutes: Minutes to wait before escalating
-    """
-    from apscheduler.triggers.date import DateTrigger
-    from datetime import timedelta
-
-    if scheduler is None:
-        logger.error("Cannot schedule L2 escalation - scheduler not initialized")
-        return
-
-    run_at = datetime.now(UTC) + timedelta(minutes=timeout_minutes)
-    job_id = f"l2_escalation_{event_type}_{target_id}_{int(datetime.now(UTC).timestamp())}"
-
+    # Per-container CPU / memory thresholds - run every 5 minutes, offset from
+    # host metrics so the two Docker stats calls do not coincide
     scheduler.add_job(
-        _send_l2_escalation,
-        trigger=DateTrigger(run_date=run_at),
-        id=job_id,
-        name=f"L2 Escalation: {event_type}",
-        kwargs={
-            "event_type": event_type,
-            "event_data": event_data,
-            "event_id": event_id,
-            "target_id": target_id,
-        },
-        replace_existing=False,
+        _check_container_resources,
+        CronTrigger(minute="2-59/5"),
+        id="maintenance_container_resources",
+        name="Container Resource Thresholds",
+        replace_existing=True,
     )
 
-    logger.info(f"Scheduled L2 escalation for '{event_type}' in {timeout_minutes} minutes (job: {job_id})")
-
-
-async def _send_l2_escalation(
-    event_type: str,
-    event_data: dict,
-    event_id: int,
-    target_id: str,
-) -> None:
-    """
-    Send L2 escalation notifications.
-    Called by the scheduler after the escalation timeout.
-    """
-    from api.database import async_session_maker
-    from api.models.system_notifications import (
-        SystemNotificationEvent,
-        SystemNotificationTarget,
-        SystemNotificationState,
-        SystemNotificationHistory,
+    # Certificate expiry - run daily at 6 AM
+    scheduler.add_job(
+        _check_certificate_expiry,
+        CronTrigger(hour=6, minute=0),
+        id="maintenance_certificate_expiry",
+        name="Certificate Expiry Check",
+        replace_existing=True,
     )
-    from api.services.notification_service import NotificationService, _build_notification_message
-    from sqlalchemy import select
 
-    logger.info(f"Executing L2 escalation for '{event_type}' (target: {target_id})")
+    # Backup dead-man's switch - hourly at minute 40, and once shortly after
+    # startup so a restart that lost a scheduled run is noticed promptly.
+    scheduler.add_job(
+        _check_backup_freshness,
+        CronTrigger(minute=40),
+        id="maintenance_backup_freshness",
+        name="Backup Freshness Check",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _check_backup_freshness,
+        "date",
+        run_date=datetime.now(UTC) + timedelta(minutes=2),
+        id="startup_backup_freshness",
+        name="Backup Freshness Check (startup)",
+        replace_existing=True,
+    )
 
-    async with async_session_maker() as db:
-        # Check if escalation was already sent (e.g., by critical event trigger)
-        state_result = await db.execute(
-            select(SystemNotificationState).where(
-                SystemNotificationState.event_type == event_type,
-                SystemNotificationState.target_id == target_id
-            )
-        )
-        state = state_result.scalar_one_or_none()
+    # Outbound heartbeat to an external monitor (HEARTBEAT_URL). Checked every
+    # minute; the ping interval (HEARTBEAT_INTERVAL_MINUTES) is applied inside.
+    scheduler.add_job(
+        _send_heartbeat,
+        CronTrigger(minute="*"),
+        id="maintenance_heartbeat",
+        name="External Heartbeat",
+        replace_existing=True,
+    )
 
-        if state and state.escalation_sent:
-            logger.debug(f"L2 escalation already sent for '{event_type}', skipping")
-            return
-
-        # Get the event
-        event_result = await db.execute(
-            select(SystemNotificationEvent).where(SystemNotificationEvent.id == event_id)
-        )
-        event = event_result.scalar_one_or_none()
-
-        if not event:
-            logger.error(f"Event {event_id} not found for L2 escalation")
-            return
-
-        # Get L2 targets
-        targets_result = await db.execute(
-            select(SystemNotificationTarget).where(
-                SystemNotificationTarget.event_id == event_id,
-                SystemNotificationTarget.escalation_level == 2
-            )
-        )
-        l2_targets = targets_result.scalars().all()
-
-        if not l2_targets:
-            logger.debug(f"No L2 targets for event {event_id}")
-            return
-
-        # Build notification
-        title = f"[ESCALATED] {event.display_name}"
-        message = _build_notification_message(event_type, event_data)
-
-        notification_service = NotificationService(db)
-        sent_count = 0
-        channels_sent = []
-
-        for target in l2_targets:
-            try:
-                if target.target_type == "channel" and target.channel_id:
-                    result = await notification_service.send_to_service(
-                        target.channel_id, title, message, "critical"
-                    )
-                    if result.get("success"):
-                        sent_count += 1
-                        channels_sent.append({"type": "channel", "id": target.channel_id, "level": 2})
-                        logger.info(f"L2 escalation sent to channel {target.channel_id}")
-
-                elif target.target_type == "group" and target.group_id:
-                    result = await notification_service.send_to_group(
-                        target.group_id, title, message, "critical"
-                    )
-                    if result.get("success"):
-                        sent_count += result.get("sent_count", 1)
-                        channels_sent.append({"type": "group", "id": target.group_id, "level": 2})
-                        logger.info(f"L2 escalation sent to group {target.group_id}")
-
-            except Exception as e:
-                logger.error(f"Failed to send L2 escalation to target {target.id}: {e}")
-
-        # Update state
-        if state:
-            state.escalation_sent = True
-            state.escalation_triggered_at = datetime.now(UTC)
-        else:
-            state = SystemNotificationState(
-                event_type=event_type,
-                target_id=target_id,
-                escalation_sent=True,
-                escalation_triggered_at=datetime.now(UTC),
-            )
-            db.add(state)
-
-        # Log to history
-        now = datetime.now(UTC)
-        history = SystemNotificationHistory(
-            event_type=event_type,
-            event_id=event_id,
-            target_id=target_id,
-            target_label=f"L2 Escalation: {event_data.get('container', event_type)}",
-            severity="critical",
-            event_data=event_data,
-            channels_sent=channels_sent,
-            escalation_level=2,
-            status="sent" if sent_count > 0 else "failed",
-            triggered_at=now,
-            sent_at=now if sent_count > 0 else None,
-        )
-        db.add(history)
-
-        await db.commit()
-        logger.info(f"L2 escalation completed for '{event_type}' - sent to {sent_count} channel(s)")
+    logger.info("Maintenance jobs added")
 
 
 async def _sync_backup_schedules() -> None:
@@ -463,6 +367,7 @@ async def add_backup_job(schedule) -> None:
                 .values(
                     apscheduler_job_id=job_id,
                     next_run=next_run_time,
+                    updated_at=BackupSchedule.updated_at,  # not an edit
                 )
             )
             await db.commit()
@@ -589,6 +494,14 @@ async def _collect_metrics() -> None:
             },
         }
 
+        # Threshold checks first: the sustained-CPU window looks at *earlier*
+        # cached samples, so this sample must not be in the cache yet.
+        try:
+            from api.services.system_monitors import check_host_metrics
+            await check_host_metrics(metrics)
+        except Exception as e:
+            logger.error(f"Host metric threshold check failed: {e}")
+
         async with async_session_maker() as db:
             for metric_type, data in metrics.items():
                 cache = SystemMetricsCache(
@@ -615,8 +528,7 @@ async def _check_container_health() -> None:
         for container in health.get("unhealthy", []):
             await dispatch_notification(
                 "container_unhealthy",
-                {"container": container},
-                severity="critical",
+                {"container": container}
             )
 
         # Alert for stopped containers (that should be running)
@@ -625,8 +537,7 @@ async def _check_container_health() -> None:
             if container not in ["n8n_cloudflared", "n8n_tailscale"]:
                 await dispatch_notification(
                     "container_stopped",
-                    {"container": container},
-                    severity="warning",
+                    {"container": container}
                 )
 
         # Alert for automatically restarted containers
@@ -639,13 +550,80 @@ async def _check_container_health() -> None:
                     "container": container_name,
                     "container_name": container_name,
                     "restart_count": restart_count,
-                },
-                severity="warning",
+                }
             )
             logger.info(f"Sent restart notification for {container_name} (count: {restart_count})")
 
+        # Recovery: containers announced unhealthy/stopped that are healthy again
+        from api.services.system_monitors import check_container_recovery
+        recovered = await check_container_recovery(health)
+        for container in recovered:
+            logger.info(f"Container {container} recovered - sent container_healthy notification")
+
     except Exception as e:
         logger.error(f"Container health check failed: {e}")
+
+
+async def _check_backup_freshness() -> None:
+    """Alert on overdue scheduled backups and close out backups stuck in 'running'."""
+    from api.services.system_monitors import check_backup_freshness
+
+    try:
+        fired = await check_backup_freshness()
+        for entry in fired:
+            logger.warning(f"Backup freshness check: {entry}")
+    except Exception as e:
+        logger.error(f"Backup freshness check failed: {e}")
+
+
+async def _send_heartbeat() -> None:
+    """Ping HEARTBEAT_URL when the stack is healthy (see api.services.external_alerts)."""
+    from api.services.external_alerts import send_heartbeat
+
+    try:
+        await send_heartbeat()
+    except Exception as e:
+        logger.error(f"Heartbeat failed: {e}")
+
+
+async def _check_container_resources() -> None:
+    """Compare per-container CPU / memory usage against each container's configured thresholds."""
+    from api.database import async_session_maker
+    from api.services.container_service import ContainerService
+    from api.services.system_monitors import check_container_resources, monitored_container_configs
+
+    try:
+        # Skip the Docker stats round-trip entirely when nothing is monitored
+        async with async_session_maker() as db:
+            if not await monitored_container_configs(db):
+                return
+
+        stats = await ContainerService().get_stats()
+        fired = await check_container_resources(stats)
+        for entry in fired:
+            logger.info(f"Container resource threshold exceeded: {entry}")
+
+    except Exception as e:
+        logger.error(f"Container resource check failed: {e}")
+
+
+async def _check_certificate_expiry() -> None:
+    """Warn when a served certificate is within the configured number of days of expiry."""
+    import asyncio
+    from api.services.ssl_service import get_ssl_info
+    from api.services.system_monitors import check_certificate_expiry
+
+    try:
+        ssl_info = await asyncio.to_thread(get_ssl_info)
+        if ssl_info.get("error") and not ssl_info.get("certificates"):
+            logger.debug(f"Certificate expiry check skipped: {ssl_info['error']}")
+            return
+        fired = await check_certificate_expiry(ssl_info.get("certificates") or [])
+        for domain in fired:
+            logger.info(f"Certificate for {domain} is within the expiry threshold - notification sent")
+
+    except Exception as e:
+        logger.error(f"Certificate expiry check failed: {e}")
 
 
 async def _run_maintenance_pruning() -> None:
@@ -660,6 +638,21 @@ async def _run_maintenance_pruning() -> None:
     from api.services.pruning_service import run_retention_maintenance
 
     await run_retention_maintenance(source="scheduled")
+
+
+async def _run_backup_health_checks() -> None:
+    """Hourly: verify the off-host backup target, then run scheduled verification if due."""
+    from api.services.backup_storage import check_backup_storage
+    from api.services.verification_service import run_scheduled_verification
+
+    try:
+        await check_backup_storage()
+    except Exception as e:
+        logger.error(f"Backup storage check failed: {e}")
+    try:
+        await run_scheduled_verification()
+    except Exception as e:
+        logger.error(f"Scheduled backup verification failed: {e}")
 
 
 # NOTE: The legacy _enforce_retention() job, which applied the per-type
@@ -701,7 +694,7 @@ def _run_alpine_container(docker_client, command: list, **kwargs) -> bytes:
         # Docker daemon handles cleanup automatically when container exits
         # Disable AppArmor to avoid issues in LXC environments
         output = docker_client.containers.run(
-            "alpine:latest",
+            settings.helper_image,
             command=command,
             remove=True,
             security_opt=["apparmor=unconfined"],
@@ -720,7 +713,7 @@ def _run_alpine_container(docker_client, command: list, **kwargs) -> bytes:
         raise
 
 
-async def _cleanup_orphaned_alpine_containers() -> None:
+def _cleanup_orphaned_alpine_containers() -> None:
     """
     Clean up any orphaned alpine containers that weren't properly removed.
     This runs periodically to catch any containers that slipped through.
@@ -741,7 +734,7 @@ async def _cleanup_orphaned_alpine_containers() -> None:
                     all=True,
                     filters={
                         "status": status,
-                        "ancestor": "alpine:latest"
+                        "ancestor": settings.helper_image
                     }
                 )
                 containers.extend(status_containers)
@@ -844,12 +837,13 @@ async def _collect_host_metrics() -> None:
         # In LXC, /proc/uptime shows the Proxmox host uptime since LXC shares the kernel.
         # To get LXC container uptime, we calculate from PID 1's actual start time.
         uptime_seconds = 0
-        docker_client = docker.from_env()
+        docker_client = await asyncio.to_thread(docker.from_env)
 
         try:
             # Method 1: Calculate PID 1 start time from /proc/1/stat and /proc/stat
             # This works in LXC because it measures when the LXC's init process started
-            result = _run_alpine_container(
+            result = await asyncio.to_thread(
+                _run_alpine_container,
                 docker_client,
                 command=["sh", "-c", """
                     # Get boot time (btime) from /proc/stat
@@ -872,7 +866,8 @@ async def _collect_host_metrics() -> None:
         # Fallback: try to get uptime from systemd if available
         if uptime_seconds <= 0 or uptime_seconds > 86400 * 365:  # Sanity check: > 1 year is suspicious
             try:
-                result = _run_alpine_container(
+                result = await asyncio.to_thread(
+                    _run_alpine_container,
                     docker_client,
                     command=["cat", "/proc/1/stat"],
                     pid_mode="host",
@@ -961,7 +956,8 @@ async def _collect_host_metrics() -> None:
         try:
             # Get host network stats by running alpine with host network namespace
             # This gives us the actual Docker host's network I/O, not the container's
-            result = _run_alpine_container(
+            result = await asyncio.to_thread(
+                _run_alpine_container,
                 docker_client,
                 command=["cat", "/proc/net/dev"],
                 network_mode="host",
@@ -1003,8 +999,8 @@ async def _collect_host_metrics() -> None:
         containers_unhealthy = 0
 
         try:
-            docker_client = docker.from_env()
-            all_containers = docker_client.containers.list(all=True)
+            docker_client = await asyncio.to_thread(docker.from_env)
+            all_containers = await asyncio.to_thread(docker_client.containers.list, all=True)
             containers_total = len(all_containers)
 
             for container in all_containers:

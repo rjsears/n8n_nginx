@@ -1,0 +1,39 @@
+# Weekly update PRs for pinned dependencies. Every PR runs the test and
+# build workflows; nothing is published until it is merged and released.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /management
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /n8n_status
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /management/frontend
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /management
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /n8n_status
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /nginx_public
+    schedule:
+      interval: weekly
+  # Bumps the reference docker-compose.yaml only; installs use the compose
+  # file setup.sh generates. tests/test_image_pins.sh (Tests workflow) fails
+  # until the same tag is set in setup.sh, so these PRs need that follow-up.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
