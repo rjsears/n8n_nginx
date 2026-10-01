@@ -589,7 +589,10 @@ async function loadTerminalTargets() {
     const response = await systemApi.getTerminalTargets()
     terminalTargets.value = response.data.targets || []
     if (terminalTargets.value.length > 0 && !selectedTarget.value) {
-      selectedTarget.value = terminalTargets.value[0].id
+      // Skip targets the server reports as disabled (e.g. the host shell
+      // without ENABLE_HOST_TERMINAL=true)
+      const firstUsable = terminalTargets.value.find(t => t.enabled !== false)
+      selectedTarget.value = (firstUsable || terminalTargets.value[0]).id
     }
   } catch (error) {
     console.error('Failed to load terminal targets:', error)
@@ -882,25 +885,26 @@ async function initTerminal() {
 function connectTerminal() {
   if (!selectedTarget.value || terminalConnecting.value) return
 
-  terminalConnecting.value = true
-
-  // Get auth token
-  const token = localStorage.getItem('auth_token')
-  if (!token) {
-    notificationStore.error('Not authenticated')
-    terminalConnecting.value = false
+  const target = terminalTargets.value.find(t => t.id === selectedTarget.value)
+  if (target && target.enabled === false) {
+    terminal?.writeln(`\r\n\x1b[31m${target.description}\x1b[0m`)
     return
   }
 
-  // Build WebSocket URL
+  terminalConnecting.value = true
+
+  // Build WebSocket URL. No credentials in the URL: the browser sends the
+  // HttpOnly session cookie (and Origin) with the same-origin upgrade request.
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const basePath = window.location.pathname.startsWith('/management') ? '/management' : ''
-  const wsUrl = `${protocol}//${window.location.host}${basePath}/api/ws/terminal?target=${selectedTarget.value}&token=${token}`
+  const wsUrl = `${protocol}//${window.location.host}${basePath}/api/ws/terminal?target=${encodeURIComponent(selectedTarget.value)}`
+  let opened = false
 
   try {
     websocket = new WebSocket(wsUrl)
 
     websocket.onopen = () => {
+      opened = true
       terminalConnecting.value = false
       terminalConnected.value = true
       terminal?.clear()
@@ -946,13 +950,19 @@ function connectTerminal() {
       }
     }
 
-    websocket.onclose = () => {
+    websocket.onclose = (event) => {
       terminalConnecting.value = false
       terminalConnected.value = false
       terminal?.writeln('\r\n\x1b[33mConnection closed\x1b[0m')
       if (pingInterval) {
         clearInterval(pingInterval)
         pingInterval = null
+      }
+      // Refused handshake (browsers report it as 1006) or the server ended the
+      // terminal because the login session expired / was revoked: re-check
+      // the session; a 401 there sends the user to the login page.
+      if (!opened || event.code === 4001) {
+        authStore.fetchCurrentUser()
       }
     }
 
@@ -2185,6 +2195,7 @@ onUnmounted(() => {
                   {{ target.name }}
                   <template v-if="target.type === 'container'"> ({{ target.image?.split(':')[0] }})</template>
                   <template v-if="target.type === 'host'"> - Host</template>
+                  <template v-if="target.enabled === false"> (disabled)</template>
                 </option>
               </select>
             </div>
@@ -2217,7 +2228,7 @@ onUnmounted(() => {
             <button
               v-if="!terminalConnected"
               @click="connectTerminal"
-              :disabled="terminalConnecting || !selectedTarget"
+              :disabled="terminalConnecting || !selectedTarget || terminalTargets.find(t => t.id === selectedTarget)?.enabled === false"
               class="btn-primary flex items-center gap-1.5 text-sm py-1.5 px-4 bg-amber-600 hover:bg-amber-700 text-white border-transparent focus:ring-amber-500"
             >
               <PlayIcon class="h-4 w-4" />
@@ -2236,6 +2247,12 @@ onUnmounted(() => {
 
         <!-- Terminal Window - INLINE STYLE for guaranteed height -->
         <div class="p-4">
+          <div
+            v-if="terminalTargets.find(t => t.id === selectedTarget)?.enabled === false"
+            class="mb-3 p-3 rounded-lg text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/30"
+          >
+            {{ terminalTargets.find(t => t.id === selectedTarget)?.description }}
+          </div>
           <div
             ref="terminalElement"
             :class="['rounded-lg overflow-hidden', terminalDarkMode ? 'bg-[#0d1117]' : 'bg-white']"

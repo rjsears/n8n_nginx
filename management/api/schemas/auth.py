@@ -24,8 +24,10 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """Login response with session token."""
-    token: str
+    """
+    Login response. The session token itself is only ever delivered in the
+    HttpOnly "session" cookie so page scripts (and any XSS) cannot read it.
+    """
     expires_at: datetime
     user: "UserInfo"
 
@@ -47,8 +49,7 @@ class UserInfo(BaseModel):
 
 
 class SessionInfo(BaseModel):
-    """Current session information."""
-    token: str
+    """Current session information (the token is never echoed back)."""
     user_id: int
     created_at: datetime
     expires_at: datetime

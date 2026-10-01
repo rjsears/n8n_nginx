@@ -606,13 +606,24 @@ async def get_terminal_targets(
 
         targets = []
 
-        # Add option for host (if privileged mode is available)
+        # Host root shell: listed either way so the UI can explain how to
+        # enable it, but only usable with ENABLE_HOST_TERMINAL=true (the
+        # WebSocket enforces this, not the UI).
+        from api.config import settings as app_settings
+        from api.routers.terminal import HOST_TERMINAL_DISABLED_MESSAGE
+
+        host_enabled = bool(app_settings.enable_host_terminal)
         targets.append({
             "id": "host",
             "name": "Host System",
             "type": "host",
-            "status": "available",
-            "description": "Connect directly to the Docker host filesystem",
+            "status": "available" if host_enabled else "disabled",
+            "enabled": host_enabled,
+            "description": (
+                "Root shell on the Docker host"
+                if host_enabled
+                else HOST_TERMINAL_DISABLED_MESSAGE
+            ),
         })
 
         # List running containers

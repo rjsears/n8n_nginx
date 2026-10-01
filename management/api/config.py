@@ -125,6 +125,29 @@ class Settings(BaseSettings):
         description="n8n web UI URL (browser-accessible). Uses existing N8N_EDITOR_BASE_URL env var."
     )
 
+    # Web terminal
+    enable_host_terminal: bool = Field(
+        default=False,
+        description=(
+            "Allow the web terminal to open a root shell on the Docker host (privileged "
+            "container with / mounted). Off unless explicitly set to true."
+        ),
+    )
+    terminal_revalidate_seconds: int = Field(
+        default=30,
+        description="How often an open terminal re-checks that its login session is still valid",
+    )
+
+    # Browser origin policy
+    allowed_origins: str = Field(
+        default="",
+        description=(
+            "Extra comma-separated origins (e.g. https://manage.example.com) allowed to open the "
+            "terminal WebSocket and send state-changing requests, in addition to the request's own "
+            "host. Also enables CORS for exactly these origins."
+        ),
+    )
+
     # API settings
     api_rate_limit: int = Field(default=30, description="API requests per second per IP")
     login_rate_limit: int = Field(default=5, description="Login attempts per minute per IP")

@@ -11,14 +11,16 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 -->
 <script setup>
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { safeRedirect } from '../router'
 import { useThemeStore } from '../stores/theme'
 import { useNotificationStore } from '../stores/notifications'
 import { LockClosedIcon, UserIcon, EyeIcon, EyeSlashIcon } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const notificationStore = useNotificationStore()
@@ -31,6 +33,39 @@ const error = ref('')
 
 const isValid = computed(() => username.value.length > 0 && password.value.length > 0)
 
+// Where to go after signing in: the page the user was on when the session
+// ended, if it is a relative path inside the console
+function afterLogin() {
+  router.replace(safeRedirect(route.query.redirect) || { name: 'dashboard' })
+}
+
+// If the API could not be reached when the page loaded we do not know
+// whether the session is still valid. Keep retrying; when the API answers
+// with a valid session, continue without asking for the password again.
+let retryTimer = null
+
+function stopRetrying() {
+  if (retryTimer) {
+    clearInterval(retryTimer)
+    retryTimer = null
+  }
+}
+
+onMounted(() => {
+  if (!authStore.apiUnreachable) return
+  retryTimer = setInterval(async () => {
+    const valid = await authStore.fetchCurrentUser({ redirect: false })
+    if (valid === true) {
+      stopRetrying()
+      afterLogin()
+    } else if (valid === false) {
+      stopRetrying()
+    }
+  }, 5000)
+})
+
+onUnmounted(stopRetrying)
+
 async function handleLogin() {
   if (!isValid.value) return
 
@@ -40,8 +75,9 @@ async function handleLogin() {
   try {
     const success = await authStore.login({ username: username.value, password: password.value })
     if (success) {
+      stopRetrying()
       notificationStore.success('Welcome back!')
-      router.push('/dashboard')
+      afterLogin()
     } else {
       // Login failed - authStore sets error internally
       error.value = authStore.error || 'Invalid credentials'
@@ -93,6 +129,14 @@ async function handleLogin() {
           ''
         ]"
       >
+        <!-- API unreachable (session kept, retrying) -->
+        <div
+          v-if="authStore.apiUnreachable && !error"
+          class="mb-4 p-3 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 rounded-lg"
+        >
+          <p class="text-sm text-amber-700 dark:text-amber-300">Management API unreachable, retrying...</p>
+        </div>
+
         <!-- Error Alert -->
         <div
           v-if="error"
