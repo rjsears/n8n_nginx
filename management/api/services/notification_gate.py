@@ -42,8 +42,10 @@ from datetime import UTC, datetime, timedelta
 from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from api.config import settings
 
@@ -173,8 +175,18 @@ def record_delivery(global_settings, now: datetime) -> None:
     """Count one delivered notification against the hourly limit. Caller commits."""
     if not global_settings:
         return
-    roll_rate_limit_window(global_settings, now)
-    global_settings.notifications_this_hour = (global_settings.notifications_this_hour or 0) + 1
+    started = global_settings.hour_started_at
+    if started is None or now - started >= RATE_LIMIT_WINDOW:
+        global_settings.hour_started_at = now
+        global_settings.notifications_this_hour = 1
+        return
+    column = getattr(type(global_settings), "notifications_this_hour", None)
+    if isinstance(column, InstrumentedAttribute) and sa_inspect(global_settings).persistent:
+        # Dispatches for different events run concurrently in separate
+        # sessions; increment in SQL so simultaneous deliveries are not lost.
+        global_settings.notifications_this_hour = func.coalesce(column, 0) + 1
+    else:
+        global_settings.notifications_this_hour = (global_settings.notifications_this_hour or 0) + 1
 
 
 # --- the gate ------------------------------------------------------------------------------
