@@ -123,10 +123,17 @@ Run the setup script:
 The script will:
 1. Detect your v2.0 installation
 2. Offer to upgrade to v3.0
-3. Create pre-migration backups
-4. Configure the management console
-5. Start new services
-6. Verify everything works
+3. Back up `docker-compose.yaml`, `nginx.conf` and `.env`, and dump the
+   database to `backups/n8n_pre_migration_*.dump`. If the dump fails or is
+   unreadable (`pg_restore -l`), the migration stops here with nothing changed.
+4. Configure the management console and generate the v3.0 files while v2.0
+   keeps running
+5. Stop n8n/nginx, create the management database and start the v3.0 stack
+6. Verify everything works (health checks run inside the containers)
+
+If any step after the backup fails, setup.sh puts the v2.0 files back and
+restarts the v2.0 stack automatically. If the v3.0 stack starts but fails
+verification, you are asked whether to roll back (default: yes).
 
 ### What to Expect
 
@@ -157,24 +164,13 @@ Upgrade from v2.0 to v3.0? [y/N]:
 
 During migration, you'll be asked to configure:
 
-#### 1. Management Port
+#### 1. Management Console URL
 
-```
-Management Console Port Configuration
-=====================================
-The management console needs a port for HTTPS access.
-This port will be used alongside port 443 for n8n.
-
-Recommended port: 3333 (default)
-Reserved ports (cannot use): 80, 443, 5432, 5678, 8080, 8443
-
-Enter management port [3333]:
-```
-
-**Considerations:**
-- Must be between 1024 and 65535
-- Cannot conflict with existing services
-- Must be accessible through your firewall
+No port is asked for. The console is served by the existing nginx on port 443
+at `https://<your-domain>/management/` and, like the n8n editor, only to
+internal clients (the IP ranges in nginx's `geo $access_level` block, or
+Tailscale). No extra firewall port has to be opened; `MGMT_PORT` in `.env` is a
+legacy setting and nothing is published on it.
 
 #### 2. Admin Credentials
 
@@ -368,7 +364,6 @@ docker exec n8n_postgres psql -U n8n -c "CREATE DATABASE n8n_management;"
    ```
 
 2. Common issues:
-   - **Port conflict**: Change `MGMT_PORT` in `.env`
    - **Database connection**: Verify PostgreSQL is healthy
    - **Missing environment variables**: Check `.env` file
 
@@ -383,15 +378,11 @@ docker exec n8n_postgres psql -U n8n -c "CREATE DATABASE n8n_management;"
 
 **Solutions:**
 
-1. Check firewall:
-   ```bash
-   # UFW
-   sudo ufw allow 3333/tcp
-
-   # firewalld
-   sudo firewall-cmd --add-port=3333/tcp --permanent
-   sudo firewall-cmd --reload
-   ```
+1. Use the right URL from an internal network: the console is at
+   `https://your-domain.com/management/` (port 443, no separate port) and nginx
+   returns `403` to clients it classifies as external. Check the internal ranges
+   with `docker exec n8n_nginx grep -A12 'geo \$access_level' /etc/nginx/nginx.conf`
+   and change them with `./setup.sh --update-access`.
 
 2. Verify nginx config:
    ```bash
@@ -515,21 +506,15 @@ A: Yes, all workflows and their schedules are preserved. Active executions will 
 
 **Q: Do I need to update DNS?**
 
-A: No, unless you want to access management on a different subdomain. By default, it uses the same domain with a different port.
+A: No. The console uses the same domain and port 443, under `/management/`.
 
-**Q: Can I use a different port later?**
+**Q: How is the management console protected?**
 
-A: Yes, edit `MGMT_PORT` in `.env` and run:
-```bash
-docker compose up -d
-```
-
-**Q: Is the management console secure?**
-
-A: Yes, it uses:
-- HTTPS with same SSL certificate as n8n
-- Session-based JWT authentication
-- Password requirements (min 12 chars)
+A: See the README's [Security Posture](https://github.com/rjsears/n8n_nginx#security-posture). In short:
+- Reachable only from internal addresses (nginx `geo $access_level`), over the same HTTPS certificate as n8n
+- Opaque session token in an HttpOnly, Secure, SameSite=Strict cookie; CSRF header check on state-changing requests
+- Account lockout after 5 failed passwords (30 minutes, doubling up to 24 hours) and nginx login rate limiting
+- New passwords must be at least 8 characters
 - Optional subnet restrictions
 
 ---

@@ -11,6 +11,9 @@ temp/
 
 # Setup configuration (contains sensitive settings)
 .n8n_setup_config
+.n8n_setup_state
+.migration_state
+.migration_progress
 setup-config
 
 # Environment files

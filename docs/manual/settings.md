@@ -80,6 +80,10 @@ Session and login security policy. Every setting here applies to *every* managem
 | **Max Login Attempts** | Failed logins before the account is temporarily locked. | 5 — protects against brute force without locking out fat-fingers. |
 | **Lockout Duration** | How long the account stays locked after exceeding the max. | 15 min default; raise to hours for production. |
 
+!!! warning "Not enforced yet"
+
+    The values on this tab are stored but the backend does not read them. The policy that actually applies is built in: a session lasts 24 hours from login (not from last activity); after 5 failed passwords the account is locked for 30 minutes, and every further failure doubles the lock, up to 24 hours. Login requests are also limited to 5 per minute per client IP by the console's nginx.
+
 !!! warning
 
     Setting Session Timeout extremely high (e.g., 24 hours) defeats the purpose of session expiry. Setting it extremely low (e.g., 5 min) generates frustrated users who just stay logged in via "remember me" workarounds. Pick a value you'll actually live with.
@@ -90,7 +94,7 @@ Session and login security policy. Every setting here applies to *every* managem
 
 ## Access Control
 
-Access Control governs *direct* network access to the management host (the IP-range allowlist that nginx enforces). Traffic arriving via Cloudflare Tunnel *bypasses* these rules — that's a feature, not a bug, and the page banner explains why.
+Access Control governs which *direct* connections nginx treats as internal (the IP-range allowlist in the `geo $access_level` block). Internal clients can reach the n8n editor, the management console and the admin tools; everyone else only gets the public paths (webhooks, forms, ntfy). Traffic arriving via Cloudflare Tunnel is always external: the tunnel should point at the webhook-only listener `n8n_nginx:8080`, which cannot serve admin paths at all.
 
 ![Settings Access Control tab showing an information banner about External Access via Cloudflare Tunnel explaining that external users bypass IP-based restrictions, a Nginx Routes panel showing 11 routes configured, and an IP Ranges (Direct Access) panel showing 5 active ranges](../images/screenshots/settings-04-access-control.png)
 *Figure 4: Settings → Access Control tab.*
@@ -163,7 +167,7 @@ Past the gate, the editor shows every `.env` variable grouped by purpose. Top ac
 |---|---|
 | Required Settings | `DOMAIN`, `N8N_MANAGEMENT_HOST_IP` — must be set or system fails. |
 | Database Configuration | PostgreSQL credentials and settings (`POSTGRES_USER`, `POSTGRES_PASSWORD`, ...). |
-| Security & Authentication | Encryption keys, admin credentials, JWT secrets. |
+| Security & Authentication | Encryption keys, admin credentials, management secret key. |
 | Management Console | Console-specific settings (port, root path, log level). |
 | NFS Backup Storage | NFS server address, export path, mount options. |
 | Cloudflare Tunnel | Cloudflare credentials and tunnel ID. |

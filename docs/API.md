@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://fastapi.tiangolo.com"><img src="https://img.shields.io/badge/FastAPI-Python%203.11+-009688?logo=fastapi&logoColor=white" alt="FastAPI"></a>
-  <a href="#authentication"><img src="https://img.shields.io/badge/Auth-JWT%20Bearer-blue" alt="JWT Auth"></a>
+  <a href="#authentication"><img src="https://img.shields.io/badge/Auth-Session%20Cookie-blue" alt="Session cookie auth"></a>
   <a href="#"><img src="https://img.shields.io/badge/API%20Version-3.0.0-orange" alt="API Version"></a>
 </p>
 
@@ -62,42 +62,46 @@ All requests and responses use `application/json` unless otherwise specified.
 
 ## Authentication
 
-The API uses JWT (JSON Web Token) Bearer authentication. Most endpoints require authentication.
+The API uses opaque, database-backed session tokens (`secrets.token_urlsafe(48)`),
+not JWTs. A successful login sets the token **only** as a cookie:
 
-### Obtaining a Token
-
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "username": "admin",
-  "password": "your-password"
-}
+```
+Set-Cookie: session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400
 ```
 
-**Response:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "token_type": "bearer",
-  "expires_in": 86400
-}
-```
+The token never appears in a response body. Sessions expire 24 hours after
+login (built-in default); there is no refresh endpoint, log in again instead. Changing the password ends all of that user's sessions.
 
-### Using the Token
+Rules that apply to every request:
 
-Include the token in the `Authorization` header:
+- **Network:** `/management/` (and therefore the API) is internal-only in the
+  outer nginx (`geo $access_level`); external clients get `403`.
+- **CSRF:** a `POST`/`PUT`/`PATCH`/`DELETE` that carries the `session` cookie
+  must also send an `X-Requested-With` header (any value), and if the client
+  sends an `Origin` header it must be this console's host or one listed in
+  `ALLOWED_ORIGINS`. Otherwise the request is rejected with `403 CSRF check failed`.
+- **CORS:** none by default; `ALLOWED_ORIGINS` (comma-separated) enables CORS
+  for exactly those origins.
+- **Login throttling:** the management container's nginx allows 5 login
+  requests per minute per client IP (burst 3). After 5 failed passwords the
+  account is locked for 30 minutes, doubling with each further failure up to
+  24 hours (built-in defaults).
 
-```http
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
+An `Authorization: Bearer <token>` header is still accepted by the backend,
+but since the token is only delivered as an HttpOnly cookie, scripts should
+use a cookie jar:
 
-### Token Refresh
+```bash
+BASE=https://n8n.example.com/management/api
+curl -sk -c cookies.txt -X POST "$BASE/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"your-password"}'
 
-```http
-POST /api/auth/refresh
-Authorization: Bearer <current-token>
+# state-changing requests with the cookie need X-Requested-With
+curl -sk -b cookies.txt -X POST "$BASE/backups/run" \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  -H 'Content-Type: application/json' \
+  -d '{"backup_type":"full"}'
 ```
 
 ---
@@ -108,10 +112,9 @@ Authorization: Bearer <current-token>
 
 #### Login
 
-Authenticate and obtain a JWT token.
-
 ```http
 POST /api/auth/login
+Content-Type: application/json
 ```
 
 **Request Body:**
@@ -120,22 +123,32 @@ POST /api/auth/login
 | `username` | string | Yes | Username |
 | `password` | string | Yes | Password |
 
-**Response:** `200 OK`
+**Response:** `200 OK` (plus the `Set-Cookie: session=...` header)
 ```json
 {
-  "access_token": "string",
-  "token_type": "bearer",
-  "expires_in": 86400
+  "expires_at": "2026-01-02T03:04:05Z",
+  "user": {
+    "id": 1,
+    "username": "admin",
+    "email": "admin@example.com",
+    "totp_enabled": false,
+    "last_login": "2026-01-01T03:04:05Z",
+    "created_at": "2025-12-01T00:00:00Z"
+  }
 }
 ```
 
+`401` for a wrong password or a locked account, `403` if the client IP is
+outside the allowed subnets, `429` when rate-limited.
+
 #### Logout
 
-Invalidate the current session.
+Invalidate the current session, close its terminal sessions and clear the cookie.
 
 ```http
 POST /api/auth/logout
-Authorization: Bearer <token>
+Cookie: session=<token>
+X-Requested-With: XMLHttpRequest
 ```
 
 **Response:** `200 OK`
@@ -145,40 +158,38 @@ Authorization: Bearer <token>
 }
 ```
 
-#### Verify Token
-
-Check if the current token is valid.
+#### Verify Session (nginx `auth_request`)
 
 ```http
 GET /api/auth/verify
-Authorization: Bearer <token>
+Cookie: session=<token>
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "valid": true,
-  "user": {
-    "id": 1,
-    "username": "admin"
-  }
-}
+Returns `200` with an `X-Auth-User: <username>` header for a valid session,
+`401` otherwise. Used by nginx to gate File Browser, Adminer and Dozzle.
+
+#### Current Session / User
+
+```http
+GET /api/auth/session     # user_id, created_at, expires_at, ip_address (no token)
+GET /api/auth/me          # the logged-in user
+GET /api/auth/sessions    # active sessions of this user
+DELETE /api/auth/sessions # end all sessions of this user, including this one
 ```
 
 #### Change Password
 
-Update the current user's password.
-
 ```http
-POST /api/auth/change-password
-Authorization: Bearer <token>
+PUT /api/auth/password
+Cookie: session=<token>
+X-Requested-With: XMLHttpRequest
 ```
 
 **Request Body:**
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `current_password` | string | Yes | Current password |
-| `new_password` | string | Yes | New password (min 8 characters) |
+| `new_password` | string | Yes | New password (8-128 characters) |
 
 **Response:** `200 OK`
 ```json
@@ -186,6 +197,8 @@ Authorization: Bearer <token>
   "message": "Password changed successfully"
 }
 ```
+
+All sessions of the user (including the current one) end; log in again.
 
 ---
 

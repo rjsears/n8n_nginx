@@ -340,7 +340,7 @@ The cloudflared container is configured in `docker-compose.yml`:
 
 ```yaml
 n8n_cloudflared:
-  image: cloudflare/cloudflared:latest
+  image: cloudflare/cloudflared:2026.9.3
   container_name: n8n_cloudflared
   command: tunnel --no-autoupdate run
   environment:
