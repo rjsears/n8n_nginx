@@ -129,6 +129,17 @@ ENV_VARIABLE_GROUPS = {
                 "sensitive": True,
                 "editable": True,
             },
+            "BACKUP_ENCRYPTION_PASSPHRASE": {
+                "label": "Backup Encryption Passphrase",
+                "description": "When set (12+ characters), backup archives are encrypted (gpg, AES-256). "
+                               "Empty = archives are not encrypted. Takes effect with the next backup.",
+                "type": "password",
+                "required": False,
+                "sensitive": True,
+                "editable": True,
+                "warning": "Store a copy OFF this server. Without it, encrypted backups cannot be restored. "
+                           "Changing it does not re-encrypt existing backups: keep the old passphrase for them.",
+            },
             "ADMIN_USER": {
                 "label": "Admin Username",
                 "description": "Username for management console login",

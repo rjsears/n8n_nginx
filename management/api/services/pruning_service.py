@@ -99,7 +99,7 @@ class PruningService:
             if os.path.exists(dir_path):
                 for f in os.listdir(dir_path):
                     filepath = os.path.join(dir_path, f)
-                    if os.path.isfile(filepath) and f.endswith('.tar.gz'):
+                    if os.path.isfile(filepath) and f.endswith(('.tar.gz', '.tar.gz.gpg')):
                         result["total_backup_size_bytes"] += os.path.getsize(filepath)
                         result["backup_count"] += 1
 

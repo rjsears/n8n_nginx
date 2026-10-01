@@ -32,11 +32,7 @@ log_error() {
 update_status() {
     local status=$1
     local message=$2
-    local is_mounted="false"
-
-    if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
-        is_mounted="true"
-    fi
+    local is_mounted=$3
 
     cat > "$STATUS_FILE" << EOF
 {
@@ -53,42 +49,35 @@ EOF
 
 # Check if NFS is configured
 if [ -z "$NFS_SERVER" ] || [ -z "$NFS_PATH" ]; then
-    update_status "disabled" "NFS not configured"
+    update_status "disabled" "NFS not configured" false
     exit 0
 fi
 
-# Check if mount point exists
 if [ ! -d "$MOUNT_POINT" ]; then
-    mkdir -p "$MOUNT_POINT"
+    update_status "disconnected" "$MOUNT_POINT does not exist" false
+    log_error "$MOUNT_POINT does not exist"
+    exit 0
 fi
 
-# Check if already mounted
-if mountpoint -q "$MOUNT_POINT"; then
-    # Test write capability
-    TEST_FILE="$MOUNT_POINT/.health_check_$$"
-    if touch "$TEST_FILE" 2>/dev/null; then
-        rm -f "$TEST_FILE"
-        update_status "connected" "NFS mounted and writable"
-        log_info "NFS healthy - mounted and writable"
-    else
-        update_status "degraded" "NFS mounted but write test failed"
-        log_error "NFS degraded - mounted but not writable"
-    fi
-else
-    # Attempt to mount
-    log_info "NFS not mounted, attempting mount..."
-
-    if mount -t nfs -o rw,nolock,soft,timeo=30,retrans=2 "${NFS_SERVER}:${NFS_PATH}" "$MOUNT_POINT" 2>/dev/null; then
-        # Create backup directories if they don't exist
-        mkdir -p "$MOUNT_POINT/postgres" 2>/dev/null || true
-        mkdir -p "$MOUNT_POINT/n8n_config" 2>/dev/null || true
-        mkdir -p "$MOUNT_POINT/flows" 2>/dev/null || true
-        mkdir -p "$MOUNT_POINT/verification" 2>/dev/null || true
-
-        update_status "connected" "NFS mounted successfully"
-        log_info "NFS mounted successfully"
-    else
-        update_status "disconnected" "Failed to mount NFS share"
-        log_error "Failed to mount NFS share ${NFS_SERVER}:${NFS_PATH}"
-    fi
-fi
+# $MOUNT_POINT is a bind mount of a host directory, so `mountpoint` is always
+# true. What matters is the filesystem behind it: NFS/CIFS only when the host
+# had the share mounted at that directory when this container started.
+# (Mounting from inside the container is not possible: no CAP_SYS_ADMIN.)
+FS_TYPE=$(stat -f -c %T "$MOUNT_POINT" 2>/dev/null || echo unknown)
+case "$FS_TYPE" in
+    nfs*|cifs|smb*|ceph|fuse.glusterfs|fuse.sshfs)
+        TEST_FILE="$MOUNT_POINT/.health_check_$$"
+        if touch "$TEST_FILE" 2>/dev/null; then
+            rm -f "$TEST_FILE"
+            update_status "connected" "NFS ($FS_TYPE) mounted and writable" true
+            log_info "NFS healthy - $FS_TYPE mounted and writable"
+        else
+            update_status "degraded" "NFS ($FS_TYPE) mounted but write test failed" true
+            log_error "NFS degraded - mounted but not writable"
+        fi
+        ;;
+    *)
+        update_status "disconnected" "Share not mounted on the host: $MOUNT_POINT is local storage ($FS_TYPE)" false
+        log_error "NFS share ${NFS_SERVER}:${NFS_PATH} is not mounted on the host; $MOUNT_POINT is local storage ($FS_TYPE)"
+        ;;
+esac

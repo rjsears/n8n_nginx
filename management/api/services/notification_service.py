@@ -1561,6 +1561,14 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         free_percent = event_data.get("free_percent", 0)
         action = event_data.get("action", "unknown")
         return f"Host: {hostname}\n\nCritical disk space alert!\n\nFree space: {free_percent}%\nAction: {action}"
+    elif event_type == "backup_storage_unavailable":
+        path = event_data.get("path", "unknown")
+        reason = event_data.get("reason", "unknown")
+        context = event_data.get("context", "")
+        return (
+            f"Host: {hostname}\n\nOff-host backup storage is NOT available: {path}\n\n"
+            f"{reason}\n\n{context}"
+        )
 
     else:
         # Generic message with event data

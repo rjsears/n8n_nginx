@@ -3263,6 +3263,7 @@ TIMEZONE=N8N_TIMEZONE
 NFS_SERVER=NFS_SERVER?
 NFS_PATH=NFS_PATH?
 NFS_LOCAL_MOUNT=NFS_LOCAL_MOUNT?
+BACKUP_ENCRYPTION_PASSPHRASE=BACKUP_ENCRYPTION_PASSPHRASE?
 CLOUDFLARE_TUNNEL_TOKEN=CLOUDFLARE_TUNNEL_TOKEN
 TAILSCALE_AUTH_KEY=TAILSCALE_AUTH_KEY
 TAILSCALE_HOSTNAME=TAILSCALE_HOSTNAME
@@ -3713,6 +3714,9 @@ TIMEZONE=$(env_quote_value "${N8N_TIMEZONE:-}")
 NFS_SERVER=$(env_quote_value "${NFS_SERVER:-}")
 NFS_PATH=$(env_quote_value "${NFS_PATH:-}")
 NFS_LOCAL_MOUNT=$(env_quote_value "${NFS_LOCAL_MOUNT:-}")
+# Backup archive encryption passphrase (empty = archives are NOT encrypted).
+# Keep a copy OFF this server: without it encrypted backups cannot be restored.
+BACKUP_ENCRYPTION_PASSPHRASE=$(env_quote_value "${BACKUP_ENCRYPTION_PASSPHRASE:-}")
 
 # ===========================================
 # Optional: Cloudflare Tunnel

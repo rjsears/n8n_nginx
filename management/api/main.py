@@ -74,6 +74,10 @@ async def lifespan(app: FastAPI):
             await create_default_templates(db)
         logger.info("Default email templates created")
 
+        # Temporary restore containers left behind by a crash or restart
+        from api.services.restore_service import cleanup_leftover_restore_containers
+        await cleanup_leftover_restore_containers()
+
         # Initialize scheduler
         await init_scheduler()
         logger.info("Scheduler initialized")

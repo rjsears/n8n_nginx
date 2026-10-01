@@ -68,7 +68,7 @@ Clicking the chevron on a backup row reveals seven action buttons:
 
 | Action | Effect |
 |---|---|
-| **Verify** | Re-runs integrity checks against this specific backup. Validates archive integrity, confirms the database dump can be re-read by PostgreSQL, and compares stored checksums. The `Verified` badge on the row reflects the most recent verification result. |
+| **Verify** | Runs the comprehensive verification on this backup: archive integrity, then every database dump is restored into a temporary PostgreSQL container (`pg_restore --exit-on-error`, any error fails), tables, row counts, workflow checksums and config file checksums are compared with what was recorded at backup time (see [What verification actually does](#config-verification)). The `Verified` badge on the row reflects the most recent verification result. |
 | **Protect** | Marks this backup as "do not auto-delete." Even when retention policy would normally rotate this backup out, a protected backup stays put until you manually unprotect or delete it. Toggles state — clicking once protects, clicking again unprotects. |
 | **View Backup Contents** | Opens an inline panel showing what's actually inside the backup archive — workflows, credentials, configuration files, and public website files — with sub-tabs for each category. Read-only inspection, no restore. |
 | **Selective Restore** | Cherry-pick individual workflows, credentials, or config files from the backup. See [below](#selective-restore) for the full flow. |
@@ -127,27 +127,51 @@ When you're done restoring items, click **Unmount Backup** in the top-right. Thi
 ### What's in the archive
 
 - PostgreSQL dump for both databases (n8n + management).
-- n8n configuration files and workflow exports.
+- `project/` — the project directory: `.env`, `docker-compose.yaml`, every bind-mounted config (`nginx.conf`, `nginx-router.conf`, `nginx-public.conf`, `.filebrowser.json`, `ntfy/`, `dozzle/`, DNS credentials, `tailscale-serve.json`, …), `scripts/certbot/` and the `management/` / `n8n_status/` build contexts (without `.git`, docs, images and `node_modules`). `config/` holds the individual config files as before.
 - SSL certificates and private keys: the complete Let's Encrypt tree (`archive/`, `live/`, `renewal/`, …) with symlinks preserved, so restored certificates keep renewing.
-- `.env` with deployment configuration.
+- `volumes/` — snapshots of the `n8n_data` volume (`~/.n8n`: n8n's `config` with its `encryptionKey`, binary data stored on the filesystem, installed community nodes) and `ntfy_data` (ntfy users and access rules).
+- `metadata.json` — includes the Docker Compose project name, the git commit of the project, and the exact image (registry digest) every service was running.
 - Public website files if Public Website Files was enabled in [Contents](#config-contents).
 - `restore.sh` — a self-contained shell script that takes a fresh host and rebuilds the stack.
+
+If `BACKUP_ENCRYPTION_PASSPHRASE` is set (see [Encryption](#encryption)), the whole archive is encrypted and named `backup_<date>.n8n_backup.tar.gz.gpg`.
 
 ### Recovery procedure
 
 1. Provision a fresh host with Docker installed.
 2. Copy the downloaded archive to the host (scp, USB stick, etc.).
 3. Extract: `mkdir restore && tar -xzf backup_<date>.n8n_backup.tar.gz -C restore`.
+   For an encrypted archive: `mkdir restore && gpg --decrypt backup_<date>.n8n_backup.tar.gz.gpg | tar -xzf - -C restore`
+   (gpg asks for the passphrase). Alternatively let the script do it with a separately downloaded `restore.sh`:
+   `sudo ./restore.sh --archive backup_<date>.n8n_backup.tar.gz.gpg --passphrase-file /root/backup-passphrase`.
 4. `cd restore`.
-5. Run `sudo ./restore.sh --dry-run` to preview, then `sudo ./restore.sh`. If a stack is already running from the target directory, the script stops it first (`docker compose down`, volumes are kept; it asks unless `--force`/`--auto`, and `--dry-run` only reports it). It then starts only PostgreSQL, waits until it accepts TCP connections (so the image's first-start initialisation has finished), restores each database in a single transaction (any error stops the script and nothing else is started), makes `MGMT_DB_USER` the owner of the restored management tables, then starts the rest of the stack. `MGMT_DB_USER` in `.env` must consist of letters, digits and underscores only; otherwise the script refuses to run.
+5. Run `sudo ./restore.sh --dry-run` to preview, then `sudo ./restore.sh`. The script restores the project directory, the Let's Encrypt tree and the `n8n_data`/`ntfy_data` snapshots into the volume names Docker Compose will use for the target directory, and pins every image to the version recorded in the backup (it pulls `image@sha256:…` and tags it, instead of pulling `:latest`). If a stack is already running from the target directory, the script stops it first (`docker compose down`, volumes are kept; it asks unless `--force`/`--auto`, and `--dry-run` only reports it). It then starts only PostgreSQL, waits until it accepts TCP connections (so the image's first-start initialisation has finished), restores each database in a single transaction (any error stops the script and nothing else is started), makes `MGMT_DB_USER` the owner of the restored management tables, then starts the rest of the stack. `MGMT_DB_USER` in `.env` must consist of letters, digits and underscores only; otherwise the script refuses to run.
 
 !!! warning "Archives from older versions"
 
     Archives created before restore script v3.2.0 embed a `restore.sh` that stops after the first config file. Use **Download latest restore.sh** in the Bare Metal panel, copy it over the `restore.sh` in the extracted archive, and run that instead. After upgrading, take a fresh backup so the newest archive contains the fixed script.
 
+    Archives created before v3.3.0 have no `project/`, `volumes/` or image list: clone the repository into the target directory first (so `nginx-router.conf`, `scripts/certbot` and `management/` exist), expect an empty `n8n_data` (n8n uses `N8N_ENCRYPTION_KEY` from `.env`; reinstall community nodes) and note that missing images are pulled at their current tag.
+
 !!! danger
 
-    The archive contains your entire deployment including *secrets and SSL private keys*. Anyone with this file can stand up a fully functional clone of your stack. Encrypt at rest and treat with the same care as a password vault export.
+    The archive contains your entire deployment including *secrets and SSL private keys*. Anyone with this file can stand up a fully functional clone of your stack. Set `BACKUP_ENCRYPTION_PASSPHRASE` (see [Encryption](#encryption)) and treat unencrypted archives with the same care as a password vault export.
+
+### Encryption {: #encryption }
+
+Every archive contains `.env` (`N8N_ENCRYPTION_KEY`, database passwords, DNS API tokens), TLS private keys and the management database (notification channel secrets). Archive files and backup folders are always created owner-only (`0600`/`0700`); archives written by older versions are tightened on the next backup run.
+
+To encrypt archives, add a passphrase of at least 12 characters to `.env` (Settings → Environment, *Backup Encryption Passphrase*, or edit the file):
+
+```bash
+BACKUP_ENCRYPTION_PASSPHRASE='a long random passphrase'
+```
+
+It is read at the start of every backup, so no restart is needed. Archives are then encrypted with gpg (AES-256, integrity protected) before they reach the backup destination and are named `*.n8n_backup.tar.gz.gpg`. Verification, selective restore, in-app restore and the downloads decrypt them transparently with the passphrase in `.env`. Decrypt by hand with `gpg --decrypt FILE | tar -xzf -`.
+
+!!! danger "Key custody: losing the passphrase means losing every encrypted backup"
+
+    There is no recovery key and no back door. Store the passphrase **off this server** (password manager, printed copy in a safe) before relying on encrypted backups: after a total host loss the copy inside `.env` is gone too. Changing the passphrase does not re-encrypt existing archives — keep every old passphrase until the archives made with it have expired, and test a decrypt (`gpg --decrypt FILE | tar -tzf - | head`) after any change.
 
 !!! tip
 
@@ -174,7 +198,7 @@ The Storage tab is the entry point — choose where backups go and how they get 
 
 #### The three storage steps
 
-1. **Backup Destination** — pick between Local Storage and Network Storage (NFS). NFS requires the mount to already be configured (see [Settings → Environment → NFS Backup Storage](settings.md#environment)).
+1. **Backup Destination** — pick between Local Storage and Network Storage (NFS). NFS requires the share to be mounted **on the host** at the directory bind-mounted into the management container (`/opt/n8n_backups` → `/mnt/backups`) *before* the container starts (see [Settings → Environment → NFS Backup Storage](settings.md#environment)). The console checks the filesystem type behind that path: if it is not an NFS/CIFS share (share not mounted, or mounted after the container started — restart `n8n_management` after mounting), it is the local disk, and backups set to NFS only are **refused** with a *Backup Storage Unavailable* notification instead of being silently written to local storage; with *both* they fall back to local storage and the same notification is sent. An hourly check sends it as well when the share disappears.
 2. **Backup Workflow** — choose between `Stage & Copy` (recommended; writes locally first, then transfers) and direct write. Stage & Copy is safer because if NFS is briefly unreachable the backup still completes locally.
 3. **Local Staging Area** — points to a writable local path (default `/app/backups`) used as the staging location.
 
@@ -319,9 +343,17 @@ Auto-verification re-reads each backup after it's written and confirms it can be
 
 #### What verification actually does
 
-- Validates archive integrity (decompresses without error, no corruption).
-- Confirms the database dump can be re-read by PostgreSQL.
-- Compares stored checksums against expected values.
+Auto-verification (after a backup):
+
+- Compares the archive's SHA-256 with the value recorded when it was written.
+- Decrypts it (if encrypted) and reads every file in it, so truncation or gzip corruption fails.
+- Checks that `metadata.json` and a dump for every backed-up database are present, and runs `pg_restore --list` on each dump — any error fails the verification.
+
+This proves the archive is complete and every dump is a readable PostgreSQL archive; it does not load the data. The comprehensive verification (the **Verify** row action, `POST /api/backups/{id}/verify`, and the scheduled verification below) does: it restores **each** database dump (n8n and management) into its own database in a temporary `pgvector/pgvector:pg16` container (the same image as production) with `pg_restore --exit-on-error` — any error fails the verification — then checks the tables and row counts against the manifest, compares a SHA-256 of every workflow's nodes and connections with the checksums recorded at backup time, and checks the config file checksums.
+
+#### Scheduled verification
+
+A verification schedule (`GET`/`PUT /api/backups/verification/schedule`: `enabled`, `frequency` daily/weekly/monthly, `day_of_week` 0 = Monday, `hour`, `verify_latest_count`) runs the comprehensive verification on the newest *N* successful database backups, one at a time, in the configured slot (checked hourly at minute 40, in the console's timezone; monthly runs on the 1st).
 
 !!! warning
 

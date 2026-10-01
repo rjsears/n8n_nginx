@@ -79,7 +79,8 @@ async def health_check():
     # Check NFS if configured
     nfs_status = None
     if settings.nfs_server:
-        nfs_status = "connected" if os.path.ismount(settings.nfs_mount_point) else "disconnected"
+        from api.services.backup_storage import is_offsite_storage
+        nfs_status = "connected" if is_offsite_storage(settings.nfs_mount_point) else "disconnected"
 
     return HealthResponse(
         status="healthy" if db_status == "connected" else "degraded",
