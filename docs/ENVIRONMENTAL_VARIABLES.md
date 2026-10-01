@@ -335,7 +335,7 @@ PUBLIC_WEBSITE_DOMAIN=www.example.com
 
 ---
 
-### 14. Alerting and Health Checks (`alerting`)
+### 14. Alerting, Health Checks and Backups (`alerting`)
 
 Optional, database-free alerting. The console reads these from `.env` when it uses them (no restart needed); `scripts/health_check.sh` reads them from the environment or `.env`.
 
@@ -346,6 +346,7 @@ Optional, database-free alerting. The console reads these from `.env` when it us
 | `ALERT_FALLBACK_URL` | Plain-text POST target used when a notification cannot be sent because the database is unreachable, and by `health_check.sh --alert`. An ntfy topic URL works as is | *empty* | No | ✅ Yes |
 | `ALERT_REPEAT_MINUTES` | How often `health_check.sh --alert` repeats the alert while the stack stays unhealthy | `60` | No | No |
 | `BACKUP_MAX_AGE_HOURS` | `health_check.sh` reports the backups check as failed when the newest successful backup is older than this | `192` | No | No |
+| `BACKUP_ENCRYPTION_PASSPHRASE` | When set, backup archives are encrypted with GPG (symmetric AES-256). Off by default: archives (which include `.env`, TLS keys and the databases) are then written unencrypted with mode 0600. Keep the passphrase outside this host, or the backups cannot be restored after losing it | *empty* | No | ✅ Yes |
 | `BACKUP_HOST_DIR` | Host directory `health_check.sh` inspects for backup archives when the database is unreachable | `/opt/n8n_backups` | No | No |
 
 **Example:**

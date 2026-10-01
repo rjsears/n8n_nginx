@@ -606,7 +606,7 @@ range_inside_docker_subnet() {
 # Docker Compose project name for this install (networks are <project>_<name>).
 compose_project_name() {
     local name="${COMPOSE_PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
-    printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-'
+    printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-' | sed 's/^[^a-z0-9]*//'
 }
 
 # Pre-flight check before any "docker compose down/up": N8N_NETWORK_SUBNET
@@ -2132,6 +2132,63 @@ configure_management_port() {
 # NFS CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Persist an NFS share in /etc/fstab and mount it on the host.
+#   hard        - I/O waits for the server instead of failing part-way
+#                 ("soft" can silently truncate a backup archive)
+#   nofail, _netdev, x-systemd.automount
+#               - boot never blocks or fails on an unreachable server; the
+#                 share is mounted on first access (non-systemd mount(8)
+#                 ignores the x-systemd.* options)
+# The container sees it through an rslave bind (see generate_docker_compose_v3).
+NFS_FSTAB_OPTIONS="hard,nofail,_netdev,x-systemd.automount,x-systemd.mount-timeout=30"
+
+setup_nfs_host_mount() {
+    local server="$1" path="$2" local_mount="$3"
+    local source="${server}:${path}" tmp fstab="${NFS_FSTAB_FILE:-/etc/fstab}"
+
+    print_info "Creating local mount point: $local_mount"
+    run_privileged mkdir -p "$local_mount" || return 1
+
+    # Replace any previous entry for this share or this mount point
+    tmp=$(mktemp)
+    awk -v src="$source" -v mp="$local_mount" \
+        '!/^[[:space:]]*#/ && ($1 == src || $2 == mp) { next } { print }' "$fstab" > "$tmp" 2>/dev/null || cp "$fstab" "$tmp"
+    printf '%s %s nfs %s 0 0\n' "$source" "$local_mount" "$NFS_FSTAB_OPTIONS" >> "$tmp"
+    if ! run_privileged cp "$tmp" "$fstab"; then
+        rm -f "$tmp"
+        print_error "Could not update $fstab"
+        return 1
+    fi
+    rm -f "$tmp"
+    print_success "NFS mount added to $fstab (${NFS_FSTAB_OPTIONS})"
+    if command_exists systemctl && [ -d /run/systemd/system ]; then
+        run_privileged systemctl daemon-reload 2>/dev/null || true
+        run_privileged systemctl restart remote-fs.target 2>/dev/null || true
+    fi
+
+    print_info "Mounting NFS share..."
+    if ! mountpoint -q "$local_mount" 2>/dev/null; then
+        run_privileged mount "$local_mount" 2>/dev/null || \
+            run_privileged mount -t nfs -o rw,hard,nolock "$source" "$local_mount" 2>/dev/null || true
+    fi
+    # Touching the path also triggers an automount
+    if run_privileged touch "${local_mount}/.n8n_test_write" 2>/dev/null; then
+        run_privileged rm -f "${local_mount}/.n8n_test_write"
+    fi
+    if ! awk -v mp="$local_mount" '$2 == mp && $3 ~ /^nfs/ { found = 1 } END { exit !found }' /proc/mounts 2>/dev/null; then
+        print_error "NFS share ${source} is not mounted at ${local_mount}. Check the server and run 'mount ${local_mount}'"
+        return 1
+    fi
+    print_success "NFS share mounted at $local_mount"
+    if run_privileged touch "${local_mount}/.n8n_test_write" 2>/dev/null; then
+        run_privileged rm -f "${local_mount}/.n8n_test_write"
+        print_success "NFS share is writable"
+    else
+        print_warning "NFS share may not be writable - check permissions on NFS server"
+    fi
+    return 0
+}
+
 configure_nfs() {
     print_section "NFS Backup Storage Configuration"
 
@@ -2139,6 +2196,10 @@ configure_nfs() {
     if [ "$PRECONFIG_MODE" = "true" ]; then
         if [ -n "$NFS_SERVER" ] && [ "$NFS_SERVER" != "" ]; then
             print_info "Using pre-configured NFS: $NFS_SERVER:$NFS_PATH"
+            NFS_LOCAL_MOUNT="${NFS_LOCAL_MOUNT:-/opt/n8n_backups}"
+            if ! setup_nfs_host_mount "$NFS_SERVER" "$NFS_PATH" "$NFS_LOCAL_MOUNT"; then
+                print_warning "Backups would be written to the local disk under ${NFS_LOCAL_MOUNT} until the share mounts"
+            fi
             NFS_CONFIGURED="true"
         else
             print_info "NFS not configured - using local storage"
@@ -2284,48 +2345,12 @@ configure_nfs() {
             umount "$test_mount" 2>/dev/null || true
             rmdir "$test_mount" 2>/dev/null || true
 
-            # Create local mount point
-            print_info "Creating local mount point: $nfs_local_mount"
-            mkdir -p "$nfs_local_mount"
-
-            # Check if already in fstab
-            if grep -q "${nfs_server}:${nfs_path}" /etc/fstab 2>/dev/null; then
-                print_warning "NFS entry already exists in /etc/fstab, updating..."
-                # Remove old entry
-                run_privileged sed -i "\|${nfs_server}:${nfs_path}|d" /etc/fstab
-            fi
-
-            # Add to fstab
-            print_info "Adding NFS mount to /etc/fstab..."
-            echo "${nfs_server}:${nfs_path} ${nfs_local_mount} nfs defaults,_netdev 0 0" | run_privileged tee -a /etc/fstab > /dev/null
-
-            # Mount the NFS share
-            print_info "Mounting NFS share..."
-            if mount "$nfs_local_mount" 2>/dev/null; then
-                print_success "NFS share mounted at $nfs_local_mount"
-            else
-                # Try with explicit options
-                if mount -t nfs -o rw,nolock,soft "${nfs_server}:${nfs_path}" "$nfs_local_mount" 2>/dev/null; then
-                    print_success "NFS share mounted at $nfs_local_mount"
-                else
-                    print_error "Failed to mount NFS share. Check /etc/fstab and try 'mount -a'"
-                fi
-            fi
-
-            # Verify mount is writable
-            if touch "${nfs_local_mount}/.n8n_test_write" 2>/dev/null; then
-                rm -f "${nfs_local_mount}/.n8n_test_write"
-                print_success "NFS share is writable"
-            else
-                print_warning "NFS share may not be writable - check permissions on NFS server"
-            fi
+            setup_nfs_host_mount "$nfs_server" "$nfs_path" "$nfs_local_mount" || true
 
             NFS_SERVER="$nfs_server"
             NFS_PATH="$nfs_path"
             NFS_LOCAL_MOUNT="$nfs_local_mount"
             NFS_CONFIGURED="true"
-
-            save_state "nfs" "complete"
             return
         else
             print_error "Failed to mount NFS share: ${nfs_server}:${nfs_path}"
@@ -3568,7 +3593,7 @@ find_compose_volume() {
         project="${COMPOSE_PROJECT_NAME:-}"
         [ -n "$project" ] || project=$(env_get_key "${SCRIPT_DIR}/.env" COMPOSE_PROJECT_NAME 2>/dev/null) || project=""
         [ -n "$project" ] || project=$(basename "$SCRIPT_DIR")
-        project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+        project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-' | sed 's/^[^a-z0-9]*//')
     fi
     name=$($DOCKER_SUDO docker volume ls -q \
         --filter "label=com.docker.compose.project=${project}" \
@@ -4382,9 +4407,16 @@ EOF
 
     # Add NFS bind mount if configured (host-level NFS mount)
     if [ "$NFS_CONFIGURED" = "true" ] && [ -n "$NFS_LOCAL_MOUNT" ]; then
-        cat >> "$compose_tmp" << EOF
-      # NFS backup mount
-      - ${NFS_LOCAL_MOUNT}:/mnt/backups
+        # rslave: a share mounted on the host after the container started
+        # (boot order, x-systemd.automount) becomes visible inside it.
+        cat >> "$compose_tmp" << 'EOF'
+      # NFS backup mount (host-level NFS mount, see /etc/fstab)
+      - type: bind
+        source: ${NFS_LOCAL_MOUNT:-/opt/n8n_backups}
+        target: /mnt/backups
+        bind:
+          propagation: rslave
+          create_host_path: true
 EOF
     fi
 
@@ -7104,9 +7136,13 @@ initialize_public_website() {
 
     print_info "Initializing public website..."
 
-    # Get the docker compose project name (defaults to directory name)
-    local project_name=$(basename "${SCRIPT_DIR}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
-    local volume_name="${project_name}_public_web_root"
+    # The real volume name (compose project label), not a guess from the
+    # directory name - compose normalises project names differently.
+    local volume_name
+    if ! volume_name=$(find_compose_volume public_web_root); then
+        print_warning "public_web_root volume not found - skipping default landing page"
+        return 0
+    fi
 
     # Check if index.html already exists
     local has_index=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data:ro" "$ALPINE_IMAGE" sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)

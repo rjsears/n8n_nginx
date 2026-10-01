@@ -305,6 +305,51 @@ assert_eq "unquoted multi-value config: exit 1" "1" "$rc"
 assert_contains "unquoted multi-value config: explained" "could not be loaded" "${WORK_DIR}/out"
 assert_not_contains "unquoted multi-value config: not half-loaded" "LOADED" "${WORK_DIR}/out"
 
+# ---------------------------------------------------------------------------
+# 5. NFS: --config mode mounts the share; fstab entry; compose bind mount
+# ---------------------------------------------------------------------------
+echo "5. NFS host mount and compose bind"
+nfs_case() {
+    stub_docker() { return 1; }
+    NFS_FSTAB_FILE="${SCRIPT_DIR}/fstab"
+    printf '# comment\n/dev/sda1 / ext4 defaults 0 1\nold:/x /opt/n8n_backups nfs defaults,_netdev 0 0\n' > "$NFS_FSTAB_FILE"
+    run_privileged() { "$@"; }
+    mountpoint() { return 1; }
+    mount() { echo "MOUNT $*"; }
+    touch() { :; }
+    awk() {   # /proc/mounts check: pretend the share is mounted
+        if [ "${*: -1}" = "/proc/mounts" ]; then return 0; fi
+        command awk "$@"
+    }
+    PRECONFIG_MODE=true
+    NFS_SERVER=nas.lan; NFS_PATH=/exports/n8n; NFS_LOCAL_MOUNT="${SCRIPT_DIR}/mnt"
+    configure_nfs
+    echo "NFS_CONFIGURED=$NFS_CONFIGURED"
+    cat "$NFS_FSTAB_FILE"
+}
+run_case "${WORK_DIR}/nfs" nfs_case
+assert_contains "--config: NFS configured" "NFS_CONFIGURED=true" "${WORK_DIR}/out"
+assert_contains "--config: share mounted" "MOUNT ${WORK_DIR}/nfs/mnt" "${WORK_DIR}/out"
+assert_contains "fstab: hard,nofail,automount entry" \
+    "nas.lan:/exports/n8n ${WORK_DIR}/nfs/mnt nfs hard,nofail,_netdev,x-systemd.automount" "${WORK_DIR}/out"
+assert_contains "fstab: other entries kept" "/dev/sda1 / ext4 defaults 0 1" "${WORK_DIR}/out"
+assert_not_contains "fstab: no soft mounts" "soft" "${WORK_DIR}/out"
+
+compose_nfs_case() {
+    stub_docker() { return 1; }
+    ensure_dns_credentials_file() { :; }
+    N8N_DOMAIN=n8n.example.com; NFS_CONFIGURED=true; NFS_LOCAL_MOUNT=/srv/nfs
+    generate_docker_compose_v3 >/dev/null
+    cat "${SCRIPT_DIR}/docker-compose.yaml"
+}
+run_case "${WORK_DIR}/nfs_compose" compose_nfs_case
+assert_contains "compose: NFS bind source from NFS_LOCAL_MOUNT" 'source: ${NFS_LOCAL_MOUNT:-/opt/n8n_backups}' "${WORK_DIR}/out"
+assert_contains "compose: rslave propagation" "propagation: rslave" "${WORK_DIR}/out"
+
+project_case() { SCRIPT_DIR="/x/-My.Stack_1"; echo "[$(compose_project_name)]"; }
+run_case "${WORK_DIR}/proj" project_case
+assert_contains "project name normalised like compose" "[mystack_1]" "${WORK_DIR}/out"
+
 echo ""
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

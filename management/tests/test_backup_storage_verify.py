@@ -264,7 +264,7 @@ def test_verify_restore_succeeds_and_uses_separate_databases(monkeypatch, tmp_pa
     assert service._restore_dump_into_verify_db(str(dump), "n8n_management", "n8n_management_verify") == (True, "")
     assert any('CREATE DATABASE "n8n_management_verify" TEMPLATE template0' in " ".join(c) for c in seen)
     assert vs.verify_db_name("n8n") == vs.VERIFY_DB_NAME
-    assert vs.VERIFY_CONTAINER_IMAGE == "pgvector/pgvector:pg16"
+    assert vs.VERIFY_CONTAINER_IMAGE == "pgvector/pgvector:0.8.6-pg16"  # same pinned image as the postgres service
 
 
 def test_workflow_checksum_comparison():
