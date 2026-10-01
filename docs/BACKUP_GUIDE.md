@@ -8,6 +8,49 @@ The n8n Management System provides comprehensive backup capabilities for:
 - n8n configuration files
 - Individual workflow exports
 
+> **Backup archives contain every secret of the installation**: `.env` (`N8N_ENCRYPTION_KEY`, database
+> passwords, DNS API tokens), TLS private keys, the `n8n_data` volume and the management database
+> (notification channel secrets). Archives are written owner-only (`0600`, folders `0700`). Set
+> `BACKUP_ENCRYPTION_PASSPHRASE` to encrypt them — see [Archive Encryption and Key Custody](#archive-encryption-and-key-custody).
+
+---
+
+## Archive Encryption and Key Custody
+
+When `.env` contains a passphrase of at least 12 characters:
+
+```bash
+BACKUP_ENCRYPTION_PASSPHRASE='a long random passphrase'
+```
+
+every complete backup archive is encrypted with gpg (OpenPGP symmetric, AES-256, integrity protected)
+while it is written, so no plaintext copy reaches the backup destination, and is named
+`backup_<timestamp>.n8n_backup.tar.gz.gpg`. The value is read from `.env` at the start of each backup;
+no restart is needed. A configured passphrase shorter than 12 characters makes backups fail rather than
+silently writing them unencrypted. Without a passphrase archives are written unencrypted (still `0600`)
+and a warning is logged.
+
+Verification, selective restore, the in-app restore and the downloads decrypt transparently with the
+passphrase currently in `.env`. The *Data only* download of an encrypted backup is re-encrypted with it.
+
+To decrypt by hand, on any machine with gpg:
+
+```bash
+gpg --decrypt backup_<timestamp>.n8n_backup.tar.gz.gpg | tar -xzf - -C /root/n8n_restore
+```
+
+**Key custody - losing the passphrase means losing every encrypted backup.** There is no recovery key.
+
+- Store the passphrase **off the server** (password manager, sealed printout) *before* you rely on
+  encrypted backups. After a host loss the copy in `.env` is gone with the host; the copy inside the
+  archive is encrypted with itself.
+- Changing the passphrase does not re-encrypt existing archives. Keep every previous passphrase until
+  all archives made with it have been pruned, and record which passphrase applies from which date.
+- After setting or changing it, take a backup and test a decrypt:
+  `gpg --decrypt FILE | tar -tzf - | head`.
+- Archives created before encryption was enabled stay unencrypted; delete or re-protect copies made
+  outside the console (downloads, offsite syncs).
+
 ---
 
 ## Table of Contents
@@ -164,13 +207,31 @@ Backups stored on remote NFS server.
 4. Click **Test Connection**
 5. Save
 
-**Manual NFS mount test:**
-```bash
-# Test NFS connectivity
-showmount -e your-nfs-server
+**How the share reaches the container:** the host directory `/opt/n8n_backups` is bind-mounted into
+the management container as `/mnt/backups`. The NFS share must be mounted **on the host** at that
+directory **before** the container starts; the container cannot mount it itself. A bind mount is
+always a "mount point", so the console checks the filesystem type behind it
+(`/proc/self/mountinfo`) and that it is not on the same device as the local project directory:
 
-# Test mount
-docker exec n8n_management mount -t nfs your-nfs-server:/path /mnt/test
+- Share mounted: the path is reported as NFS and used.
+- Share not mounted (or mounted after the container started): the path is the host's local disk.
+  With storage set to **NFS** the backup is refused (it fails with a clear error) instead of being
+  written to the local disk; with **both** it falls back to local storage. Either way a
+  *Backup Storage Unavailable* notification is sent, and an hourly check sends it when the share
+  disappears.
+
+After mounting the share, restart the management container (`docker compose restart n8n_management`).
+A robust host fstab entry:
+
+```bash
+nas:/export/n8n  /opt/n8n_backups  nfs  hard,timeo=600,retrans=3,_netdev,nofail,x-systemd.automount  0 0
+```
+
+**Check from the host:**
+```bash
+showmount -e your-nfs-server
+findmnt /opt/n8n_backups                          # must show nfs/nfs4
+docker exec n8n_management stat -f -c %T /mnt/backups   # must print nfs
 ```
 
 ---
@@ -280,25 +341,50 @@ Verification ensures backups can actually be restored.
 
 ### How It Works
 
-1. Creates temporary PostgreSQL container
-2. Restores backup to temporary container
-3. Validates data integrity:
-   - Table existence
-   - Row counts comparison
-   - Checksum verification (if enabled)
-4. Cleans up temporary container
+There are two levels.
+
+**Archive verification** (auto-verification after a backup, `POST /api/backups/verification/run/{id}`,
+and the first step of the comprehensive verification):
+
+1. Compares the archive's SHA-256 with the value recorded when it was written
+2. Decrypts it if encrypted, and reads every member (truncation or gzip corruption fails)
+3. Requires `metadata.json` and a `databases/<db>.dump` for every database the backup covers
+4. Runs `pg_restore --list` on every dump; any non-zero exit fails the verification
+
+**Comprehensive verification** (the **Verify** action in Backup History, `POST /api/backups/{id}/verify`,
+and the verification schedule):
+
+1. Archive verification as above
+2. Creates a temporary `pgvector/pgvector:pg16` container (the same image and extensions as the
+   production database; a different production image is reported as a warning)
+3. Restores **every** dump (n8n and n8n_management) into its own fresh database with
+   `pg_restore --exit-on-error`; any error fails the verification
+4. Checks that every table in the backup's schema manifest exists, for both databases
+5. Compares row counts with the manifest (warnings only: the manifest is taken after the dump)
+6. Compares a SHA-256 of each workflow's `nodes` and `connections`, recorded right before the dump,
+   with the restored copy (computed by PostgreSQL the same way on both sides) for every workflow.
+   A mismatch fails;
+   a workflow saved while the backup ran is reported separately. Backups taken before this was
+   recorded show the check as skipped.
+7. Checks config file checksums
+8. Removes the temporary container
 
 ### Enabling Automatic Verification
 
-**Via Management UI:**
-1. Go to **Settings** → **Backups** → **Verification Schedule**
-2. Configure:
-   - **Enabled**: On
-   - **Frequency**: Daily, Weekly, or Monthly
-   - **Day**: Day to run (for weekly/monthly)
-   - **Time**: Hour to run
-   - **Count**: Number of recent backups to verify
-3. Save
+Auto-verification after each backup (or every Nth backup) is switched on in **Backup Settings** →
+**Verification**; it runs the archive verification.
+
+The comprehensive verification runs on a schedule configured through the API:
+
+```bash
+curl -X PUT https://your-domain.com/management/api/backups/verification/schedule \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled": true, "frequency": "weekly", "day_of_week": 6, "hour": 3, "verify_latest_count": 3}'
+```
+
+- **frequency**: `daily`, `weekly` (on `day_of_week`, 0 = Monday) or `monthly` (on the 1st)
+- **hour**: hour of day in the console's timezone; the slot is checked hourly at minute 40
+- **verify_latest_count**: how many of the newest successful database backups to verify, one at a time
 
 ### Manual Verification
 
@@ -319,7 +405,7 @@ curl -X POST https://your-domain.com/management/api/backups/verify/123 \
 
 | Status | Meaning |
 |--------|---------|
-| `passed` | Backup verified successfully |
+| `passed` | Backup verified successfully (`verification_details.method` is `archive` for the archive level) |
 | `failed` | Verification failed - backup may be corrupt |
 | `pending` | Verification not yet run |
 | `running` | Verification in progress |
@@ -413,6 +499,11 @@ after n8n is already running while hiding errors. Use the current script instead
 
 After upgrading the management console, **take a fresh full backup** so that your newest archive embeds the
 fixed script and the full certificate tree.
+
+Archives from before restore script 3.3.0 also lack `project/`, `volumes/` and the image list: clone the
+repository into the target directory before running the script (so `nginx-router.conf`, `scripts/certbot`
+and `management/` exist); `n8n_data` starts empty (n8n uses `N8N_ENCRYPTION_KEY` from `.env`, community
+nodes must be reinstalled); missing images are pulled at their current tag.
 
 ### Manual database restore (command line)
 
@@ -653,9 +744,12 @@ Downloads a complete backup archive containing all data but **without** the rest
 
 **Includes:**
 - All databases (pg_dump files)
-- Configuration files (.env, nginx.conf, docker-compose.yaml)
+- Configuration files (.env, nginx.conf, docker-compose.yaml) and the project directory
 - SSL certificates
+- n8n_data / ntfy_data volume snapshots
 - Backup metadata
+
+If the backup is encrypted, the download is encrypted too (`.data.tar.gz.gpg`).
 
 **Via Management UI:**
 1. Go to **Backups** → **History**
@@ -679,9 +773,14 @@ Downloads a complete recovery archive including an embedded `restore.sh` script.
 
 **Includes:**
 - All databases (pg_dump files)
-- Configuration files (.env, nginx.conf, docker-compose.yaml)
-- SSL certificates
-- Backup metadata
+- `project/`: `.env`, `docker-compose.yaml` and every bind-mounted config (`nginx.conf`,
+  `nginx-router.conf`, `nginx-public.conf`, `.filebrowser.json`, `ntfy/`, `dozzle/`, DNS credentials,
+  `tailscale-serve.json`), `scripts/certbot/`, and the `management/` and `n8n_status/` build contexts
+- The complete `/etc/letsencrypt` tree (symlinks preserved, renewal configuration and account)
+- `volumes/n8n_data.tar` (n8n's `config` with its `encryptionKey`, binary data, community nodes) and
+  `volumes/ntfy_data.tar`
+- Backup metadata, including the Compose project name, the project's git commit and the registry digest
+  of every image the stack was running
 - **restore.sh** - Self-contained restore script
 
 **Via Management UI:**
@@ -699,11 +798,34 @@ curl -O -J https://your-domain.com/management/api/backups/download/123 \
 **Using the Bare Metal Archive:**
 ```bash
 # On the target server:
-tar -xzf backup_file.tar.gz
-cd backup_*/
-chmod +x restore.sh
-./restore.sh
+mkdir /root/n8n_restore
+tar -xzf backup_<timestamp>.n8n_backup.tar.gz -C /root/n8n_restore
+#   encrypted archive:
+#   gpg --decrypt backup_<timestamp>.n8n_backup.tar.gz.gpg | tar -xzf - -C /root/n8n_restore
+cd /root/n8n_restore
+sudo ./restore.sh --dry-run
+sudo ./restore.sh
 ```
+
+With a separately downloaded `restore.sh` (**Download latest restore.sh**) the script can decrypt and
+extract the archive itself into a private temporary directory that is removed when it exits:
+
+```bash
+sudo ./restore.sh --archive backup_<timestamp>.n8n_backup.tar.gz.gpg --passphrase-file /root/passphrase
+```
+
+(or export `BACKUP_ENCRYPTION_PASSPHRASE`, or let gpg prompt for it).
+
+What `restore.sh` does beyond restoring the databases:
+
+- Restores `project/` into the target directory (existing files that differ are kept as `*.bak.<timestamp>`).
+- Restores the volume snapshots and the public website into the volume names Docker Compose uses for the
+  target directory (`<project>_n8n_data`, `<project>_public_web_root`, from `docker compose config`;
+  the project name is `COMPOSE_PROJECT_NAME` or the directory name, as in `setup.sh`).
+- Never runs `docker compose pull`. For every service it pulls the recorded `image@sha256:...` and tags
+  it as the usual reference (for example `n8nio/n8n:latest`), so `docker compose up` starts the versions
+  the data was written by instead of whatever `:latest` is today. Locally built images (no digest) are
+  built by Compose as usual.
 
 ---
 
@@ -771,10 +893,12 @@ docker logs n8n_postgres --tail 50
    # Should include your client IP with rw permissions
    ```
 
-4. Test manual mount:
+4. Mount the share **on the host** at `/opt/n8n_backups` (see [NFS Storage](#nfs-storage)), then
+   restart the management container and check:
    ```bash
-   docker exec n8n_management mount -t nfs \
-     your-nfs-server:/path /mnt/test
+   findmnt /opt/n8n_backups
+   docker compose restart n8n_management
+   docker exec n8n_management stat -f -c %T /mnt/backups   # nfs
    ```
 
 ### Verification Fails
@@ -876,7 +1000,8 @@ Retention policies help, but consider:
 
 ### 7. Secure Your Backups
 
-Backups contain sensitive data:
-- Restrict NFS access to management server only
-- Use encrypted storage where possible
-- Audit access to backup files
+Backups contain every secret of the installation:
+- Set `BACKUP_ENCRYPTION_PASSPHRASE` and keep the passphrase off the server
+  (see [Archive Encryption and Key Custody](#archive-encryption-and-key-custody))
+- Export the NFS share to the management host only, with `root_squash`
+- Audit access to backup files and downloaded copies

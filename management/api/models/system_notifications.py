@@ -481,6 +481,17 @@ DEFAULT_SYSTEM_EVENTS = [
         "cooldown_minutes": 30,
         "flapping_enabled": False,
     },
+    {
+        "event_type": "backup_storage_unavailable",
+        "display_name": "Backup Storage Unavailable",
+        "description": "Off-host (NFS) backup storage is configured but the target is missing or is actually the local disk (share not mounted on the host). Backups set to NFS-only are refused; 'both' falls back to local storage.",
+        "icon": "CircleStackIcon",
+        "category": "backup",
+        "severity": "critical",
+        "frequency": "every_time",
+        "cooldown_minutes": 240,
+        "flapping_enabled": False,
+    },
     # Backup verification events
     {
         "event_type": "verification_started",

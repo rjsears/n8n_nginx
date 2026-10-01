@@ -184,6 +184,17 @@ async def _add_maintenance_jobs() -> None:
         replace_existing=True,
     )
 
+    # Backup health - hourly at minute 40: off-host (NFS) storage check and
+    # the VerificationSchedule slot (runs the comprehensive verification
+    # when due; see verification_service.run_scheduled_verification).
+    scheduler.add_job(
+        _run_backup_health_checks,
+        CronTrigger(minute=40),
+        id="maintenance_backup_health",
+        name="Backup Storage & Scheduled Verification",
+        replace_existing=True,
+    )
+
     # Notification history cleanup - run daily at 3 AM
     scheduler.add_job(
         _cleanup_notification_history,
@@ -620,6 +631,21 @@ async def _run_maintenance_pruning() -> None:
     from api.services.pruning_service import run_retention_maintenance
 
     await run_retention_maintenance(source="scheduled")
+
+
+async def _run_backup_health_checks() -> None:
+    """Hourly: verify the off-host backup target, then run scheduled verification if due."""
+    from api.services.backup_storage import check_backup_storage
+    from api.services.verification_service import run_scheduled_verification
+
+    try:
+        await check_backup_storage()
+    except Exception as e:
+        logger.error(f"Backup storage check failed: {e}")
+    try:
+        await run_scheduled_verification()
+    except Exception as e:
+        logger.error(f"Scheduled backup verification failed: {e}")
 
 
 # NOTE: The legacy _enforce_retention() job, which applied the per-type

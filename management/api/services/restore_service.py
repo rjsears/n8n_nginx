@@ -13,6 +13,7 @@ https://github.com/rjsears
 
 import contextlib
 import re
+import secrets
 import subprocess
 import tarfile
 import tempfile
@@ -27,6 +28,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from api.services.backup_service import BackupService
+from api.services.backup_archive import (
+    BackupEncryptionError,
+    chmod_quietly,
+    make_private_dir,
+    open_backup_archive,
+    plaintext_archive,
+    safe_extract,
+)
 from api.services.n8n_api_service import N8nApiService
 from api.config import settings
 
@@ -36,10 +45,11 @@ logger = logging.getLogger(__name__)
 # Container configuration
 RESTORE_CONTAINER_NAME = "n8n_postgres_restore"
 RESTORE_CONTAINER_IMAGE = "pgvector/pgvector:pg16"  # Use pgvector image to support vector extension
-RESTORE_DB_PORT = 5433  # Different port to avoid conflict
 RESTORE_DB_USER = "restore_user"
-RESTORE_DB_PASSWORD = "restore_temp_password"
 RESTORE_DB_NAME = "n8n_restore"
+# Every temporary restore container carries this label so leftovers (crash,
+# restart while a backup was mounted) can be found and removed at startup.
+RESTORE_CONTAINER_LABEL = "n8n_management.temporary=restore"
 
 # Module-level state for mounted backup (database restore container)
 _mounted_backup_id: Optional[int] = None
@@ -278,13 +288,49 @@ async def _run_subprocess(
 
 
 def _extract_tar_sync(archive_path: str, dest_dir: str) -> None:
-    """Extract a .tar.gz, refusing absolute paths / path traversal where supported."""
-    with tarfile.open(archive_path, "r:gz") as tar:
-        try:
-            tar.extractall(dest_dir, filter="tar")
-        except TypeError:
-            # Python without extraction filters (< 3.11.4)
-            tar.extractall(dest_dir)
+    """
+    Extract a backup archive (decrypting it first if it is encrypted),
+    refusing absolute paths / path traversal where supported.
+    """
+    with open_backup_archive(archive_path) as tar:
+        safe_extract(tar, dest_dir)
+
+
+def _remove_restore_containers_sync() -> int:
+    """
+    Remove (with their anonymous volumes) every temporary restore container:
+    those carrying RESTORE_CONTAINER_LABEL, plus one named
+    RESTORE_CONTAINER_NAME created before the label existed.
+    """
+    ids = set()
+    for filt in (f"label={RESTORE_CONTAINER_LABEL}", f"name=^/?{RESTORE_CONTAINER_NAME}$"):
+        result = subprocess.run(["docker", "ps", "-aq", "--filter", filt], capture_output=True, text=True)
+        if result.returncode == 0:
+            ids.update(line.strip() for line in result.stdout.splitlines() if line.strip())
+    removed = 0
+    for cid in sorted(ids):
+        result = subprocess.run(["docker", "rm", "-f", "-v", cid], capture_output=True, text=True)
+        if result.returncode == 0:
+            removed += 1
+        else:
+            logger.warning(f"Could not remove restore container {cid}: {result.stderr.strip()}")
+    return removed
+
+
+async def cleanup_leftover_restore_containers() -> int:
+    """
+    Startup hook: remove temporary restore containers left behind by a crash
+    or restart (nothing can be mounted right after startup). Returns how many
+    were removed; never raises.
+    """
+    try:
+        removed = await asyncio.to_thread(_remove_restore_containers_sync)
+    except Exception as e:
+        logger.warning(f"Could not clean up leftover restore containers: {e}")
+        return 0
+    if removed:
+        logger.info(f"Removed {removed} leftover temporary restore container(s)")
+    return removed
 
 
 def _remove_path_sync(path: str) -> None:
@@ -445,38 +491,36 @@ class RestoreService:
         Create and start a temporary PostgreSQL container for restore operations.
         Always removes existing container and creates fresh to avoid stale state.
         Returns True if successful.
+
+        The container has no network (all access is `docker exec`), a random
+        per-run superuser password passed through the environment (never on
+        the command line), and RESTORE_CONTAINER_LABEL. If it does not become
+        ready it is removed together with its anonymous data volume.
         """
         logger.info("Starting restore container...")
-
+        created = False
+        ready = False
         try:
             # Always remove existing container and create fresh
-            check_cmd = ["docker", "ps", "-a", "--filter", f"name={RESTORE_CONTAINER_NAME}", "--format", "{{.Names}}"]
-            result = subprocess.run(check_cmd, capture_output=True, text=True)
+            await asyncio.to_thread(_remove_restore_containers_sync)
 
-            if RESTORE_CONTAINER_NAME in result.stdout:
-                logger.info("Removing existing restore container...")
-                rm_result = subprocess.run(["docker", "rm", "-f", RESTORE_CONTAINER_NAME], capture_output=True, text=True)
-                if rm_result.returncode != 0:
-                    logger.warning(f"Failed to remove container: {rm_result.stderr}")
-
-            # Get the correct Docker network
-            docker_network = self._get_postgres_network()
-            logger.info(f"Using Docker network: {docker_network}")
-
-            # Create new container (no port binding needed - we use docker exec)
+            # Create new container (no network, no ports: we use docker exec)
             logger.info("Creating new restore container...")
             create_cmd = [
                 "docker", "run", "-d",
                 "--name", RESTORE_CONTAINER_NAME,
+                "--label", RESTORE_CONTAINER_LABEL,
+                "--network", "none",
                 "--security-opt", "apparmor=unconfined",
                 "-e", f"POSTGRES_USER={RESTORE_DB_USER}",
-                "-e", f"POSTGRES_PASSWORD={RESTORE_DB_PASSWORD}",
+                "-e", "POSTGRES_PASSWORD",
                 "-e", f"POSTGRES_DB={RESTORE_DB_NAME}",
-                "--network", docker_network,
                 RESTORE_CONTAINER_IMAGE,
             ]
+            env = {**os.environ, "POSTGRES_PASSWORD": secrets.token_urlsafe(24)}
             logger.info(f"Running: {' '.join(create_cmd)}")
-            result = subprocess.run(create_cmd, capture_output=True, text=True)
+            result = subprocess.run(create_cmd, capture_output=True, text=True, env=env)
+            created = True  # a failed run can still leave a created container behind
             if result.returncode != 0:
                 logger.error(f"Docker run failed (exit code {result.returncode}): stdout={result.stdout}, stderr={result.stderr}")
                 return False
@@ -485,6 +529,7 @@ class RestoreService:
             # Wait for PostgreSQL to be ready
             await self._wait_for_postgres_ready()
             self._container_ready = True
+            ready = True
             logger.info("Restore container is ready")
             return True
 
@@ -497,6 +542,9 @@ class RestoreService:
             import traceback
             logger.error(traceback.format_exc())
             return False
+        finally:
+            if created and not ready:
+                await asyncio.to_thread(_remove_restore_containers_sync)
 
     async def _wait_for_postgres_ready(self, timeout: int = 30) -> None:
         """Wait for PostgreSQL to accept connections."""
@@ -551,8 +599,8 @@ class RestoreService:
             if stop_result.returncode != 0:
                 logger.warning(f"Failed to stop container: {stop_result.stderr}")
 
-            # Remove container (force to ensure cleanup)
-            rm_cmd = ["docker", "rm", "-f", RESTORE_CONTAINER_NAME]
+            # Remove container and its anonymous data volume (force to ensure cleanup)
+            rm_cmd = ["docker", "rm", "-f", "-v", RESTORE_CONTAINER_NAME]
             rm_result = await asyncio.to_thread(
                 subprocess.run, rm_cmd, capture_output=True, text=True
             )
@@ -793,129 +841,138 @@ class RestoreService:
                 return False
 
         try:
-            # Reset the database before loading (use separate commands to avoid transaction block error)
-            logger.info("Resetting restore database...")
+            archive_ctx = plaintext_archive(backup.filepath)
+            archive_file = archive_ctx.__enter__()
+        except BackupEncryptionError as e:
+            logger.error(f"Cannot open backup {backup_id}: {e}")
+            return False
+        with contextlib.ExitStack() as stack:
+            # removes the decrypted temporary copy (if any) on every return path
+            stack.push(archive_ctx)
             try:
-                drop_cmd = [
-                    "docker", "exec", RESTORE_CONTAINER_NAME,
-                    "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
-                    "-c", f"DROP DATABASE IF EXISTS {RESTORE_DB_NAME};"
-                ]
-                result = subprocess.run(drop_cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    logger.warning(f"DROP DATABASE warning: {result.stderr}")
+                # Reset the database before loading (use separate commands to avoid transaction block error)
+                logger.info("Resetting restore database...")
+                try:
+                    drop_cmd = [
+                        "docker", "exec", RESTORE_CONTAINER_NAME,
+                        "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
+                        "-c", f"DROP DATABASE IF EXISTS {RESTORE_DB_NAME};"
+                    ]
+                    result = subprocess.run(drop_cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        logger.warning(f"DROP DATABASE warning: {result.stderr}")
 
-                create_cmd = [
-                    "docker", "exec", RESTORE_CONTAINER_NAME,
-                    "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
-                    "-c", f"CREATE DATABASE {RESTORE_DB_NAME};"
-                ]
-                result = subprocess.run(create_cmd, capture_output=True, text=True, check=True)
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to reset restore database: {e.stderr if hasattr(e, 'stderr') else e}")
-                return False
+                    create_cmd = [
+                        "docker", "exec", RESTORE_CONTAINER_NAME,
+                        "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
+                        "-c", f"CREATE DATABASE {RESTORE_DB_NAME};"
+                    ]
+                    result = subprocess.run(create_cmd, capture_output=True, text=True, check=True)
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to reset restore database: {e.stderr if hasattr(e, 'stderr') else e}")
+                    return False
 
-            # Check if it's a tar archive or a legacy gzipped SQL file
-            is_tar_archive = False
-            try:
-                with tarfile.open(backup.filepath, "r:gz") as tar:
-                    # Check if it has our expected structure
-                    members = tar.getnames()
-                    is_tar_archive = True
-                    logger.info(f"Backup archive contains: {members[:10]}...")  # Log first 10 members
-            except tarfile.TarError:
-                logger.info("Not a tar archive, trying legacy format")
+                # Check if it's a tar archive or a legacy gzipped SQL file
                 is_tar_archive = False
+                try:
+                    with tarfile.open(archive_file, "r:gz") as tar:
+                        # Check if it has our expected structure
+                        members = tar.getnames()
+                        is_tar_archive = True
+                        logger.info(f"Backup archive contains: {members[:10]}...")  # Log first 10 members
+                except tarfile.TarError:
+                    logger.info("Not a tar archive, trying legacy format")
+                    is_tar_archive = False
 
-            if not is_tar_archive:
-                # Legacy format: gzipped SQL file
-                logger.info("Legacy backup format detected")
-                return await self._load_legacy_backup(backup.filepath)
+                if not is_tar_archive:
+                    # Legacy format: gzipped SQL file
+                    logger.info("Legacy backup format detected")
+                    return await self._load_legacy_backup(backup.filepath)
 
-            # Extract backup archive to temp directory
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Extract tar.gz
-                with tarfile.open(backup.filepath, "r:gz") as tar:
-                    tar.extractall(temp_dir)
+                # Extract backup archive to temp directory
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Extract tar.gz
+                    with tarfile.open(archive_file, "r:gz") as tar:
+                        safe_extract(tar, temp_dir)
 
-                # Find the n8n database dump - check multiple possible locations
-                n8n_dump = None
-                possible_paths = [
-                    os.path.join(temp_dir, "databases", "n8n.dump"),
-                    os.path.join(temp_dir, "n8n.dump"),
-                    os.path.join(temp_dir, "databases", "n8n.sql"),
-                ]
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        n8n_dump = path
-                        logger.info(f"Found database dump at: {path}")
-                        break
+                    # Find the n8n database dump - check multiple possible locations
+                    n8n_dump = None
+                    possible_paths = [
+                        os.path.join(temp_dir, "databases", "n8n.dump"),
+                        os.path.join(temp_dir, "n8n.dump"),
+                        os.path.join(temp_dir, "databases", "n8n.sql"),
+                    ]
+                    for path in possible_paths:
+                        if os.path.exists(path):
+                            n8n_dump = path
+                            logger.info(f"Found database dump at: {path}")
+                            break
 
-                if not n8n_dump:
-                    # List what we actually found
-                    for root, dirs, files in os.walk(temp_dir):
-                        for f in files:
-                            logger.info(f"Found in archive: {os.path.join(root, f)}")
-                    logger.error("No database dump found in backup archive")
-                    return False
+                    if not n8n_dump:
+                        # List what we actually found
+                        for root, dirs, files in os.walk(temp_dir):
+                            for f in files:
+                                logger.info(f"Found in archive: {os.path.join(root, f)}")
+                        logger.error("No database dump found in backup archive")
+                        return False
 
-                # Copy dump file to container
-                copy_cmd = [
-                    "docker", "cp", n8n_dump,
-                    f"{RESTORE_CONTAINER_NAME}:/tmp/n8n.dump"
-                ]
-                result = subprocess.run(copy_cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    logger.error(f"Failed to copy dump to container: {result.stderr}")
-                    return False
+                    # Copy dump file to container
+                    copy_cmd = [
+                        "docker", "cp", n8n_dump,
+                        f"{RESTORE_CONTAINER_NAME}:/tmp/n8n.dump"
+                    ]
+                    result = subprocess.run(copy_cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        logger.error(f"Failed to copy dump to container: {result.stderr}")
+                        return False
 
-                # Restore the dump using pg_restore (for custom format) or psql (for SQL)
-                if n8n_dump.endswith('.sql'):
-                    restore_cmd = [
+                    # Restore the dump using pg_restore (for custom format) or psql (for SQL)
+                    if n8n_dump.endswith('.sql'):
+                        restore_cmd = [
+                            "docker", "exec", RESTORE_CONTAINER_NAME,
+                            "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                            "-f", "/tmp/n8n.dump"
+                        ]
+                    else:
+                        restore_cmd = [
+                            "docker", "exec", RESTORE_CONTAINER_NAME,
+                            "pg_restore",
+                            "-U", RESTORE_DB_USER,
+                            "-d", RESTORE_DB_NAME,
+                            "--clean", "--if-exists",
+                            "--no-owner", "--no-acl",
+                            "/tmp/n8n.dump"
+                        ]
+
+                    result = subprocess.run(restore_cmd, capture_output=True, text=True)
+                    logger.info(f"Restore command output: stdout={result.stdout[:500] if result.stdout else 'none'}, stderr={result.stderr[:500] if result.stderr else 'none'}")
+
+                    # pg_restore often returns non-zero for warnings, only fail on actual errors
+                    if result.returncode != 0:
+                        if "ERROR" in result.stderr and "already exists" not in result.stderr:
+                            logger.error(f"pg_restore failed: {result.stderr}")
+                            return False
+                        else:
+                            logger.warning(f"pg_restore completed with warnings: {result.stderr[:200] if result.stderr else 'none'}")
+
+                    # Verify the restore worked by checking for workflow_entity table
+                    verify_cmd = [
                         "docker", "exec", RESTORE_CONTAINER_NAME,
                         "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
-                        "-f", "/tmp/n8n.dump"
+                        "-t", "-c", "SELECT COUNT(*) FROM workflow_entity;"
                     ]
-                else:
-                    restore_cmd = [
-                        "docker", "exec", RESTORE_CONTAINER_NAME,
-                        "pg_restore",
-                        "-U", RESTORE_DB_USER,
-                        "-d", RESTORE_DB_NAME,
-                        "--clean", "--if-exists",
-                        "--no-owner", "--no-acl",
-                        "/tmp/n8n.dump"
-                    ]
-
-                result = subprocess.run(restore_cmd, capture_output=True, text=True)
-                logger.info(f"Restore command output: stdout={result.stdout[:500] if result.stdout else 'none'}, stderr={result.stderr[:500] if result.stderr else 'none'}")
-
-                # pg_restore often returns non-zero for warnings, only fail on actual errors
-                if result.returncode != 0:
-                    if "ERROR" in result.stderr and "already exists" not in result.stderr:
-                        logger.error(f"pg_restore failed: {result.stderr}")
+                    verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
+                    if verify_result.returncode != 0:
+                        logger.error(f"Verification failed - workflow_entity table not found: {verify_result.stderr}")
                         return False
-                    else:
-                        logger.warning(f"pg_restore completed with warnings: {result.stderr[:200] if result.stderr else 'none'}")
 
-                # Verify the restore worked by checking for workflow_entity table
-                verify_cmd = [
-                    "docker", "exec", RESTORE_CONTAINER_NAME,
-                    "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
-                    "-t", "-c", "SELECT COUNT(*) FROM workflow_entity;"
-                ]
-                verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
-                if verify_result.returncode != 0:
-                    logger.error(f"Verification failed - workflow_entity table not found: {verify_result.stderr}")
-                    return False
+                    workflow_count = verify_result.stdout.strip()
+                    logger.info(f"Backup {backup_id} loaded successfully. Found {workflow_count} workflows.")
+                    return True
 
-                workflow_count = verify_result.stdout.strip()
-                logger.info(f"Backup {backup_id} loaded successfully. Found {workflow_count} workflows.")
-                return True
-
-        except Exception as e:
-            logger.error(f"Failed to load backup: {e}")
-            return False
+            except Exception as e:
+                logger.error(f"Failed to load backup: {e}")
+                return False
 
     async def _load_legacy_backup(self, filepath: str) -> bool:
         """Load a legacy (non-archive) backup format."""
@@ -1697,6 +1754,9 @@ class RestoreService:
                     "config/.env": "/app/host_project/.env",
                     "config/docker-compose.yaml": "/app/host_project/docker-compose.yaml",
                     "config/nginx.conf": "/app/host_project/nginx.conf",
+                    "config/nginx-router.conf": "/app/host_project/nginx-router.conf",
+                    "config/nginx-public.conf": "/app/host_project/nginx-public.conf",
+                    "config/.filebrowser.json": "/app/host_project/.filebrowser.json",
                     "config/init-db.sh": "/app/host_project/init-db.sh",
                     # DNS credential files
                     "config/cloudflare.ini": "/app/host_project/cloudflare.ini",
@@ -1727,8 +1787,7 @@ class RestoreService:
             backup_created = None
             if create_backup and os.path.exists(target_path):
                 # Save to mounted backup volume
-                config_backup_dir = "/app/backups/config_backups"
-                os.makedirs(config_backup_dir, exist_ok=True)
+                config_backup_dir = make_private_dir("/app/backups/config_backups")
 
                 # Create backup filename: original_name.bak.TIMESTAMP
                 original_filename = os.path.basename(target_path)
@@ -1737,6 +1796,7 @@ class RestoreService:
                 backup_path = os.path.join(config_backup_dir, backup_filename)
 
                 shutil.copy2(target_path, backup_path)
+                chmod_quietly(backup_path, 0o600)
                 backup_created = backup_path
                 logger.info(f"Created backup: {backup_created}")
 
@@ -1898,7 +1958,7 @@ class RestoreService:
 
         # 2. Safety dump of the live database
         if target_exists:
-            os.makedirs(safety_dir, exist_ok=True)
+            make_private_dir(safety_dir)
             safety_path = os.path.join(safety_dir, f"{old_db}.dump")
             rc, _, err = await _run_subprocess(
                 ["pg_dump", "-h", host, "-U", user, "-d", target,
@@ -1909,6 +1969,7 @@ class RestoreService:
                 with contextlib.suppress(OSError):
                     os.remove(safety_path)
                 return fail("Could not take a safety dump of the current database; nothing was changed.", err)
+            chmod_quietly(safety_path, 0o600)
             result["safety_dump"] = safety_path
             logger.info(f"Safety dump of {target} written to {safety_path}")
 
@@ -2412,7 +2473,7 @@ class RestoreService:
                 return {"status": "failed", "error": f"Backup file not found: {archive_path}"}
 
             file_count = 0
-            with tarfile.open(archive_path, "r:gz") as tar:
+            with open_backup_archive(archive_path) as tar:
                 # Find and extract only the public_website directory
                 for member in tar.getmembers():
                     if member.name.startswith("public_website/"):

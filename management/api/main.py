@@ -84,6 +84,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Leftover verification container cleanup failed: {e}")
 
+        # Temporary restore containers left behind by a crash or restart
+        try:
+            from api.services.restore_service import cleanup_leftover_restore_containers
+            await cleanup_leftover_restore_containers()
+        except Exception as e:
+            logger.warning(f"Leftover restore container cleanup failed: {e}")
+
         # Initialize scheduler
         await init_scheduler()
         logger.info("Scheduler initialized")

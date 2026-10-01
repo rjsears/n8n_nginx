@@ -338,7 +338,7 @@ async def download_backup(
 
     return StreamingResponse(
         file_iterator(),
-        media_type="application/gzip",
+        media_type="application/pgp-encrypted" if backup.filename.endswith(".gpg") else "application/gzip",
         headers={"Content-Disposition": f'attachment; filename="{backup.filename}"'}
     )
 
@@ -355,9 +355,9 @@ async def download_backup_data_only(
     This creates a clean archive suitable for manual restoration or archival,
     containing only the essential data without the restore.sh script.
     """
+    import shutil
     import tarfile
     import tempfile
-    import io
 
     service = BackupService(db)
     backup = await service.get_backup(backup_id)
@@ -380,8 +380,8 @@ async def download_backup_data_only(
             detail=f"Backup file not found on disk: {backup.filepath}",
         )
 
-    # Check if this is a tar.gz archive
-    if not backup.filename.endswith('.tar.gz'):
+    # Check if this is a backup archive (plain or encrypted)
+    if ".tar.gz" not in backup.filename:
         # Not an archive, just return the raw file
         return FileResponse(
             path=backup.filepath,
@@ -389,41 +389,66 @@ async def download_backup_data_only(
             media_type="application/octet-stream",
         )
 
-    # Create a new archive without restore.sh
+    from starlette.background import BackgroundTask
+    from api.services.backup_archive import (
+        BackupEncryptionError,
+        encrypt_file,
+        get_encryption_passphrase,
+        is_encrypted_archive,
+        open_backup_archive,
+        open_private_file,
+    )
+
+    encrypted = is_encrypted_archive(backup.filepath)
+
+    def build() -> str:
+        """Copy the archive without restore.sh into a private temp dir; re-encrypt if the source was encrypted."""
+        workdir = tempfile.mkdtemp(prefix="n8n_data_only_")
+        try:
+            plain_out = os.path.join(workdir, "data.tar.gz")
+            with open_backup_archive(backup.filepath) as src_tar, open_private_file(plain_out) as raw:
+                with tarfile.open(fileobj=raw, mode='w:gz') as dst_tar:
+                    for member in src_tar:
+                        if member.name == 'restore.sh' or member.name.endswith('/restore.sh'):
+                            continue
+                        if member.isfile():
+                            dst_tar.addfile(member, src_tar.extractfile(member))
+                        else:
+                            dst_tar.addfile(member)
+            if not encrypted:
+                return plain_out
+            enc_out = plain_out + ".gpg"
+            encrypt_file(plain_out, enc_out, get_encryption_passphrase())
+            os.remove(plain_out)
+            return enc_out
+        except BaseException:
+            shutil.rmtree(workdir, ignore_errors=True)
+            raise
+
     try:
-        output = io.BytesIO()
-
-        with tarfile.open(backup.filepath, 'r:gz') as src_tar:
-            with tarfile.open(fileobj=output, mode='w:gz') as dst_tar:
-                for member in src_tar.getmembers():
-                    # Skip restore.sh
-                    if member.name == 'restore.sh' or member.name.endswith('/restore.sh'):
-                        continue
-                    # Extract and add the member
-                    if member.isfile():
-                        f = src_tar.extractfile(member)
-                        if f:
-                            dst_tar.addfile(member, f)
-                    else:
-                        dst_tar.addfile(member)
-
-        output.seek(0)
-
-        # Generate new filename
-        new_filename = backup.filename.replace('.n8n_backup.tar.gz', '.data.tar.gz')
-        if new_filename == backup.filename:
-            new_filename = backup.filename.replace('.tar.gz', '.data.tar.gz')
-
-        return StreamingResponse(
-            output,
-            media_type="application/gzip",
-            headers={"Content-Disposition": f'attachment; filename="{new_filename}"'}
-        )
+        import asyncio
+        out_path = await asyncio.to_thread(build)
+    except BackupEncryptionError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create data-only archive: {str(e)}",
         )
+
+    base = backup.filename[:-len(".gpg")] if backup.filename.endswith(".gpg") else backup.filename
+    new_filename = base.replace('.n8n_backup.tar.gz', '.data.tar.gz')
+    if new_filename == base:
+        new_filename = base.replace('.tar.gz', '.data.tar.gz')
+    if encrypted:
+        new_filename += ".gpg"
+
+    return FileResponse(
+        path=out_path,
+        filename=new_filename,
+        media_type="application/pgp-encrypted" if encrypted else "application/gzip",
+        background=BackgroundTask(shutil.rmtree, os.path.dirname(out_path), True),
+    )
 
 
 @router.delete("/{backup_id}", response_model=SuccessResponse)
@@ -1800,6 +1825,7 @@ async def detect_storage_locations(
     Checks common paths, NFS mounts, and returns their status.
     """
     import os
+    from api.services.backup_storage import inspect_storage_target
 
     def check_path(path: str) -> dict:
         """Check a path and return its status."""
@@ -1873,7 +1899,7 @@ async def detect_storage_locations(
 
     for path in unique_paths:
         info = check_path(path)
-        if not info["is_mount"]:  # Don't duplicate NFS mounts
+        if not (info["is_mount"] and inspect_storage_target(path).offsite):  # Don't duplicate NFS mounts
             # Mark the staging area separately
             if path == settings.backup_staging_dir or path == "/app/backups":
                 info["is_staging"] = True
@@ -1886,19 +1912,28 @@ async def detect_storage_locations(
     # Detect NFS mounts
     nfs_mounts = detect_nfs_mounts()
 
-    # Fallback: Check environment variables for host-level NFS bind mounts
-    # Host-level NFS mounts (bind-mounted into container) don't show as 'nfs' type in /proc/mounts
-    # We detect them via environment variables set during setup
+    # Host-level NFS bind mount (host /opt/n8n_backups -> /mnt/backups). A bind
+    # mount reports the filesystem type it exposes, so it is only NFS when the
+    # share was really mounted on the host when this container started;
+    # otherwise the path is the host's local disk and must not be offered as NFS.
+    nfs_warning = None
     if not nfs_mounts and settings.nfs_server:
-        # NFS was configured via environment, check if mount point is accessible
         nfs_mount = settings.nfs_mount_point or "/mnt/backups"
+        target = inspect_storage_target(nfs_mount)
         nfs_info = check_path(nfs_mount)
-        if nfs_info["exists"]:
-            nfs_info["fs_type"] = "nfs (host bind)"
+        nfs_info["fs_type"] = target.fstype
+        nfs_info["host_mount"] = settings.nfs_local_mount  # e.g., /opt/n8n_backups
+        if target.offsite:
             nfs_info["is_nfs"] = True
-            nfs_info["source"] = f"{settings.nfs_server}:{settings.nfs_path}"
-            nfs_info["host_mount"] = settings.nfs_local_mount  # e.g., /opt/n8n_backups
+            nfs_info["source"] = target.source or f"{settings.nfs_server}:{settings.nfs_path}"
             nfs_mounts.append(nfs_info)
+        else:
+            nfs_warning = (
+                f"NFS {settings.nfs_server}:{settings.nfs_path} is configured but {target.reason}. "
+                f"{nfs_mount} is local storage."
+            )
+    for mount in nfs_mounts:
+        mount["offsite"] = inspect_storage_target(mount["path"]).offsite
 
     # Find recommended path (first writable path)
     recommended = None
@@ -1919,6 +1954,7 @@ async def detect_storage_locations(
         "local_paths": local_paths,
         "nfs_mounts": nfs_mounts,
         "has_nfs": len(nfs_mounts) > 0,
+        "nfs_warning": nfs_warning,
         "recommended_path": recommended,
         "environment": {
             "backup_staging_dir": settings.backup_staging_dir,
