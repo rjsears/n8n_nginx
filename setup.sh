@@ -4180,6 +4180,10 @@ EOF
     cat >> "$compose_tmp" << 'EOF'
       # Status Collector (n8n_status service on host network)
       - STATUS_COLLECTOR_URL=${STATUS_COLLECTOR_URL:-http://host.docker.internal:8080}
+      # Web terminal root shell on the Docker host: off unless set to true in .env
+      - ENABLE_HOST_TERMINAL=${ENABLE_HOST_TERMINAL:-false}
+      # Extra browser origins allowed to use the console API (normally empty)
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
 EOF
 
     cat >> "$compose_tmp" << EOF
