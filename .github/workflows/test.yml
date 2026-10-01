@@ -83,6 +83,13 @@ jobs:
       - name: Installer flow tests (cert lineage, v2 -> v3 migration)
         run: bash tests/test_setup_flows.sh
 
+      - name: Host health check tests
+        run: bash tests/test_health_check.sh
+
+      # Dependabot bumps docker-compose.yaml; installs use setup.sh's pins.
+      - name: Image pins agree (docker-compose.yaml vs setup.sh)
+        run: bash tests/test_image_pins.sh
+
       # setup.sh --config sources the file under "set -e"; make sure the
       # shipped example (and therefore the README snippet) stays sourceable.
       - name: Source setup-config.example
