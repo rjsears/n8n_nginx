@@ -73,6 +73,7 @@ DEFAULT_NGINX_CONTAINER="n8n_nginx"
 DEFAULT_CERTBOT_CONTAINER="n8n_certbot"
 DEFAULT_MANAGEMENT_CONTAINER="n8n_management"
 DEFAULT_MGMT_PORT="3333"
+eval "$(grep '^CERTBOT_VERSION=' "$SETUP_SH")"
 
 # Values that historically broke the installer / compose
 SPECIAL_VALUES=(
@@ -279,7 +280,8 @@ assert_eq "MGMT_ENCRYPTION_KEY kept" 'mgmt$enc' "$(env_get_key "$e" MGMT_ENCRYPT
 assert_eq "NTFY_ENABLE_LOGIN kept" "true" "$(env_get_key "$e" NTFY_ENABLE_LOGIN)"
 assert_eq "custom key kept" 'keep "me"' "$(env_get_key "$e" MY_CUSTOM_SETTING)"
 assert_eq "custom comment kept" "1" "$(grep -c '^# Custom Variables' "$e")"
-assert_eq "DNS_CERTBOT_IMAGE written" "certbot/dns-cloudflare:latest" "$(env_get_key "$e" DNS_CERTBOT_IMAGE)"
+# a floating :latest certbot image from an older install is pinned
+assert_eq "DNS_CERTBOT_IMAGE written (pinned)" "certbot/dns-cloudflare:${CERTBOT_VERSION}" "$(env_get_key "$e" DNS_CERTBOT_IMAGE)"
 assert_eq ".env mode 600" "600" "$(stat -c '%a' "$e")"
 sourced=$(set -a; . "$e"; printf '%s' "$POSTGRES_PASSWORD")
 assert_eq "POSTGRES_PASSWORD via bash source" 's3cr/t&$x"q' "$sourced"

@@ -14,8 +14,13 @@
 # test_installation.sh - Installation Test Suite for n8n_nginx v3.0
 # Tests fresh installation, upgrade paths, and configuration validation
 #
-
-set -e
+# This is a smoke check for a live host (it expects Docker, a checked-out
+# stack and network access), so it is not run in CI; CI runs
+# tests/test_env_helpers.sh, shellcheck and the management/ pytest suite
+# (.github/workflows/test.yml).
+#
+# No "set -e": individual assertions may fail so every group runs and the
+# summary (and exit code) reports all failures, not just the first one.
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -50,7 +50,7 @@ class TerminalSession:
                 # For host access, create a privileged alpine container
                 # that shares the host's namespaces
                 self.container = self.client.containers.run(
-                    "alpine:latest",
+                    settings.helper_image,
                     command="/bin/sh",
                     stdin_open=True,
                     tty=True,
@@ -125,7 +125,7 @@ class TerminalSession:
 
         except docker.errors.ImageNotFound:
             await self.websocket.send_text(
-                json.dumps({"type": "error", "message": "Alpine image not found. Pull alpine:latest first."})
+                json.dumps({"type": "error", "message": "Alpine image not found. Pull " + settings.helper_image + " first."})
             )
             return False
         except docker.errors.APIError as e:

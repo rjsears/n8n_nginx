@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # `docker exec` (local socket inside the container). The superuser password
 # is random per run and never leaves this process.
 VERIFY_CONTAINER_NAME = "n8n_postgres_verify"
-VERIFY_CONTAINER_IMAGE = "pgvector/pgvector:pg16"  # same image (and extensions) as the stack's postgres
+VERIFY_CONTAINER_IMAGE = "pgvector/pgvector:0.8.6-pg16"  # same image (and extensions) as the stack's postgres
 VERIFY_CONTAINER_LABEL = "n8n_management.temp=verify"
 VERIFY_DB_USER = "verify_user"
 VERIFY_DB_NAME = "n8n_verify"

@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 # Container configuration
 RESTORE_CONTAINER_NAME = "n8n_postgres_restore"
-RESTORE_CONTAINER_IMAGE = "pgvector/pgvector:pg16"  # Use pgvector image to support vector extension
+RESTORE_CONTAINER_IMAGE = "pgvector/pgvector:0.8.6-pg16"  # Use pgvector image to support vector extension
 RESTORE_DB_USER = "restore_user"
 RESTORE_DB_NAME = "n8n_restore"
 # Every temporary restore container carries this label so leftovers (crash,
@@ -2804,7 +2804,7 @@ class RestoreService:
                         "--security-opt", "apparmor=unconfined",
                         "-v", f"{PUBLIC_WEBSITE_VOLUME}:/source:ro",
                         "-v", f"{live_temp}:/dest",
-                        "alpine",
+                        settings.helper_image,
                         "sh", "-c", "cp -r /source/. /dest/"
                     ],
                     capture_output=True,
@@ -2931,7 +2931,7 @@ class RestoreService:
                             "--security-opt", "apparmor=unconfined",
                             "-v", f"{mount_dir}:/source:ro",
                             "-v", f"{PUBLIC_WEBSITE_VOLUME}:/dest",
-                            "alpine",
+                            settings.helper_image,
                             "sh", "-c", script_content,
                         ],
                         capture_output=True,
@@ -2952,7 +2952,7 @@ class RestoreService:
                                     "--security-opt", "apparmor=unconfined",
                                     "-v", f"{mount_dir}:/source:ro",
                                     "-v", f"{PUBLIC_WEBSITE_VOLUME}:/dest",
-                                    "alpine",
+                                    settings.helper_image,
                                     "sh", "-c", f'{mkdir_cmd}cp "/source/{file_path}" "/dest/{file_path}"',
                                 ],
                                 capture_output=True,

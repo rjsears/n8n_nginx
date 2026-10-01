@@ -18,7 +18,7 @@ services:
   # PostgreSQL Database (shared by n8n and management)
   # ===========================================================================
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.6-pg16
     container_name: ${POSTGRES_CONTAINER:-n8n_postgres}
     restart: always
     security_opt:
@@ -42,7 +42,7 @@ services:
   # n8n Workflow Automation
   # ===========================================================================
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:${N8N_VERSION:-2.41.4}
     container_name: ${N8N_CONTAINER:-n8n}
     restart: always
     security_opt:
@@ -113,7 +113,7 @@ services:
   # This container ONLY routes traffic - it has no access to internal services.
   # It allows internal network access without hairpinning through Cloudflare.
   nginx_router:
-    image: nginx:alpine
+    image: nginx:${NGINX_VERSION:-1.30.5-alpine}
     container_name: n8n_nginx_router
     restart: always
     security_opt:
@@ -142,7 +142,7 @@ services:
   # Nginx Reverse Proxy (internal - SSL terminated by router)
   # ===========================================================================
   nginx:
-    image: nginx:alpine
+    image: nginx:${NGINX_VERSION:-1.30.5-alpine}
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
     restart: always
     security_opt:
@@ -172,7 +172,7 @@ services:
   # Certbot (SSL certificate management)
   # ===========================================================================
   certbot:
-    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
+    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:v5.8.0}
     security_opt:
       - apparmor:unconfined
     container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
@@ -199,7 +199,8 @@ services:
   # Management Console (NEW in v3.0)
   # ===========================================================================
   n8n_management:
-    image: rjsears/n8n_management:latest
+    # Pinned release tag; if it is not published yet compose builds ./management
+    image: rjsears/n8n_management:${MGMT_VERSION:-3.0.0}
     build:
       context: ./management
       dockerfile: Dockerfile
@@ -298,7 +299,7 @@ services:
   # Redis - Cache for status data (collected by n8n_status)
   # ===========================================================================
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: n8n_redis
     restart: unless-stopped
     security_opt:
@@ -320,7 +321,8 @@ services:
   # Status Collector - Caches system metrics in Redis
   # ===========================================================================
   n8n_status:
-    image: rjsears/n8n_status:latest
+    image: rjsears/n8n_status:${MGMT_VERSION:-3.0.0}
+    build: ./n8n_status
     container_name: n8n_status
     restart: unless-stopped
     security_opt:
@@ -349,7 +351,7 @@ services:
   # Portainer - Container Management UI
   # ===========================================================================
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.45.1
     container_name: n8n_portainer
     restart: always
     security_opt:
@@ -374,7 +376,7 @@ services:
   # listener). The static IP is classified "external" by nginx, so even a
   # tunnel pointed elsewhere can never reach the admin paths.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.9.3
     container_name: n8n_cloudflared
     restart: always
     security_opt:
@@ -390,7 +392,7 @@ services:
   # Tailscale VPN
   # ===========================================================================
   tailscale:
-    image: tailscale/tailscale:latest
+    image: tailscale/tailscale:v1.102.5
     container_name: n8n_tailscale
     restart: always
     security_opt:
@@ -420,7 +422,7 @@ services:
   # Adminer - Database Management
   # ===========================================================================
   adminer:
-    image: adminer:latest
+    image: adminer:6.1.1
     container_name: n8n_adminer
     restart: always
     security_opt:
@@ -439,7 +441,7 @@ services:
   # Dozzle - Container Log Viewer
   # ===========================================================================
   dozzle:
-    image: amir20/dozzle:latest
+    image: amir20/dozzle:v11.1.3
     container_name: n8n_dozzle
     restart: always
     security_opt:
@@ -461,7 +463,7 @@ services:
   # Accessible via its own subdomain (configured in Cloudflare Tunnel)
   # ===========================================================================
   ntfy:
-    image: binwiederhier/ntfy:latest
+    image: binwiederhier/ntfy:v2.28.0
     container_name: n8n_ntfy
     restart: unless-stopped
     security_opt:
@@ -514,7 +516,7 @@ services:
   # File Browser - Public Website Management
   # ===========================================================================
   filebrowser:
-    image: filebrowser/filebrowser:latest
+    image: filebrowser/filebrowser:v2.63.23
     container_name: n8n_filebrowser
     restart: unless-stopped
     security_opt:
@@ -535,7 +537,10 @@ services:
   # This container serves ONLY the public website. Traffic is routed here
   # via Cloudflare Tunnel based on hostname. No external ports exposed.
   nginx_public:
-    image: rjsears/nginx-public:latest
+    # stock nginx + an fbuser (uid 1000) account, see nginx_public/Dockerfile
+    image: n8n_nginx_public:local
+    build: ./nginx_public
+    pull_policy: build
     container_name: n8n_nginx_public
     restart: unless-stopped
     security_opt:

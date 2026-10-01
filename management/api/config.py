@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # Docker
     docker_socket: str = Field(default="/var/run/docker.sock", description="Docker socket path")
     container_prefix: str = Field(default="n8n_", description="Container name prefix for this project")
+    helper_image: str = Field(
+        default="alpine:3.24.2",
+        description="Pinned image for short-lived helper containers (volume copies, host terminal, host stats)"
+    )
 
     # Public Website Backup/Restore
     public_site_enable: bool = Field(

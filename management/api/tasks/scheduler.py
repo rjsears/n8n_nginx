@@ -687,7 +687,7 @@ def _run_alpine_container(docker_client, command: list, **kwargs) -> bytes:
         # Docker daemon handles cleanup automatically when container exits
         # Disable AppArmor to avoid issues in LXC environments
         output = docker_client.containers.run(
-            "alpine:latest",
+            settings.helper_image,
             command=command,
             remove=True,
             security_opt=["apparmor=unconfined"],
@@ -727,7 +727,7 @@ async def _cleanup_orphaned_alpine_containers() -> None:
                     all=True,
                     filters={
                         "status": status,
-                        "ancestor": "alpine:latest"
+                        "ancestor": settings.helper_image
                     }
                 )
                 containers.extend(status_containers)

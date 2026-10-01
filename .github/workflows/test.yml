@@ -1,0 +1,89 @@
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# .github/workflows/test.yml
+#
+# Backend test suite and installer checks. Runs on every PR and push to
+# main, and is called by the image build workflows so nothing is published
+# without passing it.
+#
+# Richard J. Sears
+# richard@n8nmanagement.net
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # =========================================
+  # Management API tests (pytest)
+  # =========================================
+  backend-tests:
+    name: Backend tests (pytest)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./management
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Same Python as management/Dockerfile (python:3.11-slim-bookworm)
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            management/requirements.txt
+            management/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run pytest
+        run: python -m pytest -q
+
+  # =========================================
+  # Installer / shell script checks
+  # =========================================
+  shell-checks:
+    name: Installer and shell scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Bash syntax check
+        run: |
+          set -euo pipefail
+          find . -name '*.sh' -not -path './management/frontend/node_modules/*' -print0 \
+            | xargs -0 -n1 bash -n
+
+      - name: ShellCheck (errors)
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          shellcheck -S error setup.sh install.sh init-db.sh scripts/*.sh scripts/certbot/*.sh tests/*.sh tests/scenarios/*.sh
+
+      - name: .env helper tests
+        run: bash tests/test_env_helpers.sh
+
+      - name: Installer flow tests (cert lineage, v2 -> v3 migration)
+        run: bash tests/test_setup_flows.sh
+
+      # setup.sh --config sources the file under "set -e"; make sure the
+      # shipped example (and therefore the README snippet) stays sourceable.
+      - name: Source setup-config.example
+        run: bash -c 'set -euo pipefail; source ./setup-config.example; echo "INTERNAL_IP_RANGES=$INTERNAL_IP_RANGES"'

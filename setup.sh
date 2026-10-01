@@ -81,7 +81,23 @@ NTFY_PUBLIC_URL=""
 # true = use pre-built image from Docker Hub (faster)
 # false = build locally from source (for customization)
 USE_PREBUILT_MANAGEMENT=true
-MANAGEMENT_IMAGE="rjsears/n8n_management:latest"
+# Pre-built images are published per release (vX.Y.Z -> X.Y.Z); if the tag is
+# not on Docker Hub yet, compose falls back to building ./management locally.
+# MGMT_VERSION in .env overrides the tag for an existing install.
+DEFAULT_MANAGEMENT_IMAGE='rjsears/n8n_management:${MGMT_VERSION:-'"${SCRIPT_VERSION}"'}'
+MANAGEMENT_IMAGE="$DEFAULT_MANAGEMENT_IMAGE"
+STATUS_IMAGE='rjsears/n8n_status:${MGMT_VERSION:-'"${SCRIPT_VERSION}"'}'
+
+# Pinned images (no floating :latest). Bump deliberately, after reading the
+# upstream release notes; see README "Upgrading". The service images are
+# pinned in generate_docker_compose_v3 (and docker-compose.yaml);
+# N8N_VERSION / NGINX_VERSION / MGMT_VERSION in .env override the n8n, nginx
+# and management/status tags per install (empty = the pinned default).
+# Images used by the installer itself:
+CERTBOT_VERSION="v5.8.0"
+ALPINE_IMAGE="alpine:3.24.2"
+OPENSSL_IMAGE="alpine/openssl:3.5.8"
+HTPASSWD_IMAGE="httpd:2.4.68-alpine"
 NTFY_INTERNAL_URL=""
 INSTALL_PUBLIC_WEBSITE=false
 
@@ -690,7 +706,7 @@ apparmor_unconfined_required() {
     if [ -z "$APPARMOR_UNCONFINED" ]; then
         APPARMOR_UNCONFINED="false"
         local probe_output=""
-        if ! probe_output=$($DOCKER_SUDO docker run --rm --name n8n_apparmor_probe alpine:latest true 2>&1); then
+        if ! probe_output=$($DOCKER_SUDO docker run --rm --name n8n_apparmor_probe "$ALPINE_IMAGE" true 2>&1); then
             if echo "$probe_output" | grep -qiE "apparmor|policy admin"; then
                 APPARMOR_UNCONFINED="true"
                 DOCKER_APPARMOR_OPT="--security-opt apparmor=unconfined"
@@ -996,7 +1012,8 @@ load_state() {
 
         N8N_DOMAIN="${SAVED_N8N_DOMAIN:-}"
         LETSENCRYPT_EMAIL="${SAVED_LETSENCRYPT_EMAIL:-}"
-        SSL_CERT_DOMAIN="${SAVED_SSL_CERT_DOMAIN:-$N8N_DOMAIN}"
+        # Empty until determine_ssl_cert_domain has chosen the lineage
+        SSL_CERT_DOMAIN="${SAVED_SSL_CERT_DOMAIN:-}"
 
         DB_NAME="${SAVED_DB_NAME:-}"
         DB_USER="${SAVED_DB_USER:-}"
@@ -1047,6 +1064,11 @@ load_state() {
         N8N_NETWORK_SUBNET="${SAVED_N8N_NETWORK_SUBNET:-$N8N_NETWORK_SUBNET}"
 
         CURRENT_STEP="${SAVED_STEP_NUM:-0}"
+        # Older migration runs stored names ("backup", ...) here; a non-numeric
+        # step would make every CURRENT_STEP -lt N check misbehave.
+        case "$CURRENT_STEP" in
+            ''|*[!0-9]*) CURRENT_STEP=0 ;;
+        esac
         return 0
     fi
     return 1
@@ -1105,23 +1127,23 @@ restore_dns_settings_from_provider() {
     if [ -z "$DNS_CERTBOT_IMAGE" ] && [ -n "$DNS_PROVIDER_NAME" ]; then
         case $DNS_PROVIDER_NAME in
             cloudflare)
-                DNS_CERTBOT_IMAGE="certbot/dns-cloudflare:latest"
+                DNS_CERTBOT_IMAGE="certbot/dns-cloudflare:${CERTBOT_VERSION}"
                 DNS_CREDENTIALS_FILE="cloudflare.ini"
                 ;;
             route53)
-                DNS_CERTBOT_IMAGE="certbot/dns-route53:latest"
+                DNS_CERTBOT_IMAGE="certbot/dns-route53:${CERTBOT_VERSION}"
                 DNS_CREDENTIALS_FILE="route53.ini"
                 ;;
             google)
-                DNS_CERTBOT_IMAGE="certbot/dns-google:latest"
+                DNS_CERTBOT_IMAGE="certbot/dns-google:${CERTBOT_VERSION}"
                 DNS_CREDENTIALS_FILE="google.json"
                 ;;
             digitalocean)
-                DNS_CERTBOT_IMAGE="certbot/dns-digitalocean:latest"
+                DNS_CERTBOT_IMAGE="certbot/dns-digitalocean:${CERTBOT_VERSION}"
                 DNS_CREDENTIALS_FILE="digitalocean.ini"
                 ;;
             manual|*)
-                DNS_CERTBOT_IMAGE="certbot/certbot:latest"
+                DNS_CERTBOT_IMAGE="certbot/certbot:${CERTBOT_VERSION}"
                 DNS_CREDENTIALS_FILE="credentials.ini"
                 ;;
         esac
@@ -1229,7 +1251,20 @@ load_preconfig() {
 
     print_info "Loading configuration from: $config_file"
 
+    # Dry-run in a subshell first: a bad line (e.g. an unquoted value with
+    # spaces, which bash runs as a command) would otherwise abort setup.sh
+    # under "set -e" without saying why.
+    local config_errors
+    # (separate bash process: errexit is ignored inside an "if" condition)
+    if ! config_errors=$(bash -c 'set -e; source "$1"' _ "$config_file" 2>&1 >/dev/null); then
+        print_error "Configuration file $config_file could not be loaded:"
+        printf '%s\n' "$config_errors" | sed 's/^/    /'
+        print_info "Values containing spaces must be quoted, e.g. INTERNAL_IP_RANGES=\"10.0.0.0/8 192.168.0.0/16\""
+        exit 1
+    fi
+
     # Source the config file
+    # shellcheck disable=SC1090
     source "$config_file"
 
     # Map variables to internal names
@@ -1331,7 +1366,7 @@ load_preconfig() {
     # Management console image configuration
     # USE_PREBUILT_MANAGEMENT defaults to true if not specified
     USE_PREBUILT_MANAGEMENT="${USE_PREBUILT_MANAGEMENT:-true}"
-    MANAGEMENT_IMAGE="${MANAGEMENT_IMAGE:-rjsears/n8n_management:latest}"
+    MANAGEMENT_IMAGE="${MANAGEMENT_IMAGE:-$DEFAULT_MANAGEMENT_IMAGE}"
 
     # NFS configuration
     if [ -n "$NFS_SERVER" ] && [ "$NFS_SERVER" != "" ]; then
@@ -1899,7 +1934,7 @@ backup_existing_config() {
         if $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
             -v letsencrypt:/source:ro \
             -v "${backup_dir}/letsencrypt:/backup" \
-            alpine sh -c "cp -a /source/. /backup/ 2>/dev/null || true" 2>/dev/null; then
+            "$ALPINE_IMAGE" sh -c "cp -a /source/. /backup/ 2>/dev/null || true" 2>/dev/null; then
             # Check if anything was actually copied
             if [ -n "$(ls -A ${backup_dir}/letsencrypt 2>/dev/null)" ]; then
                 print_success "Backed up Let's Encrypt certificates"
@@ -2024,7 +2059,7 @@ rollback_config() {
     if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
         mkdir -p "${safety_backup}/letsencrypt"
         $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/source:ro -v "${safety_backup}/letsencrypt:/backup" \
-            alpine sh -c "cp -a /source/. /backup/ 2>/dev/null || true" 2>/dev/null
+            "$ALPINE_IMAGE" sh -c "cp -a /source/. /backup/ 2>/dev/null || true" 2>/dev/null
     fi
 
     # Restore files from backup
@@ -2047,7 +2082,7 @@ rollback_config() {
         if $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
             -v "${backup_dir}/letsencrypt:/source:ro" \
             -v letsencrypt:/dest \
-            alpine sh -c "rm -rf /dest/* && cp -a /source/. /dest/" 2>/dev/null; then
+            "$ALPINE_IMAGE" sh -c "rm -rf /dest/* && cp -a /source/. /dest/" 2>/dev/null; then
             print_success "Restored Let's Encrypt certificates"
             restored=$((restored + 1))
         else
@@ -2419,15 +2454,118 @@ create_admin_user() {
 # v2.0 TO v3.0 MIGRATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Progress of a v2 -> v3 migration (numeric step + name). Kept apart from
+# STATE_FILE, whose numeric step drives the fresh-install resume logic.
+MIGRATION_PROGRESS_FILE="${SCRIPT_DIR}/.migration_progress"
+MIGRATION_STACK_TOUCHED=false
+MIGRATION_HAD_ENV=false
+MIGRATION_DB_DUMP=""
+
+save_migration_progress() {
+    local num="$1" name="$2"
+    printf 'MIGRATION_STEP_NUM=%d\nMIGRATION_STEP_NAME=%s\nMIGRATION_STEP_TIME=%s\n' \
+        "$num" "$name" "$(date -Iseconds)" > "$MIGRATION_PROGRESS_FILE"
+    chmod 600 "$MIGRATION_PROGRESS_FILE" 2>/dev/null || true
+}
+
+migration_compose_cmd() {
+    local cmd="docker compose"
+    if [ "$USE_STANDALONE_COMPOSE" = true ]; then
+        cmd="docker-compose"
+    fi
+    if [ -n "$DOCKER_SUDO" ]; then
+        cmd="$DOCKER_SUDO $cmd"
+    fi
+    echo "$cmd"
+}
+
+# Put the v2.0 files back and (if the stack was touched) restart the v2 stack.
+# Backups are copied, not moved, so they survive a failed restore.
+restore_v2_stack() {
+    local docker_compose_cmd rc=0
+    docker_compose_cmd=$(migration_compose_cmd)
+    cd "$SCRIPT_DIR" || return 1
+
+    if [ "$MIGRATION_STACK_TOUCHED" = true ]; then
+        print_info "Stopping v3.0 services..."
+        $docker_compose_cmd down --remove-orphans 2>/dev/null || true
+    fi
+
+    print_info "Restoring v2.0 configuration..."
+    if [ -f "${SCRIPT_DIR}/docker-compose.yaml.v2.backup" ]; then
+        cp -p "${SCRIPT_DIR}/docker-compose.yaml.v2.backup" "${SCRIPT_DIR}/docker-compose.yaml" && print_success "Restored docker-compose.yaml" || rc=1
+    fi
+    if [ -f "${SCRIPT_DIR}/nginx.conf.v2.backup" ]; then
+        cp -p "${SCRIPT_DIR}/nginx.conf.v2.backup" "${SCRIPT_DIR}/nginx.conf" && print_success "Restored nginx.conf" || rc=1
+    fi
+    if [ -f "${SCRIPT_DIR}/.env.v2.backup" ]; then
+        cp -p "${SCRIPT_DIR}/.env.v2.backup" "${SCRIPT_DIR}/.env" && print_success "Restored .env" || rc=1
+    elif [ "$MIGRATION_HAD_ENV" != true ]; then
+        rm -f "${SCRIPT_DIR}/.env"
+    fi
+
+    if [ "$MIGRATION_STACK_TOUCHED" = true ]; then
+        print_info "Starting v2.0 services..."
+        if $docker_compose_cmd up -d; then
+            print_success "v2.0 stack restarted"
+        else
+            print_error "Could not restart the v2.0 stack - run 'docker compose up -d' in ${SCRIPT_DIR}"
+            rc=1
+        fi
+    fi
+    return $rc
+}
+
+# EXIT trap while a migration is in progress: any failure (set -e, an
+# "exit 1" in a helper, Ctrl-C) puts v2.0 back instead of leaving the
+# services stopped.
+migration_on_exit() {
+    local rc=$?
+    trap - EXIT
+    [ "$rc" -eq 0 ] && return 0
+    set +e
+    echo ""
+    print_error "Migration aborted (exit code ${rc}) - restoring v2.0"
+    if restore_v2_stack; then
+        print_success "v2.0 restored. Nothing was migrated."
+    else
+        print_error "Automatic restore was incomplete - see the *.v2.backup files in ${SCRIPT_DIR}"
+    fi
+    [ -n "$MIGRATION_DB_DUMP" ] && print_info "Pre-migration database dump: ${SCRIPT_DIR}/${MIGRATION_DB_DUMP}"
+    print_info "Progress of the failed attempt: ${MIGRATION_PROGRESS_FILE}"
+    exit "$rc"
+}
+
+# Rollback record read by ./setup.sh --rollback
+write_migration_state() {
+    local backup_file="$1"
+    cat > "$MIGRATION_STATE_FILE" << EOF
+{
+    "migrated_at": "$(date -Iseconds)",
+    "from_version": "2.0",
+    "to_version": "3.0",
+    "rollback_available_until": "$(date -d '+30 days' -Iseconds 2>/dev/null || date -v+30d -Iseconds 2>/dev/null || echo 'unknown')",
+    "backup_files": [
+        "docker-compose.yaml.v2.backup",
+        "nginx.conf.v2.backup",
+        ".env.v2.backup",
+        "${backup_file}"
+    ]
+}
+EOF
+}
+
 run_migration_v2_to_v3() {
     print_header "Migration: v2.0 → v3.0"
 
-    local docker_compose_cmd="docker compose"
-    if [ "$USE_STANDALONE_COMPOSE" = true ]; then
-        docker_compose_cmd="docker-compose"
-    fi
-    if [ -n "$DOCKER_SUDO" ]; then
-        docker_compose_cmd="$DOCKER_SUDO $docker_compose_cmd"
+    local docker_compose_cmd
+    docker_compose_cmd=$(migration_compose_cmd)
+    MANAGEMENT_CONTAINER="${MANAGEMENT_CONTAINER:-$DEFAULT_MANAGEMENT_CONTAINER}"
+
+    if [ -f "$MIGRATION_PROGRESS_FILE" ]; then
+        local last_step
+        last_step=$(sed -n 's/^MIGRATION_STEP_NAME=//p' "$MIGRATION_PROGRESS_FILE" 2>/dev/null)
+        print_warning "A previous migration attempt stopped at: ${last_step:-unknown}. Starting over (v2.0 is still in place)."
     fi
 
     # Recover the existing secrets BEFORE touching anything. The v2 .env uses
@@ -2451,49 +2589,57 @@ run_migration_v2_to_v3() {
     fi
     print_success "Existing database password and encryption key will be preserved"
 
-    # Phase 1: Pre-migration backup
+    # Pre-flight checks that need nothing to be stopped
+    cd "$SCRIPT_DIR"
+    if ! check_n8n_network_subnet_free; then
+        print_error "Migration aborted before touching the running stack."
+        exit 1
+    fi
+
+    # Phase 1: Pre-migration backup (abort if the database dump fails)
     print_section "Phase 1: Pre-Migration Backup"
-    save_state "migration" "backup"
+    save_migration_progress 1 "backup"
 
     print_info "Creating complete backup before migration..."
 
-    # Backup docker-compose.yaml
-    cp "${SCRIPT_DIR}/docker-compose.yaml" "${SCRIPT_DIR}/docker-compose.yaml.v2.backup"
+    cp -p "${SCRIPT_DIR}/docker-compose.yaml" "${SCRIPT_DIR}/docker-compose.yaml.v2.backup"
     print_success "Backed up docker-compose.yaml"
 
-    # Backup nginx.conf
     if [ -f "${SCRIPT_DIR}/nginx.conf" ]; then
-        cp "${SCRIPT_DIR}/nginx.conf" "${SCRIPT_DIR}/nginx.conf.v2.backup"
+        cp -p "${SCRIPT_DIR}/nginx.conf" "${SCRIPT_DIR}/nginx.conf.v2.backup"
         print_success "Backed up nginx.conf"
     fi
 
-    # Backup PostgreSQL database
-    print_info "Backing up PostgreSQL database..."
-    mkdir -p "${SCRIPT_DIR}/backups"
-
-    local backup_file="backups/n8n_pre_migration_$(date +%Y%m%d_%H%M%S).dump"
-    if $DOCKER_SUDO docker exec $POSTGRES_CONTAINER pg_dump -U $DB_USER -d $DB_NAME -F c -f /tmp/n8n_pre_migration.dump 2>/dev/null; then
-        $DOCKER_SUDO docker cp ${POSTGRES_CONTAINER}:/tmp/n8n_pre_migration.dump "${SCRIPT_DIR}/${backup_file}"
-        print_success "Database backup saved to ${backup_file}"
-    else
-        print_warning "Could not backup database (container may not be running)"
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        MIGRATION_HAD_ENV=true
+        (umask 077 && cp -p "${SCRIPT_DIR}/.env" "${SCRIPT_DIR}/.env.v2.backup")
+        print_success "Backed up .env"
     fi
 
-    print_success "Pre-migration backup complete"
+    print_info "Backing up PostgreSQL database..."
+    mkdir -p "${SCRIPT_DIR}/backups"
+    local backup_file
+    backup_file="backups/n8n_pre_migration_$(date +%Y%m%d_%H%M%S).dump"
+    if ! (umask 077 && $DOCKER_SUDO docker exec "$POSTGRES_CONTAINER" \
+            pg_dump -U "$DB_USER" -d "$DB_NAME" -F c > "${SCRIPT_DIR}/${backup_file}"); then
+        rm -f "${SCRIPT_DIR}/${backup_file}"
+        print_error "Database backup failed (is ${POSTGRES_CONTAINER} running?). Migration aborted - nothing was changed."
+        exit 1
+    fi
+    if [ ! -s "${SCRIPT_DIR}/${backup_file}" ] || \
+       ! $DOCKER_SUDO docker exec -i "$POSTGRES_CONTAINER" pg_restore -l < "${SCRIPT_DIR}/${backup_file}" >/dev/null 2>&1; then
+        print_error "Database backup ${backup_file} is empty or unreadable. Migration aborted - nothing was changed."
+        exit 1
+    fi
+    MIGRATION_DB_DUMP="$backup_file"
+    print_success "Database backup saved and verified: ${backup_file}"
 
-    # Phase 2: Stop services
-    print_section "Phase 2: Stopping Services"
-    save_state "migration" "stop_services"
+    # From here on, any failure restores v2.0
+    trap migration_on_exit EXIT
 
-    print_info "Stopping n8n services..."
-    cd "$SCRIPT_DIR"
-    $docker_compose_cmd stop n8n 2>/dev/null || true
-    $docker_compose_cmd stop nginx 2>/dev/null || true
-    print_success "Services stopped"
-
-    # Phase 3: Database preparation
-    print_section "Phase 3: Database Preparation"
-    save_state "migration" "database"
+    # Phase 2: Configure and generate v3.0 files (v2.0 keeps running)
+    print_section "Phase 2: Configuring v3.0 Features"
+    save_migration_progress 2 "config"
 
     # The management console connects with the existing n8n role
     # (init-db.sh never runs on an already-initialised volume, so no separate
@@ -2501,99 +2647,100 @@ run_migration_v2_to_v3() {
     # from DB_USER/DB_PASSWORD.
     MGMT_DB_USER="${MGMT_DB_USER:-$DB_USER}"
 
-    print_info "Creating management database..."
-    $DOCKER_SUDO docker exec $POSTGRES_CONTAINER psql -U $DB_USER -c "CREATE DATABASE ${DEFAULT_MGMT_DB_NAME};" 2>/dev/null || true
-    print_success "Management database created"
-
-    # Phase 4: Configure new features
-    print_section "Phase 4: Configuring v3.0 Features"
-    save_state "migration" "config"
-
     # Get existing config values
     if [ -f "$CONFIG_FILE" ]; then
+        # shellcheck disable=SC1090
         source "$CONFIG_FILE" 2>/dev/null || true
     fi
 
-    # Configure management port
     configure_management_port
-
-    # Configure NFS (optional)
     configure_nfs
-
-    # Configure notifications (optional)
     configure_notifications
-
-    # Create admin user
     create_admin_user
 
-    # Generate .env file with all configuration values
     generate_env_file
-
-    # Generate authentication files for tools (Portainer, Dozzle)
     generate_tool_auth_files
-
-    # Generate new docker-compose.yaml with management services
     generate_docker_compose_v3
 
-    # Determine SSL cert domain before generating nginx config
+    # One cert lineage for nginx.conf, issuance and renewal
     determine_ssl_cert_domain
-
-    # Update nginx.conf with management port
     generate_nginx_conf_v3
     generate_public_nginx_conf
     generate_nginx_router_conf
 
+    # nginx would restart-loop without the certificate it now points at
+    verify_ssl_cert_lineage_for_nginx
+
+    # Phase 3: Stop v2.0 and prepare the database
+    print_section "Phase 3: Stopping Services"
+    save_migration_progress 3 "stop_services"
+    MIGRATION_STACK_TOUCHED=true
+
+    print_info "Stopping n8n services..."
+    $docker_compose_cmd stop n8n 2>/dev/null || true
+    $docker_compose_cmd stop nginx 2>/dev/null || true
+    print_success "Services stopped"
+
+    print_section "Phase 4: Database Preparation"
+    save_migration_progress 4 "database"
+    print_info "Creating management database..."
+    if $DOCKER_SUDO docker exec "$POSTGRES_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc \
+            "SELECT 1 FROM pg_database WHERE datname='${DEFAULT_MGMT_DB_NAME}'" 2>/dev/null | grep -q 1; then
+        print_success "Management database already exists"
+    else
+        $DOCKER_SUDO docker exec "$POSTGRES_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" \
+            -c "CREATE DATABASE ${DEFAULT_MGMT_DB_NAME};" >/dev/null
+        print_success "Management database created"
+    fi
+
     # Phase 5: Build and start new services
     print_section "Phase 5: Starting v3.0 Services"
-    save_state "migration" "start_services"
+    save_migration_progress 5 "start_services"
 
     print_info "Starting all services..."
-    cd "$SCRIPT_DIR"
-    if ! check_n8n_network_subnet_free; then
-        print_error "Migration stopped before starting v3.0 services."
-        return 1
-    fi
-    $docker_compose_cmd up -d
-
-    # Wait for services to be healthy
-    wait_for_services
+    $docker_compose_cmd up -d --remove-orphans
 
     # Phase 6: Verification
     print_section "Phase 6: Verification"
-    save_state "migration" "verify"
+    save_migration_progress 6 "verify"
 
-    if verify_migration; then
-        print_success "Migration completed successfully!"
-
-        # Record migration for rollback window
-        cat > "$MIGRATION_STATE_FILE" << EOF
-{
-    "migrated_at": "$(date -Iseconds)",
-    "from_version": "2.0",
-    "to_version": "3.0",
-    "rollback_available_until": "$(date -d '+30 days' -Iseconds 2>/dev/null || date -v+30d -Iseconds 2>/dev/null || echo 'unknown')",
-    "backup_files": [
-        "docker-compose.yaml.v2.backup",
-        "nginx.conf.v2.backup",
-        "${backup_file}"
-    ]
-}
-EOF
-
-        echo ""
-        print_info "Management interface: https://${N8N_DOMAIN}:${MGMT_PORT}"
-        print_info "Rollback available for 30 days if needed"
-
-        # Clear setup state
-        clear_state
-    else
-        print_error "Migration verification failed!"
-        if confirm_prompt "Rollback to v2.0?"; then
-            rollback_to_v2
-        fi
+    local healthy=true
+    if ! wait_for_services; then
+        healthy=false
     fi
+    if ! verify_migration; then
+        healthy=false
+    fi
+
+    if [ "$healthy" != true ]; then
+        print_error "Migration verification failed!"
+        if confirm_prompt "Roll back to v2.0 now (the v2.0 stack is restarted)?" "y"; then
+            exit 1   # migration_on_exit restores v2.0
+        fi
+        trap - EXIT
+        write_migration_state "$backup_file"
+        print_warning "Leaving the v3.0 stack running for troubleshooting."
+        print_info "Roll back later with: ./setup.sh --rollback"
+        print_info "Pre-migration database dump: ${SCRIPT_DIR}/${backup_file}"
+        exit 1
+    fi
+
+    trap - EXIT
+    print_success "Migration completed successfully!"
+
+    # Record migration for rollback window
+    write_migration_state "$backup_file"
+    rm -f "$MIGRATION_PROGRESS_FILE"
+
+    echo ""
+    print_info "Management interface: https://${N8N_DOMAIN}/management/"
+    print_info "Rollback available for 30 days if needed (./setup.sh --rollback)"
+
+    clear_state
 }
 
+# Health of the core services, checked inside the containers (the n8n and
+# management ports are not published on the host).
 wait_for_services() {
     print_info "Waiting for services to be healthy..."
 
@@ -2603,17 +2750,16 @@ wait_for_services() {
     while [ $attempt -lt $max_attempts ]; do
         local all_healthy=true
 
-        # Check PostgreSQL
-        if ! $DOCKER_SUDO docker exec $POSTGRES_CONTAINER pg_isready -U $DB_USER >/dev/null 2>&1; then
+        if ! $DOCKER_SUDO docker exec "$POSTGRES_CONTAINER" pg_isready -U "$DB_USER" >/dev/null 2>&1; then
             all_healthy=false
         fi
 
-        # Check n8n
-        if ! $DOCKER_SUDO docker exec $N8N_CONTAINER wget -q -O - http://localhost:5678/healthz >/dev/null 2>&1; then
+        if ! $DOCKER_SUDO docker exec "$N8N_CONTAINER" wget -q -O - http://localhost:5678/healthz >/dev/null 2>&1; then
             all_healthy=false
         fi
 
         if [ "$all_healthy" = true ]; then
+            echo ""
             print_success "All services are healthy"
             return 0
         fi
@@ -2624,15 +2770,21 @@ wait_for_services() {
     done
 
     echo ""
-    print_warning "Some services may not be fully healthy yet"
+    print_warning "Some services are not healthy after $((max_attempts * 2))s"
     return 1
 }
 
-verify_migration() {
-    local all_ok=true
+# Docker healthcheck status of a container: healthy/unhealthy/starting,
+# "none" without a healthcheck, empty if the container does not exist.
+container_health_status() {
+    $DOCKER_SUDO docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$1" 2>/dev/null
+}
 
-    # Check all containers are running
-    for container in $N8N_CONTAINER $POSTGRES_CONTAINER $NGINX_CONTAINER $DEFAULT_MANAGEMENT_CONTAINER; do
+verify_migration() {
+    local all_ok=true container status attempt
+    local mgmt="${MANAGEMENT_CONTAINER:-$DEFAULT_MANAGEMENT_CONTAINER}"
+
+    for container in $N8N_CONTAINER $POSTGRES_CONTAINER $NGINX_CONTAINER $mgmt; do
         if ! $DOCKER_SUDO docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
             print_error "Container $container is not running"
             all_ok=false
@@ -2641,22 +2793,41 @@ verify_migration() {
         fi
     done
 
-    # Check n8n is responding
-    if curl -sf "http://localhost:5678/healthz" > /dev/null 2>&1; then
+    if $DOCKER_SUDO docker exec "$N8N_CONTAINER" wget -q -O - http://localhost:5678/healthz >/dev/null 2>&1; then
         print_success "n8n health check passed"
     else
-        print_warning "n8n health check failed (may still be starting)"
+        print_error "n8n health check failed"
+        all_ok=false
     fi
 
-    # Check management API is responding
-    if curl -sf "http://localhost:${MGMT_PORT}/api/health" > /dev/null 2>&1; then
+    # Management console: its compose healthcheck (curl /api/health inside
+    # the container); allow for the 30s start period.
+    status=""
+    for attempt in $(seq 1 24); do
+        status=$(container_health_status "$mgmt")
+        case "$status" in
+            healthy|none|"") break ;;
+        esac
+        sleep 5
+    done
+    if [ "$status" = "healthy" ]; then
+        print_success "Management API health check passed"
+    elif [ "$status" = "none" ] && \
+         $DOCKER_SUDO docker exec "$mgmt" curl -sf http://localhost:8000/api/health >/dev/null 2>&1; then
         print_success "Management API health check passed"
     else
-        print_warning "Management API health check failed (may still be starting)"
+        print_error "Management API health check failed (status: ${status:-missing})"
+        all_ok=false
     fi
 
-    # Check PostgreSQL
-    if $DOCKER_SUDO docker exec $POSTGRES_CONTAINER pg_isready -U $DB_USER > /dev/null 2>&1; then
+    if $DOCKER_SUDO docker exec "$NGINX_CONTAINER" nginx -t >/dev/null 2>&1; then
+        print_success "nginx configuration test passed"
+    else
+        print_error "nginx is not running or rejected its configuration (docker logs ${NGINX_CONTAINER})"
+        all_ok=false
+    fi
+
+    if $DOCKER_SUDO docker exec "$POSTGRES_CONTAINER" pg_isready -U "$DB_USER" > /dev/null 2>&1; then
         print_success "PostgreSQL health check passed"
     else
         print_error "PostgreSQL health check failed"
@@ -2669,36 +2840,17 @@ verify_migration() {
 rollback_to_v2() {
     print_header "Rolling Back to v2.0"
 
-    local docker_compose_cmd="docker compose"
-    if [ "$USE_STANDALONE_COMPOSE" = true ]; then
-        docker_compose_cmd="docker-compose"
+    MIGRATION_STACK_TOUCHED=true
+    MIGRATION_HAD_ENV=true
+    if restore_v2_stack; then
+        print_success "Rollback complete. System restored to v2.0"
+    else
+        print_error "Rollback incomplete - check the *.v2.backup files in ${SCRIPT_DIR}"
+        return 1
     fi
-    if [ -n "$DOCKER_SUDO" ]; then
-        docker_compose_cmd="$DOCKER_SUDO $docker_compose_cmd"
-    fi
-
-    print_info "Stopping v3.0 services..."
-    cd "$SCRIPT_DIR"
-    $docker_compose_cmd down 2>/dev/null || true
-
-    print_info "Restoring v2.0 configuration..."
-    if [ -f "${SCRIPT_DIR}/docker-compose.yaml.v2.backup" ]; then
-        mv "${SCRIPT_DIR}/docker-compose.yaml.v2.backup" "${SCRIPT_DIR}/docker-compose.yaml"
-        print_success "Restored docker-compose.yaml"
-    fi
-
-    if [ -f "${SCRIPT_DIR}/nginx.conf.v2.backup" ]; then
-        mv "${SCRIPT_DIR}/nginx.conf.v2.backup" "${SCRIPT_DIR}/nginx.conf"
-        print_success "Restored nginx.conf"
-    fi
-
-    print_info "Starting v2.0 services..."
-    $docker_compose_cmd up -d
-
-    print_success "Rollback complete. System restored to v2.0"
 
     # Clean up migration state
-    rm -f "$MIGRATION_STATE_FILE"
+    rm -f "$MIGRATION_STATE_FILE" "$MIGRATION_PROGRESS_FILE"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3071,7 +3223,7 @@ except ImportError:
 
     # Fallback to Docker if available
     if [ -z "$hash" ] && command_exists docker; then
-        hash=$(printf '%s\n' "$password" | ${DOCKER_SUDO:-} docker run --rm -i $DOCKER_APPARMOR_OPT httpd:2.4-alpine \
+        hash=$(printf '%s\n' "$password" | ${DOCKER_SUDO:-} docker run --rm -i $DOCKER_APPARMOR_OPT "$HTPASSWD_IMAGE" \
             htpasswd -niBC "$BCRYPT_COST" admin 2>/dev/null | cut -d: -f2)
     fi
 
@@ -3295,6 +3447,9 @@ NTFY_ADMIN_PASSWORD_HASH=NTFY_ADMIN_PASSWORD_HASH
 NTFY_TOKEN=NTFY_TOKEN
 PORTAINER_AGENT_SECRET=PORTAINER_AGENT_SECRET
 PORTAINER_AGENT_BIND=PORTAINER_AGENT_BIND
+N8N_VERSION=N8N_VERSION?
+NGINX_VERSION=NGINX_VERSION?
+MGMT_VERSION=MGMT_VERSION?
 EOF
 }
 
@@ -3434,14 +3589,14 @@ read_n8n_encryption_key_from_volume() {
     # 2) Straight from the volume with a throwaway container
     if [ -z "$cfg" ]; then
         vol=$(find_compose_volume n8n_data) || return 1
-        for candidate in alpine:latest alpine pgvector/pgvector:pg16 nginx:alpine; do
+        for candidate in "$ALPINE_IMAGE" alpine:latest alpine pgvector/pgvector:0.8.6-pg16 pgvector/pgvector:pg16 nginx:alpine; do
             if $DOCKER_SUDO docker image inspect "$candidate" >/dev/null 2>&1; then
                 img="$candidate"
                 break
             fi
         done
         cfg=$($DOCKER_SUDO docker run --rm --network none --entrypoint cat \
-            -v "${vol}:/n8n_data:ro" "${img:-alpine:latest}" /n8n_data/config 2>/dev/null) || cfg=""
+            -v "${vol}:/n8n_data:ro" "${img:-$ALPINE_IMAGE}" /n8n_data/config 2>/dev/null) || cfg=""
     fi
     key=$(printf '%s' "$cfg" | n8n_config_extract_key)
     [ -n "$key" ] || return 1
@@ -3658,7 +3813,11 @@ generate_env_file() {
     MGMT_PORT="${MGMT_PORT:-${DEFAULT_MGMT_PORT:-3333}}"
     ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
     TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-n8n-server}"
-    DNS_CERTBOT_IMAGE="${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}"
+    DNS_CERTBOT_IMAGE="${DNS_CERTBOT_IMAGE:-certbot/certbot:${CERTBOT_VERSION}}"
+    # Older installs stored a floating certbot/<plugin>:latest - pin it
+    case "$DNS_CERTBOT_IMAGE" in
+        certbot/*:latest) DNS_CERTBOT_IMAGE="${DNS_CERTBOT_IMAGE%:latest}:${CERTBOT_VERSION}" ;;
+    esac
     DNS_CREDENTIALS_FILE="${DNS_CREDENTIALS_FILE:-cloudflare.ini}"
     # The mount target follows the provider; keep the stored one only when the
     # provider is unknown (e.g. a reconfigure that did not touch DNS settings)
@@ -3823,6 +3982,15 @@ NTFY_TOKEN=$(env_quote_value "${NTFY_TOKEN:-}")
 # The remote Portainer server must be started with AGENT_SECRET set to this value
 PORTAINER_AGENT_SECRET=$(env_quote_value "${PORTAINER_AGENT_SECRET:-}")
 PORTAINER_AGENT_BIND=$(env_quote_value "${PORTAINER_AGENT_BIND:-}")
+
+# ===========================================
+# Image versions (empty = the version pinned in docker-compose.yaml)
+# ===========================================
+# Take a backup and read the release notes before changing these, then:
+#   docker compose pull && docker compose up -d
+N8N_VERSION=$(env_quote_value "${N8N_VERSION:-}")
+NGINX_VERSION=$(env_quote_value "${NGINX_VERSION:-}")
+MGMT_VERSION=$(env_quote_value "${MGMT_VERSION:-}")
 EOF
         chmod 600 "$tmp"
         mv -f "$tmp" "$env_file"
@@ -3878,7 +4046,7 @@ services:
   # PostgreSQL Database (shared by n8n and management)
   # ===========================================================================
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.6-pg16
     container_name: ${POSTGRES_CONTAINER:-n8n_postgres}
     restart: always
     environment:
@@ -3900,7 +4068,7 @@ services:
   # n8n Workflow Automation
   # ===========================================================================
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:${N8N_VERSION:-2.41.4}
     container_name: ${N8N_CONTAINER:-n8n}
     restart: always
     environment:
@@ -3972,7 +4140,7 @@ EOF
   # This container ONLY routes traffic - it has no access to internal services.
   # It allows internal network access without hairpinning through Cloudflare.
   nginx_router:
-    image: nginx:alpine
+    image: nginx:\${NGINX_VERSION:-1.30.5-alpine}
     container_name: n8n_nginx_router
     restart: always
     ports:
@@ -4000,7 +4168,7 @@ EOF
   # Nginx Reverse Proxy (internal - SSL terminated by router)
   # ===========================================================================
   nginx:
-    image: nginx:alpine
+    image: nginx:${NGINX_VERSION:-1.30.5-alpine}
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
     restart: always
     expose:
@@ -4030,7 +4198,7 @@ EOF
   # Nginx Reverse Proxy (SSL termination)
   # ===========================================================================
   nginx:
-    image: nginx:alpine
+    image: nginx:${NGINX_VERSION:-1.30.5-alpine}
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
     restart: always
     ports:
@@ -4059,7 +4227,7 @@ EOF
   # Certbot (SSL certificate management)
   # ===========================================================================
   certbot:
-    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
+    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:v5.8.0}
     container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
     restart: unless-stopped
     environment:
@@ -4087,19 +4255,24 @@ EOF
 EOF
 
     # Add either pre-built image or build context based on user preference
+    # Pre-built: pull the pinned release tag; if it is not published yet,
+    # compose falls back to the build context. Local build: never pull.
     if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
         cat >> "$compose_tmp" << EOF
     image: ${MANAGEMENT_IMAGE}
 EOF
     else
         cat >> "$compose_tmp" << 'EOF'
+    pull_policy: build
+EOF
+    fi
+    cat >> "$compose_tmp" << 'EOF'
     build:
       context: ./management
       dockerfile: Dockerfile
       additional_contexts:
         docs_src: .
 EOF
-    fi
 
     # Continue with the rest of management service configuration
     cat >> "$compose_tmp" << 'EOF'
@@ -4223,6 +4396,13 @@ EOF
 EOF
     fi
 
+    # n8n_status follows the management console image choice
+    local status_build_lines="    build: ./n8n_status"
+    if [ "$USE_PREBUILT_MANAGEMENT" != "true" ]; then
+        status_build_lines="${status_build_lines}
+    pull_policy: build"
+    fi
+
     cat >> "$compose_tmp" << EOF
     expose:
       - "80"
@@ -4247,7 +4427,7 @@ EOF
   # Redis - Cache for status data (collected by n8n_status)
   # ===========================================================================
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: n8n_redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
@@ -4267,7 +4447,8 @@ EOF
   # Status Collector - Caches system metrics in Redis
   # ===========================================================================
   n8n_status:
-    image: rjsears/n8n_status:latest
+    image: ${STATUS_IMAGE}
+${status_build_lines}
     container_name: n8n_status
     restart: unless-stopped
     network_mode: host
@@ -4301,7 +4482,7 @@ EOF
   # Portainer - Container Management UI
   # ===========================================================================
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.45.1
     container_name: n8n_portainer
     restart: always
     command: --base-url /portainer --admin-password-file /run/secrets/portainer_admin_password
@@ -4329,7 +4510,7 @@ EOF
   # Tailscale IP the Portainer server can reach) and only accepts a server
   # configured with the same AGENT_SECRET. Published ports bypass ufw.
   portainer_agent:
-    image: portainer/agent:latest
+    image: portainer/agent:2.45.1
     container_name: portainer_agent
     restart: always
     environment:
@@ -4356,7 +4537,7 @@ EOF
   # listener). The static IP is classified "external" by nginx, so even a
   # tunnel pointed elsewhere can never reach the admin paths.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.9.3
     container_name: n8n_cloudflared
     restart: always
     command: tunnel run
@@ -4379,7 +4560,7 @@ EOF
   # Tailscale VPN
   # ===========================================================================
   tailscale:
-    image: tailscale/tailscale:latest
+    image: tailscale/tailscale:v1.102.5
     container_name: n8n_tailscale
     restart: always
     hostname: n8n-tailscale
@@ -4413,7 +4594,7 @@ EOF
   # Adminer - Database Management
   # ===========================================================================
   adminer:
-    image: adminer:latest
+    image: adminer:6.1.1
     container_name: n8n_adminer
     restart: always
     environment:
@@ -4436,7 +4617,7 @@ EOF
   # Dozzle - Container Log Viewer
   # ===========================================================================
   dozzle:
-    image: amir20/dozzle:latest
+    image: amir20/dozzle:v11.1.3
     container_name: n8n_dozzle
     restart: always
     environment:
@@ -4462,7 +4643,7 @@ EOF
   # Accessible via its own subdomain (configured in Cloudflare Tunnel)
   # ===========================================================================
   ntfy:
-    image: binwiederhier/ntfy:latest
+    image: binwiederhier/ntfy:v2.28.0
     container_name: n8n_ntfy
     restart: unless-stopped
     init: true
@@ -4557,7 +4738,7 @@ FBEOF
   # File Browser - Public Website Management
   # ===========================================================================
   filebrowser:
-    image: filebrowser/filebrowser:latest
+    image: filebrowser/filebrowser:v2.63.23
     container_name: n8n_filebrowser
     restart: unless-stopped
     # Set umask 022 so files are created with world-readable permissions (644)
@@ -4578,7 +4759,10 @@ FBEOF
   # This container serves ONLY the public website. Traffic is routed here
   # via Cloudflare Tunnel based on hostname. No external ports exposed.
   nginx_public:
-    image: rjsears/nginx-public:latest
+    # stock nginx + an fbuser (uid 1000) account, see nginx_public/Dockerfile
+    image: n8n_nginx_public:local
+    build: ./nginx_public
+    pull_policy: build
     container_name: n8n_nginx_public
     restart: unless-stopped
     expose:
@@ -5308,7 +5492,7 @@ generate_public_nginx_conf() {
 
 # Run workers as fbuser (uid 1000, same as filebrowser) to read uploaded files
 # nginx master starts as root to bind port 80, workers run as fbuser
-# The fbuser is created by the container entrypoint
+# The fbuser account is created by nginx_public/Dockerfile
 user fbuser;
 
 events {
@@ -5575,7 +5759,7 @@ configure_dns_provider() {
 
 configure_cloudflare() {
     DNS_PROVIDER_NAME="cloudflare"
-    DNS_CERTBOT_IMAGE="certbot/dns-cloudflare:latest"
+    DNS_CERTBOT_IMAGE="certbot/dns-cloudflare:${CERTBOT_VERSION}"
     DNS_CREDENTIALS_FILE="cloudflare.ini"
 
     print_subsection
@@ -5607,7 +5791,7 @@ EOF
 
 configure_route53() {
     DNS_PROVIDER_NAME="route53"
-    DNS_CERTBOT_IMAGE="certbot/dns-route53:latest"
+    DNS_CERTBOT_IMAGE="certbot/dns-route53:${CERTBOT_VERSION}"
     DNS_CREDENTIALS_FILE="route53.ini"
 
     print_subsection
@@ -5642,7 +5826,7 @@ EOF
 
 configure_google_dns() {
     DNS_PROVIDER_NAME="google"
-    DNS_CERTBOT_IMAGE="certbot/dns-google:latest"
+    DNS_CERTBOT_IMAGE="certbot/dns-google:${CERTBOT_VERSION}"
     DNS_CREDENTIALS_FILE="google.json"
 
     print_subsection
@@ -5666,7 +5850,7 @@ configure_google_dns() {
 
 configure_digitalocean() {
     DNS_PROVIDER_NAME="digitalocean"
-    DNS_CERTBOT_IMAGE="certbot/dns-digitalocean:latest"
+    DNS_CERTBOT_IMAGE="certbot/dns-digitalocean:${CERTBOT_VERSION}"
     DNS_CREDENTIALS_FILE="digitalocean.ini"
 
     print_subsection
@@ -5695,7 +5879,7 @@ EOF
 
 configure_other_dns() {
     DNS_PROVIDER_NAME="manual"
-    DNS_CERTBOT_IMAGE="certbot/certbot:latest"
+    DNS_CERTBOT_IMAGE="certbot/certbot:${CERTBOT_VERSION}"
     DNS_CREDENTIALS_FILE="credentials.ini"
     DNS_CERTBOT_FLAGS="--manual --preferred-challenges dns"
 
@@ -6925,7 +7109,7 @@ initialize_public_website() {
     local volume_name="${project_name}_public_web_root"
 
     # Check if index.html already exists
-    local has_index=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data:ro" alpine sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
+    local has_index=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data:ro" "$ALPINE_IMAGE" sh -c '[ -f /data/index.html ] && echo "yes" || echo "no"' 2>/dev/null)
 
     if [ "$has_index" = "yes" ]; then
         print_info "Public website already has content, skipping initialization"
@@ -6937,7 +7121,7 @@ initialize_public_website() {
     local public_domain="${PUBLIC_WEBSITE_DOMAIN:-www.${root_domain}}"
 
     # Create the default landing page (WHITE template)
-    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data" alpine sh -c "cat > /data/index.html << 'HTMLEOF'
+    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data" "$ALPINE_IMAGE" sh -c "cat > /data/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang=\"en\">
 <head>
@@ -7019,7 +7203,7 @@ initialize_public_website() {
 HTMLEOF"
 
     # Set proper permissions
-    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data" alpine chmod -R 755 /data
+    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v "${volume_name}:/data" "$ALPINE_IMAGE" chmod -R 755 /data
 
     print_success "Public website initialized with default landing page"
 }
@@ -7079,11 +7263,18 @@ deploy_stack() {
     # Obtain SSL certificate
     print_step "2" "4" "Obtaining SSL certificate"
     obtain_ssl_certificate
+    verify_ssl_cert_lineage_for_nginx
 
     # Start all services
     print_step "3" "4" "Starting all services"
     $docker_compose_cmd up -d
     sleep 10
+    if ! $DOCKER_SUDO docker exec "$NGINX_CONTAINER" nginx -t >/dev/null 2>&1; then
+        print_error "nginx is not running or rejected its configuration"
+        $DOCKER_SUDO docker exec "$NGINX_CONTAINER" nginx -t 2>&1 | sed 's/^/    /' || true
+        print_info "Check: docker logs ${NGINX_CONTAINER}"
+        exit 1
+    fi
     print_success "All services started"
 
     # Initialize public website with default index if enabled
@@ -7112,75 +7303,99 @@ deploy_stack() {
 # =============================================================================
 
 determine_ssl_cert_domain() {
-    # Determine the SSL certificate domain BEFORE generating nginx.conf
-    # This is critical for wildcard certificates where the cert is stored
-    # under the root domain (e.g., example.com) but nginx serves subdomains
-    # (e.g., n8n.example.com)
+    # Single source of truth for the certificate lineage name (certbot
+    # --cert-name, i.e. /etc/letsencrypt/live/<SSL_CERT_DOMAIN>/). Must run
+    # BEFORE generate_nginx_conf_v3(); obtain_ssl_certificate() and the
+    # renewal/repair tooling reuse the value instead of choosing again.
     #
-    # This function should be called BEFORE generate_nginx_conf_v3()
+    #   SSL_CERT_DOMAIN == N8N_DOMAIN   -> exact certificate for N8N_DOMAIN
+    #   SSL_CERT_DOMAIN == <root>       -> wildcard: <root> + *.<root>
 
     # Extract root domain (e.g. n8n.example.com -> example.com)
-    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
+    local root_domain
+    root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
 
-    # If SSL_CERT_DOMAIN was already loaded from config/state file, validate it
-    if [ -n "$SSL_CERT_DOMAIN" ] && [ "$SSL_CERT_DOMAIN" != "" ] && [ "$SSL_CERT_DOMAIN" != "$N8N_DOMAIN" ]; then
-        print_info "Using configured SSL certificate domain: $SSL_CERT_DOMAIN"
-        return 0
-    fi
-
-    # Also check SAVED_SSL_CERT_DOMAIN from state file
-    if [ -n "$SAVED_SSL_CERT_DOMAIN" ] && [ "$SAVED_SSL_CERT_DOMAIN" != "" ]; then
-        SSL_CERT_DOMAIN="$SAVED_SSL_CERT_DOMAIN"
-        print_info "Using saved SSL certificate domain: $SSL_CERT_DOMAIN"
-        return 0
+    # A saved choice (config file / resume state) wins, as long as it still
+    # covers N8N_DOMAIN and a public website does not need a wildcard.
+    local saved="${SSL_CERT_DOMAIN:-${SAVED_SSL_CERT_DOMAIN:-}}"
+    if [ -n "$saved" ] && ssl_cert_name_covers_domain "$saved"; then
+        if [ "$INSTALL_PUBLIC_WEBSITE" != "true" ] || [ "$saved" = "$root_domain" ]; then
+            SSL_CERT_DOMAIN="$saved"
+            print_info "Using configured SSL certificate domain: $SSL_CERT_DOMAIN"
+            return 0
+        fi
     fi
 
     # Default to the N8N_DOMAIN
     SSL_CERT_DOMAIN="$N8N_DOMAIN"
 
-    # Check if Public Website is enabled - this requires a wildcard cert
+    if [ "$root_domain" = "$N8N_DOMAIN" ]; then
+        print_info "SSL certificate domain set to: $SSL_CERT_DOMAIN"
+        return 0
+    fi
+
+    # Public Website (www.<root>, files.<root>) requires the wildcard cert
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         SSL_CERT_DOMAIN="$root_domain"
         print_info "Public Website enabled - using wildcard certificate domain: $SSL_CERT_DOMAIN"
         return 0
     fi
 
-    # Check if a wildcard certificate already exists (for root domain)
-    if [ "$root_domain" != "$N8N_DOMAIN" ]; then
-        if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
-            # Check if cert exists under root domain first (wildcard cert)
-            local cert_check=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
-                -v letsencrypt:/etc/letsencrypt:ro \
-                alpine \
-                sh -c "[ -f /etc/letsencrypt/live/${root_domain}/fullchain.pem ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
-
-            if [ "$cert_check" = "exists" ]; then
-                SSL_CERT_DOMAIN="$root_domain"
-                print_info "Found existing wildcard certificate for: $SSL_CERT_DOMAIN"
+    # Reuse a certificate that already exists in the letsencrypt volume
+    if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
+        local name
+        for name in "$root_domain" "$N8N_DOMAIN"; do
+            if [ "$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
+                    -v letsencrypt:/etc/letsencrypt:ro "$ALPINE_IMAGE" \
+                    sh -c "[ -f /etc/letsencrypt/live/${name}/fullchain.pem ] && echo exists" 2>/dev/null)" = "exists" ]; then
+                SSL_CERT_DOMAIN="$name"
+                print_info "Found existing certificate lineage: $SSL_CERT_DOMAIN"
                 return 0
             fi
-
-            # Also check if cert exists under N8N_DOMAIN (single-domain cert)
-            cert_check=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
-                -v letsencrypt:/etc/letsencrypt:ro \
-                alpine \
-                sh -c "[ -f /etc/letsencrypt/live/${N8N_DOMAIN}/fullchain.pem ] && echo 'exists' || echo 'not_found'" 2>/dev/null)
-
-            if [ "$cert_check" = "exists" ]; then
-                SSL_CERT_DOMAIN="$N8N_DOMAIN"
-                print_info "Found existing certificate for: $SSL_CERT_DOMAIN"
-                return 0
-            fi
-        fi
+        done
     fi
 
-    # In preconfig mode, if we're going to get a wildcard cert, set the domain now
-    if [ "$PRECONFIG_MODE" = "true" ] && [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        SSL_CERT_DOMAIN="$root_domain"
+    # Ask once, here. The answer decides both the certbot request and the
+    # nginx ssl_certificate paths. Unattended (--config) runs use the exact
+    # domain unless the public website needs the wildcard (handled above).
+    if [ "$PRECONFIG_MODE" != "true" ]; then
+        echo ""
+        echo -e "  ${WHITE}Certificate Scope Configuration${NC}"
+        echo -e "  ${GRAY}We can request a wildcard certificate for ${WHITE}*.${root_domain}${GRAY}${NC}"
+        echo -e "  ${GRAY}This allows hosting other services (like www.${root_domain}) without new certificates.${NC}"
+        echo ""
+        if confirm_prompt "Do you control the DNS for ${root_domain}?" "y"; then
+            SSL_CERT_DOMAIN="$root_domain"
+            print_success "Will request wildcard certificate for *.${root_domain}"
+        else
+            print_info "Using single-domain certificate for ${N8N_DOMAIN}"
+        fi
     fi
 
     print_info "SSL certificate domain set to: $SSL_CERT_DOMAIN"
     return 0
+}
+
+# True if a lineage named $1 (exact name or wildcard parent) covers N8N_DOMAIN.
+ssl_cert_name_covers_domain() {
+    local name="$1"
+    [ -n "$name" ] || return 1
+    [ "$name" = "$N8N_DOMAIN" ] && return 0
+    case "$N8N_DOMAIN" in
+        *".${name}") return 0 ;;
+    esac
+    return 1
+}
+
+# certbot -d arguments for the lineage chosen by determine_ssl_cert_domain
+ssl_cert_domains_arg() {
+    # The public website (www./files.<root>) always needs the wildcard, even
+    # when n8n itself runs on the apex domain.
+    if [ "$SSL_CERT_DOMAIN" = "$N8N_DOMAIN" ] && [ "$INSTALL_PUBLIC_WEBSITE" != "true" ]; then
+        echo "-d $N8N_DOMAIN"
+    else
+        echo "-d $SSL_CERT_DOMAIN -d *.$SSL_CERT_DOMAIN"
+    fi
 }
 
 check_existing_ssl_certificate() {
@@ -7199,7 +7414,7 @@ check_existing_ssl_certificate() {
     # Check if certificate files exist and get info
     CERT_INFO=$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
         -v letsencrypt:/etc/letsencrypt:ro \
-        alpine/openssl \
+        "$OPENSSL_IMAGE" \
         sh -c "
             CERT_PATH=\"/etc/letsencrypt/live/${domain}/fullchain.pem\"
             KEY_PATH=\"/etc/letsencrypt/live/${domain}/privkey.pem\"
@@ -7269,48 +7484,15 @@ obtain_ssl_certificate() {
     local cred_volume_opt=""
     local force_renew="${FORCE_SSL_RENEWAL:-false}"
 
-    # Determine domains for certificate
-    local domains_arg="-d $N8N_DOMAIN"
-
-    # Default: certificate domain is the n8n domain (single-domain cert)
-    SSL_CERT_DOMAIN="$N8N_DOMAIN"
-
-    # Try to extract root domain (e.g. n8n.example.com -> example.com)
-    # This logic handles:
-    #   sub.example.com -> example.com
-    #   example.com -> example.com (no change)
-    #   n8n.sub.example.co.uk -> example.co.uk (basic heuristic)
-    
-    # Simple extraction: take last two parts (works for .com, .net, etc.)
-    # For complex TLDs (.co.uk), this heuristic might be too simple, 
-    # but since we prompt the user, it's safe.
-    local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
-    
-    # If using preconfig, check if we should force wildcard
-    if [ "$PRECONFIG_MODE" = "true" ]; then
-        if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-            print_info "Public Website enabled - requesting wildcard certificate for ${root_domain}"
-            domains_arg="-d $root_domain -d *.$root_domain"
-            SSL_CERT_DOMAIN="$root_domain"
-        fi
-    else
-        # Interactive mode
-        if [ "$root_domain" != "$N8N_DOMAIN" ]; then
-            echo ""
-            echo -e "  ${WHITE}Certificate Scope Configuration${NC}"
-            echo -e "  ${GRAY}We can request a wildcard certificate for ${WHITE}*.${root_domain}${GRAY}${NC}"
-            echo -e "  ${GRAY}This allows hosting other services (like www.${root_domain}) without new certificates.${NC}"
-            echo ""
-            
-            if confirm_prompt "Do you control the DNS for ${root_domain}?" "y"; then
-                domains_arg="-d $root_domain -d *.$root_domain"
-                SSL_CERT_DOMAIN="$root_domain"
-                print_success "Will request wildcard certificate for *.${root_domain}"
-            else
-                print_info "Falling back to single-domain certificate for ${N8N_DOMAIN}"
-                SSL_CERT_DOMAIN="$N8N_DOMAIN"
-            fi
-        fi
+    # The lineage name was chosen (and nginx.conf written for it) by
+    # determine_ssl_cert_domain; never pick a different one here.
+    if [ -z "${SSL_CERT_DOMAIN:-}" ] || ! ssl_cert_name_covers_domain "$SSL_CERT_DOMAIN"; then
+        determine_ssl_cert_domain
+    fi
+    local domains_arg
+    domains_arg=$(ssl_cert_domains_arg)
+    if [ "$SSL_CERT_DOMAIN" != "$N8N_DOMAIN" ]; then
+        print_info "Certificate: wildcard ${SSL_CERT_DOMAIN} + *.${SSL_CERT_DOMAIN} (cert-name ${SSL_CERT_DOMAIN})"
     fi
 
     # Check for existing valid certificate first (use SSL_CERT_DOMAIN which may be root domain for wildcards)
@@ -7418,11 +7600,11 @@ obtain_ssl_certificate() {
     # would make certbot create "<name>-0001" instead of updating <name>, which
     # nginx does not use. Move it aside (kept in lineage-repair-backup/) first.
     local lineage_backup=""
-    if [ "$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt:ro alpine \
+    if [ "$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt:ro "$ALPINE_IMAGE" \
             sh -c "f=/etc/letsencrypt/live/${SSL_CERT_DOMAIN}/cert.pem; [ -e \$f ] && [ ! -L \$f ] && echo broken" 2>/dev/null)" = "broken" ]; then
         lineage_backup="/etc/letsencrypt/lineage-repair-backup/${SSL_CERT_DOMAIN}-$(date +%Y%m%d%H%M%S)"
         print_warning "Existing certificate lineage for ${SSL_CERT_DOMAIN} is broken (not renewable) - replacing it"
-        $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt alpine sh -c "
+        $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt "$ALPINE_IMAGE" sh -c "
             n='${SSL_CERT_DOMAIN}'; b='${lineage_backup}'; mkdir -p \"\$b\"
             cp -a /etc/letsencrypt/live/\$n \"\$b/live\" && rm -rf /etc/letsencrypt/live/\$n
             [ -e /etc/letsencrypt/archive/\$n ] && mv /etc/letsencrypt/archive/\$n \"\$b/archive\"
@@ -7446,7 +7628,7 @@ obtain_ssl_certificate() {
         print_error "Failed to obtain SSL certificate"
         if [ -n "$lineage_backup" ]; then
             print_info "Restoring the previous certificate files so nginx keeps working"
-            $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt alpine sh -c "
+            $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt "$ALPINE_IMAGE" sh -c "
                 n='${SSL_CERT_DOMAIN}'; b='${lineage_backup}'
                 rm -rf /etc/letsencrypt/live/\$n /etc/letsencrypt/archive/\$n /etc/letsencrypt/renewal/\$n.conf
                 [ -e \"\$b/live\" ] && cp -a \"\$b/live\" /etc/letsencrypt/live/\$n
@@ -7458,6 +7640,31 @@ obtain_ssl_certificate() {
     fi
 
     print_success "SSL certificate obtained and stored in the letsencrypt volume"
+}
+
+# Before nginx starts: the lineage nginx.conf points at must exist, otherwise
+# nginx restart-loops. Regenerates the nginx configs if they were written for
+# a different cert name (e.g. an older nginx.conf on disk).
+verify_ssl_cert_lineage_for_nginx() {
+    local live="/etc/letsencrypt/live/${SSL_CERT_DOMAIN}"
+    if [ "$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt:ro "$ALPINE_IMAGE" \
+            sh -c "[ -s ${live}/fullchain.pem ] && [ -s ${live}/privkey.pem ] && echo ok" 2>/dev/null)" != "ok" ]; then
+        print_error "Certificate files not found at ${live}/ in the letsencrypt volume"
+        print_info "nginx would fail to start. Re-run ./setup.sh after fixing certificate issuance."
+        exit 1
+    fi
+    # With the public website, nginx_router terminates TLS; otherwise n8n_nginx
+    local tls_conf="${SCRIPT_DIR}/nginx.conf"
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        tls_conf="${SCRIPT_DIR}/nginx-router.conf"
+    fi
+    if ! grep -q "ssl_certificate ${live}/fullchain.pem;" "$tls_conf" 2>/dev/null; then
+        print_warning "$(basename "$tls_conf") does not reference ${live}/ - regenerating nginx configuration"
+        generate_nginx_conf_v3
+        generate_public_nginx_conf
+        generate_nginx_router_conf
+    fi
+    print_success "nginx certificate paths match lineage ${SSL_CERT_DOMAIN}"
 }
 
 # After deployment: make sure certificates can actually be renewed.
