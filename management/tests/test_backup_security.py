@@ -210,7 +210,7 @@ def test_project_tree_copies_bind_mounted_configs_and_skips_noise(tmp_path):
         "docs/requirements.txt": "mkdocs",
         "mkdocs.yml": "site_name: x",
         "site/index.html": "x",
-        ".claude/worktrees/agent/.env": "COPY=1",
+        ".tooling/worktrees/agent/.env": "COPY=1",
         "n8n_status/vendor/.git/HEAD": "x",
         "backup_20260101T000000Z_1.n8n_backup.tar.gz": "x",
         "dl/backup_20260101T000000Z_2.n8n_backup.tar.gz.gpg": "x",

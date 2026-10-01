@@ -819,8 +819,8 @@ Downloads a complete recovery archive including an embedded `restore.sh` script.
   `nginx-router.conf`, `nginx-public.conf`, `.filebrowser.json`, `ntfy/`, `dozzle/`, DNS credentials,
   `tailscale-serve.json`), `scripts/certbot/`, the `management/` and `n8n_status/` build contexts, and
   `docs/` + `mkdocs.yml` (the management image build copies them in through the compose
-  `additional_contexts: docs_src: .`). Files keep their owner and mode. Left out: `.git`, `.github`,
-  `.claude`, `images/`, `tests/`, `site/`, `backups/`, `env_backups/`, dependency and build output
+  `additional_contexts: docs_src: .`). Files keep their owner and mode. Left out: hidden directories (`.git`, `.github`, editor and tool
+  folders), `images/`, `tests/`, `site/`, `backups/`, `env_backups/`, dependency and build output
   (`node_modules`, `dist`, `build`, virtualenvs, caches), backup archives (`*.n8n_backup.tar.gz*`,
   `*.gpg`, `*.partial`), `*.bak.*` copies, and single files over 50 MB. If what remains is over
   200 MB (`BACKUP_PROJECT_MAX_MB` in `.env`) the backup **fails** before dumping anything, naming the

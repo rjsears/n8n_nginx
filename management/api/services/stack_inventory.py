@@ -52,11 +52,12 @@ PROJECT_EXCLUDE_TOP = frozenset({
     ".git", "images", "env_backups", ".backups", "backups", "tests", ".github",
     "site",  # mkdocs build output
 })
-# Directory names excluded at any depth: VCS metadata (nested checkouts),
-# agent/editor worktrees, dependency and build output folders, caches.
+# Directory names excluded at any depth: dependency and build output
+# folders. Hidden directories (VCS metadata, editor and tool working
+# folders, caches, virtualenvs) are skipped as a rule in _walk_project;
+# hidden files such as .env are kept.
 PROJECT_EXCLUDE_ANY = frozenset({
-    ".git", ".claude", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache",
-    ".mypy_cache", ".venv", "venv", "dist", "build",
+    "node_modules", "__pycache__", "venv", "dist", "build",
 })
 # File names never copied: backup archives and their partial or encrypted
 # forms (downloaded backups must not nest inside the next backup) and
@@ -124,7 +125,10 @@ def _walk_project(source_dir: str) -> Iterator[Tuple[str, str, str]]:
     for root, dirs, files in os.walk(source_dir):
         rel_root = os.path.relpath(root, source_dir)
         rel_root = "" if rel_root == "." else rel_root
-        dirs[:] = sorted(d for d in dirs if not _project_excluded(os.path.join(rel_root, d) if rel_root else d))
+        dirs[:] = sorted(
+            d for d in dirs
+            if not d.startswith(".") and not _project_excluded(os.path.join(rel_root, d) if rel_root else d)
+        )
         yield "dir", rel_root, root
         for name in sorted(files):
             rel = os.path.join(rel_root, name) if rel_root else name
