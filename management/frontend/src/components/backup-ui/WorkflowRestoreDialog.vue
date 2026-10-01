@@ -14,6 +14,7 @@ https://github.com/rjsears
 import { ref, computed, watch } from 'vue'
 // backupStore import removed - not used in this component
 import { useNotificationStore } from '../../stores/notifications'
+import api from '../../services/api'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
 import {
   XMarkIcon,
@@ -74,20 +75,17 @@ async function handleRestore() {
 
   try {
     if (restoreMode.value === 'n8n') {
-      // Restore to n8n
-      const response = await fetch(`/api/backups/${props.backup.id}/restore/workflow`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({
+      // Restore to n8n (shared API client: session cookie + CSRF header)
+      const response = await api.post(
+        `/backups/${props.backup.id}/restore/workflow`,
+        {
           workflow_id: props.workflow.id,
           rename_format: useCustomName.value ? customName.value : renameFormat.value,
-        }),
-      })
+        },
+        { validateStatus: (status) => status !== 401 }
+      )
 
-      const data = await response.json()
+      const data = response.data || {}
 
       if (data.status === 'success') {
         result.value = { success: true, data }
@@ -99,17 +97,13 @@ async function handleRestore() {
       }
     } else {
       // Download as JSON
-      const response = await fetch(
-        `/api/backups/${props.backup.id}/workflows/${props.workflow.id}/download`,
-        {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          },
-        }
+      const response = await api.get(
+        `/backups/${props.backup.id}/workflows/${props.workflow.id}/download`,
+        { validateStatus: (status) => status !== 401 }
       )
 
-      if (response.ok) {
-        const data = await response.json()
+      if (response.status >= 200 && response.status < 300) {
+        const data = response.data
         // Create download
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
         const url = URL.createObjectURL(blob)
@@ -124,7 +118,7 @@ async function handleRestore() {
         result.value = { success: true, downloaded: true }
         notificationStore.success('Workflow downloaded')
       } else {
-        const errorData = await response.json()
+        const errorData = response.data || {}
         result.value = { success: false, error: errorData.detail || 'Download failed' }
         notificationStore.error('Failed to download workflow')
       }

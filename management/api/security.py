@@ -150,6 +150,50 @@ def calculate_lockout_expiry(failed_attempts: int) -> Optional[datetime]:
     return datetime.now(UTC) + timedelta(minutes=minutes)
 
 
+# Browser origin checks (CSRF and WebSocket hijacking)
+
+SESSION_COOKIE_NAME = "session"
+CSRF_HEADER_NAME = "X-Requested-With"
+UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def configured_allowed_origins() -> list[str]:
+    """Origins from ALLOWED_ORIGINS, normalised to scheme://host[:port] without a trailing slash."""
+    raw = settings.allowed_origins or ""
+    return [o.strip().rstrip("/").lower() for o in raw.split(",") if o.strip()]
+
+
+def _hostname(value: str) -> str:
+    """Lower-cased host part of a Host header value or URL authority, without port."""
+    value = value.strip().lower()
+    if value.startswith("["):  # IPv6 literal
+        return value.split("]", 1)[0] + "]"
+    return value.split(":", 1)[0]
+
+
+def is_origin_allowed(origin: Optional[str], host: Optional[str]) -> bool:
+    """
+    True when a browser Origin header names this console.
+
+    Same-origin means the Origin's host equals the Host header the request
+    arrived with (both nginx layers forward the client's Host unchanged).
+    Ports are not compared because nginx's $host drops them. Anything listed
+    in ALLOWED_ORIGINS is also accepted. A missing or "null" Origin is
+    rejected here; callers decide whether a request without one is acceptable.
+    """
+    if not origin or origin == "null":
+        return False
+    origin = origin.strip().rstrip("/").lower()
+    if origin in configured_allowed_origins():
+        return True
+    if "://" not in origin:
+        return False
+    scheme, authority = origin.split("://", 1)
+    if scheme not in ("https", "http") or not authority or not host:
+        return False
+    return _hostname(authority) == _hostname(host)
+
+
 def hash_file_sha256(filepath: str) -> str:
     """Calculate SHA-256 hash of a file."""
     sha256_hash = hashlib.sha256()

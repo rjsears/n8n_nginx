@@ -250,6 +250,10 @@ services:
       - NTFY_BASE_URL=https://ntfy.n8nmanagement.net
       - PUBLIC_SITE_ENABLE=${PUBLIC_SITE_ENABLE:-false}
       - STATUS_COLLECTOR_URL=${STATUS_COLLECTOR_URL:-http://host.docker.internal:8080}
+      # Web terminal root shell on the Docker host: off unless set to true in .env
+      - ENABLE_HOST_TERMINAL=${ENABLE_HOST_TERMINAL:-false}
+      # Extra browser origins allowed to use the console API (normally empty)
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
