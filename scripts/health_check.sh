@@ -104,6 +104,15 @@ env_value() {
     printf '%s' "$value"
 }
 
+# Container names and database login as configured in .env (setup.sh lets
+# all of these be changed); the defaults match a stock install.
+N8N_C=$(env_value N8N_CONTAINER);             N8N_C="${N8N_C:-n8n}"
+PG_C=$(env_value POSTGRES_CONTAINER);         PG_C="${PG_C:-n8n_postgres}"
+NGINX_C=$(env_value NGINX_CONTAINER);         NGINX_C="${NGINX_C:-n8n_nginx}"
+MGMT_C=$(env_value MANAGEMENT_CONTAINER);     MGMT_C="${MGMT_C:-n8n_management}"
+PG_USER=$(env_value POSTGRES_USER);           PG_USER="${PG_USER:-n8n}"
+PG_DB=$(env_value POSTGRES_DB);               PG_DB="${PG_DB:-n8n}"
+
 section() {
     echo ""
     echo -e "${CYAN}========================================${NC}"
@@ -215,15 +224,15 @@ check_all_containers() {
     check_docker_daemon || return 1
 
     # Core containers
-    check_container_status "n8n" true
-    check_container_status "n8n_postgres" true
-    check_container_status "n8n_nginx" true
+    check_container_status "$N8N_C" true
+    check_container_status "$PG_C" true
+    check_container_status "$NGINX_C" true
 
     # v3.0 management container (optional for v2 installations)
-    check_container_status "n8n_management" false
+    check_container_status "$MGMT_C" false
 
     # Health checks for running containers
-    for container in n8n n8n_postgres n8n_nginx n8n_management; do
+    for container in "$N8N_C" "$PG_C" "$NGINX_C" "$MGMT_C"; do
         if docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
             check_container_health "$container"
         fi
@@ -240,14 +249,14 @@ check_n8n_api() {
     log INFO "Checking n8n API availability..."
 
     # Try via nginx container (which can reach n8n on Docker network)
-    if docker exec n8n_nginx curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://n8n:5678/healthz" 2>/dev/null | grep -q "^[23]"; then
+    if docker exec "$NGINX_C" curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://n8n:5678/healthz" 2>/dev/null | grep -q "^[23]"; then
         log OK "n8n API is responding"
         HEALTH_STATUS["n8n_api"]="healthy"
         return 0
     fi
 
     # Try via wget in n8n container (n8n image has wget but not curl)
-    if docker exec n8n wget -q -O /dev/null --timeout=5 "http://localhost:5678/healthz" 2>/dev/null; then
+    if docker exec "$N8N_C" wget -q -O /dev/null --timeout=5 "http://localhost:5678/healthz" 2>/dev/null; then
         log OK "n8n API is responding (via container)"
         HEALTH_STATUS["n8n_api"]="healthy"
         return 0
@@ -263,14 +272,14 @@ check_postgres_connection() {
 
     log INFO "Checking PostgreSQL connection..."
 
-    if ! docker ps --format '{{.Names}}' | grep -q "^n8n_postgres$"; then
+    if ! docker ps --format '{{.Names}}' | grep -q "^${PG_C}$"; then
         log ERROR "PostgreSQL container is not running"
         HEALTH_STATUS["postgres"]="error"
         return 1
     fi
 
     # Check if PostgreSQL is accepting connections
-    if docker exec n8n_postgres pg_isready -U n8n &> /dev/null; then
+    if docker exec "$PG_C" pg_isready -U "$PG_USER" &> /dev/null; then
         log OK "PostgreSQL is accepting connections"
         HEALTH_STATUS["postgres"]="healthy"
     else
@@ -280,7 +289,7 @@ check_postgres_connection() {
     fi
 
     # Check n8n database
-    if docker exec n8n_postgres psql -U n8n -d n8n -c "SELECT 1" &> /dev/null; then
+    if docker exec "$PG_C" psql -U "$PG_USER" -d "$PG_DB" -c "SELECT 1" &> /dev/null; then
         log OK "n8n database is accessible"
         HEALTH_STATUS["postgres_n8n_db"]="healthy"
     else
@@ -290,7 +299,7 @@ check_postgres_connection() {
     fi
 
     # Check management database (v3.0)
-    if docker exec n8n_postgres psql -U n8n -d n8n_management -c "SELECT 1" &> /dev/null; then
+    if docker exec "$PG_C" psql -U "$PG_USER" -d n8n_management -c "SELECT 1" &> /dev/null; then
         log OK "Management database is accessible"
         HEALTH_STATUS["postgres_mgmt_db"]="healthy"
     else
@@ -306,14 +315,14 @@ check_nginx_status() {
 
     log INFO "Checking Nginx status..."
 
-    if ! docker ps --format '{{.Names}}' | grep -q "^n8n_nginx$"; then
+    if ! docker ps --format '{{.Names}}' | grep -q "^${NGINX_C}$"; then
         log ERROR "Nginx container is not running"
         HEALTH_STATUS["nginx"]="error"
         return 1
     fi
 
     # Check nginx configuration
-    if docker exec n8n_nginx nginx -t &> /dev/null; then
+    if docker exec "$NGINX_C" nginx -t &> /dev/null; then
         log OK "Nginx configuration is valid"
         HEALTH_STATUS["nginx_config"]="healthy"
     else
@@ -339,7 +348,7 @@ check_management_api() {
 
     log INFO "Checking Management API..."
 
-    if ! docker ps --format '{{.Names}}' | grep -q "^n8n_management$"; then
+    if ! docker ps --format '{{.Names}}' | grep -q "^${MGMT_C}$"; then
         log WARN "Management container is not running (may be v2.0 installation)"
         HEALTH_STATUS["management_api"]="missing"
         return 0
@@ -348,7 +357,7 @@ check_management_api() {
     # Check management API health endpoint
     local mgmt_url="http://localhost:8000/api/health"
 
-    if docker exec n8n_management curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$mgmt_url" 2>/dev/null | grep -q "^[23]"; then
+    if docker exec "$MGMT_C" curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$mgmt_url" 2>/dev/null | grep -q "^[23]"; then
         log OK "Management API is responding"
         HEALTH_STATUS["management_api"]="healthy"
         return 0
@@ -458,7 +467,7 @@ check_ssl_certificates() {
     fi
 
     # Check if nginx container is running
-    if ! docker ps --format '{{.Names}}' | grep -q "^n8n_nginx$"; then
+    if ! docker ps --format '{{.Names}}' | grep -q "^${NGINX_C}$"; then
         log WARN "Nginx container not running - cannot check SSL certificates"
         HEALTH_STATUS["ssl_cert"]="unknown"
         return 0
@@ -466,7 +475,7 @@ check_ssl_certificates() {
 
     # Get the domain from nginx.conf inside the container
     local domain
-    domain=$(docker exec n8n_nginx grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf 2>/dev/null | sed -n 's|.*live/\([^/]*\)/.*|\1|p')
+    domain=$(docker exec "$NGINX_C" grep -m1 'ssl_certificate ' /etc/nginx/nginx.conf 2>/dev/null | sed -n 's|.*live/\([^/]*\)/.*|\1|p')
 
     if [ -z "$domain" ]; then
         log WARN "Cannot determine domain from nginx config"
@@ -521,10 +530,27 @@ check_network_connectivity() {
 
     log INFO "Checking network connectivity..."
 
-    # Check DNS resolution
-    if host google.com &> /dev/null || nslookup google.com &> /dev/null; then
+    # Check DNS resolution: getent (glibc, always present) first; host and
+    # nslookup are optional packages and their absence is not a DNS failure.
+    local resolver_found=false dns_ok=false
+    if command -v getent &> /dev/null; then
+        resolver_found=true
+        getent hosts google.com &> /dev/null && dns_ok=true
+    fi
+    if [ "$dns_ok" = false ] && command -v host &> /dev/null; then
+        resolver_found=true
+        host google.com &> /dev/null && dns_ok=true
+    fi
+    if [ "$dns_ok" = false ] && command -v nslookup &> /dev/null; then
+        resolver_found=true
+        nslookup google.com &> /dev/null && dns_ok=true
+    fi
+    if [ "$dns_ok" = true ]; then
         log OK "DNS resolution working"
         HEALTH_STATUS["network_dns"]="healthy"
+    elif [ "$resolver_found" = false ]; then
+        log WARN "No resolver tool (getent, host, nslookup) found - cannot check DNS"
+        HEALTH_STATUS["network_dns"]="unknown"
     else
         log ERROR "DNS resolution failed"
         HEALTH_STATUS["network_dns"]="error"
@@ -552,14 +578,12 @@ check_backup_status() {
     # Backups are recorded in the management database (backup_history); the
     # archives live under the backup mount (/opt/n8n_backups on the host) or
     # in the mgmt_backup_staging volume, never in ${PROJECT_ROOT}/backups.
-    local max_age_hours pg_user age_seconds=""
+    local max_age_hours age_seconds=""
     max_age_hours=$(env_value BACKUP_MAX_AGE_HOURS)
     max_age_hours="${max_age_hours:-192}"
-    pg_user=$(env_value POSTGRES_USER)
-    pg_user="${pg_user:-n8n}"
 
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^n8n_postgres$"; then
-        age_seconds=$(docker exec n8n_postgres psql -U "$pg_user" -d n8n_management -tAc \
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${PG_C}$"; then
+        age_seconds=$(docker exec "$PG_C" psql -U "$PG_USER" -d n8n_management -tAc \
             "SELECT COALESCE((EXTRACT(EPOCH FROM now() - max(completed_at)))::bigint::text, 'none') FROM backup_history WHERE status = 'success'" \
             2>/dev/null | tr -d '[:space:]') || age_seconds=""
     fi
@@ -603,9 +627,9 @@ check_recent_errors() {
     log INFO "Checking for recent errors in logs..."
 
     # Check n8n container logs for errors
-    if docker ps --format '{{.Names}}' | grep -q "^n8n$"; then
+    if docker ps --format '{{.Names}}' | grep -q "^${N8N_C}$"; then
         local error_count
-        error_count=$(docker logs n8n --since 1h 2>&1 | grep -ci "error") || error_count=0
+        error_count=$(docker logs "$N8N_C" --since 1h 2>&1 | grep -ci "error") || error_count=0
 
         if [ "$error_count" -gt 10 ]; then
             log WARN "n8n: $error_count errors in last hour"
@@ -617,9 +641,9 @@ check_recent_errors() {
     fi
 
     # Check nginx logs
-    if docker ps --format '{{.Names}}' | grep -q "^n8n_nginx$"; then
+    if docker ps --format '{{.Names}}' | grep -q "^${NGINX_C}$"; then
         local nginx_errors
-        nginx_errors=$(docker logs n8n_nginx --since 1h 2>&1 | grep -ci "error") || nginx_errors=0
+        nginx_errors=$(docker logs "$NGINX_C" --since 1h 2>&1 | grep -ci "error") || nginx_errors=0
 
         if [ "$nginx_errors" -gt 50 ]; then
             log WARN "nginx: $nginx_errors errors in last hour"
@@ -679,9 +703,8 @@ generate_report() {
     fi
 }
 
-save_state() {
-    # Save health state to file for monitoring integration
-    cat > "$STATE_FILE" << EOF
+state_json() {
+    cat << EOF
 {
     "timestamp": "$(date -Iseconds)",
     "overall_status": "$OVERALL_STATUS",
@@ -692,6 +715,11 @@ $(for key in "${!HEALTH_STATUS[@]}"; do echo "        \"$key\": \"${HEALTH_STATU
     }
 }
 EOF
+}
+
+save_state() {
+    # Save health state to file for monitoring integration
+    state_json > "$STATE_FILE"
 }
 
 # ============================================================================
@@ -716,8 +744,11 @@ send_alert() {
 }
 
 # Alert when any component is in error; repeat while it stays failing, and
-# announce the recovery once.
+# announce the recovery once. With "partial" (a --check run) a clean result
+# says nothing about the components that were not checked, so it never
+# announces a recovery or clears the alert state.
 process_alerts() {
+    local partial="${1:-}"
     local repeat_minutes failing="" key previous="" last_sent=0 now host
     repeat_minutes=$(env_value ALERT_REPEAT_MINUTES)
     repeat_minutes="${repeat_minutes:-60}"
@@ -746,7 +777,7 @@ Details: ${LOG_FILE}" 5; then
                 echo "down $now" > "$ALERT_STATE_FILE"
             fi
         fi
-    elif [ "$previous" = "down" ]; then
+    elif [ "$previous" = "down" ] && [ "$partial" != "partial" ]; then
         if send_alert "[$host] n8n stack recovered" \
             "All checks pass again ($(date '+%Y-%m-%d %H:%M:%S %Z'))." 3; then
             echo "up $now" > "$ALERT_STATE_FILE"
@@ -920,7 +951,11 @@ else
 fi
 
 if [ "$ALERT_MODE" = true ]; then
-    process_alerts || true
+    if [ -n "$CHECK_COMPONENT" ]; then
+        process_alerts partial || true
+    else
+        process_alerts || true
+    fi
 fi
 
 # Restore output if quiet mode was used
@@ -928,9 +963,15 @@ if [ "$QUIET_MODE" = true ]; then
     exec 1>&3 2>&4
 fi
 
-# Output JSON if requested
+# Output JSON if requested: this run's results. A --check run does not
+# rewrite the state file (it covers one component), so print them directly
+# rather than the file left by an earlier full run.
 if [ "$JSON_OUTPUT" = true ]; then
-    cat "$STATE_FILE"
+    if [ -n "$CHECK_COMPONENT" ]; then
+        state_json
+    else
+        cat "$STATE_FILE"
+    fi
 fi
 
 if [ "$OVERALL_STATUS" = "healthy" ]; then
