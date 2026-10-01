@@ -4541,6 +4541,8 @@ EOF
   # only published on PORTAINER_AGENT_BIND (default 127.0.0.1; set a LAN or
   # Tailscale IP the Portainer server can reach) and only accepts a server
   # configured with the same AGENT_SECRET. Published ports bypass ufw.
+  # It is deliberately not on n8n_network: nothing in the stack talks to it,
+  # and the remote server reaches it only through the published port.
   portainer_agent:
     image: portainer/agent:2.45.1
     container_name: portainer_agent
@@ -4553,8 +4555,6 @@ EOF
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/docker/volumes:/var/lib/docker/volumes
       - /:/host
-    networks:
-      - n8n_network
 
 EOF
     fi
@@ -5089,21 +5089,13 @@ EOF
 
     cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
 
-        # Webhook endpoint with CORS - PUBLICLY ACCESSIBLE
+        # Webhook endpoint - PUBLICLY ACCESSIBLE
         location /webhook/ {
-            add_header 'Access-Control-Allow-Origin' '*' always;
-            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+            # No CORS headers here: n8n answers webhook preflights itself and sets
+            # Access-Control-Allow-Origin from each Webhook node's "Allowed Origins"
+            # option. Adding them in nginx too duplicates the header (browsers then
+            # reject the response) and overrides the per-workflow setting.
             add_header X-Frame-Options "SAMEORIGIN" always;
-
-            if (\$request_method = 'OPTIONS') {
-                add_header 'Access-Control-Allow-Origin' '*';
-                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
-                add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
-                add_header 'Access-Control-Max-Age' 86400;
-                add_header 'Content-Length' 0;
-                return 204;
-            }
 
             proxy_pass http://n8n;
             proxy_set_header Host \$host;
@@ -5407,19 +5399,11 @@ EOF
 
         # n8n webhooks and forms - PUBLICLY ACCESSIBLE
         location ~ ^/(webhook|webhook-test|webhook-waiting|form|form-test|form-waiting)/ {
-            add_header 'Access-Control-Allow-Origin' '*' always;
-            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+            # No CORS headers here: n8n answers webhook preflights itself and sets
+            # Access-Control-Allow-Origin from each Webhook node's "Allowed Origins"
+            # option. Adding them in nginx too duplicates the header (browsers then
+            # reject the response) and overrides the per-workflow setting.
             add_header X-Frame-Options "SAMEORIGIN" always;
-
-            if ($request_method = 'OPTIONS') {
-                add_header 'Access-Control-Allow-Origin' '*';
-                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
-                add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
-                add_header 'Access-Control-Max-Age' 86400;
-                add_header 'Content-Length' 0;
-                return 204;
-            }
 
             proxy_pass http://n8n;
             proxy_set_header Host $host;

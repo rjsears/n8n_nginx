@@ -783,6 +783,7 @@ Access to fetch at 'https://...' from origin 'https://...' has been blocked by C
 1. Verify SSL certificate is valid (not self-signed)
 2. Check certificate matches the domain being accessed
 3. Ensure nginx is properly configured with correct server_name
+4. For a browser calling an n8n webhook from another site: set the Webhook node's **Allowed Origins (CORS)** option in n8n. nginx does not add CORS headers to `/webhook/` or `/form/` responses; n8n sets them per webhook.
 
 ### Rate Limits
 

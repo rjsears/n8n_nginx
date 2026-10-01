@@ -227,6 +227,8 @@ The editor, management console and admin tools are for internal users only: your
 
 No TLS settings are needed: the tunnel terminates TLS at Cloudflare and talks plain HTTP to nginx inside the Docker network.
 
+> **CORS for webhooks** is configured in n8n, not in nginx: open the Webhook node, add the **Allowed Origins (CORS)** option and list the sites (or `*`) whose browser pages may call it. n8n answers the preflight (`OPTIONS`) itself, including custom request headers such as `X-API-Key`. nginx passes webhook and form requests through without adding any `Access-Control-*` headers, so the per-workflow setting is what the browser sees.
+
 ### Step 6: Save the Tunnel
 
 1. Review your configuration
