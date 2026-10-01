@@ -15,7 +15,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 import logging
 import docker
@@ -106,6 +106,14 @@ async def shutdown_scheduler() -> None:
         scheduler.shutdown(wait=True)
         scheduler = None
         logger.info("Scheduler shutdown complete")
+
+    # Give notifications still being delivered in the background a moment
+    try:
+        from api.services.notification_service import drain_notifications
+
+        await drain_notifications(timeout=10)
+    except Exception as e:
+        logger.error(f"Failed to drain pending notifications: {e}")
 
 
 def get_scheduler() -> Optional[AsyncIOScheduler]:
@@ -210,6 +218,34 @@ async def _add_maintenance_jobs() -> None:
         CronTrigger(hour=6, minute=0),
         id="maintenance_certificate_expiry",
         name="Certificate Expiry Check",
+        replace_existing=True,
+    )
+
+    # Backup dead-man's switch - hourly at minute 40, and once shortly after
+    # startup so a restart that lost a scheduled run is noticed promptly.
+    scheduler.add_job(
+        _check_backup_freshness,
+        CronTrigger(minute=40),
+        id="maintenance_backup_freshness",
+        name="Backup Freshness Check",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _check_backup_freshness,
+        "date",
+        run_date=datetime.now(UTC) + timedelta(minutes=2),
+        id="startup_backup_freshness",
+        name="Backup Freshness Check (startup)",
+        replace_existing=True,
+    )
+
+    # Outbound heartbeat to an external monitor (HEARTBEAT_URL). Checked every
+    # minute; the ping interval (HEARTBEAT_INTERVAL_MINUTES) is applied inside.
+    scheduler.add_job(
+        _send_heartbeat,
+        CronTrigger(minute="*"),
+        id="maintenance_heartbeat",
+        name="External Heartbeat",
         replace_existing=True,
     )
 
@@ -508,6 +544,28 @@ async def _check_container_health() -> None:
 
     except Exception as e:
         logger.error(f"Container health check failed: {e}")
+
+
+async def _check_backup_freshness() -> None:
+    """Alert on overdue scheduled backups and close out backups stuck in 'running'."""
+    from api.services.system_monitors import check_backup_freshness
+
+    try:
+        fired = await check_backup_freshness()
+        for entry in fired:
+            logger.warning(f"Backup freshness check: {entry}")
+    except Exception as e:
+        logger.error(f"Backup freshness check failed: {e}")
+
+
+async def _send_heartbeat() -> None:
+    """Ping HEARTBEAT_URL when the stack is healthy (see api.services.external_alerts)."""
+    from api.services.external_alerts import send_heartbeat
+
+    try:
+        await send_heartbeat()
+    except Exception as e:
+        logger.error(f"Heartbeat failed: {e}")
 
 
 async def _check_container_resources() -> None:

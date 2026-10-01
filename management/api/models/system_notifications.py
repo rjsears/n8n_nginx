@@ -297,6 +297,15 @@ class SystemNotificationHistory(Base):
         return f"<SystemNotificationHistory(event='{self.event_type}', target='{self.target_id}', status='{self.status}')>"
 
 
+# When one of these events is first seeded, it starts with a copy of the
+# targets (channels/groups) of the named event, so whoever already receives
+# backup failures also hears about overdue and stuck backups without having
+# to find the new cards first.
+SEED_TARGETS_FROM = {
+    "backup_overdue": "backup_failure",
+    "backup_stuck": "backup_failure",
+}
+
 # Default event configurations to seed on first run
 DEFAULT_SYSTEM_EVENTS = [
     {
@@ -323,6 +332,27 @@ DEFAULT_SYSTEM_EVENTS = [
         "flapping_enabled": True,
         "flapping_threshold_count": 2,
         "flapping_threshold_minutes": 120,
+    },
+    {
+        "event_type": "backup_overdue",
+        "display_name": "Backup Overdue",
+        "description": "A scheduled backup has not succeeded within its interval plus a grace period "
+                       "(the job was missed, skipped or keeps failing). Grace period: grace_minutes (default 60).",
+        "icon": "XCircleIcon",
+        "category": "backup",
+        "severity": "critical",
+        "frequency": "once_per_4h",
+        "thresholds": {"grace_minutes": 60},
+    },
+    {
+        "event_type": "backup_stuck",
+        "display_name": "Backup Stuck",
+        "description": "A backup has been 'running' for longer than stuck_hours (default 6); it is marked failed.",
+        "icon": "ArrowPathIcon",
+        "category": "backup",
+        "severity": "critical",
+        "frequency": "every_time",
+        "thresholds": {"stuck_hours": 6},
     },
     {
         "event_type": "disk_space_low",

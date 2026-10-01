@@ -302,6 +302,39 @@ async def _migrate_certificate_event_category(conn) -> None:
         logger.warning(f"Failed to migrate certificate event category: {e}")
 
 
+async def _copy_seed_targets(session, new_events) -> None:
+    """Give newly seeded events the targets of the event named in SEED_TARGETS_FROM."""
+    from sqlalchemy import select
+    from api.models.system_notifications import (
+        SEED_TARGETS_FROM,
+        SystemNotificationEvent,
+        SystemNotificationTarget,
+    )
+
+    for new_event in new_events:
+        source_type = SEED_TARGETS_FROM.get(new_event.event_type)
+        if not source_type:
+            continue
+        source = (await session.execute(
+            select(SystemNotificationEvent).where(SystemNotificationEvent.event_type == source_type)
+        )).scalar_one_or_none()
+        if source is None:
+            continue
+        targets = (await session.execute(
+            select(SystemNotificationTarget).where(SystemNotificationTarget.event_id == source.id)
+        )).scalars().all()
+        for target in targets:
+            session.add(SystemNotificationTarget(
+                event_id=new_event.id,
+                target_type=target.target_type,
+                channel_id=target.channel_id,
+                group_id=target.group_id,
+                escalation_level=target.escalation_level,
+            ))
+        if targets:
+            logger.info(f"Event '{new_event.event_type}' starts with the {len(targets)} target(s) of '{source_type}'")
+
+
 async def seed_system_notification_events() -> None:
     """
     Seed default system notification events if they don't exist.
@@ -327,6 +360,8 @@ async def seed_system_notification_events() -> None:
 
             if events_to_add:
                 session.add_all(events_to_add)
+                await session.flush()
+                await _copy_seed_targets(session, events_to_add)
                 await session.commit()
                 logger.info(f"Seeded {len(events_to_add)} system notification events")
             else:

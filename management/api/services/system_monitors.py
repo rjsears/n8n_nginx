@@ -12,7 +12,9 @@ https://github.com/rjsears
 
 Producers for the system-notification events that come from sampling rather
 than from an action: host resource thresholds, per-container resource
-thresholds, container recovery, certificate expiry, and security events.
+thresholds, container recovery, certificate expiry, security events, and
+the backup dead-man's switch (overdue scheduled backups, stuck 'running'
+backups).
 
 Each function takes already-sampled data (so it is testable without Docker
 or psutil), reads the event's thresholds from the registry, and calls
@@ -295,3 +297,136 @@ async def report_security_event(kind: str, target_id: str, **details: Any) -> No
         await dispatch_notification("security_event", {"kind": kind, "target_id": target_id, **details})
     except Exception as e:  # pragma: no cover - defensive
         logger.error(f"Failed to dispatch security_event '{kind}': {e}")
+
+
+# --- backup dead-man's switch: backup_overdue, backup_stuck ----------------------------------
+
+# Longest gap between two runs of a schedule, by frequency. Monthly allows
+# for the longest month.
+SCHEDULE_INTERVALS = {
+    "hourly": timedelta(hours=1),
+    "daily": timedelta(days=1),
+    "weekly": timedelta(days=7),
+    "monthly": timedelta(days=31),
+}
+DEFAULT_BACKUP_GRACE_MINUTES = 60
+DEFAULT_BACKUP_STUCK_HOURS = 6
+
+# A schedule row edited this long after its last run was changed by a person
+# (enabled, retimed), not by the scheduler stamping last_run.
+_SCHEDULE_EDIT_SLACK = timedelta(minutes=1)
+
+
+def _schedule_baseline(schedule, last_success: Optional[datetime]) -> Optional[datetime]:
+    """
+    The moment from which the schedule's next success is owed: its last
+    successful backup, but never earlier than when the schedule was created
+    or last edited (re-enabling a schedule that was off for a month must not
+    alert at once).
+    """
+    candidates = [t for t in (last_success, schedule.created_at) if t is not None]
+    updated = schedule.updated_at
+    if updated is not None and (schedule.last_run is None or updated - schedule.last_run > _SCHEDULE_EDIT_SLACK):
+        candidates.append(updated)
+    return max(candidates) if candidates else None
+
+
+async def check_backup_freshness(now: Optional[datetime] = None) -> List[str]:
+    """
+    Dead-man's switch for scheduled backups.
+
+    * ``backup_overdue``: an enabled schedule whose last success (or creation /
+      last edit) is older than its interval plus ``grace_minutes``. Catches
+      runs the scheduler missed or skipped (the job store is in memory, so a
+      restart across the run time loses that run), a scheduler that stopped,
+      and runs that keep failing before they can record a failure.
+    * ``backup_stuck``: a backup_history row still 'running' after
+      ``stuck_hours``. The row is marked failed (nothing else would ever
+      finish it) and the event fires once for it.
+
+    Returns "<event>:<target_id>" for each dispatch.
+    """
+    from sqlalchemy import func
+
+    from api.database import async_session_maker
+    from api.models.backups import BackupHistory, BackupSchedule
+    from api.services.notification_service import dispatch_notification
+
+    now = now or datetime.now(UTC)
+    fired: List[str] = []
+    overdue: List[Dict[str, Any]] = []
+    stuck: List[Dict[str, Any]] = []
+
+    async with async_session_maker() as db:
+        overdue_event = await _event(db, "backup_overdue")
+        stuck_event = await _event(db, "backup_stuck")
+
+        # Stuck 'running' rows are always closed out, alert or not.
+        stuck_hours = float(_threshold(stuck_event, "stuck_hours", DEFAULT_BACKUP_STUCK_HOURS))
+        result = await db.execute(
+            select(BackupHistory).where(
+                BackupHistory.status == "running",
+                BackupHistory.started_at < now - timedelta(hours=stuck_hours),
+            )
+        )
+        for row in result.scalars().all():
+            started = row.started_at
+            row.status = "failed"
+            row.completed_at = now
+            row.duration_seconds = int((now - started).total_seconds()) if started else None
+            row.error_message = (
+                f"Marked failed by the backup monitor: still 'running' after {stuck_hours:g} hours "
+                "(the management container restarted or the backup hung)."
+            )
+            stuck.append({
+                "target_id": f"backup:{row.id}",
+                "backup_id": row.id,
+                "backup_type": row.backup_type,
+                "schedule_id": row.schedule_id,
+                "started_at": started.strftime("%Y-%m-%d %H:%M:%S") if started else None,
+                "stuck_hours": stuck_hours,
+            })
+        if stuck:
+            await db.commit()
+
+        if overdue_event is not None and overdue_event.enabled:
+            grace = timedelta(minutes=float(_threshold(overdue_event, "grace_minutes", DEFAULT_BACKUP_GRACE_MINUTES)))
+            schedules = (
+                await db.execute(select(BackupSchedule).where(BackupSchedule.enabled == True))  # noqa: E712
+            ).scalars().all()
+            for schedule in schedules:
+                interval = SCHEDULE_INTERVALS.get(schedule.frequency)
+                if interval is None:
+                    continue
+                last_success = (
+                    await db.execute(
+                        select(func.max(BackupHistory.completed_at)).where(
+                            BackupHistory.schedule_id == schedule.id,
+                            BackupHistory.status == "success",
+                        )
+                    )
+                ).scalar_one_or_none()
+                baseline = _schedule_baseline(schedule, last_success)
+                if baseline is None or now <= baseline + interval + grace:
+                    continue
+                overdue.append({
+                    "target_id": f"schedule:{schedule.id}",
+                    "schedule_id": schedule.id,
+                    "schedule_name": schedule.name,
+                    "backup_type": schedule.backup_type,
+                    "frequency": schedule.frequency,
+                    "last_success": last_success.strftime("%Y-%m-%d %H:%M:%S") if last_success else None,
+                    "hours_since": round((now - baseline).total_seconds() / 3600, 1),
+                    "grace_minutes": int(grace.total_seconds() // 60),
+                })
+
+    for data in stuck:
+        logger.error(f"Backup {data['backup_id']} was stuck in 'running'; marked failed")
+        if stuck_event is not None and stuck_event.enabled:
+            await dispatch_notification("backup_stuck", data)
+            fired.append(f"backup_stuck:{data['target_id']}")
+    for data in overdue:
+        logger.warning(f"Scheduled backup '{data['schedule_name']}' is overdue ({data['hours_since']}h)")
+        await dispatch_notification("backup_overdue", data)
+        fired.append(f"backup_overdue:{data['target_id']}")
+    return fired
