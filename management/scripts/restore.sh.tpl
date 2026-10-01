@@ -283,6 +283,10 @@ prepare_archive() {
     chmod 700 "$EXTRACT_DIR"
     trap cleanup_extract_dir EXIT
 
+    # Run as root, tar keeps the owners recorded in the archive (the project
+    # files' original uid/gid, which restore_tree then copies with cp -a).
+    # --numeric-owner: the names in the archive come from the management
+    # container's user database, not this host's, so restore the numeric ids.
     if archive_is_encrypted "$ARCHIVE"; then
         log_info "Archive is encrypted (gpg); decrypting into $EXTRACT_DIR"
         if ! command_exists gpg; then
@@ -293,17 +297,17 @@ prepare_archive() {
         fi
         if [[ -n "$PASSPHRASE_FILE" ]]; then
             gpg --batch --quiet --pinentry-mode loopback --passphrase-file "$PASSPHRASE_FILE" \
-                --decrypt "$ARCHIVE" | tar -xzf - -C "$EXTRACT_DIR"
+                --decrypt "$ARCHIVE" | tar --numeric-owner -xzf - -C "$EXTRACT_DIR"
         elif [[ -n "${BACKUP_ENCRYPTION_PASSPHRASE:-}" ]]; then
             gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 \
-                --decrypt "$ARCHIVE" 3<<<"$BACKUP_ENCRYPTION_PASSPHRASE" | tar -xzf - -C "$EXTRACT_DIR"
+                --decrypt "$ARCHIVE" 3<<<"$BACKUP_ENCRYPTION_PASSPHRASE" | tar --numeric-owner -xzf - -C "$EXTRACT_DIR"
         else
             log_info "Enter the backup passphrase (BACKUP_ENCRYPTION_PASSPHRASE from the original .env)"
-            gpg --quiet --pinentry-mode loopback --decrypt "$ARCHIVE" | tar -xzf - -C "$EXTRACT_DIR"
+            gpg --quiet --pinentry-mode loopback --decrypt "$ARCHIVE" | tar --numeric-owner -xzf - -C "$EXTRACT_DIR"
         fi
     else
         log_info "Extracting $ARCHIVE into $EXTRACT_DIR"
-        tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
+        tar --numeric-owner -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
     fi
     SCRIPT_DIR="$EXTRACT_DIR"
     log_success "Archive extracted"
@@ -407,14 +411,29 @@ restore_volume_snapshot() {
         log_warning "Kept the existing contents of $name"
         return 0
     fi
+    # Extract into a staging directory inside the volume first and swap only
+    # after the extraction succeeded: a damaged snapshot leaves the volume's
+    # current contents untouched instead of an empty volume.
     # shellcheck disable=SC2016  # expanded by the container's shell
-    docker run --rm --network none \
+    if ! docker run --rm --network none \
         -v "${name}:/dest" \
         -v "$(dirname "$snapshot"):/source:ro" \
         alpine sh -c 'set -e
-            find /dest -mindepth 1 -delete
-            tar -xpf "/source/$1" -C /dest
-            if [ -n "$2" ]; then chown -R "$2" /dest; fi' sh "$(basename "$snapshot")" "$owner"
+            stage=/dest/.n8n_restore_staging
+            rm -rf "$stage"
+            mkdir "$stage"
+            if ! tar -xpf "/source/$1" -C "$stage"; then
+                rm -rf "$stage"
+                echo "extracting $1 failed; the volume was left unchanged" >&2
+                exit 1
+            fi
+            find /dest -mindepth 1 -maxdepth 1 ! -name .n8n_restore_staging -exec rm -rf {} \;
+            find "$stage" -mindepth 1 -maxdepth 1 -exec mv {} /dest/ \;
+            rmdir "$stage"
+            if [ -n "$2" ]; then chown -R "$2" /dest; fi' sh "$(basename "$snapshot")" "$owner"; then
+        log_error "Could not restore $(basename "$snapshot") into $name (its previous contents were kept)"
+        return 1
+    fi
     log_success "Restored volume $name from $(basename "$snapshot")"
 }
 
@@ -1091,7 +1110,13 @@ psql_postgres() {
 db_restore_failed() {
     log_error "$1"
     log_error "Database restore failed. The remaining services have NOT been started."
-    log_error "Fix the problem and re-run: $0 --target-dir $TARGET_DIR --skip-config"
+    local rerun="$0 --target-dir $TARGET_DIR --skip-config"
+    # With --archive the extracted copy is deleted on exit; the re-run must extract it again
+    if [[ -n "$ARCHIVE" ]]; then
+        rerun+=" --archive $(printf '%q' "$ARCHIVE")"
+        [[ -z "$PASSPHRASE_FILE" ]] || rerun+=" --passphrase-file $(printf '%q' "$PASSPHRASE_FILE")"
+    fi
+    log_error "Fix the problem and re-run: $rerun"
     exit 1
 }
 

@@ -33,7 +33,9 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -87,33 +89,114 @@ def open_private_file(path: str, mode: str = "wb") -> IO:
     return os.fdopen(fd, mode)
 
 
+# Sub-directories of a backup storage root that the backup system owns:
+# one per backup type (api.schemas.backups.BackupType) plus the in-app
+# restore's safety dumps. Nothing else under the root is ever touched: the
+# root may be a shared NFS export holding unrelated files.
+OWNED_BACKUP_SUBDIRS = (
+    "postgres_full", "postgres_n8n", "postgres_mgmt", "n8n_config", "flows", "pre_restore",
+)
+# Files the backup system writes into those directories: complete archives
+# (plain, encrypted, partial), legacy single-file SQL dumps, safety dumps.
+_OWNED_FILE_RE = re.compile(
+    r"(\.n8n_backup\.tar\.gz(\.gpg)?(\.partial)?$)"
+    r"|(^(postgres_full|postgres_n8n|postgres_mgmt|n8n_config|flows)_\d{8}_\d{6}\.sql(\.gz)?(\.partial)?$)"
+    r"|(_pre_restore_[0-9_]+\.dump(\.gpg)?(\.partial)?$)"
+)
+
+
+def is_owned_backup_file(name: str) -> bool:
+    return bool(_OWNED_FILE_RE.search(name))
+
+
 def tighten_backup_tree(root: str) -> int:
     """
-    Make existing backup files under root owner-only (archives written by
-    older versions were 0644). Returns the number of entries changed.
+    Make existing backup files owner-only (archives written by older versions
+    were 0644). Only <root>/<owned subdir>/ and the files in it that match
+    the backup system's own naming are changed; root itself and anything
+    else under it are left alone. Returns the number of entries changed.
     """
     changed = 0
     if not os.path.isdir(root):
         return 0
-    for dirpath, _dirnames, filenames in os.walk(root):
+    for sub in OWNED_BACKUP_SUBDIRS:
+        dirpath = os.path.join(root, sub)
         try:
-            if os.stat(dirpath).st_mode & 0o077 and chmod_quietly(dirpath, PRIVATE_DIR_MODE):
-                changed += 1
+            st = os.lstat(dirpath)
         except OSError:
             continue
-        for name in filenames:
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+            continue
+        if st.st_mode & 0o077 and chmod_quietly(dirpath, PRIVATE_DIR_MODE):
+            changed += 1
+        try:
+            names = os.listdir(dirpath)
+        except OSError:
+            continue
+        for name in names:
+            if not is_owned_backup_file(name):
+                continue
             path = os.path.join(dirpath, name)
             try:
-                st = os.lstat(path)
+                fst = os.lstat(path)
             except OSError:
                 continue
-            if os.path.islink(path) or not (st.st_mode & 0o077):
+            if not stat.S_ISREG(fst.st_mode) or not (fst.st_mode & 0o077):
                 continue
             if chmod_quietly(path, PRIVATE_FILE_MODE):
                 changed += 1
     if changed:
         logger.info(f"Restricted permissions on {changed} existing backup file(s)/dir(s) under {root}")
     return changed
+
+
+_tightened_roots: set = set()
+
+
+def tighten_backup_tree_once(root: str) -> int:
+    """
+    One-time migration per storage root and process: tighten what older
+    versions left world-readable. New archives are created 0600 in 0700
+    directories, so this need not run on every backup.
+    """
+    key = os.path.realpath(root)
+    if key in _tightened_roots:
+        return 0
+    _tightened_roots.add(key)
+    return tighten_backup_tree(root)
+
+
+def sweep_stale_partials(roots, max_age_seconds: float = 6 * 3600, now: Optional[float] = None) -> int:
+    """
+    Remove *.partial files the backup system left in <root>/<owned subdir>/
+    after a crash or restart, once they are older than max_age_seconds (a
+    running backup keeps writing to, and touching, its partial file).
+    Returns the number of files removed.
+    """
+    import time
+
+    now = time.time() if now is None else now
+    removed = 0
+    for root in roots:
+        for sub in OWNED_BACKUP_SUBDIRS:
+            dirpath = os.path.join(root, sub)
+            try:
+                names = os.listdir(dirpath)
+            except OSError:
+                continue
+            for name in names:
+                if not (name.endswith(".partial") and is_owned_backup_file(name)):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    st = os.lstat(path)
+                    if stat.S_ISREG(st.st_mode) and now - st.st_mtime > max_age_seconds:
+                        os.remove(path)
+                        removed += 1
+                        logger.info(f"Removed stale partial backup file {path}")
+                except OSError as e:
+                    logger.warning(f"Could not remove stale partial file {path}: {e}")
+    return removed
 
 
 # ---------------------------------------------------------------------------

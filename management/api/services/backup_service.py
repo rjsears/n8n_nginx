@@ -16,6 +16,7 @@ from sqlalchemy import select, update, delete, func, text
 from datetime import datetime, timedelta, UTC
 from zoneinfo import ZoneInfo
 from typing import AsyncIterator, Optional, List, Dict, Any, Tuple
+import contextlib
 from contextlib import asynccontextmanager
 import subprocess
 import asyncio
@@ -54,11 +55,11 @@ from api.services.backup_archive import (
     make_private_dir,
     open_private_file,
     plaintext_archive,
-    tighten_backup_tree,
+    tighten_backup_tree_once,
 )
 from api.services.backup_storage import (
     BackupStorageUnavailableError,
-    inspect_storage_target,
+    inspect_storage_target_async,
     notify_storage_unavailable,
 )
 
@@ -113,6 +114,7 @@ PUBLIC_WEBSITE_INDICATOR = "/app/host_project/filebrowser.db"
 
 # Free-space pre-check (see BackupService._check_free_space_for_backup)
 BACKUP_SIZE_GROWTH_FACTOR = 1.2
+STORAGE_STAT_TIMEOUT = 30
 
 
 def _backup_min_free_bytes() -> int:
@@ -292,6 +294,70 @@ def inspect_legacy_dump(path: str) -> Dict[str, Any]:
         result["errors"].append(result["dumps"]["dump"].get("error"))
     result["passed"] = not result["errors"]
     return result
+
+
+# Leftovers of a crash/restart: *.partial archives and safety dumps in the
+# backup directories, and staging/decryption temp dirs. Nothing runs at
+# startup, and the age limit spares anything a long-running job could own.
+STALE_LEFTOVER_AGE_SECONDS = 6 * 3600
+_STALE_TEMP_PREFIXES = ("n8n_backup_stage_", "n8n_backup_plain_", "n8n_safety_", "n8n_gpg_")
+
+
+def _sweep_stale_temp_dirs(max_age_seconds: float, tmp_root: Optional[str] = None) -> int:
+    import time
+
+    tmp_root = tmp_root or tempfile.gettempdir()
+    now = time.time()
+    removed = 0
+    try:
+        names = os.listdir(tmp_root)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.startswith(_STALE_TEMP_PREFIXES):
+            continue
+        path = os.path.join(tmp_root, name)
+        try:
+            st = os.lstat(path)
+        except OSError:
+            continue
+        if os.path.isdir(path) and not os.path.islink(path) and now - st.st_mtime > max_age_seconds:
+            shutil.rmtree(path, ignore_errors=True)
+            removed += 1
+    return removed
+
+
+async def cleanup_stale_backup_files(max_age_seconds: float = STALE_LEFTOVER_AGE_SECONDS) -> int:
+    """
+    Startup sweep of stale *.partial files under every configured backup root
+    (network roots only when they answer the storage probe) and of stale
+    temp dirs. Returns the number of entries removed.
+    """
+    from api.database import async_session_maker
+    from api.services.backup_archive import sweep_stale_partials
+    from api.services.backup_storage import inspect_storage_target_async
+
+    candidates = [settings.backup_staging_dir, settings.nfs_mount_point]
+    try:
+        async with async_session_maker() as db:
+            config = (await db.execute(select(BackupConfiguration).limit(1))).scalar_one_or_none()
+        if config is not None:
+            candidates += [config.primary_storage_path, config.nfs_storage_path]
+    except Exception as e:
+        logger.debug(f"Stale partial sweep: no backup configuration ({e})")
+    roots: List[str] = []
+    for path in dict.fromkeys(p for p in candidates if p):
+        if (await inspect_storage_target_async(path)).exists:
+            roots.append(path)
+    try:
+        removed = await asyncio.wait_for(
+            asyncio.to_thread(sweep_stale_partials, roots, max_age_seconds), timeout=60
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Stale partial sweep did not finish within 60s (slow backup storage?)")
+        removed = 0
+    removed += await asyncio.to_thread(_sweep_stale_temp_dirs, max_age_seconds)
+    return removed
 
 
 # SSL certificate paths
@@ -499,9 +565,10 @@ class BackupService:
             history.database_name = ",".join(databases)
             history.table_count = sum(len(rc) for rc in row_counts.values()) if row_counts else None
             history.status = "success"
+            history.error_message = None  # e.g. "Marked failed by the backup monitor" before it completed
             history.completed_at = datetime.now(UTC)
             history.duration_seconds = int((history.completed_at - history.started_at).total_seconds())
-            history.storage_location = self._storage_label(filepath)
+            history.storage_location = await self._storage_label(filepath)
 
             await self.db.commit()
 
@@ -774,7 +841,7 @@ class BackupService:
         if config:
             if config.storage_preference in ('nfs', 'both') and config.nfs_enabled:
                 nfs_path = config.nfs_storage_path or settings.nfs_mount_point
-                target = inspect_storage_target(nfs_path)
+                target = await inspect_storage_target_async(nfs_path)
                 if target.offsite:
                     return nfs_path
                 if config.storage_preference == 'nfs':
@@ -796,15 +863,15 @@ class BackupService:
 
         # Fallback to environment settings
         nfs_mount = settings.nfs_mount_point
-        if inspect_storage_target(nfs_mount).offsite:
+        if (await inspect_storage_target_async(nfs_mount)).offsite:
             return nfs_mount
         return settings.backup_staging_dir
 
     @staticmethod
-    def _storage_label(filepath: str) -> str:
+    async def _storage_label(filepath: str) -> str:
         """'nfs' only when the file really sits on a network share."""
         try:
-            return "nfs" if inspect_storage_target(os.path.dirname(filepath)).offsite else "local"
+            return "nfs" if (await inspect_storage_target_async(os.path.dirname(filepath))).offsite else "local"
         except Exception:
             return "local"
 
@@ -1397,8 +1464,10 @@ class BackupService:
             )
 
         storage_dir = await self._get_storage_location()
-        # Archives written by older versions were world-readable.
-        await asyncio.to_thread(tighten_backup_tree, storage_dir)
+        # Archives written by older versions were world-readable: tighten the
+        # backup system's own files once per storage root and process (never
+        # the root itself or unrelated files on a shared export).
+        await asyncio.to_thread(tighten_backup_tree_once, storage_dir)
         type_dir = make_private_dir(os.path.join(storage_dir, backup_type))
         archive_path = os.path.join(type_dir, archive_name)
 
@@ -1426,25 +1495,32 @@ class BackupService:
                 ),
             }
 
-            # Workflow checksums are taken right before the n8n dump so the
-            # comprehensive verification can compare them with the restored
-            # copy (see WORKFLOW_CHECKSUM_SQL).
-            if "n8n" in databases:
-                metadata["workflow_checksums"] = await self.capture_workflow_checksums(n8n_db)
-
-            # 1. Dump databases (5-40%)
-            await update_progress(10, "Dumping databases")
-            db_dir = os.path.join(temp_dir, "databases")
-            os.makedirs(db_dir)
-
+            # Workflow checksums are taken for the comprehensive verification
+            # to compare with the restored copy (see WORKFLOW_CHECKSUM_SQL).
+            # When possible they are read in an exported snapshot that pg_dump
+            # then dumps (--snapshot), so both see exactly the same data.
             row_counts = {}
-            db_count = len(databases)
-            for idx, db_name in enumerate(databases):
-                progress = 10 + int((idx / max(db_count, 1)) * 30)
-                await update_progress(progress, f"Dumping database: {db_name}")
-                db_file = os.path.join(db_dir, f"{db_name}.dump")
-                await self._execute_pg_dump_to_file(db_name, db_file)
-                row_counts[db_name] = await self._get_row_counts(db_name)
+            async with self._n8n_dump_snapshot(n8n_db, "n8n" in databases) as (snapshot_id, checksums):
+                if "n8n" in databases:
+                    metadata["workflow_checksums"] = checksums
+                    metadata["workflow_checksums_same_snapshot"] = False
+
+                # 1. Dump databases (5-40%)
+                await update_progress(10, "Dumping databases")
+                db_dir = os.path.join(temp_dir, "databases")
+                os.makedirs(db_dir)
+
+                db_count = len(databases)
+                for idx, db_name in enumerate(databases):
+                    progress = 10 + int((idx / max(db_count, 1)) * 30)
+                    await update_progress(progress, f"Dumping database: {db_name}")
+                    db_file = os.path.join(db_dir, f"{db_name}.dump")
+                    used_snapshot = await self._execute_pg_dump_to_file(
+                        db_name, db_file, snapshot=snapshot_id if db_name == "n8n" else None
+                    )
+                    if db_name == "n8n":
+                        metadata["workflow_checksums_same_snapshot"] = used_snapshot
+                    row_counts[db_name] = await self._get_row_counts(db_name)
 
             metadata["row_counts"] = row_counts
 
@@ -1578,8 +1654,67 @@ class BackupService:
 
         return archive_path, metadata
 
-    async def _execute_pg_dump_to_file(self, database: str, filepath: str) -> None:
-        """Execute pg_dump to a file (custom format, no compression)."""
+    @asynccontextmanager
+    async def _n8n_dump_snapshot(self, n8n_db: AsyncSession, wanted: bool):
+        """
+        Yield (snapshot_id, workflow_checksums). With a PostgreSQL n8n engine
+        bound to the "n8n" database, the checksums are read inside a
+        REPEATABLE READ transaction whose snapshot is exported
+        (pg_export_snapshot) and kept open until the block exits, so pg_dump
+        --snapshot dumps exactly the data the checksums describe. Otherwise
+        snapshot_id is None and the checksums come from the session as before.
+        """
+        if not wanted:
+            yield None, {}
+            return
+        engine = getattr(n8n_db, "bind", None)
+        conn = None
+        snapshot_id: Optional[str] = None
+        checksums: Optional[Dict[str, Dict[str, Any]]] = None
+        try:
+            usable = (
+                engine is not None
+                and engine.dialect.name == "postgresql"
+                and engine.url.database == "n8n"
+            )
+        except Exception:
+            usable = False
+        if usable:
+            try:
+                conn = await engine.connect()
+                await conn.execution_options(isolation_level="REPEATABLE READ")
+                await conn.begin()
+                snapshot_id = (await conn.execute(text("SELECT pg_export_snapshot()"))).scalar()
+                rows = (await conn.execute(text(WORKFLOW_CHECKSUM_SQL))).fetchall()
+                checksums = {
+                    str(r[0]): {"sha256": r[1], "updated_at_ms": int(r[2]) if r[2] is not None else None}
+                    for r in rows
+                }
+                logger.info(f"Captured checksums for {len(checksums)} workflows in snapshot {snapshot_id}")
+            except Exception as e:
+                logger.warning(f"Could not export a snapshot for the n8n dump ({e}); dumping without one")
+                snapshot_id, checksums = None, None
+                if conn is not None:
+                    with contextlib.suppress(Exception):
+                        await conn.close()
+                    conn = None
+        if checksums is None:
+            checksums = await self.capture_workflow_checksums(n8n_db)
+        try:
+            yield snapshot_id, checksums
+        finally:
+            if conn is not None:
+                with contextlib.suppress(Exception):
+                    await conn.rollback()
+                with contextlib.suppress(Exception):
+                    await conn.close()
+
+    async def _execute_pg_dump_to_file(self, database: str, filepath: str, snapshot: Optional[str] = None) -> bool:
+        """
+        Execute pg_dump to a file (custom format, no compression). With
+        snapshot, dump in that exported snapshot; if pg_dump rejects it, dump
+        again without. Returns True when the dump used the snapshot.
+        """
         host = os.environ.get("POSTGRES_HOST", "postgres")
         user = os.environ.get("POSTGRES_USER", "n8n")
         password = os.environ.get("POSTGRES_PASSWORD", "")
@@ -1598,13 +1733,24 @@ class BackupService:
         ]
 
         env = {**os.environ, "PGPASSWORD": password}
-        try:
-            result = await _proc.run(cmd, capture_output=True, env=env, timeout=_proc.PG_DUMP_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            raise Exception(f"pg_dump of {database} timed out after {_proc.PG_DUMP_TIMEOUT}s")
 
+        async def dump(args: List[str]) -> subprocess.CompletedProcess:
+            try:
+                return await _proc.run(args, capture_output=True, env=env, timeout=_proc.PG_DUMP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                raise Exception(f"pg_dump of {database} timed out after {_proc.PG_DUMP_TIMEOUT}s")
+
+        if snapshot:
+            result = await dump(cmd + [f"--snapshot={snapshot}"])
+            if result.returncode == 0:
+                return True
+            stderr = result.stderr.decode(errors="replace") if isinstance(result.stderr, bytes) else str(result.stderr)
+            logger.warning(f"pg_dump of {database} in snapshot {snapshot} failed ({stderr.strip()[-300:]}); retrying without")
+
+        result = await dump(cmd)
         if result.returncode != 0:
             raise Exception(f"pg_dump failed for {database}: {result.stderr.decode()}")
+        return False
 
     @staticmethod
     def _write_archive(source_dir: str, archive_path: str, passphrase: Optional[str]) -> None:
@@ -1671,6 +1817,8 @@ class BackupService:
             metadata["project_file_count"] = count
             if skipped:
                 metadata["project_files_skipped"] = skipped[:50]
+        except inv.ProjectTreeTooLargeError:
+            raise  # fail the backup loudly rather than archive a partial project tree
         except Exception as e:
             logger.error(f"Could not copy the project directory into the backup: {e}")
             metadata["project_tree_included"] = False
@@ -1803,31 +1951,61 @@ class BackupService:
         Raise InsufficientBackupSpaceError if the backup destination (or the
         temp staging directory) does not have room for the next backup.
 
-        Estimate: last successful backup size x BACKUP_SIZE_GROWTH_FACTOR,
-        needed on the destination and again in the temp staging directory
-        (dumps are staged there before being archived), summed when both are on
-        the same filesystem, plus BACKUP_MIN_FREE_MB of headroom so the disk is
-        never filled to the last byte (Postgres needs room for WAL).
+        Estimate for the archive on the destination: the larger of the last
+        successful backup x BACKUP_SIZE_GROWTH_FACTOR and the current project
+        tree + state volumes (the floor matters when the last backup predates
+        project/ and volumes/). The temp staging directory needs the archive
+        estimate (database dumps) plus an uncompressed copy of the project
+        tree plus twice the volumes (raw `docker cp` stream and the rewritten
+        snapshot exist side by side). Both are summed when on the same
+        filesystem, plus BACKUP_MIN_FREE_MB of headroom so the disk is never
+        filled to the last byte (Postgres needs room for WAL).
+
+        Also raises ProjectTreeTooLargeError (before any dump) when the
+        project directory is over BACKUP_PROJECT_MAX_MB.
         """
+        from api.services import stack_inventory as inv
+
         storage_dir = await self._get_storage_location()
         staging_dir = tempfile.gettempdir()
         last_size = await self._estimate_backup_size(backup_type)
-        estimate = int(last_size * BACKUP_SIZE_GROWTH_FACTOR)
+        project_bytes = await asyncio.to_thread(inv.check_project_tree_size)
+        try:
+            volume_bytes = await asyncio.wait_for(asyncio.to_thread(inv.estimate_snapshot_bytes), timeout=60)
+        except Exception as e:
+            logger.warning(f"Free-space pre-check: volume size unknown ({e!r})")
+            volume_bytes = 0
+        archive_estimate = max(int(last_size * BACKUP_SIZE_GROWTH_FACTOR), project_bytes + volume_bytes)
+        staging_estimate = archive_estimate + project_bytes + 2 * volume_bytes
         headroom = _backup_min_free_bytes()
+
+        def stat_paths() -> List[Tuple[str, Optional[int], int]]:
+            out = []
+            for path in (storage_dir, staging_dir):
+                try:
+                    vfs = os.statvfs(path)
+                    out.append((path, os.stat(path).st_dev, vfs.f_bavail * vfs.f_frsize))
+                except OSError as e:
+                    logger.warning(f"Free-space pre-check: cannot stat {path}: {e}; skipping check for it")
+            return out
+
+        try:
+            # The destination may be a network mount that hangs (see backup_storage).
+            stats = await asyncio.wait_for(asyncio.to_thread(stat_paths), timeout=STORAGE_STAT_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise BackupStorageUnavailableError(
+                f"Backup storage {storage_dir} did not respond within {STORAGE_STAT_TIMEOUT}s "
+                "(network share unreachable?); backup aborted."
+            )
 
         required: Dict[int, int] = {}
         paths: Dict[int, List[str]] = {}
         available: Dict[int, int] = {}
-        for path in (storage_dir, staging_dir):
-            try:
-                st_dev = os.stat(path).st_dev
-                vfs = os.statvfs(path)
-            except OSError as e:
-                logger.warning(f"Free-space pre-check: cannot stat {path}: {e}; skipping check for it")
-                continue
-            required[st_dev] = required.get(st_dev, 0) + estimate
+        for path, st_dev, free_bytes in stats:
+            need = archive_estimate if path == storage_dir else staging_estimate
+            required[st_dev] = required.get(st_dev, 0) + need
             paths.setdefault(st_dev, []).append(path)
-            available[st_dev] = vfs.f_bavail * vfs.f_frsize
+            available[st_dev] = free_bytes
 
         for st_dev, need in required.items():
             need += headroom
@@ -1840,8 +2018,9 @@ class BackupService:
                 raise InsufficientBackupSpaceError(
                     f"Insufficient disk space for backup on {where}: "
                     f"{free / 1024**2:.0f} MiB free, ~{need / 1024**2:.0f} MiB needed "
-                    f"(last backup {last_size / 1024**2:.0f} MiB x {BACKUP_SIZE_GROWTH_FACTOR} "
-                    f"per copy + {headroom / 1024**2:.0f} MiB headroom). "
+                    f"(last backup {last_size / 1024**2:.0f} MiB x {BACKUP_SIZE_GROWTH_FACTOR}, "
+                    f"project files {project_bytes / 1024**2:.0f} MiB, volumes "
+                    f"{volume_bytes / 1024**2:.0f} MiB, + {headroom / 1024**2:.0f} MiB headroom). "
                     f"Backup aborted to avoid filling the disk. Free up space, reduce the "
                     f"retention settings, or move backup storage to another disk."
                 )
@@ -1930,11 +2109,12 @@ class BackupService:
                 for db_info in metadata.get("database_schema_manifest", [])
             )
             history.status = "success"
+            history.error_message = None  # e.g. "Marked failed by the backup monitor" before it completed
             history.progress = 100
             history.progress_message = "Backup completed"
             history.completed_at = datetime.now(UTC)
             history.duration_seconds = int((history.completed_at - history.started_at).total_seconds())
-            history.storage_location = self._storage_label(filepath)
+            history.storage_location = await self._storage_label(filepath)
 
             await self.db.commit()
             await self.db.refresh(history)
@@ -1957,6 +2137,9 @@ class BackupService:
                         "created_at": datetime.now(UTC).isoformat(),
                         "encrypted": bool(metadata.get("encrypted")),
                         "workflow_checksums": metadata.get("workflow_checksums") or {},
+                        "workflow_checksums_same_snapshot": bool(
+                            metadata.get("workflow_checksums_same_snapshot")
+                        ),
                     },
                 )
                 self.db.add(contents)

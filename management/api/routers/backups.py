@@ -1854,7 +1854,7 @@ async def detect_storage_locations(
     Checks common paths, NFS mounts, and returns their status.
     """
     import os
-    from api.services.backup_storage import inspect_storage_target
+    from api.services.backup_storage import inspect_storage_target_async
 
     def check_path(path: str) -> dict:
         """Check a path and return its status."""
@@ -1928,7 +1928,7 @@ async def detect_storage_locations(
 
     for path in unique_paths:
         info = check_path(path)
-        if not (info["is_mount"] and inspect_storage_target(path).offsite):  # Don't duplicate NFS mounts
+        if not (info["is_mount"] and (await inspect_storage_target_async(path)).offsite):  # Don't duplicate NFS mounts
             # Mark the staging area separately
             if path == settings.backup_staging_dir or path == "/app/backups":
                 info["is_staging"] = True
@@ -1948,7 +1948,7 @@ async def detect_storage_locations(
     nfs_warning = None
     if not nfs_mounts and settings.nfs_server:
         nfs_mount = settings.nfs_mount_point or "/mnt/backups"
-        target = inspect_storage_target(nfs_mount)
+        target = await inspect_storage_target_async(nfs_mount)
         nfs_info = check_path(nfs_mount)
         nfs_info["fs_type"] = target.fstype
         nfs_info["host_mount"] = settings.nfs_local_mount  # e.g., /opt/n8n_backups
@@ -1962,7 +1962,7 @@ async def detect_storage_locations(
                 f"{nfs_mount} is local storage."
             )
     for mount in nfs_mounts:
-        mount["offsite"] = inspect_storage_target(mount["path"]).offsite
+        mount["offsite"] = (await inspect_storage_target_async(mount["path"])).offsite
 
     # Find recommended path (first writable path)
     recommended = None

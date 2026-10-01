@@ -29,8 +29,12 @@ from sqlalchemy import text
 
 from api.services.backup_service import BackupService
 from api.services.backup_archive import (
+    ENCRYPTED_SUFFIX,
+    PASSPHRASE_ENV_KEY,
     BackupEncryptionError,
     chmod_quietly,
+    encrypt_file,
+    get_encryption_passphrase,
     make_private_dir,
     open_backup_archive,
     plaintext_archive,
@@ -266,26 +270,61 @@ async def _run_subprocess(
     """
     Run a command without blocking the event loop.
 
-    Returns (returncode, stdout, stderr). A timeout kills the process and is
-    reported as returncode -1.
+    Returns (returncode, stdout, stderr). A timeout kills the process (and its
+    process group) and is reported as returncode -1; cancellation (job
+    cancelled, shutdown) kills it too, via proc.run.
     """
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
+        result = await _proc.run(cmd, capture_output=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
         return -1, "", f"{cmd[0]} timed out after {int(timeout)}s and was killed"
     return (
-        proc.returncode,
-        stdout.decode("utf-8", errors="replace"),
-        stderr.decode("utf-8", errors="replace"),
+        result.returncode,
+        (result.stdout or b"").decode("utf-8", errors="replace"),
+        (result.stderr or b"").decode("utf-8", errors="replace"),
     )
+
+
+def _keep_backup_passphrase(current_env_path: str, restored: bytes) -> Tuple[bytes, Optional[str]]:
+    """
+    Restoring an older .env must not silently switch backup encryption off.
+    When the current .env sets BACKUP_ENCRYPTION_PASSPHRASE and the restored
+    content does not, append the current line to the restored content.
+    Returns (content, warning or None).
+    """
+    from api.services.env_file import parse_env_line
+
+    def passphrase_line(lines) -> Optional[str]:
+        found = None
+        for line in lines:
+            parsed = parse_env_line(line)
+            if parsed and parsed[0] == PASSPHRASE_ENV_KEY and parsed[1].strip().strip("'\""):
+                found = line.rstrip("\r\n")
+            elif parsed and parsed[0] == PASSPHRASE_ENV_KEY:
+                found = None  # last occurrence wins; an empty value unsets it
+        return found
+
+    try:
+        with open(current_env_path, "r", encoding="utf-8", errors="replace") as f:
+            current_line = passphrase_line(f)
+    except OSError:
+        return restored, None
+    restored_text = restored.decode("utf-8", errors="replace")
+    restored_line = passphrase_line(restored_text.splitlines())
+    if not current_line:
+        return restored, None
+    if not restored_line:
+        sep = b"" if restored.endswith(b"\n") or not restored else b"\n"
+        content = restored + sep + current_line.encode("utf-8") + b"\n"
+        return content, (
+            f"the restored .env had no {PASSPHRASE_ENV_KEY}; the current one was kept so backups stay encrypted"
+        )
+    if restored_line.strip() != current_line.strip():
+        return restored, (
+            f"the restored .env sets a different {PASSPHRASE_ENV_KEY}: new backups use it, and backups "
+            "encrypted with the previous passphrase need that passphrase to be restored"
+        )
+    return restored, None
 
 
 def _extract_tar_sync(archive_path: str, dest_dir: str) -> None:
@@ -1822,6 +1861,12 @@ class RestoreService:
             # instead of potentially creating a new file in the overlay
             with open(source_path, 'rb') as src:
                 content = src.read()
+            warnings: List[str] = []
+            if os.path.basename(target_path) == ".env":
+                content, warning = _keep_backup_passphrase(target_path, content)
+                if warning:
+                    warnings.append(warning)
+                    logger.warning(warning)
             with open(target_path, 'wb') as dst:
                 dst.write(content)
             # Copy metadata (permissions, timestamps)
@@ -1836,13 +1881,17 @@ class RestoreService:
                 logger.error(f"File not found after restore: {target_path}")
                 return {"status": "failed", "config_path": config_path, "error": f"File not found after restore: {target_path}"}
 
-            return {
+            restored = {
                 "status": "success",
                 "config_path": config_path,
                 "target_path": target_path,
                 "backup_created": backup_created,
                 "message": f"Restored {os.path.basename(config_path)}",
             }
+            if warnings:
+                restored["warnings"] = warnings
+                restored["message"] += " (" + "; ".join(warnings) + ")"
+            return restored
 
         except Exception as e:
             logger.error(f"Failed to restore config file: {e}")
@@ -1969,21 +2018,40 @@ class RestoreService:
         except RuntimeError as e:
             return fail(str(e))
 
-        # 2. Safety dump of the live database
+        # 2. Safety dump of the live database. It holds the same secrets as a
+        # backup, so with BACKUP_ENCRYPTION_PASSPHRASE set it is encrypted
+        # like the archives (dumped to a private local temp dir, encrypted
+        # into the safety dir, plaintext removed): <old_db>.dump.gpg.
         if target_exists:
+            try:
+                passphrase = get_encryption_passphrase()
+            except BackupEncryptionError as e:
+                return fail(f"{e}; nothing was changed.")
             make_private_dir(safety_dir)
-            safety_path = os.path.join(safety_dir, f"{old_db}.dump")
-            rc, _, err = await _run_subprocess(
-                ["pg_dump", "-h", host, "-U", user, "-d", target,
-                 "--no-owner", "--no-acl", "-F", "c", "-f", safety_path],
-                env=env, timeout=PG_LONG_TIMEOUT,
-            )
+            safety_path = os.path.join(safety_dir, f"{old_db}.dump" + (ENCRYPTED_SUFFIX if passphrase else ""))
+            plain_dir = tempfile.mkdtemp(prefix="n8n_safety_") if passphrase else None
+            dump_target = os.path.join(plain_dir, f"{old_db}.dump") if plain_dir else safety_path
+            try:
+                rc, _, err = await _run_subprocess(
+                    ["pg_dump", "-h", host, "-U", user, "-d", target,
+                     "--no-owner", "--no-acl", "-F", "c", "-f", dump_target],
+                    env=env, timeout=PG_LONG_TIMEOUT,
+                )
+                if rc == 0 and passphrase:
+                    try:
+                        await asyncio.to_thread(encrypt_file, dump_target, safety_path, passphrase)
+                    except Exception as e:
+                        rc, err = 1, f"encrypting the safety dump failed: {_exc_text(e)}"
+            finally:
+                if plain_dir:
+                    await asyncio.to_thread(shutil.rmtree, plain_dir, True)
             if rc != 0:
                 with contextlib.suppress(OSError):
                     os.remove(safety_path)
                 return fail("Could not take a safety dump of the current database; nothing was changed.", err)
             chmod_quietly(safety_path, 0o600)
             result["safety_dump"] = safety_path
+            result["safety_dump_encrypted"] = bool(passphrase)
             logger.info(f"Safety dump of {target} written to {safety_path}")
 
         # 3. Fresh temporary database
@@ -2357,6 +2425,8 @@ class RestoreService:
                             results["config_files"].append(result)
                             if result["status"] == "failed":
                                 results["errors"].append(f"Config {rel}: {result.get('error')}")
+                            for warning in result.get("warnings", []):
+                                results["warnings"].append(f"Config {rel}: {warning}")
 
             # Restore SSL certificates
             if restore_ssl:

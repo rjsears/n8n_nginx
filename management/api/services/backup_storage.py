@@ -30,10 +30,13 @@ What is checked instead:
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import logging
 import os
+import threading
 from dataclasses import asdict, dataclass, field
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,7 @@ class StorageTargetStatus:
     is_network_fs: bool = False
     same_device_as: List[str] = field(default_factory=list)
     offsite: bool = False
+    timed_out: bool = False
     reason: str = ""
 
     def as_dict(self) -> dict:
@@ -190,6 +194,83 @@ def is_offsite_storage(path: str, **kwargs) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Async probe with a deadline.
+#
+# isdir/access/stat on an NFS `hard` mount block for as long as the server is
+# unreachable. Async code must never call inspect_storage_target directly: a
+# hung probe would freeze the event loop (API, scheduler, terminals). The
+# probe runs on a small dedicated executor and is abandoned after
+# STORAGE_PROBE_TIMEOUT seconds; the stuck thread cannot be killed, so while
+# a probe of a path is still in flight no second probe of that path is
+# started (callers wait on the same one), which bounds the threads a long
+# outage can tie up to one per distinct path.
+# ---------------------------------------------------------------------------
+
+STORAGE_PROBE_TIMEOUT = 10.0
+
+_probe_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="storage-probe")
+_inflight: Dict[tuple, concurrent.futures.Future] = {}
+_inflight_lock = threading.Lock()
+
+
+def _probe_key(path: str, kwargs: dict) -> tuple:
+    return (path, repr(sorted(kwargs.items())))
+
+
+def _start_probe(path: str, kwargs: dict) -> concurrent.futures.Future:
+    key = _probe_key(path, kwargs)
+    with _inflight_lock:
+        fut = _inflight.get(key)
+        if fut is not None and not fut.done():
+            return fut
+        fut = _probe_executor.submit(inspect_storage_target, path, **kwargs)
+        _inflight[key] = fut
+
+    def _forget(done: concurrent.futures.Future, key=key) -> None:
+        with _inflight_lock:
+            if _inflight.get(key) is done:
+                del _inflight[key]
+
+    fut.add_done_callback(_forget)
+    return fut
+
+
+def probe_in_flight(path: str, **kwargs) -> bool:
+    """True while an earlier probe of path has not returned (e.g. a hung NFS mount)."""
+    with _inflight_lock:
+        fut = _inflight.get(_probe_key(path, kwargs))
+    return fut is not None and not fut.done()
+
+
+async def inspect_storage_target_async(
+    path: str, timeout: float = None, **kwargs
+) -> StorageTargetStatus:
+    """
+    inspect_storage_target without blocking the event loop. A probe that does
+    not finish within timeout seconds reports the target as unavailable.
+    """
+    timeout = STORAGE_PROBE_TIMEOUT if timeout is None else timeout
+    fut = _start_probe(path, kwargs)
+    try:
+        # shield: a timeout must not cancel the shared probe other callers wait on
+        return await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(fut)), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error(f"Storage probe of {path} did not return within {timeout:.0f}s (hung network mount?)")
+        return StorageTargetStatus(
+            path=path,
+            timed_out=True,
+            reason=(
+                f"{path} did not respond within {timeout:.0f}s (the NFS/CIFS server is unreachable "
+                "or the mount is hanging)"
+            ),
+        )
+
+
+async def is_offsite_storage_async(path: str, **kwargs) -> bool:
+    return (await inspect_storage_target_async(path, **kwargs)).offsite
+
+
+# ---------------------------------------------------------------------------
 # Periodic check (scheduler) - dispatches backup_storage_unavailable when the
 # configured off-host target goes missing, once per outage.
 # ---------------------------------------------------------------------------
@@ -237,7 +318,7 @@ async def check_backup_storage() -> Optional[StorageTargetStatus]:
     if not path:
         _last_check_ok = None
         return None
-    status = inspect_storage_target(path)
+    status = await inspect_storage_target_async(path)
     if status.offsite:
         if _last_check_ok is False:
             logger.info(f"Off-host backup storage is available again: {status.reason}")

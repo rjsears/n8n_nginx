@@ -36,8 +36,20 @@ passphrase currently in `.env`. The *Data only* download of an encrypted backup 
 To decrypt by hand, on any machine with gpg:
 
 ```bash
-gpg --decrypt backup_<timestamp>.n8n_backup.tar.gz.gpg | tar -xzf - -C /root/n8n_restore
+gpg --decrypt backup_<timestamp>.n8n_backup.tar.gz.gpg | sudo tar --numeric-owner -xzf - -C /root/n8n_restore
 ```
+
+(`sudo tar` keeps the original owners of the project files; `--numeric-owner` restores the recorded
+uid/gid rather than mapping names, which come from the management container, onto this host's users.)
+
+The in-app restore's safety dumps (`pre_restore/*.dump`, see
+[In-app System Restore](#in-app-system-restore-n8n-database-config-files-certificates)) are encrypted
+the same way (`*.dump.gpg`) when the passphrase is set.
+
+Restoring `.env` from a backup in the console never silently turns encryption off: if the restored file
+has no `BACKUP_ENCRYPTION_PASSPHRASE` but the current one does, the current line is kept and the restore
+result says so. If the restored file sets a *different* passphrase, the result warns that new backups use
+it while older archives still need the previous one.
 
 **Key custody - losing the passphrase means losing every encrypted backup.** There is no recovery key.
 
@@ -361,11 +373,13 @@ and the verification schedule):
    `pg_restore --exit-on-error`; any error fails the verification
 4. Checks that every table in the backup's schema manifest exists, for both databases
 5. Compares row counts with the manifest (warnings only: the manifest is taken after the dump)
-6. Compares a SHA-256 of each workflow's `nodes` and `connections`, recorded right before the dump,
+6. Compares a SHA-256 of each workflow's `nodes` and `connections`, recorded at backup time,
    with the restored copy (computed by PostgreSQL the same way on both sides) for every workflow.
-   A mismatch fails;
-   a workflow saved while the backup ran is reported separately. Backups taken before this was
-   recorded show the check as skipped.
+   The checksums are read in an exported snapshot that `pg_dump --snapshot` then dumps, so both describe
+   exactly the same data and any difference fails. If the snapshot could not be used (older backups, or
+   the server refused it) the checksums were read right before the dump: a workflow saved or deleted
+   while the backup ran is then reported separately instead of failing. Backups taken before checksums
+   were recorded show the check as skipped.
 7. Checks config file checksums
 8. Removes the temporary container
 
@@ -437,7 +451,9 @@ What an in-app restore of the n8n database does:
 
 1. Checks that the dump in the archive is readable (`pg_restore --list`). Nothing changes if it is not.
 2. Takes a **safety dump** of the current n8n database (`pg_dump -Fc`) into
-   `<backup storage>/pre_restore/n8n_pre_restore_<timestamp>.dump`.
+   `<backup storage>/pre_restore/n8n_pre_restore_<timestamp>.dump` — or, when
+   `BACKUP_ENCRYPTION_PASSPHRASE` is set, `n8n_pre_restore_<timestamp>.dump.gpg`, encrypted like the
+   archives (the plaintext dump only exists briefly in the management container's private temp dir).
 3. Restores the backup into a temporary database `n8n_restore_tmp` with
    `pg_restore --exit-on-error --single-transaction --no-owner --no-acl`.
    If this fails, the temporary database is dropped and **n8n and its live database are untouched**.
@@ -459,6 +475,25 @@ docker exec -it n8n_postgres psql -U n8n -d postgres \
 docker compose start n8n
 ```
 
+If the kept database is gone (dropped, or the server was rebuilt), restore the safety dump instead. An
+encrypted one (`.dump.gpg`) is decrypted first with the passphrase from `.env`:
+
+```bash
+# The restore result shows the safety dump path inside the management container
+SAFETY=/app/backups/pre_restore/n8n_pre_restore_<timestamp>.dump.gpg
+docker cp "n8n_management:$SAFETY" /root/
+# encrypted: prompts for BACKUP_ENCRYPTION_PASSPHRASE (or add --batch --passphrase-file FILE)
+gpg --output /root/n8n_pre_restore.dump --decrypt "/root/$(basename "$SAFETY")"
+# unencrypted (.dump): mv "/root/$(basename "$SAFETY")" /root/n8n_pre_restore.dump
+docker compose stop n8n
+docker cp /root/n8n_pre_restore.dump n8n_postgres:/tmp/rollback.dump
+docker exec n8n_postgres psql -U n8n -d postgres -c 'DROP DATABASE n8n WITH (FORCE)' -c 'CREATE DATABASE n8n'
+docker exec n8n_postgres pg_restore -U n8n -d n8n --exit-on-error --single-transaction \
+  --no-owner --no-acl /tmp/rollback.dump
+docker exec n8n_postgres rm /tmp/rollback.dump && shred -u /root/n8n_pre_restore.dump "/root/$(basename "$SAFETY")"
+docker compose start n8n
+```
+
 Once you are happy with the restored data, drop the kept copy to reclaim space
 (`DROP DATABASE n8n_pre_restore_<timestamp>;`) and delete the safety dump from `pre_restore/`.
 
@@ -474,7 +509,7 @@ The management database cannot be restored while the management console is runni
 bare-metal procedure, which restores every database with only PostgreSQL running:
 
 ```bash
-tar -xzf backup_<timestamp>.n8n_backup.tar.gz -C /root/n8n_restore
+sudo tar --numeric-owner -xzf backup_<timestamp>.n8n_backup.tar.gz -C /root/n8n_restore
 cd /root/n8n_restore
 sudo ./restore.sh --target-dir /opt/n8n       # add --dry-run first to preview
 ```
@@ -499,7 +534,7 @@ after n8n is already running while hiding errors. Use the current script instead
    (or `GET /api/backups/restore-script` with your API token).
 2. Extract the old archive and copy the new script over the old one:
    ```bash
-   tar -xzf backup_<timestamp>.n8n_backup.tar.gz -C /root/n8n_restore
+   sudo tar --numeric-owner -xzf backup_<timestamp>.n8n_backup.tar.gz -C /root/n8n_restore
    cp restore.sh /root/n8n_restore/restore.sh && chmod +x /root/n8n_restore/restore.sh
    cd /root/n8n_restore && sudo ./restore.sh --dry-run    # then without --dry-run
    ```
@@ -782,7 +817,15 @@ Downloads a complete recovery archive including an embedded `restore.sh` script.
 - All databases (pg_dump files)
 - `project/`: `.env`, `docker-compose.yaml` and every bind-mounted config (`nginx.conf`,
   `nginx-router.conf`, `nginx-public.conf`, `.filebrowser.json`, `ntfy/`, `dozzle/`, DNS credentials,
-  `tailscale-serve.json`), `scripts/certbot/`, and the `management/` and `n8n_status/` build contexts
+  `tailscale-serve.json`), `scripts/certbot/`, the `management/` and `n8n_status/` build contexts, and
+  `docs/` + `mkdocs.yml` (the management image build copies them in through the compose
+  `additional_contexts: docs_src: .`). Files keep their owner and mode. Left out: `.git`, `.github`,
+  `.claude`, `images/`, `tests/`, `site/`, `backups/`, `env_backups/`, dependency and build output
+  (`node_modules`, `dist`, `build`, virtualenvs, caches), backup archives (`*.n8n_backup.tar.gz*`,
+  `*.gpg`, `*.partial`), `*.bak.*` copies, and single files over 50 MB. If what remains is over
+  200 MB (`BACKUP_PROJECT_MAX_MB` in `.env`) the backup **fails** before dumping anything, naming the
+  largest entries: an archive whose `project/` is silently incomplete would only fail later, at the
+  image build in the middle of a bare-metal restore.
 - The complete `/etc/letsencrypt` tree (symlinks preserved, renewal configuration and account)
 - `volumes/n8n_data.tar` (n8n's `config` with its `encryptionKey`, binary data, community nodes) and
   `volumes/ntfy_data.tar`
@@ -806,9 +849,9 @@ curl -O -J https://your-domain.com/management/api/backups/download/123 \
 ```bash
 # On the target server:
 mkdir /root/n8n_restore
-tar -xzf backup_<timestamp>.n8n_backup.tar.gz -C /root/n8n_restore
+sudo tar --numeric-owner -xzf backup_<timestamp>.n8n_backup.tar.gz -C /root/n8n_restore
 #   encrypted archive:
-#   gpg --decrypt backup_<timestamp>.n8n_backup.tar.gz.gpg | tar -xzf - -C /root/n8n_restore
+#   gpg --decrypt backup_<timestamp>.n8n_backup.tar.gz.gpg | sudo tar --numeric-owner -xzf - -C /root/n8n_restore
 cd /root/n8n_restore
 sudo ./restore.sh --dry-run
 sudo ./restore.sh
@@ -821,14 +864,26 @@ extract the archive itself into a private temporary directory that is removed wh
 sudo ./restore.sh --archive backup_<timestamp>.n8n_backup.tar.gz.gpg --passphrase-file /root/passphrase
 ```
 
-(or export `BACKUP_ENCRYPTION_PASSPHRASE`, or let gpg prompt for it).
+Or let gpg prompt for the passphrase. A plain `export BACKUP_ENCRYPTION_PASSPHRASE=...` does **not**
+reach the script through `sudo` (its default `env_reset` drops it, and gpg then prompts); either run the
+script from a root shell, or pass the variable through explicitly:
+
+```bash
+read -rs BACKUP_ENCRYPTION_PASSPHRASE && export BACKUP_ENCRYPTION_PASSPHRASE
+sudo --preserve-env=BACKUP_ENCRYPTION_PASSPHRASE ./restore.sh --archive backup_<timestamp>.n8n_backup.tar.gz.gpg
+```
+
+The passphrase file should be owner-only (`chmod 600`) and deleted after the restore. If the restore
+stops, the error message shows the full command to re-run (including `--archive`).
 
 What `restore.sh` does beyond restoring the databases:
 
 - Restores `project/` into the target directory (existing files that differ are kept as `*.bak.<timestamp>`).
 - Restores the volume snapshots and the public website into the volume names Docker Compose uses for the
   target directory (`<project>_n8n_data`, `<project>_public_web_root`, from `docker compose config`;
-  the project name is `COMPOSE_PROJECT_NAME` or the directory name, as in `setup.sh`).
+  the project name is `COMPOSE_PROJECT_NAME` or the directory name, as in `setup.sh`). Each snapshot is
+  extracted into a staging directory inside the volume and swapped in only after extraction succeeded, so
+  a damaged snapshot leaves the volume's previous contents in place.
 - Never runs `docker compose pull`. For every service it pulls the recorded `image@sha256:...` and tags
   it as the usual reference (for example `n8nio/n8n:latest`), so `docker compose up` starts the versions
   the data was written by instead of whatever `:latest` is today. Locally built images (no digest) are
