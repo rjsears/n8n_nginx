@@ -137,6 +137,12 @@ Port 465 uses SMTPS (TLS from the first byte) automatically; other ports use
 STARTTLS when it is enabled. The **Use SSL/TLS (SMTPS)** toggle overrides the
 port-based choice. Every SMTP operation times out after 15 seconds.
 
+The SMTP server's certificate is always verified (chain against the system CA
+store, and host name), for both SMTPS and STARTTLS. There is no setting to
+turn this off: a server with a self-signed or private-CA certificate needs
+that CA added to the management container's trust store, or use a relay with
+a public certificate.
+
 Saved secrets (passwords, tokens, credentials inside Apprise or webhook URLs,
 `Authorization`-style webhook headers) are never sent back to the browser:
 they appear as `***`. Leaving a masked value unchanged when editing keeps the
@@ -876,7 +882,7 @@ a plain-text POST will do.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `NTFY_BASE_URL` | Yes | Public URL (e.g., `https://ntfy.yourdomain.com`) |
-| `NTFY_AUTH_DEFAULT_ACCESS` | No | Default: `read-write` |
+| `NTFY_AUTH_DEFAULT_ACCESS` | No | Default: `deny-all` (anonymous users can neither read nor publish). Setting it in `.env` overrides that; `read-write` makes every topic public |
 | `NTFY_ENABLE_LOGIN` | No | Default: `true` |
 | `NTFY_ENABLE_SIGNUP` | No | Default: `false` |
 | `NTFY_CACHE_DURATION` | No | Default: `24h` |

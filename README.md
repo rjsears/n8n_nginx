@@ -501,7 +501,7 @@ What is enforced in the code today, where it lives, and what is not.
 | Docker hops (tunnel, docker-proxy, other containers) never internal: pinned `n8n_network` subnet listed as `external` | ✅ | `geo` + `N8N_NETWORK_SUBNET` |
 | Cloudflare Tunnel target `n8n_nginx:8080` (not published) serves only webhooks, forms and `/ntfy/` | ✅ | `nginx.conf` |
 | Zero inbound ports with Cloudflare Tunnel / Tailscale | ✅ optional | |
-| ntfy denies anonymous access; provisioned admin user and token | ✅ | compose, `NTFY_ADMIN_*`, `NTFY_TOKEN` |
+| ntfy denies anonymous access (`NTFY_AUTH_DEFAULT_ACCESS` defaults to `deny-all`; a value in `.env` overrides it); provisioned admin user and token | ✅ | compose, `NTFY_ADMIN_*`, `NTFY_TOKEN` |
 
 **Console authentication**
 

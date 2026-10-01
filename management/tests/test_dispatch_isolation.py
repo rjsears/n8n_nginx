@@ -82,16 +82,91 @@ async def test_slow_channel_does_not_hold_the_caller(
     assert [r.status for r in await history_rows("backup_success")] == ["sent"]
 
 
-async def test_dispatches_are_serialised_in_order(monkeypatch, global_settings, make_event, channel, add_target, sent):
+async def test_dispatches_of_one_alert_are_serialised_in_order(
+    monkeypatch, global_settings, make_event, channel, add_target, sent
+):
     event = await make_event("container_stopped")
     await add_target(event, channel)
 
-    for name in ("a", "b", "c"):
-        await ns.dispatch_notification("container_stopped", {"container": name}, wait=0)
+    for action in ("a", "b", "c"):
+        await ns.dispatch_notification("container_stopped", {"container": "n8n", "action": action}, wait=0)
     await ns.drain_notifications(timeout=5)
 
-    assert ["'a'" in c["message"] for c in sent.calls] == [True, False, False]
-    assert ["'c'" in c["message"] for c in sent.calls] == [False, False, True]
+    assert len(sent.calls) == 3
+    assert ns._dispatch_key("container_stopped", {"container": "n8n"}) == ("container_stopped", "n8n")
+
+
+async def test_hung_channel_on_one_alert_does_not_delay_another(
+    monkeypatch, global_settings, make_event, channel, add_target, history_rows
+):
+    from api.services.notification_service import NotificationService
+
+    slow = await make_event("container_stopped")
+    await add_target(slow, channel)
+    critical = await make_event("backup_failure", category="backup", severity="critical")
+    await add_target(critical, channel)
+
+    release = asyncio.Event()
+    delivered = []
+
+    async def send(self, service_id, title, message, priority="normal"):
+        if "Stopped" in title:
+            await release.wait()
+        delivered.append(title)
+        return {"success": True}
+
+    monkeypatch.setattr(NotificationService, "send_to_service", send)
+
+    await ns.dispatch_notification("container_stopped", {"container": "n8n"}, wait=0.1)
+    await ns.dispatch_notification("backup_failure", {"target_id": "postgres_full:manual"}, wait=2)
+
+    assert delivered == ["Backup Failure"], "a hung channel on another alert held up a critical one"
+    release.set()
+    await ns.drain_notifications(timeout=5)
+    assert delivered == ["Backup Failure", "Container Stopped"]
+
+
+async def test_queue_is_bounded_and_drops_oldest_non_critical(monkeypatch, caplog):
+    gate = asyncio.Event()
+    ran = []
+
+    async def blocked(event_type, event_data):
+        await gate.wait()
+        ran.append((event_type, event_data.get("n")))
+
+    monkeypatch.setattr(ns, "_dispatch_now", blocked)
+    monkeypatch.setattr(ns, "MAX_PENDING_DISPATCHES", 3)
+    monkeypatch.setitem(ns._event_severity, "noisy", "warning")
+    monkeypatch.setitem(ns._event_severity, "urgent", "critical")
+
+    # Same key, so only the first one holds the lock and the rest wait.
+    with caplog.at_level("ERROR"):
+        for n in range(3):
+            await ns.dispatch_notification("noisy", {"n": n}, wait=0)
+        await asyncio.sleep(0)
+        await ns.dispatch_notification("urgent", {"n": 99}, wait=0)
+        await asyncio.sleep(0)
+        assert len(ns._pending_dispatches) == 3
+    assert "dropping 'noisy'" in caplog.text
+
+    gate.set()
+    await ns.drain_notifications(timeout=5)
+    assert sorted(ran) == [("noisy", 0), ("noisy", 2), ("urgent", 99)], "the oldest waiting one goes first"
+
+
+async def test_shutdown_logs_what_is_lost(monkeypatch, caplog):
+    async def hang(event_type, event_data):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(ns, "_dispatch_now", hang)
+    await ns.dispatch_notification("container_stopped", {"container": "n8n_postgres"}, wait=0)
+    await asyncio.sleep(0)
+
+    with caplog.at_level("ERROR"):
+        assert await ns.drain_notifications(timeout=0.05) == 1
+    assert "Lost at shutdown: 'container_stopped' for 'n8n_postgres'" in caplog.text
+    for task in list(ns._pending_dispatches):
+        task.cancel()
 
 
 async def test_transport_send_is_bounded(monkeypatch):
@@ -136,9 +211,38 @@ def test_email_sender_tls_mode_and_timeout(port, use_ssl, expected_cls, starttls
 
     sender = build_email_sender("smtp.example.com", port, "u", "p", use_starttls=True, use_ssl=use_ssl)
 
-    assert sender.cls_smtp is expected_cls
+    assert issubclass(sender.cls_smtp, expected_cls)
     assert sender.use_starttls is starttls
     assert sender.kws_smtp["timeout"] == SMTP_TIMEOUT_SECONDS
+
+
+def test_smtps_verifies_the_server_certificate():
+    import ssl
+
+    from api.services.email_service import build_email_sender
+
+    sender = build_email_sender("smtp.example.com", 465, "u", "p")
+
+    context = sender.kws_smtp["context"]
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+
+
+def test_starttls_verifies_the_server_certificate(monkeypatch):
+    import ssl
+
+    from api.services.email_service import VerifiedSMTP, build_email_sender
+
+    sender = build_email_sender("smtp.example.com", 587, "u", "p", use_starttls=True)
+    assert sender.cls_smtp is VerifiedSMTP
+
+    seen = {}
+
+    def fake_starttls(self, keyfile=None, certfile=None, context=None):
+        seen["context"] = context
+
+    monkeypatch.setattr(smtplib.SMTP, "starttls", fake_starttls)
+    VerifiedSMTP.starttls(object.__new__(VerifiedSMTP))
+    assert seen["context"].verify_mode == ssl.CERT_REQUIRED and seen["context"].check_hostname
 
 
 async def test_email_channel_uses_smtps_on_port_465(monkeypatch):

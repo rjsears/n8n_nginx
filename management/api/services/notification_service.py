@@ -15,8 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, UTC
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import logging
+from contextlib import asynccontextmanager
 import asyncio
 import functools
 import re
@@ -42,6 +43,10 @@ SEND_TIMEOUT_SECONDS = 45.0
 # caller. Delivery continues in the background after that; callers (backups,
 # the health job, container actions) are never held longer than this.
 DISPATCH_WAIT_SECONDS = 5.0
+
+# Most background dispatches allowed to be waiting at once. Past this the
+# oldest waiting non-critical one is dropped (and logged) to make room.
+MAX_PENDING_DISPATCHES = 200
 
 
 class UnsupportedServiceType(ValueError):
@@ -1032,17 +1037,80 @@ async def _deliver_to_targets(
 # the tasks from being garbage collected mid-send; drain_notifications() waits
 # for them at shutdown.
 _pending_dispatches: "set[asyncio.Task]" = set()
-# One lock per event loop: dispatches run one at a time, in the order they were
-# raised, so two occurrences cannot race on the same throttle-state row.
+# What each pending task is for, for the queue bound and the shutdown log.
+_dispatch_info: "Dict[asyncio.Task, Tuple[str, str]]" = {}
+# Tasks that are still waiting for their lock (not yet sending), oldest first.
+_waiting_dispatches: "Dict[asyncio.Task, None]" = {}
+# Severity of each event type as last read from the registry; used to decide
+# what may be dropped when the queue is full (unknown counts as critical).
+_event_severity: Dict[str, str] = {}
+# One lock per (event_type, target_id) per event loop: occurrences of the same
+# alert run one at a time, in the order they were raised, so they cannot race
+# on the same throttle-state row; different alerts do not wait for each other,
+# so a hung channel on one cannot delay the rest (a critical alert included).
 _dispatch_locks: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
 
 
-def _dispatch_lock() -> asyncio.Lock:
+def _dispatch_key(event_type: str, event_data: Dict[str, Any]) -> Tuple[str, str]:
+    """The (event_type, target_id) pair _dispatch_now throttles on."""
+    target = event_data.get("container") or event_data.get("container_name") or event_data.get("target_id")
+    return event_type, str(target or "global")
+
+
+@asynccontextmanager
+async def _dispatch_lock(key: Tuple[str, str]):
     loop = asyncio.get_running_loop()
-    lock = _dispatch_locks.get(loop)
-    if lock is None:
-        lock = _dispatch_locks[loop] = asyncio.Lock()
-    return lock
+    locks = _dispatch_locks.get(loop)
+    if locks is None:
+        locks = _dispatch_locks[loop] = {}
+    entry = locks.get(key)
+    if entry is None:
+        entry = locks[key] = [asyncio.Lock(), 0]
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] == 0:
+            locks.pop(key, None)
+
+
+def _is_critical(event_type: str) -> bool:
+    return _event_severity.get(event_type, "critical") == "critical"
+
+
+def _make_room(new_event_type: str) -> bool:
+    """
+    Enforce MAX_PENDING_DISPATCHES before queueing ``new_event_type``.
+    Drops the oldest waiting non-critical dispatch; if there is none and the
+    new one is not critical either, returns False (drop the new one).
+    """
+    if len(_pending_dispatches) < MAX_PENDING_DISPATCHES:
+        return True
+    for task in list(_waiting_dispatches):
+        event_type, target = _dispatch_info.get(task, ("?", "?"))
+        if not task.done() and not _is_critical(event_type):
+            logger.error(
+                f"Notification queue full ({len(_pending_dispatches)} pending): dropping '{event_type}' "
+                f"for '{target}' to make room"
+            )
+            _forget_dispatch(task)
+            task.cancel()
+            return True
+    if _is_critical(new_event_type):
+        return True
+    logger.error(
+        f"Notification queue full ({len(_pending_dispatches)} pending, nothing droppable): "
+        f"dropping new '{new_event_type}'"
+    )
+    return False
+
+
+def _forget_dispatch(task: asyncio.Task) -> None:
+    _pending_dispatches.discard(task)
+    _waiting_dispatches.pop(task, None)
+    _dispatch_info.pop(task, None)
 
 
 def _is_database_unavailable(error: BaseException) -> bool:
@@ -1057,7 +1125,10 @@ def _is_database_unavailable(error: BaseException) -> bool:
 async def _dispatch_guarded(event_type: str, event_data: Dict[str, Any]) -> None:
     """Run one dispatch; log every failure and hand it to the fallback URL. Never raises."""
     try:
-        async with _dispatch_lock():
+        async with _dispatch_lock(_dispatch_key(event_type, event_data)):
+            task = asyncio.current_task()
+            if task is not None:
+                _waiting_dispatches.pop(task, None)
             await _dispatch_now(event_type, event_data)
     except asyncio.CancelledError:
         logger.error(f"Notification '{event_type}' was cancelled before it was delivered")
@@ -1100,16 +1171,21 @@ async def dispatch_notification(
     database itself is unreachable the alert goes to ALERT_FALLBACK_URL
     (see api.services.external_alerts).
     """
+    event_data = dict(event_data or {})
+    if not _make_room(event_type):
+        return
     try:
         task = asyncio.get_running_loop().create_task(
-            _dispatch_guarded(event_type, dict(event_data or {})),
+            _dispatch_guarded(event_type, event_data),
             name=f"notify:{event_type}",
         )
     except Exception as e:  # pragma: no cover - no running loop
         logger.error(f"Could not schedule notification '{event_type}': {e}")
         return
     _pending_dispatches.add(task)
-    task.add_done_callback(_pending_dispatches.discard)
+    _waiting_dispatches[task] = None
+    _dispatch_info[task] = _dispatch_key(event_type, event_data)
+    task.add_done_callback(_forget_dispatch)
 
     timeout = DISPATCH_WAIT_SECONDS if wait is None else wait
     if timeout and timeout > 0:
@@ -1130,7 +1206,13 @@ async def drain_notifications(timeout: float = 10.0) -> int:
         return 0
     _, still_running = await asyncio.wait(pending, timeout=timeout)
     if still_running:
-        logger.warning(f"{len(still_running)} notification(s) still sending at shutdown")
+        logger.error(
+            f"{len(still_running)} notification(s) not delivered before shutdown and will be lost"
+        )
+        for task in still_running:
+            event_type, target = _dispatch_info.get(task, (task.get_name(), "?"))
+            state = "still sending" if task not in _waiting_dispatches else "never started"
+            logger.error(f"Lost at shutdown: '{event_type}' for '{target}' ({state})")
     return len(still_running)
 
 
@@ -1208,6 +1290,8 @@ async def _dispatch_now(
         if not event:
             logger.debug(f"No SystemNotificationEvent found for event_type: {event_type}")
             return
+
+        _event_severity[event_type] = event.severity or "info"
 
         if not event.enabled:
             logger.debug(f"SystemNotificationEvent '{event_type}' is disabled")
@@ -1303,10 +1387,14 @@ async def _dispatch_now(
         elif l2_targets:
             logger.debug(f"L2 targets configured for '{event_type}' but escalation is disabled")
 
-        # Update state for the frequency/cooldown window and the hourly count
-        state.last_sent_at = now
+        # Update state for the frequency/cooldown window and the hourly count.
+        # Only a delivered alert starts the cooldown (and opens an episode
+        # that check_container_recovery may close): if nothing got through,
+        # the next occurrence must try again rather than be suppressed.
+        # updated_at doubles as the last-attempt time.
         state.updated_at = now
         if sent_count > 0:
+            state.last_sent_at = now
             record_delivery(global_settings, now)
 
         # Log to SystemNotificationHistory (for system notifications settings page)
