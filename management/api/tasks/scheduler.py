@@ -17,6 +17,7 @@ from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timedelta, UTC
 from typing import Optional
+import asyncio
 import logging
 import docker
 
@@ -706,7 +707,7 @@ def _run_alpine_container(docker_client, command: list, **kwargs) -> bytes:
         raise
 
 
-async def _cleanup_orphaned_alpine_containers() -> None:
+def _cleanup_orphaned_alpine_containers() -> None:
     """
     Clean up any orphaned alpine containers that weren't properly removed.
     This runs periodically to catch any containers that slipped through.
@@ -830,12 +831,13 @@ async def _collect_host_metrics() -> None:
         # In LXC, /proc/uptime shows the Proxmox host uptime since LXC shares the kernel.
         # To get LXC container uptime, we calculate from PID 1's actual start time.
         uptime_seconds = 0
-        docker_client = docker.from_env()
+        docker_client = await asyncio.to_thread(docker.from_env)
 
         try:
             # Method 1: Calculate PID 1 start time from /proc/1/stat and /proc/stat
             # This works in LXC because it measures when the LXC's init process started
-            result = _run_alpine_container(
+            result = await asyncio.to_thread(
+                _run_alpine_container,
                 docker_client,
                 command=["sh", "-c", """
                     # Get boot time (btime) from /proc/stat
@@ -858,7 +860,8 @@ async def _collect_host_metrics() -> None:
         # Fallback: try to get uptime from systemd if available
         if uptime_seconds <= 0 or uptime_seconds > 86400 * 365:  # Sanity check: > 1 year is suspicious
             try:
-                result = _run_alpine_container(
+                result = await asyncio.to_thread(
+                    _run_alpine_container,
                     docker_client,
                     command=["cat", "/proc/1/stat"],
                     pid_mode="host",
@@ -947,7 +950,8 @@ async def _collect_host_metrics() -> None:
         try:
             # Get host network stats by running alpine with host network namespace
             # This gives us the actual Docker host's network I/O, not the container's
-            result = _run_alpine_container(
+            result = await asyncio.to_thread(
+                _run_alpine_container,
                 docker_client,
                 command=["cat", "/proc/net/dev"],
                 network_mode="host",
@@ -989,8 +993,8 @@ async def _collect_host_metrics() -> None:
         containers_unhealthy = 0
 
         try:
-            docker_client = docker.from_env()
-            all_containers = docker_client.containers.list(all=True)
+            docker_client = await asyncio.to_thread(docker.from_env)
+            all_containers = await asyncio.to_thread(docker_client.containers.list, all=True)
             containers_total = len(all_containers)
 
             for container in all_containers:

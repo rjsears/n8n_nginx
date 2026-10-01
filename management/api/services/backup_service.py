@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func, text
 from datetime import datetime, timedelta, UTC
 from zoneinfo import ZoneInfo
-from typing import Optional, List, Dict, Any, Tuple
+from typing import AsyncIterator, Optional, List, Dict, Any, Tuple
+from contextlib import asynccontextmanager
 import subprocess
 import asyncio
 import gzip
@@ -24,6 +25,7 @@ import tempfile
 import shutil
 import json
 import hashlib
+import secrets
 import os
 import logging
 from zlib import error as zlib_error
@@ -40,6 +42,8 @@ from api.models.backups import (
 from api.schemas.backups import BackupType
 from api.security import hash_file_sha256
 from api.config import settings
+from api.services import proc as _proc
+from api.services.operation_jobs import report_progress as report_job_progress
 from api.services.notification_service import dispatch_notification
 from api.services.backup_archive import (
     ENCRYPTED_SUFFIX,
@@ -147,6 +151,41 @@ def calculate_file_checksum(filepath: str, algorithm: str = None) -> str:
             hasher.update(chunk)
 
     return hasher.hexdigest()
+
+def backup_archive_basename(backup_id: Optional[int] = None, now: Optional[datetime] = None) -> str:
+    """
+    Archive file name (before any encryption suffix), unique per backup:
+    backup_<UTC yyyymmddThhmmssZ>_<history id>.n8n_backup.tar.gz. Without a
+    history id a random suffix keeps two backups in the same second apart.
+    UTC avoids the repeated local hour at the end of daylight saving time.
+    """
+    stamp = (now or datetime.now(UTC)).astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+    unique = str(backup_id) if backup_id is not None else secrets.token_hex(4)
+    return f"backup_{stamp}_{unique}.n8n_backup.tar.gz"
+
+
+@asynccontextmanager
+async def _async_temp_dir(prefix: str = "n8n_backup_stage_") -> AsyncIterator[str]:
+    """TemporaryDirectory whose creation and (possibly large) removal run off the event loop."""
+    path = await asyncio.to_thread(tempfile.mkdtemp, prefix=prefix)
+    try:
+        yield path
+    finally:
+        await asyncio.to_thread(shutil.rmtree, path, True)
+
+
+def _log_staging_tree(temp_dir: str) -> None:
+    """Log what is about to go into the archive."""
+    logger.info("Temp directory contents before archive creation:")
+    for root, dirs, files in os.walk(temp_dir):
+        level = root.replace(temp_dir, '').count(os.sep)
+        indent = ' ' * 2 * level
+        logger.info(f"{indent}{os.path.basename(root)}/")
+        sub_indent = ' ' * 2 * (level + 1)
+        for file in files:
+            file_path = os.path.join(root, file)
+            logger.info(f"{sub_indent}{file} ({os.path.getsize(file_path)} bytes)")
+
 
 PG_RESTORE_LIST_TIMEOUT = 600
 
@@ -277,6 +316,7 @@ class BackupService:
         message: str
     ) -> None:
         """Update backup progress in database."""
+        report_job_progress(progress, message, backup_id=history.id)
         try:
             history.progress = min(progress, 100)
             history.progress_message = message
@@ -774,10 +814,10 @@ class BackupService:
     async def _get_postgres_version(self) -> str:
         """Get PostgreSQL version."""
         try:
-            result = subprocess.run(
+            result = await _proc.run(
                 ["psql", "--version"],
                 capture_output=True,
-                text=True,
+                text=True, timeout=_proc.PSQL_TIMEOUT
             )
             return result.stdout.split()[2] if result.returncode == 0 else "unknown"
         except Exception:
@@ -1127,6 +1167,10 @@ class BackupService:
             return 0, []
 
     async def capture_config_file_manifest(self) -> Tuple[int, List[Dict[str, Any]]]:
+        """Config file manifest with checksums (hashing runs in a worker thread)."""
+        return await asyncio.to_thread(self._capture_config_file_manifest_sync)
+
+    def _capture_config_file_manifest_sync(self) -> Tuple[int, List[Dict[str, Any]]]:
         """
         Capture config file manifest with checksums.
         Returns count and list of config file metadata.
@@ -1210,7 +1254,7 @@ class BackupService:
                 ]
 
                 env = {**os.environ, "PGPASSWORD": password}
-                result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+                result = await _proc.run(cmd, capture_output=True, text=True, env=env, timeout=_proc.PSQL_TIMEOUT)
 
                 if result.returncode != 0:
                     logger.warning(f"Failed to get schema for {db_name}: {result.stderr}")
@@ -1233,7 +1277,7 @@ class BackupService:
                             "-t", "-A",
                             "-c", f"SELECT COUNT(*) FROM \"{table_name}\""
                         ]
-                        count_result = subprocess.run(count_cmd, capture_output=True, text=True, env=env)
+                        count_result = await _proc.run(count_cmd, capture_output=True, text=True, env=env, timeout=_proc.QUERY_TIMEOUT)
                         row_count = int(count_result.stdout.strip()) if count_result.returncode == 0 else 0
                         total_rows += row_count
 
@@ -1250,7 +1294,7 @@ class BackupService:
                                 ORDER BY ordinal_position
                             """
                         ]
-                        col_result = subprocess.run(col_cmd, capture_output=True, text=True, env=env)
+                        col_result = await _proc.run(col_cmd, capture_output=True, text=True, env=env, timeout=_proc.PSQL_TIMEOUT)
                         columns = [c.strip() for c in col_result.stdout.strip().split('\n') if c.strip()]
 
                         tables.append({
@@ -1273,6 +1317,10 @@ class BackupService:
         return schema_manifest
 
     async def capture_public_website_manifest(self, public_website_dir: str) -> Tuple[int, List[Dict[str, Any]]]:
+        """Public website manifest with checksums (hashing runs in a worker thread)."""
+        return await asyncio.to_thread(self._capture_public_website_manifest_sync, public_website_dir)
+
+    def _capture_public_website_manifest_sync(self, public_website_dir: str) -> Tuple[int, List[Dict[str, Any]]]:
         """
         Capture public website file manifest with checksums.
         Scans the backed-up public website directory and creates a manifest
@@ -1333,9 +1381,7 @@ class BackupService:
         Create complete backup archive with all components.
         Returns filepath and metadata dict.
         """
-        tz = ZoneInfo(settings.timezone)
-        timestamp = datetime.now(tz).strftime("%Y%m%d_%H%M%S")
-        archive_name = f"backup_{timestamp}.n8n_backup.tar.gz"
+        archive_name = backup_archive_basename(history.id if history is not None else None)
 
         # Resolve the passphrase before any work: a configured but unusable
         # passphrase fails the backup instead of writing plaintext.
@@ -1362,7 +1408,7 @@ class BackupService:
         await update_progress(5, "Initializing backup")
 
         # Create temp directory for staging
-        with tempfile.TemporaryDirectory() as temp_dir:
+        async with _async_temp_dir() as temp_dir:
             metadata = {
                 "backup_type": backup_type,
                 "created_at": datetime.now(UTC).isoformat(),
@@ -1405,43 +1451,45 @@ class BackupService:
             config_dir = os.path.join(temp_dir, "config")
             os.makedirs(config_dir)
 
-            # Log what we're looking for
-            logger.info(f"Looking for config files. Checking /app/host_project exists: {os.path.exists('/app/host_project')}")
-            if os.path.exists('/app/host_project'):
-                logger.info(f"Contents of /app/host_project: {os.listdir('/app/host_project')[:10]}...")
+            def copy_config_and_certs() -> None:
+                # Log what we're looking for
+                logger.info(f"Looking for config files. Checking /app/host_project exists: {os.path.exists('/app/host_project')}")
+                if os.path.exists('/app/host_project'):
+                    logger.info(f"Contents of /app/host_project: {os.listdir('/app/host_project')[:10]}...")
 
-            for config in CONFIG_FILES:
-                if os.path.exists(config["host_path"]):
+                for config in CONFIG_FILES:
+                    if os.path.exists(config["host_path"]):
+                        try:
+                            dest_path = os.path.join(temp_dir, config["archive_path"])
+                            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                            shutil.copy2(config["host_path"], dest_path)
+                            # Verify the copy was successful
+                            if os.path.exists(dest_path):
+                                logger.info(f"Copied config file: {config['name']} -> {config['archive_path']} (size: {os.path.getsize(dest_path)} bytes)")
+                            else:
+                                logger.error(f"Copy verification failed: {config['name']} - dest file not found after copy")
+                        except Exception as e:
+                            logger.error(f"Failed to copy config file {config['name']}: {e}")
+                    else:
+                        logger.warning(f"Config file missing, skipping: {config['name']} (expected at {config['host_path']})")
+
+                # 3. Copy SSL certificates if they exist (50-55%)
+                if os.path.exists(SSL_CERT_PATH):
+                    ssl_dir = os.path.join(temp_dir, "ssl")
+                    shutil.copytree(SSL_CERT_PATH, ssl_dir)
+                # Full certbot tree (archive/, live/, renewal/, accounts/, ...) with
+                # symlinks preserved, so a restored lineage can still be renewed.
+                # ssl/ above is kept for browsing, verification and older restore.sh.
+                letsencrypt_root = os.path.dirname(SSL_CERT_PATH)
+                metadata["letsencrypt_tree_included"] = False
+                if os.path.isdir(os.path.join(letsencrypt_root, "live")):
                     try:
-                        dest_path = os.path.join(temp_dir, config["archive_path"])
-                        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                        shutil.copy2(config["host_path"], dest_path)
-                        # Verify the copy was successful
-                        if os.path.exists(dest_path):
-                            logger.info(f"Copied config file: {config['name']} -> {config['archive_path']} (size: {os.path.getsize(dest_path)} bytes)")
-                        else:
-                            logger.error(f"Copy verification failed: {config['name']} - dest file not found after copy")
+                        shutil.copytree(letsencrypt_root, os.path.join(temp_dir, "letsencrypt"), symlinks=True)
+                        metadata["letsencrypt_tree_included"] = True
                     except Exception as e:
-                        logger.error(f"Failed to copy config file {config['name']}: {e}")
-                else:
-                    logger.warning(f"Config file missing, skipping: {config['name']} (expected at {config['host_path']})")
+                        logger.error(f"Failed to copy {letsencrypt_root} tree into backup: {e}")
 
-            # 3. Copy SSL certificates if they exist (50-55%)
-            await update_progress(50, "Copying SSL certificates")
-            if os.path.exists(SSL_CERT_PATH):
-                ssl_dir = os.path.join(temp_dir, "ssl")
-                shutil.copytree(SSL_CERT_PATH, ssl_dir)
-            # Full certbot tree (archive/, live/, renewal/, accounts/, ...) with
-            # symlinks preserved, so a restored lineage can still be renewed.
-            # ssl/ above is kept for browsing, verification and older restore.sh.
-            letsencrypt_root = os.path.dirname(SSL_CERT_PATH)
-            metadata["letsencrypt_tree_included"] = False
-            if os.path.isdir(os.path.join(letsencrypt_root, "live")):
-                try:
-                    shutil.copytree(letsencrypt_root, os.path.join(temp_dir, "letsencrypt"), symlinks=True)
-                    metadata["letsencrypt_tree_included"] = True
-                except Exception as e:
-                    logger.error(f"Failed to copy {letsencrypt_root} tree into backup: {e}")
+            await asyncio.to_thread(copy_config_and_certs)
 
             # 3.2 Everything else a bare-metal restore needs (H-6): the project
             # directory (bind-mounted configs, scripts, build contexts), the
@@ -1520,17 +1568,7 @@ class BackupService:
             # 7. Create tar.gz archive (85-95%)
             await update_progress(85, "Creating archive")
 
-            # Log what we're about to add to the archive
-            logger.info(f"Temp directory contents before archive creation:")
-            for root, dirs, files in os.walk(temp_dir):
-                level = root.replace(temp_dir, '').count(os.sep)
-                indent = ' ' * 2 * level
-                logger.info(f"{indent}{os.path.basename(root)}/")
-                sub_indent = ' ' * 2 * (level + 1)
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    logger.info(f"{sub_indent}{file} ({os.path.getsize(file_path)} bytes)")
-
+            await asyncio.to_thread(_log_staging_tree, temp_dir)
             await asyncio.to_thread(self._write_archive, temp_dir, archive_path, passphrase)
 
             await update_progress(95, "Finalizing")
@@ -1551,12 +1589,17 @@ class BackupService:
             "-d", database,
             "--no-owner",
             "--no-acl",
+            # Fail instead of waiting forever behind a lock (e.g. an n8n migration)
+            f"--lock-wait-timeout={_proc.PG_LOCK_WAIT_TIMEOUT}",
             "-F", "c",  # Custom format
             "-f", filepath,
         ]
 
         env = {**os.environ, "PGPASSWORD": password}
-        result = subprocess.run(cmd, capture_output=True, env=env)
+        try:
+            result = await _proc.run(cmd, capture_output=True, env=env, timeout=_proc.PG_DUMP_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise Exception(f"pg_dump of {database} timed out after {_proc.PG_DUMP_TIMEOUT}s")
 
         if result.returncode != 0:
             raise Exception(f"pg_dump failed for {database}: {result.stderr.decode()}")
@@ -1568,6 +1611,9 @@ class BackupService:
         through gpg when a passphrase is given so no plaintext copy reaches
         the backup disk. Written to <archive>.partial and renamed on success.
         """
+        if os.path.exists(archive_path):
+            # Names are unique per backup; never overwrite an existing archive.
+            raise FileExistsError(f"Backup archive already exists: {archive_path}")
         partial = archive_path + ".partial"
         if os.path.exists(partial):
             os.remove(partial)
@@ -1648,10 +1694,10 @@ class BackupService:
         """Get n8n version from container or environment."""
         try:
             # Try to get from n8n container
-            result = subprocess.run(
+            result = await _proc.run(
                 ["docker", "exec", "n8n", "n8n", "--version"],
                 capture_output=True,
-                text=True,
+                text=True, timeout=_proc.DOCKER_TIMEOUT
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -1664,6 +1710,10 @@ class BackupService:
         return settings.public_site_enable
 
     async def _backup_public_website_volume(self, temp_dir: str) -> Tuple[bool, int]:
+        """Copy the public website files into the staging dir (in a worker thread)."""
+        return await asyncio.to_thread(self._backup_public_website_volume_sync, temp_dir)
+
+    def _backup_public_website_volume_sync(self, temp_dir: str) -> Tuple[bool, int]:
         """
         Back up public_web_root Docker volume contents.
         The volume is mounted directly at settings.public_website_source_dir.
@@ -1821,6 +1871,7 @@ class BackupService:
         self.db.add(history)
         await self.db.commit()
         await self.db.refresh(history)
+        report_job_progress(1, "Starting backup", backup_id=history.id)
 
         try:
             # Fail fast (recorded as a failed backup + failure notification
@@ -1856,7 +1907,7 @@ class BackupService:
             # Calculate checksum and file size
             await self._update_progress(history, 96, "Calculating checksum")
             file_size = os.path.getsize(filepath)
-            checksum = hash_file_sha256(filepath)
+            checksum = await asyncio.to_thread(hash_file_sha256, filepath)
             filename = os.path.basename(filepath)
 
             # Get postgres version

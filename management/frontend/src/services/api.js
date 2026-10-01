@@ -143,9 +143,12 @@ export const backupsApi = {
   updateSchedule: (id, data) => api.put(`/backups/schedules/${id}`, data),
   deleteSchedule: (id) => api.delete(`/backups/schedules/${id}`),
   getHistory: (params) => api.get('/backups/history', { params }),
-  runBackup: (data) => api.post('/backups/run', data, { timeout: 600000 }), // 10 minute timeout for backup creation
+  // Backups, verifications and restores return 202 with a background job; poll getJob(job.id)
+  runBackup: (data) => api.post('/backups/run', data),
   deleteBackup: (id) => api.delete(`/backups/${id}`),
-  verifyBackup: (id) => api.post(`/backups/verification/run/${id}`, {}, { timeout: 600000 }), // 10 minute timeout for verification
+  verifyBackup: (id) => api.post(`/backups/verification/run/${id}`, {}),
+  getJob: (jobId) => api.get(`/backups/jobs/${jobId}`),
+  listJobs: (params) => api.get('/backups/jobs', { params }),
   getStats: () => api.get('/backups/stats'),
   getRetention: () => api.get('/backups/retention'),
   updateRetention: (type, data) => api.put(`/backups/retention/${type}`, data),

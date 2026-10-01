@@ -50,6 +50,11 @@ async def lifespan(app: FastAPI):
         await init_db()
         logger.info("Database initialized")
 
+        # Backup/verify/restore jobs recorded as running belonged to the
+        # previous process: report them as interrupted.
+        from api.services.operation_jobs import mark_interrupted_jobs
+        await mark_interrupted_jobs()
+
         # Create default admin user if not exists
         from api.database import async_session_maker
         from api.services.auth_service import AuthService
@@ -108,6 +113,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down n8n Management API")
     try:
+        from api.services.operation_jobs import cancel_all as cancel_operation_jobs
+        await cancel_operation_jobs()
         await shutdown_scheduler()
         await close_redis_cache()
         await close_db()

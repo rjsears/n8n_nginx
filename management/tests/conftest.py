@@ -80,6 +80,7 @@ async def engine():
         or name.startswith("system_notification_")
         or name == "system_metrics_cache"  # read by the sustained-CPU check
         or name in ("backup_schedules", "backup_history")  # read by the backup freshness check
+        or name == "operation_jobs"  # background backup/verify/restore jobs
     ]
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)

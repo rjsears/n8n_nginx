@@ -17,12 +17,12 @@ from typing import Optional, List, Dict, Any
 from dateutil import parser as dateutil_parser
 import logging
 import asyncio
-import subprocess
 import os
 
 from api.models.audit import ContainerStatusCache
 from api.config import settings
 from api.services.notification_service import dispatch_notification
+from api.services import compose_cli
 
 logger = logging.getLogger(__name__)
 
@@ -440,47 +440,28 @@ class ContainerService:
         Returns:
             Dict with success status and output
         """
-        service_name = self._get_service_name_from_container(name)
-        compose_dir = "/app/host_project"  # Directory with docker-compose.yaml
+        service_name = await asyncio.to_thread(self._get_service_name_from_container, name)
 
-        # Build the docker compose command
+        # Run against the stack's real compose project and host directory
+        # (see api.services.compose_cli), not a new "host_project" project.
+        args = ["up", "-d", "--no-deps", "--force-recreate"]
         if pull:
-            cmd = [
-                "docker", "compose",
-                "-f", f"{compose_dir}/docker-compose.yaml",
-                "up", "-d", "--no-deps", "--force-recreate", "--pull", "always",
-                service_name
-            ]
-        else:
-            cmd = [
-                "docker", "compose",
-                "-f", f"{compose_dir}/docker-compose.yaml",
-                "up", "-d", "--no-deps", "--force-recreate",
-                service_name
-            ]
+            args += ["--pull", "always"]
+        args.append(service_name)
 
         logger.info(f"Recreating container {name} (service: {service_name}), pull={pull}")
-        logger.debug(f"Running command: {' '.join(cmd)}")
 
         try:
-            # Run docker compose command
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=compose_dir,
-            )
+            result = await compose_cli.run_compose(args, timeout=compose_cli.COMPOSE_UP_TIMEOUT)
 
-            stdout, stderr = await process.communicate()
-
-            if process.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Unknown error"
+            if result.returncode != 0:
+                error_msg = result.stderr or "Unknown error"
                 logger.error(f"Failed to recreate {name}: {error_msg}")
                 raise Exception(f"docker compose failed: {error_msg}")
 
-            output = stdout.decode() if stdout else ""
-            if stderr:
-                output += "\n" + stderr.decode()
+            output = result.stdout or ""
+            if result.stderr:
+                output += "\n" + result.stderr
 
             # Send notification for project containers
             if self._is_project_container(name):

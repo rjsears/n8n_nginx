@@ -101,7 +101,9 @@ curl -sk -c cookies.txt -X POST "$BASE/auth/login" \
 curl -sk -b cookies.txt -X POST "$BASE/backups/run" \
   -H 'X-Requested-With: XMLHttpRequest' \
   -H 'Content-Type: application/json' \
-  -d '{"backup_type":"full"}'
+  -d '{"backup_type":"postgres_full"}'
+# -> 202 {"id": "<job id>", "status": "queued", ...}; then poll the job:
+curl -sk -b cookies.txt "$BASE/backups/jobs/<job id>"
 ```
 
 ---
@@ -307,10 +309,15 @@ Authorization: Bearer <token>
 | `compression` | string | No | `gzip` (default), `zstd`, or `none` |
 | `skip_auto_verify` | boolean | No | Skip the post-backup verification even if it is globally enabled |
 
-**Response:** `200 OK` — `BackupRunResponse`
+**Response:** `202 Accepted` — `BackupJobResponse` (the backup runs in the
+background, see [Background jobs](#background-jobs)); `409 Conflict` while
+another backup, restore or verification is running.
 ```json
-{ "backup_id": 42, "status": "started", "message": "Full backup started" }
+{ "id": "3f9c0a1b2c3d4e5f", "job_id": "3f9c0a1b2c3d4e5f", "kind": "backup", "status": "queued",
+  "backup_id": null, "progress": 0, "message": "Queued", "result": null, "error": null }
 ```
+When the job has finished, `result` is
+`{ "backup_id": 42, "status": "success", "message": "...", "filename": "backup_20261001T020000Z_42.n8n_backup.tar.gz" }`.
 
 #### Run — Trigger Full Backup (everything)
 
@@ -322,7 +329,34 @@ POST /api/backups/run-full
 Authorization: Bearer <token>
 ```
 
-**Response:** `200 OK` — `BackupRunResponse`
+**Response:** `202 Accepted` — `BackupJobResponse`, or `409 Conflict` (same as `/run`).
+
+#### Background jobs
+
+Backups, verifications (`/{backup_id}/verify`, `/verification/run/{backup_id}`)
+and restores (`/{backup_id}/restore/database`, `/{backup_id}/restore/full`)
+can take much longer than the 300 s proxy timeout, so these endpoints start a
+background job and return `202 Accepted` at once. Only one job runs at a time;
+starting one while another job, a scheduled backup or a pruning run holds the
+operation lock returns `409 Conflict`.
+
+```http
+GET /api/backups/jobs/{job_id}
+GET /api/backups/jobs?limit=20&kind=backup|verify|restore
+Authorization: Bearer <token>
+```
+
+| Field | Description |
+|-------|-------------|
+| `status` | `queued`, `running`, `success`, `failed` or `interrupted` (the API restarted while it ran) |
+| `progress`, `message` | Live progress (0–100) and current step |
+| `backup_id` | The backup being created, verified or restored (for a new backup: set once it has a history record) |
+| `result` | Final result: what the endpoint used to return synchronously (backup id, verification report, restore result) |
+| `error` | Why it failed: a message, or for a failed restore the full restore result |
+
+Poll every second or two until `status` is `success`, `failed` or
+`interrupted`. A verification that finds problems is a `success` job whose
+`result.overall_status` is `failed`.
 
 ---
 
@@ -500,7 +534,10 @@ Authorization: Bearer <token>
 | `hour` | integer | 3 | Hour to run (0–23) |
 | `verify_latest_count` | integer | 5 | How many of the most-recent backups to verify each run (1–20) |
 
-**Run / Quick Verify Response:** `VerifyBackupResponse` / `VerificationRunResponse`
+**Run / Quick Verify Response:** `/verification/run/{id}` and `/{id}/verify`
+return `202 Accepted` with a background job (see [Background jobs](#background-jobs));
+its `result` is the `VerificationRunResponse` / `VerifyBackupResponse` below.
+`/{id}/verify/quick` still answers synchronously.
 ```json
 { "backup_id": 42, "status": "passed", "details": { "checksum": "ok", "archive": "ok", "database": "ok" } }
 ```
@@ -654,7 +691,10 @@ Authorization: Bearer <token>
 
 `/restore/preview` returns a dry-run summary of what will change.
 `/restore/database` and `/restore/full` accept an optional
-`create_pre_restore_backup` boolean (default `true`).
+`create_pre_restore_backup` boolean (default `true`). Both run as background
+jobs: `202 Accepted` with a job (see [Background jobs](#background-jobs)), `404`
+for an unknown backup, `409` while another operation runs. A failed restore
+ends the job as `failed` with the full restore result in `error`.
 `/restore/status` reports the running restore session, if any.
 `/restore/cleanup` tears down a stuck restore container.
 

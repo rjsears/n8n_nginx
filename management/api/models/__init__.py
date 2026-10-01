@@ -29,6 +29,7 @@ from api.models.backups import (
     BackupContents,
     BackupPruningSettings,
     BackupConfiguration,
+    OperationJob,
 )
 from api.models.email import EmailTemplate, EmailTestHistory
 from api.models.audit import AuditLog, ContainerStatusCache, SystemMetricsCache
@@ -75,6 +76,7 @@ __all__ = [
     "BackupContents",
     "BackupPruningSettings",
     "BackupConfiguration",
+    "OperationJob",
     # Email
     "EmailTemplate",
     "EmailTestHistory",

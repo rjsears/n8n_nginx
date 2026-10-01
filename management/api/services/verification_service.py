@@ -38,6 +38,8 @@ from api.services.restore_service import (
 from api.services.notification_service import dispatch_notification
 from api.models.backups import BackupHistory, BackupContents
 from api.config import settings
+from api.services import proc as _proc
+from api.services.operation_jobs import report_progress as report_job_progress
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +180,7 @@ class VerificationService:
         message: str
     ) -> None:
         """Update verification progress in backup record."""
+        report_job_progress(progress, message)
         try:
             backup.progress = min(progress, 100)
             backup.progress_message = message
@@ -201,12 +204,12 @@ class VerificationService:
             # Always remove existing container first to ensure fresh state
             check_cmd = ["docker", "ps", "-a", "--filter", f"name={VERIFY_CONTAINER_NAME}", "--format", "{{.Names}}"]
             logger.info(f"Checking for existing container: {' '.join(check_cmd)}")
-            result = subprocess.run(check_cmd, capture_output=True, text=True)
+            result = await _proc.run(check_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
 
             if VERIFY_CONTAINER_NAME in result.stdout:
                 # Remove existing container
                 logger.info("Removing existing verification container for fresh start...")
-                subprocess.run(["docker", "rm", "-f", "-v", VERIFY_CONTAINER_NAME], capture_output=True)
+                await _proc.run(["docker", "rm", "-f", "-v", VERIFY_CONTAINER_NAME], capture_output=True, timeout=_proc.DOCKER_TIMEOUT)
 
             # Create new container: no network, no published port, random
             # password (passed via the environment of this call only).
@@ -224,7 +227,7 @@ class VerificationService:
             ]
             logger.info(f"Running: {' '.join(create_cmd)}")
             run_env = dict(os.environ, POSTGRES_PASSWORD=secrets.token_urlsafe(24))
-            create_result = subprocess.run(create_cmd, capture_output=True, text=True, env=run_env)
+            create_result = await _proc.run(create_cmd, capture_output=True, text=True, env=run_env, timeout=_proc.DOCKER_RUN_TIMEOUT)
             logger.info(f"Create result - stdout: {create_result.stdout}, stderr: {create_result.stderr}, returncode: {create_result.returncode}")
             if create_result.returncode != 0:
                 logger.error(f"Failed to create container: {create_result.stderr}")
@@ -232,15 +235,15 @@ class VerificationService:
 
             # Verify container is actually running
             await asyncio.sleep(2)  # Give container a moment to start
-            check_running = subprocess.run(
+            check_running = await _proc.run(
                 ["docker", "ps", "--filter", f"name={VERIFY_CONTAINER_NAME}", "--format", "{{.Names}}"],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
             )
             if VERIFY_CONTAINER_NAME not in check_running.stdout:
                 # Container exited - check logs
-                logs_result = subprocess.run(
+                logs_result = await _proc.run(
                     ["docker", "logs", "--tail", "20", VERIFY_CONTAINER_NAME],
-                    capture_output=True, text=True
+                    capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
                 )
                 logger.error(f"Container exited immediately. Logs: {logs_result.stdout} {logs_result.stderr}")
                 return False
@@ -272,7 +275,7 @@ class VerificationService:
                     "docker", "exec", VERIFY_CONTAINER_NAME,
                     "pg_isready", "-U", VERIFY_DB_USER
                 ]
-                result = subprocess.run(check_cmd, capture_output=True, text=True)
+                result = await _proc.run(check_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
                 if result.returncode == 0:
                     return
             except Exception:
@@ -289,7 +292,7 @@ class VerificationService:
             # Stop container (with timeout)
             stop_cmd = ["docker", "stop", "-t", "10", VERIFY_CONTAINER_NAME]
             stop_result = await asyncio.to_thread(
-                subprocess.run, stop_cmd, capture_output=True, text=True
+                subprocess.run, stop_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
             )
             if stop_result.returncode != 0:
                 logger.warning(f"Failed to stop verification container: {stop_result.stderr}")
@@ -297,7 +300,7 @@ class VerificationService:
             # Remove container and its anonymous data volume (force to ensure cleanup)
             rm_cmd = ["docker", "rm", "-f", "-v", VERIFY_CONTAINER_NAME]
             rm_result = await asyncio.to_thread(
-                subprocess.run, rm_cmd, capture_output=True, text=True
+                subprocess.run, rm_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
             )
             if rm_result.returncode != 0:
                 logger.warning(f"Failed to remove verification container: {rm_result.stderr}")
@@ -317,7 +320,7 @@ class VerificationService:
         """Check if verification container is running."""
         try:
             check_cmd = ["docker", "ps", "--filter", f"name={VERIFY_CONTAINER_NAME}", "--format", "{{.Names}}"]
-            result = subprocess.run(check_cmd, capture_output=True, text=True)
+            result = await _proc.run(check_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
             return VERIFY_CONTAINER_NAME in result.stdout
         except Exception:
             return False
@@ -374,7 +377,8 @@ class VerificationService:
                 # Every dump is restored into its own fresh database and must
                 # restore cleanly: any pg_restore error fails the verification.
                 for db_name in dumps:
-                    ok, error = self._restore_dump_into_verify_db(
+                    ok, error = await asyncio.to_thread(
+                        self._restore_dump_into_verify_db,
                         os.path.join(db_dir, f"{db_name}.dump"), db_name, verify_db_name(db_name)
                     )
                     if not ok:
@@ -394,21 +398,29 @@ class VerificationService:
             return False, f"refusing to use database name {target_db!r}"
         in_container = f"/tmp/verify_{db_name}.dump"
         steps = [
-            (["docker", "cp", dump_path, f"{VERIFY_CONTAINER_NAME}:{in_container}"], "copy dump into container"),
+            (["docker", "cp", dump_path, f"{VERIFY_CONTAINER_NAME}:{in_container}"], "copy dump into container",
+             _proc.COPY_TIMEOUT),
             (["docker", "exec", VERIFY_CONTAINER_NAME, "psql", "-v", "ON_ERROR_STOP=1", "-U", VERIFY_DB_USER,
-              "-d", "postgres", "-c", f'DROP DATABASE IF EXISTS "{target_db}"'], "drop verification database"),
+              "-d", "postgres", "-c", f'DROP DATABASE IF EXISTS "{target_db}"'], "drop verification database",
+             _proc.PSQL_TIMEOUT),
             (["docker", "exec", VERIFY_CONTAINER_NAME, "psql", "-v", "ON_ERROR_STOP=1", "-U", VERIFY_DB_USER,
-              "-d", "postgres", "-c", f'CREATE DATABASE "{target_db}" TEMPLATE template0'], "create verification database"),
+              "-d", "postgres", "-c", f'CREATE DATABASE "{target_db}" TEMPLATE template0'], "create verification database",
+             _proc.PSQL_TIMEOUT),
             (["docker", "exec", VERIFY_CONTAINER_NAME, "pg_restore", "-U", VERIFY_DB_USER, "-d", target_db,
-              "--no-owner", "--no-acl", "--exit-on-error", in_container], "pg_restore"),
+              "--no-owner", "--no-acl", "--exit-on-error", in_container], "pg_restore",
+             _proc.PG_RESTORE_TIMEOUT),
         ]
-        for cmd, what in steps:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+        for cmd, what, timeout in steps:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                logger.error(f"Verification of {db_name}: {what} timed out after {timeout}s")
+                return False, f"{db_name}: {what} timed out after {timeout}s"
             if result.returncode != 0:
                 stderr = (result.stderr or "").strip()
                 logger.error(f"Verification of {db_name}: {what} failed (exit {result.returncode}): {stderr[-2000:]}")
                 return False, f"{db_name}: {what} failed (exit {result.returncode}): {stderr[-500:]}"
-        subprocess.run(["docker", "exec", VERIFY_CONTAINER_NAME, "rm", "-f", in_container], capture_output=True)
+        subprocess.run(["docker", "exec", VERIFY_CONTAINER_NAME, "rm", "-f", in_container], capture_output=True, timeout=_proc.DOCKER_TIMEOUT)
         return True, ""
 
     # ============================================================================
@@ -426,7 +438,7 @@ class VerificationService:
                 "-t", "-A", "-c",
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
             ]
-            result = subprocess.run(query_cmd, capture_output=True, text=True)
+            result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.PSQL_TIMEOUT)
             if result.returncode != 0:
                 return {"passed": False, "error": f"table query failed: {(result.stderr or '').strip()[-300:]}"}
 
@@ -470,7 +482,7 @@ class VerificationService:
                     "-t", "-A", "-c",
                     f'SELECT COUNT(*) FROM "{table}"'
                 ]
-                result = subprocess.run(query_cmd, capture_output=True, text=True)
+                result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
 
                 if result.returncode != 0:
                     mismatches.append({
@@ -534,7 +546,7 @@ class VerificationService:
                 "psql", "-v", "ON_ERROR_STOP=1", "-U", VERIFY_DB_USER, "-d", database,
                 "-t", "-A", "-F", "\t", "-c", WORKFLOW_CHECKSUM_SQL,
             ]
-            result = subprocess.run(query_cmd, capture_output=True, text=True)
+            result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
             if result.returncode != 0:
                 return {"passed": False, "error": f"workflow query failed: {(result.stderr or '').strip()[-300:]}"}
             restored = parse_workflow_checksum_rows(result.stdout)
@@ -968,7 +980,7 @@ class VerificationService:
         results["checks"]["file_exists"] = {"passed": True}
 
         # Check checksum
-        current_checksum = self._hash_file_sha256(backup.filepath)
+        current_checksum = await asyncio.to_thread(self._hash_file_sha256, backup.filepath)
         if current_checksum != backup.checksum:
             results["overall_status"] = "failed"
             results["checks"]["checksum"] = {

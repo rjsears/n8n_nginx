@@ -116,7 +116,11 @@ async def test_verify_container_is_isolated(monkeypatch):
     async def no_sleep(*a, **kw):
         return None
 
+    async def fake_async_run(cmd, *a, **kw):  # the async code path (api.services.proc.run)
+        return fake_run(cmd, *a, **kw)
+
     monkeypatch.setattr(verify_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(verify_mod._proc, "run", fake_async_run)
     monkeypatch.setattr(verify_mod.VerificationService, "_wait_for_postgres_ready", ready)
     monkeypatch.setattr(verify_mod.asyncio, "sleep", no_sleep)
 

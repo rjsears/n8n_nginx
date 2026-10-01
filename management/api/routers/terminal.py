@@ -49,7 +49,8 @@ class TerminalSession:
             if self.target_type == "host":
                 # For host access, create a privileged alpine container
                 # that shares the host's namespaces
-                self.container = self.client.containers.run(
+                self.container = await asyncio.to_thread(
+                    self.client.containers.run,
                     settings.helper_image,
                     command="/bin/sh",
                     stdin_open=True,
@@ -66,7 +67,7 @@ class TerminalSession:
                 await asyncio.sleep(0.5)
             else:
                 # Find the container by ID or name
-                containers = self.client.containers.list(all=True)
+                containers = await asyncio.to_thread(self.client.containers.list, all=True)
                 for c in containers:
                     if c.id.startswith(self.target_id) or c.name == self.target_id:
                         self.container = c
@@ -85,7 +86,7 @@ class TerminalSession:
                     return False
 
             # Determine shell to use
-            shell = self._detect_shell()
+            shell = await asyncio.to_thread(self._detect_shell)
 
             # Get container's default user and working directory
             container_config = self.container.attrs.get("Config", {})
@@ -100,7 +101,8 @@ class TerminalSession:
                 env_vars.append("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
 
             # Create exec instance with full environment
-            exec_instance = self.client.api.exec_create(
+            exec_instance = await asyncio.to_thread(
+                self.client.api.exec_create,
                 self.container.id,
                 shell,
                 stdin=True,
@@ -114,7 +116,8 @@ class TerminalSession:
             self.exec_id = exec_instance["Id"]
 
             # Start exec with socket
-            self.socket = self.client.api.exec_start(
+            self.socket = await asyncio.to_thread(
+                self.client.api.exec_start,
                 self.exec_id,
                 socket=True,
                 tty=True,
@@ -223,7 +226,7 @@ class TerminalSession:
         """Resize the terminal."""
         try:
             if self.exec_id:
-                self.client.api.exec_resize(self.exec_id, height=rows, width=cols)
+                await asyncio.to_thread(self.client.api.exec_resize, self.exec_id, height=rows, width=cols)
         except Exception as e:
             logger.debug(f"Resize error (may be expected): {e}")
 
@@ -240,7 +243,7 @@ class TerminalSession:
         # If we created a host container, stop it
         if self.target_type == "host" and self.container:
             try:
-                self.container.stop(timeout=1)
+                await asyncio.to_thread(self.container.stop, timeout=1)
             except Exception:
                 pass
             try:
@@ -510,7 +513,7 @@ async def terminal_websocket(
     )
 
     # Create terminal session
-    session = TerminalSession(websocket, target, target_type)
+    session = await asyncio.to_thread(TerminalSession, websocket, target, target_type)
 
     if not await session.start():
         await websocket.close()

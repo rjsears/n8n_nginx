@@ -206,6 +206,33 @@ class MigrationState(Base):
         return f"<MigrationState(id={self.id}, version='{self.version}', status='{self.status}')>"
 
 
+class OperationJob(Base):
+    """
+    A backup, verification or restore started from the API and run in the
+    background (see api.services.operation_jobs). Live progress is kept in
+    memory; this row records the job so a client can still read its outcome
+    later, and so a job cut short by an API restart shows as 'interrupted'.
+    """
+
+    __tablename__ = "operation_jobs"
+
+    id = Column(String(32), primary_key=True)
+    kind = Column(String(20), nullable=False)  # 'backup', 'verify', 'restore'
+    status = Column(String(20), nullable=False)  # 'queued', 'running', 'success', 'failed', 'interrupted'
+    backup_id = Column(Integer, nullable=True)
+    params = Column(JSONB, nullable=True)
+    progress = Column(Integer, default=0)
+    message = Column(Text, nullable=True)
+    result = Column(JSONB, nullable=True)
+    error = Column(JSONB, nullable=True)  # message string or a structured result
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self):
+        return f"<OperationJob(id='{self.id}', kind='{self.kind}', status='{self.status}')>"
+
+
 class APSchedulerJob(Base):
     """APScheduler job store table."""
 

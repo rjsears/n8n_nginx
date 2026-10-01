@@ -348,6 +348,11 @@ async def test_restore_container_has_no_network_label_and_secret_password(monkey
 
     monkeypatch.setattr(rs.subprocess, "run", run)
 
+    async def async_run(cmd, **kwargs):  # the async code path (api.services.proc.run)
+        return run(cmd, **kwargs)
+
+    monkeypatch.setattr(rs._proc, "run", async_run)
+
     async def ready(self, timeout=30):
         raise Exception("never ready")
 

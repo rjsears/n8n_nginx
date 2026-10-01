@@ -397,9 +397,16 @@ curl -X PUT https://your-domain.com/management/api/backups/verification/schedule
 
 **Via API:**
 ```bash
-curl -X POST https://your-domain.com/management/api/backups/verify/123 \
+curl -X POST https://your-domain.com/management/api/backups/123/verify \
+  -H "Authorization: Bearer $TOKEN"
+# 202 with a background job; poll it until status is success/failed/interrupted
+curl https://your-domain.com/management/api/backups/jobs/<job id> \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+Backups, verifications and in-app restores started from the console or the API run as background
+jobs on the server, so they are not cut off by the 5-minute proxy timeout. Only one runs at a time; a
+second request gets `409 Conflict`.
 
 ### Verification States
 

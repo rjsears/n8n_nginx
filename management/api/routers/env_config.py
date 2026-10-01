@@ -817,7 +817,7 @@ async def run_health_checks(
         test_env = env_vars
 
     # Check 1: All Containers (with categorization)
-    container_check = await _check_all_containers()
+    container_check = await asyncio.to_thread(_check_all_containers)
     checks.append(container_check)
 
     # Check 2: PostgreSQL Connection
@@ -833,11 +833,11 @@ async def run_health_checks(
     checks.append(required_check)
 
     # Check 5: Cloudflare Tunnel (if configured)
-    cloudflare_check = await _check_cloudflare_tunnel()
+    cloudflare_check = await asyncio.to_thread(_check_cloudflare_tunnel)
     checks.append(cloudflare_check)
 
     # Check 6: Tailscale VPN (if configured)
-    tailscale_check = await _check_tailscale()
+    tailscale_check = await asyncio.to_thread(_check_tailscale)
     checks.append(tailscale_check)
 
     # Generate warnings for sensitive changes
@@ -957,7 +957,7 @@ def _check_required_variables(env_vars: Dict[str, str]) -> HealthCheckResult:
     )
 
 
-async def _check_all_containers() -> HealthCheckResult:
+def _check_all_containers() -> HealthCheckResult:
     """Check all containers from docker-compose.yaml with categorization."""
     try:
         import docker
@@ -1070,7 +1070,7 @@ async def _check_all_containers() -> HealthCheckResult:
         )
 
 
-async def _check_cloudflare_tunnel() -> HealthCheckResult:
+def _check_cloudflare_tunnel() -> HealthCheckResult:
     """Check Cloudflare Tunnel status."""
     try:
         import docker
@@ -1151,7 +1151,7 @@ async def _check_cloudflare_tunnel() -> HealthCheckResult:
         )
 
 
-async def _check_tailscale() -> HealthCheckResult:
+def _check_tailscale() -> HealthCheckResult:
     """Check Tailscale VPN status."""
     try:
         import docker
@@ -1575,7 +1575,7 @@ async def get_variable_affected_containers(
 
 
 @router.post("/restart-containers")
-async def restart_containers(
+def restart_containers(
     data: ContainerRestartRequest,
     _=Depends(get_current_user),
 ):

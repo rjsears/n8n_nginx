@@ -33,7 +33,8 @@ from api.schemas.backups import (
     BackupHistoryPaginatedResponse,
     BackupHistoryCountResponse,
     BackupRunRequest,
-    BackupRunResponse,
+    BackupJobResponse,
+    BackupJobListResponse,
     VerificationScheduleUpdate,
     VerificationScheduleResponse,
     VerificationRunResponse,
@@ -166,48 +167,102 @@ async def delete_schedule(
     return SuccessResponse(message="Schedule deleted")
 
 
-# Manual backup
+# Background jobs (backup / verification / restore)
+#
+# These operations can run far longer than the 300 s proxy timeout, so the
+# endpoints that start them return 202 with a job; clients poll
+# GET /backups/jobs/{job_id}. See api.services.operation_jobs.
 
-@router.post("/run", response_model=BackupRunResponse)
-async def run_backup(
-    data: BackupRunRequest,
-    _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-    n8n_db: AsyncSession = Depends(get_n8n_db),
-):
-    """Trigger a manual backup with full metadata capture."""
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"run_backup called: backup_type={data.backup_type}, skip_auto_verify={data.skip_auto_verify}")
+def _job_response(job) -> BackupJobResponse:
+    data = job.to_dict()
+    return BackupJobResponse(job_id=data["id"], **data)
 
-    from api.services.backup_runner import run_backup_exclusive
+
+def _start_job(kind: str, runner, lock_name: Optional[str], backup_id: Optional[int] = None,
+               params: Optional[Dict] = None) -> BackupJobResponse:
+    """Start a background job; 409 if another backup/restore/verification is running."""
+    from api.services.operation_jobs import start_job
     from api.services.operation_lock import OperationBusyError
 
     try:
-        history = await run_backup_exclusive(
-            db,
-            n8n_db,
-            backup_type=data.backup_type.value,
-            compression=data.compression.value,
-            skip_auto_verify=data.skip_auto_verify,
-            wait=False,
-        )
-
-        return BackupRunResponse(
-            backup_id=history.id,
-            status=history.status,
-            message=f"Backup {history.status}",
-        )
+        job = start_job(kind, runner, lock_name=lock_name, backup_id=backup_id, params=params)
     except OperationBusyError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
+            detail=f"{e}. Wait for it to finish and try again.",
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
+    return _job_response(job)
+
+
+@router.get("/jobs", response_model=BackupJobListResponse)
+async def list_backup_jobs(
+    limit: int = Query(20, ge=1, le=100),
+    kind: Optional[str] = Query(None, pattern="^(backup|verify|restore)$"),
+    _=Depends(get_current_user),
+):
+    """Recent backup / verification / restore jobs, newest first."""
+    from api.services.operation_jobs import list_jobs
+
+    return BackupJobListResponse(jobs=[_job_response(j) for j in await list_jobs(limit=limit, kind=kind)])
+
+
+@router.get("/jobs/{job_id}", response_model=BackupJobResponse)
+async def get_backup_job(
+    job_id: str,
+    _=Depends(get_current_user),
+):
+    """Status, progress and (when finished) result or error of one job."""
+    from api.services.operation_jobs import load_job
+
+    job = await load_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return _job_response(job)
+
+
+def _backup_job_runner(data: BackupRunRequest):
+    async def runner():
+        from api import database
+        from api.services.backup_runner import run_backup_exclusive
+
+        async with database.async_session_maker() as db, database.n8n_session_maker() as n8n_db:
+            history = await run_backup_exclusive(
+                db,
+                n8n_db,
+                backup_type=data.backup_type.value,
+                compression=data.compression.value,
+                skip_auto_verify=data.skip_auto_verify,
+                wait=False,
+            )
+            return {
+                "backup_id": history.id,
+                "status": history.status,
+                "message": f"Backup {history.status} - {history.filename}",
+                "filename": history.filename,
+            }
+
+    return runner
+
+
+# Manual backup
+
+@router.post("/run", response_model=BackupJobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def run_backup(
+    data: BackupRunRequest,
+    _=Depends(get_current_user),
+):
+    """
+    Start a manual backup with full metadata capture in the background.
+
+    Returns 202 with a job (poll GET /backups/jobs/{job_id}; the result holds
+    backup_id once it finished), or 409 if another backup, restore or
+    verification is running.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"run_backup called: backup_type={data.backup_type.value}, skip_auto_verify={data.skip_auto_verify}")
+
+    return _start_job("backup", _backup_job_runner(data), lock_name=None, params=data.model_dump(mode="json"))
 
 
 # History
@@ -537,25 +592,35 @@ async def update_verification_schedule(
     return VerificationScheduleResponse.model_validate(schedule)
 
 
-@router.post("/verification/run/{backup_id}", response_model=VerificationRunResponse)
+@router.post("/verification/run/{backup_id}", response_model=BackupJobResponse,
+             status_code=status.HTTP_202_ACCEPTED)
 async def run_verification(
     backup_id: int,
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Manually verify a backup."""
-    service = BackupService(db)
-    try:
-        # exclusive_operation / _busy_conflict are defined in the restore section below
-        async with exclusive_operation("verification", wait=False):
-            result = await service.verify_backup(backup_id)
-    except OperationBusyError as e:
-        raise _busy_conflict(e)
-    return VerificationRunResponse(
-        backup_id=backup_id,
-        status=result["status"],
-        details=result,
-    )
+    """
+    Quick-verify a backup (checksum + archive inspection) in the background.
+
+    Returns 202 with a job whose result is {backup_id, status, details}; 404
+    for an unknown backup; 409 while another operation runs.
+    """
+    if not await BackupService(db).get_backup(backup_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup not found")
+
+    async def runner():
+        from api import database
+
+        async with database.async_session_maker() as job_db:
+            result = await BackupService(job_db).verify_backup(backup_id)
+        return VerificationRunResponse(
+            backup_id=backup_id,
+            status=result["status"],
+            details=result,
+        ).model_dump(mode="json")
+
+    return _start_job("verify", runner, lock_name="verification", backup_id=backup_id,
+                      params={"type": "archive"})
 
 
 # Statistics
@@ -622,46 +687,17 @@ async def get_backup_config_files(
 # Enhanced Backup with Metadata
 # ============================================================================
 
-@router.post("/run-full", response_model=BackupRunResponse)
+@router.post("/run-full", response_model=BackupJobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def run_full_backup(
     data: BackupRunRequest,
     _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-    n8n_db: AsyncSession = Depends(get_n8n_db),
 ):
     """
-    Trigger a full backup with metadata capture.
-    This creates a complete archive with workflow manifest, config files,
-    database schemas, and an embedded restore.sh script.
+    Start a full backup with metadata capture (workflow manifest, config
+    files, database schemas, embedded restore.sh) in the background.
+    Same contract as POST /backups/run: 202 with a job, or 409.
     """
-    from api.services.backup_runner import run_backup_exclusive
-    from api.services.operation_lock import OperationBusyError
-
-    try:
-        history = await run_backup_exclusive(
-            db,
-            n8n_db,
-            backup_type=data.backup_type.value,
-            compression=data.compression.value,
-            skip_auto_verify=data.skip_auto_verify,
-            wait=False,
-        )
-
-        return BackupRunResponse(
-            backup_id=history.id,
-            status=history.status,
-            message=f"Full backup {history.status} - {history.filename}",
-        )
-    except OperationBusyError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
+    return _start_job("backup", _backup_job_runner(data), lock_name=None, params=data.model_dump(mode="json"))
 
 
 # ============================================================================
@@ -1236,7 +1272,8 @@ class DatabaseRestoreRequest(BaseModel):
     target_database: Opt[str] = None
 
 
-@router.post("/{backup_id}/restore/database")
+@router.post("/{backup_id}/restore/database", response_model=BackupJobResponse,
+             status_code=status.HTTP_202_ACCEPTED)
 async def restore_database(
     backup_id: int,
     data: DatabaseRestoreRequest,
@@ -1252,43 +1289,40 @@ async def restore_database(
     first and the previous database is kept as <name>_pre_restore_<timestamp>.
     The management database cannot be restored here (use restore.sh).
 
-    Returns 409 if a backup/restore/verification is already running. On
-    failure returns 400 with the full result (error, stderr, safety_dump) as detail.
+    Runs in the background: returns 202 with a job (poll GET
+    /backups/jobs/{job_id}), 400 for a database that cannot be restored here,
+    404 for an unknown backup, 409 if a backup/restore/verification is already
+    running. A failed restore ends the job as 'failed' with the full result
+    (error, stderr, safety_dump) as its error.
     """
     service = RestoreService(db)
 
     refusal = service.check_database_restorable(data.database_name, data.target_database)
     if refusal:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=refusal)
+    if not await service.backup_service.get_backup(backup_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup not found")
 
-    try:
-        async with exclusive_operation("restore", wait=False):
-            result = await service.restore_database(
+    async def runner():
+        from api import database
+        from api.services.operation_jobs import JobFailed
+
+        async with database.async_session_maker() as job_db:
+            result = await RestoreService(job_db).restore_database(
                 backup_id=backup_id,
                 database_name=data.database_name,
                 target_database=data.target_database,
             )
-
         if result["status"] != "success":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result,
-            )
-
+            raise JobFailed(result, result=result)
         return result
 
-    except OperationBusyError as e:
-        raise _busy_conflict(e)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
+    return _start_job("restore", runner, lock_name="restore", backup_id=backup_id,
+                      params={"type": "database", **data.model_dump(mode="json")})
 
 
-@router.post("/{backup_id}/restore/full")
+@router.post("/{backup_id}/restore/full", response_model=BackupJobResponse,
+             status_code=status.HTTP_202_ACCEPTED)
 async def full_system_restore(
     backup_id: int,
     data: FullRestoreRequest,
@@ -1308,15 +1342,21 @@ async def full_system_restore(
     By default, existing files are backed up before overwriting (create_backups=true).
     Only the n8n database can be restored in-app; n8n_management is refused.
 
-    Returns 409 if another backup/restore/verification is running. A "failed"
-    result is returned as 400 with the full result as detail; "partial" is 200
-    with the errors listed.
+    Runs in the background: returns 202 with a job (poll GET
+    /backups/jobs/{job_id}), 404 for an unknown backup, 409 if another backup/
+    restore/verification is running. A "failed" restore ends the job as
+    'failed' with the full result as its error; "partial" ends it as
+    'success' with the errors listed in the result.
     """
-    service = RestoreService(db)
+    if not await RestoreService(db).backup_service.get_backup(backup_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup not found")
 
-    try:
-        async with exclusive_operation("restore", wait=False):
-            result = await service.full_system_restore(
+    async def runner():
+        from api import database
+        from api.services.operation_jobs import JobFailed
+
+        async with database.async_session_maker() as job_db:
+            result = await RestoreService(job_db).full_system_restore(
                 backup_id=backup_id,
                 restore_databases=data.restore_databases,
                 restore_configs=data.restore_configs,
@@ -1325,24 +1365,12 @@ async def full_system_restore(
                 config_files=data.config_files,
                 create_backups=data.create_backups,
             )
-
         if result["status"] == "failed":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result,
-            )
-
+            raise JobFailed(result, result=result)
         return result
 
-    except OperationBusyError as e:
-        raise _busy_conflict(e)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
+    return _start_job("restore", runner, lock_name="restore", backup_id=backup_id,
+                      params={"type": "full", **data.model_dump(mode="json")})
 
 
 # ============================================================================
@@ -1370,7 +1398,7 @@ class VerifyBackupResponse(BaseModel):
     duration_seconds: Opt[float] = None
 
 
-@router.post("/{backup_id}/verify", response_model=VerifyBackupResponse)
+@router.post("/{backup_id}/verify", response_model=BackupJobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def verify_backup_comprehensive(
     backup_id: int,
     data: VerifyBackupRequest = None,
@@ -1389,21 +1417,25 @@ async def verify_backup_comprehensive(
     6. Verify workflow checksums (sampled or all)
     7. Verify config file checksums
 
-    This operation takes 1-5 minutes depending on backup size.
+    This takes minutes, so it runs in the background: returns 202 with a job
+    whose result is the verification report (overall_status, checks, errors,
+    warnings); 404 for an unknown backup; 409 while another operation runs.
     """
     if data is None:
         data = VerifyBackupRequest()
 
-    service = VerificationService(db)
+    if not await BackupService(db).get_backup(backup_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup not found")
 
-    try:
-        async with exclusive_operation("verification", wait=False):
-            result = await service.verify_backup(
+    async def runner():
+        from api import database
+
+        async with database.async_session_maker() as job_db:
+            result = await VerificationService(job_db).verify_backup(
                 backup_id=backup_id,
                 verify_all_workflows=data.verify_all_workflows,
                 workflow_sample_size=data.workflow_sample_size,
             )
-
         return VerifyBackupResponse(
             backup_id=backup_id,
             status=result.get("overall_status", "unknown"),
@@ -1413,15 +1445,10 @@ async def verify_backup_comprehensive(
             errors=result.get("errors"),
             warnings=result.get("warnings"),
             duration_seconds=result.get("duration_seconds"),
-        )
+        ).model_dump(mode="json")
 
-    except OperationBusyError as e:
-        raise _busy_conflict(e)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
+    return _start_job("verify", runner, lock_name="verification", backup_id=backup_id,
+                      params={"type": "full", **data.model_dump(mode="json")})
 
 
 @router.post("/{backup_id}/verify/quick")
