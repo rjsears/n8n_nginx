@@ -204,8 +204,17 @@ def test_project_tree_copies_bind_mounted_configs_and_skips_noise(tmp_path):
         "scripts/certbot/renew-loop.sh": "x",
         "management/Dockerfile": "x",
         "management/frontend/node_modules/pkg/index.js": "x",
+        "management/frontend/dist/app.js": "x",
         ".git/HEAD": "ref: refs/heads/main",
-        "docs/big.md": "x",
+        "docs/index.md": "x",
+        "docs/requirements.txt": "mkdocs",
+        "mkdocs.yml": "site_name: x",
+        "site/index.html": "x",
+        ".claude/worktrees/agent/.env": "COPY=1",
+        "n8n_status/vendor/.git/HEAD": "x",
+        "backup_20260101T000000Z_1.n8n_backup.tar.gz": "x",
+        "dl/backup_20260101T000000Z_2.n8n_backup.tar.gz.gpg": "x",
+        "x.partial": "x",
         "nginx.conf.bak.20260101": "x",
     }
     for rel, content in files.items():
@@ -217,10 +226,15 @@ def test_project_tree_copies_bind_mounted_configs_and_skips_noise(tmp_path):
     count, skipped = inv.copy_project_tree(str(dest), str(src))
     copied = {str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file() or p.is_symlink()}
     for rel in (".env", "nginx-router.conf", "nginx-public.conf", ".filebrowser.json", "ntfy/server.yml",
-                "dozzle/users.yml", "scripts/certbot/renew-loop.sh", "management/Dockerfile", "link.conf"):
+                "dozzle/users.yml", "scripts/certbot/renew-loop.sh", "management/Dockerfile", "link.conf",
+                "docs/index.md", "docs/requirements.txt", "mkdocs.yml"):
         assert rel in copied
     assert os.path.islink(dest / "link.conf")
-    assert not any("node_modules" in c or c.startswith((".git", "docs")) or ".bak." in c for c in copied)
+    assert copied == {
+        ".env", "nginx-router.conf", "nginx-public.conf", ".filebrowser.json", "ntfy/server.yml",
+        "dozzle/users.yml", "scripts/certbot/renew-loop.sh", "management/Dockerfile", "link.conf",
+        "docs/index.md", "docs/requirements.txt", "mkdocs.yml", "docker-compose.yaml",
+    }
     assert count == len(copied) and skipped == []
 
 

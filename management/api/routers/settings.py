@@ -235,9 +235,9 @@ async def get_nfs_status(
 
     # A bind mount is always a mount point; only a network filesystem type
     # means the NFS share is really mounted (see api.services.backup_storage).
-    from api.services.backup_storage import inspect_storage_target
+    from api.services.backup_storage import inspect_storage_target_async
 
-    target = inspect_storage_target(mount_point)
+    target = await inspect_storage_target_async(mount_point)
     is_mounted = target.offsite or (target.is_network_fs and target.exists)
 
     if not is_mounted:

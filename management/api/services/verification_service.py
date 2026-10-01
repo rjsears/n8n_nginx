@@ -94,8 +94,17 @@ def compare_workflow_checksums(
     expected: Dict[str, Any],
     restored: Dict[str, Dict[str, Any]],
     workflow_ids: Optional[List[str]] = None,
+    same_snapshot: bool = False,
 ) -> Dict[str, Any]:
-    """Compare recorded workflow checksums with those of a restored copy."""
+    """
+    Compare recorded workflow checksums with those of a restored copy.
+
+    same_snapshot: the checksums were read in the exported snapshot pg_dump
+    dumped (see BackupService._n8n_dump_snapshot). Then every difference is a
+    real mismatch. Otherwise the checksums were read just before the dump, so
+    a workflow saved (different updatedAt) or deleted (missing from the
+    restored copy) in between is reported as changed during the backup.
+    """
     matches: List[str] = []
     mismatches: List[Dict[str, Any]] = []
     changed_during_backup: List[str] = []
@@ -106,10 +115,17 @@ def compare_workflow_checksums(
             want = {"sha256": want, "updated_at_ms": None}
         got = restored.get(wf_id)
         if got is None:
-            mismatches.append({"workflow_id": wf_id, "error": "Workflow missing from restored database"})
+            if same_snapshot:
+                mismatches.append({"workflow_id": wf_id, "error": "Workflow missing from restored database"})
+            else:
+                changed_during_backup.append(wf_id)  # deleted between checksum capture and pg_dump
         elif got["sha256"] == want.get("sha256"):
             matches.append(wf_id)
-        elif want.get("updated_at_ms") is not None and got.get("updated_at_ms") != want.get("updated_at_ms"):
+        elif (
+            not same_snapshot
+            and want.get("updated_at_ms") is not None
+            and got.get("updated_at_ms") != want.get("updated_at_ms")
+        ):
             changed_during_backup.append(wf_id)
         else:
             mismatches.append({
@@ -519,6 +535,7 @@ class VerificationService:
         expected_checksums: Dict[str, Any],
         sample_size: Optional[int] = None,
         database: str = VERIFY_DB_NAME,
+        same_snapshot: bool = False,
     ) -> Dict[str, Any]:
         """
         Compare the workflow checksums recorded at backup time with the
@@ -531,9 +548,11 @@ class VerificationService:
             sample_size: Accepted for API compatibility and ignored: every
                 workflow is compared (one query, cheap).
 
-        A workflow whose updatedAt in the restored copy differs from the one
-        recorded was saved while the backup ran (the checksums are taken just
-        before the dump); that is reported separately, not as a failure.
+        Unless same_snapshot (checksums and dump from one exported snapshot),
+        a workflow whose updatedAt in the restored copy differs from the one
+        recorded, or that is missing from it, was saved or deleted while the
+        backup ran (the checksums are taken just before the dump); that is
+        reported separately, not as a failure.
         """
         if not expected_checksums:
             return {"passed": True, "message": "No workflow checksums to verify"}
@@ -553,7 +572,7 @@ class VerificationService:
         except Exception as e:
             return {"passed": False, "error": str(e)}
 
-        return compare_workflow_checksums(expected_checksums, restored, workflow_ids)
+        return compare_workflow_checksums(expected_checksums, restored, workflow_ids, same_snapshot=same_snapshot)
 
     async def verify_config_file_checksums(
         self,
@@ -824,6 +843,7 @@ class VerificationService:
                     workflow_checksums,
                     sample_size=sample,
                     database=loaded_dbs["n8n"],
+                    same_snapshot=bool(stored.get("workflow_checksums_same_snapshot")),
                 )
                 results["checks"]["workflow_checksums"] = checksums_result
                 if not checksums_result.get("passed"):
@@ -831,7 +851,7 @@ class VerificationService:
                     results["errors"].append("Workflow checksum verification failed")
                 elif checksums_result.get("changed_during_backup"):
                     results["warnings"].append(
-                        f"{len(checksums_result['changed_during_backup'])} workflow(s) were saved while the backup ran"
+                        f"{len(checksums_result['changed_during_backup'])} workflow(s) were saved or deleted while the backup ran"
                     )
             elif "workflow_checksums" in stored:
                 # Recorded, but the n8n database had no workflows

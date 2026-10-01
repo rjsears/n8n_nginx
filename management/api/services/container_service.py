@@ -18,6 +18,7 @@ from dateutil import parser as dateutil_parser
 import logging
 import asyncio
 import os
+import socket
 
 from api.models.audit import ContainerStatusCache
 from api.config import settings
@@ -429,6 +430,23 @@ class ContainerService:
             return container_name[len(prefix):]
         return container_name
 
+    MANAGEMENT_SERVICE = "n8n_management"
+
+    def _is_management_container(self, name: str, service_name: str) -> bool:
+        """True when name is the container this API runs in."""
+        if service_name == self.MANAGEMENT_SERVICE:
+            return True
+        own = {os.environ.get("MANAGEMENT_CONTAINER", "n8n_management"), socket.gethostname()}
+        if name in own:
+            return True
+        try:
+            container_id = self.client.containers.get(name).id or ""
+        except Exception:
+            return False
+        hostname = socket.gethostname()
+        # Compose leaves the hostname as the (short) container id
+        return bool(hostname) and container_id.startswith(hostname)
+
     async def recreate_container(self, name: str, pull: bool = False) -> Dict[str, Any]:
         """
         Recreate a container using docker compose.
@@ -441,6 +459,15 @@ class ContainerService:
             Dict with success status and output
         """
         service_name = await asyncio.to_thread(self._get_service_name_from_container, name)
+
+        # `compose up --force-recreate` of this container would stop the
+        # process running compose half-way (the old container is removed
+        # before the new one is started), leaving the console down.
+        if await asyncio.to_thread(self._is_management_container, name, service_name):
+            raise ValueError(
+                "The management container cannot recreate itself from the console. On the host run: "
+                f"docker compose up -d --force-recreate {service_name}"
+            )
 
         # Run against the stack's real compose project and host directory
         # (see api.services.compose_cli), not a new "host_project" project.

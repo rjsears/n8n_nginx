@@ -95,6 +95,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Leftover restore container cleanup failed: {e}")
 
+        # Partial archives / temp dirs left behind by a crash or restart
+        try:
+            from api.services.backup_service import cleanup_stale_backup_files
+            await cleanup_stale_backup_files()
+        except Exception as e:
+            logger.warning(f"Stale backup file cleanup failed: {e}")
+
         # Initialize scheduler
         await init_scheduler()
         logger.info("Scheduler initialized")

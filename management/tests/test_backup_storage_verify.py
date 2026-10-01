@@ -94,7 +94,7 @@ def _config(pref):
 
 async def test_nfs_only_refuses_local_disk_and_both_falls_back(monkeypatch):
     local = bs.StorageTargetStatus(path="/mnt/backups", exists=True, fstype="ext4", reason="local ext4")
-    monkeypatch.setattr(bsvc, "inspect_storage_target", lambda p: local)
+    monkeypatch.setattr(bs, "inspect_storage_target", lambda p, **k: local)
     sent = []
 
     async def fake_notify(path, status, context):
@@ -122,7 +122,7 @@ async def test_nfs_only_refuses_local_disk_and_both_falls_back(monkeypatch):
 async def test_nfs_used_when_real_share(monkeypatch):
     real = bs.StorageTargetStatus(path="/mnt/backups", exists=True, fstype="nfs4", is_network_fs=True,
                                   offsite=True)
-    monkeypatch.setattr(bsvc, "inspect_storage_target", lambda p: real)
+    monkeypatch.setattr(bs, "inspect_storage_target", lambda p, **k: real)
     service = bsvc.BackupService(db=None)
 
     async def cfg():
@@ -282,9 +282,15 @@ def test_workflow_checksum_comparison():
     result = vs.compare_workflow_checksums(expected, restored)
     assert not result["passed"]
     assert result["verified"] == 1
-    assert result["changed_during_backup"] == ["c"]
+    # d is missing from the restored copy: deleted between checksum capture and pg_dump
+    assert result["changed_during_backup"] == ["c", "d"]
     failed = {m["workflow_id"] for m in result["mismatches"]}
-    assert failed == {"b", "d"}  # d missing from the restored copy
+    assert failed == {"b"}
+
+    # checksums and dump from one exported snapshot: every difference is a failure
+    strict = vs.compare_workflow_checksums(expected, restored, same_snapshot=True)
+    assert {m["workflow_id"] for m in strict["mismatches"]} == {"b", "c", "d"}
+    assert strict["changed_during_backup"] is None
 
     ok = vs.compare_workflow_checksums({"a": expected["a"]}, restored)
     assert ok["passed"] and ok["verified"] == 1
