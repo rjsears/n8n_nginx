@@ -371,6 +371,8 @@ For DNS providers without Certbot plugins:
 4. Press Enter to continue validation
 5. Remove the TXT record after completion
 
+> **Manual certificates do NOT renew automatically.** Certbot has no API access to your DNS, so it cannot answer the renewal challenge on its own. The certificate expires after 90 days; before then, re-run `./setup.sh` (Reconfigure → option 1, answer "yes" to request a new certificate) and add the new TXT record. Once the certificate enters its renewal window (30 days before expiry) `docker logs n8n_certbot` and `/etc/letsencrypt/n8n-renewal.log` show a renewal error every hour as a reminder. Manual mode needs an interactive terminal and cannot be used with auto-confirm (`PRECONFIG_AUTO_CONFIRM=true`). Prefer a provider with a certbot DNS plugin whenever possible.
+
 **Use manual mode for:**
 - GoDaddy
 - Namecheap
@@ -433,7 +435,10 @@ After configuration, these variables are set in your `.env`:
 | `DNS_PROVIDER` | `cloudflare` | Which DNS provider plugin to use |
 | `DNS_CERTBOT_IMAGE` | `certbot/dns-cloudflare:latest` | Docker image for Certbot |
 | `DNS_CERTBOT_FLAGS` | `--dns-cloudflare ...` | CLI flags for certificate issuance |
-| `DNS_CREDENTIALS_FILE` | `cloudflare.ini` | Path to credentials file |
+| `DNS_CREDENTIALS_FILE` | `cloudflare.ini` | Credentials file (relative to the install directory) mounted into the certbot container |
+| `DNS_CREDENTIALS_TARGET` | `/credentials.ini` | Where that file is mounted inside the certbot container (`/credentials.ini` for Cloudflare/DigitalOcean/manual, `/credentials.json` for Google, `/root/.aws/credentials` for Route 53). Must match the path used at issuance, which certbot records in `renewal/<domain>.conf` |
+
+> Installs made before `DNS_CREDENTIALS_FILE`/`DNS_CREDENTIALS_TARGET` were written to `.env` always mounted `cloudflare.ini` at `/credentials.ini`, so Route 53, Google and DigitalOcean renewals could not authenticate. Re-run `./setup.sh` → Reconfigure → option 7 (Regenerate all config files), or add the two lines to `.env` by hand, then `docker compose up -d certbot`.
 
 ---
 
@@ -512,15 +517,29 @@ The Certbot container runs continuously and checks for renewal:
 # docker-compose.yaml
 certbot:
   image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
-  entrypoint: /bin/sh -c "apk add --no-cache docker-cli >/dev/null 2>&1; trap exit TERM; while :; do certbot renew --no-random-sleep-on-renew ... --deploy-hook 'docker exec n8n_nginx nginx -s reload; docker exec n8n_nginx_router nginx -s reload || true'; sleep 12h & wait $${!}; done;"
+  restart: unless-stopped
+  environment:
+    - NGINX_CONTAINER=${NGINX_CONTAINER:-n8n_nginx}
+  volumes:
+    - letsencrypt:/etc/letsencrypt
+    - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:${DNS_CREDENTIALS_TARGET:-/credentials.ini}:ro
+    - ./scripts/certbot:/opt/n8n-certbot:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+  entrypoint: ["/bin/sh", "/opt/n8n-certbot/renew-loop.sh"]
 ```
 
-**Process:**
-1. On container start, the Docker CLI is installed (`apk add docker-cli`) so the deploy hook can reach the host's Docker daemon through the mounted socket. Without it, certbot's hook validation fails with `Unable to find deploy-hook command docker in the PATH` and **no renewal is ever attempted**.
-2. Every 12 hours, Certbot checks if renewal is needed
-3. Certificates are renewed when less than 30 days remain
-4. After renewal, the deploy hook reloads nginx to pick up the new certs. On installs with the Public Website feature, the hook also reloads `n8n_nginx_router` — the container that terminates SSL on port 443 in that topology. The `|| true` keeps the hook clean on installs without the router.
-5. No downtime - nginx gracefully reloads
+**Process** (`scripts/certbot/renew-loop.sh`):
+1. On start, the loop installs `scripts/certbot/reload-nginx-hook.py` as `/etc/letsencrypt/renewal-hooks/deploy/n8n-reload-nginx`. Certbot runs everything in that directory after **every** successful `certbot renew` — the background loop, the Management Console's *Force Renewal*, or a manual `docker exec`. The hook sends `SIGHUP` (the same as `nginx -s reload`) to `n8n_nginx` and, if it exists, `n8n_nginx_router` through the Docker API on the mounted socket. It uses only Python's standard library, which every certbot image ships, so nothing is installed at container start (older versions ran `apk add docker-cli` on every start, which needed network access and hid its failures).
+2. Every 12 hours, `certbot renew` checks every certificate. It re-uses the DNS plugin and credentials path recorded in `renewal/<domain>.conf` when the certificate was issued, which is why the credentials file must be mounted at `DNS_CREDENTIALS_TARGET`.
+3. Certificates are renewed when less than 30 days remain.
+4. After renewal, the deploy hook reloads nginx. No downtime: nginx reloads gracefully.
+5. **Failures are visible**: certbot's output and a clear `ERROR: certbot renew FAILED` line go to `docker logs n8n_certbot` and to `/etc/letsencrypt/n8n-renewal.log` in the volume. The latest result is written to `/etc/letsencrypt/n8n-renewal-status.json` (`{"status": "ok"|"failed", "exit_code": ..., "last_run": ..., "broken_lineages": ...}`). After a failure the loop retries every hour instead of waiting 12 hours, and it keeps running.
+6. The loop also checks every lineage on each run and logs an error if `live/<domain>/*.pem` are not symlinks (see [Repairing a Broken Certificate Lineage](#repairing-a-broken-certificate-lineage)).
+7. `restart: unless-stopped` brings the container back after a crash or a host reboot.
+
+Intervals can be tuned with `RENEW_INTERVAL` (default `12h`) and `RENEW_RETRY_INTERVAL` (default `1h`) in the certbot service's `environment:`.
+
+**At the end of `setup.sh`** the installer runs `certbot renew --dry-run` in the certbot container (against the Let's Encrypt staging server) and reports whether automatic renewal works. If it detects a broken lineage left by an older install it offers to repair it first.
 
 ### Renewal Timeline
 
@@ -544,6 +563,13 @@ docker exec n8n_certbot cat /etc/letsencrypt/renewal/n8n.yourdomain.com.conf
 
 # Test renewal (dry run)
 docker exec n8n_certbot certbot renew --dry-run
+
+# Result of the last automatic renewal run, and its log
+docker exec n8n_certbot cat /etc/letsencrypt/n8n-renewal-status.json
+docker exec n8n_certbot tail -n 50 /etc/letsencrypt/n8n-renewal.log
+
+# Check that the lineage is intact (every file must be a symlink "-> ../../archive/...")
+docker exec n8n_certbot ls -l /etc/letsencrypt/live/n8n.yourdomain.com/
 ```
 
 ---
@@ -603,6 +629,8 @@ If you have certificates from another CA:
    docker compose start nginx
    ```
 
+> A custom certificate is not managed by certbot and is never renewed automatically. Because its `live/` files are regular files, the certbot container logs it as a "broken lineage" on every run; stop the certbot container (`docker compose stop certbot`) if you manage certificates yourself. Never copy certbot-managed certificates with `cp -L`/`cp -rL` or `docker cp`: that replaces the `live/` symlinks with plain files and certbot stops renewing them. Use `cp -a src/. dst/` to keep symlinks.
+
 ---
 
 ## Troubleshooting
@@ -624,24 +652,63 @@ docker logs n8n_certbot
 | `CAA record issue` | CAA DNS record blocks Let's Encrypt | Add `0 issue "letsencrypt.org"` |
 | `Timeout during connect` | Network issues | Check internet connectivity |
 | `The requested dns-cloudflare plugin does not appear to be installed` | Wrong certbot image | Set `DNS_CERTBOT_IMAGE=certbot/dns-cloudflare` in `.env` and recreate the certbot container |
-| `Unable to find deploy-hook command docker in the PATH` | Certbot container missing the Docker CLI, so the deploy hook fails validation and **renewal is never attempted** | Update to the current compose file (entrypoint runs `apk add docker-cli` at container start), then `docker compose up -d --force-recreate certbot` |
+| `Unable to find deploy-hook command docker in the PATH` | Old compose file: the renew loop passed a `docker exec` deploy hook but the certbot image has no Docker CLI, so **renewal is never attempted** | Update to the current compose file (the hook now uses the Docker API from Python, no CLI needed), then `docker compose up -d --force-recreate certbot` |
+| `Renewal configuration file ... is broken` / `expected ... to be a symlink` | Broken lineage: `live/*.pem` are regular files | See [Repairing a Broken Certificate Lineage](#repairing-a-broken-certificate-lineage) |
+| `Unable to locate credentials` (Route 53) or `... credentials file ... not found` | Wrong credentials file mounted (older installs always mounted `cloudflare.ini`) | Set `DNS_CREDENTIALS_FILE` / `DNS_CREDENTIALS_TARGET` in `.env` (see [Environment Variables Set by Setup](#environment-variables-set-by-setup)), then `docker compose up -d certbot` |
 
-### Renewals Silently Failing: Deploy Hook Cannot Find Docker
+### Renewals Silently Failing (Older Installs)
 
-**Symptoms:** `docker logs n8n_certbot` shows `Unable to find deploy-hook command docker in the PATH.` every 12 hours. The certificate creeps toward expiry even though the certbot container is running.
+**Symptoms:** the certificate creeps toward expiry although the certbot container is running, and nothing obvious appears in the logs. Installs made before this fix had four independent problems, each of which stopped renewals:
 
-**Cause:** The deploy hook (`docker exec ... nginx -s reload`) needs the Docker CLI inside the certbot container to reach the host daemon through the mounted `/var/run/docker.sock`. The stock certbot images don't ship it. Certbot validates hook commands *before* doing anything, and a failed validation aborts the entire renew run — so this isn't just a broken reload; **no renewal happens at all**.
+1. **Broken lineage.** The installer issued the certificate into `./letsencrypt-temp` and copied it into the volume with `cp -rL`, turning `live/<domain>/*.pem` into regular files. Certbot considers such a lineage broken and skips it.
+2. **Errors were hidden.** The renew loop ended in `|| true` and discarded all output.
+3. **Missing Docker CLI.** The deploy hook needed `docker`, installed by `apk add docker-cli` at every start with its errors discarded; if that failed, certbot refused to run the hook and did not renew at all.
+4. **Wrong DNS credentials.** `DNS_CREDENTIALS_FILE` was never written to `.env`, so the container always mounted `cloudflare.ini` at `/credentials.ini`; Route 53, Google and DigitalOcean renewals could not authenticate.
 
-**Solution:** The current compose file installs the CLI at container start (`apk add --no-cache docker-cli` in the entrypoint). Update your `docker-compose.yaml` to the current version and recreate the container:
+**Solution:**
 ```bash
+cd /path/to/n8n_nginx
+git pull                                   # get the fixed compose file and scripts/
+./setup.sh                                 # Reconfigure -> 7 (Regenerate all config files), redeploy
+                                           #   (writes DNS_CREDENTIALS_FILE/TARGET, runs the dry-run check,
+                                           #    offers to repair a broken lineage)
+# or, without re-running setup:
+./scripts/repair_ssl_lineage.sh            # repair lineage + certbot renew --dry-run
 docker compose up -d --force-recreate certbot
-docker exec n8n_certbot which docker   # should print a path
+docker logs -f n8n_certbot                 # should end with "certbot renew finished successfully"
 ```
-If the certificate is close to expiry, renew immediately rather than waiting for the next 12-hour cycle:
+
+### Repairing a Broken Certificate Lineage
+
+Certbot keeps every issued certificate in `archive/<domain>/certN.pem` (and `chainN`, `fullchainN`, `privkeyN`) and points `live/<domain>/*.pem` at the newest version with **symlinks**. If those are plain files, certbot will not renew the certificate.
+
+**Detect:**
 ```bash
-docker exec n8n_certbot certbot renew --no-random-sleep-on-renew
-docker exec n8n_nginx nginx -s reload
+./scripts/repair_ssl_lineage.sh --check
+# or
+docker exec n8n_certbot ls -l /etc/letsencrypt/live/your-domain.com/   # every entry must be "-> ../../archive/..."
 ```
+
+**Repair in place (no request to Let's Encrypt, no rate limit used):**
+```bash
+./scripts/repair_ssl_lineage.sh
+```
+For every broken lineage the script backs up `live/<domain>/` to `/etc/letsencrypt/lineage-repair-backup/` in the volume, re-creates `live/<domain>/*.pem` as symlinks to the newest archive version (or adds the current live files as a new archive version if they differ), runs `certbot renew --dry-run` with your provider's credentials, and restarts the certbot container. Add `--force-renew` to also issue a fresh certificate immediately (`certbot renew --force-renewal --cert-name <domain>`; nginx is reloaded by the deploy hook).
+
+**Re-issue from scratch** (lineage cannot be repaired, e.g. the renewal config is missing):
+```bash
+./scripts/repair_ssl_lineage.sh --reissue your-domain.com
+```
+This moves the old lineage aside (kept in `lineage-repair-backup/`) and runs `certbot certonly --force-renewal --cert-name your-domain.com` with the domains of the current certificate directly into the `letsencrypt` volume, then reloads nginx. If issuance fails, the previous files are put back so nginx keeps serving the old certificate. The equivalent manual command for Cloudflare is:
+```bash
+docker run --rm -v letsencrypt:/etc/letsencrypt -v "$PWD/cloudflare.ini:/credentials.ini:ro" \
+  certbot/dns-cloudflare certonly --dns-cloudflare --dns-cloudflare-credentials /credentials.ini \
+  --dns-cloudflare-propagation-seconds 60 --cert-name your-domain.com \
+  -d your-domain.com -d '*.your-domain.com' --force-renewal --non-interactive --agree-tos
+```
+(move `live/`, `archive/` and `renewal/` entries for the domain aside first, otherwise certbot creates `your-domain.com-0001`, which nginx does not use).
+
+Running `./setup.sh` and requesting a new certificate does the same automatically: a broken lineage for the certificate domain is moved aside and a clean one is issued straight into the volume.
 
 ### Force Renewal Times Out in Management Console
 
@@ -769,8 +836,13 @@ docker exec n8n_nginx nginx -s reload
 # Public Website installs: also reload the SSL-terminating router
 docker exec n8n_nginx_router nginx -s reload
 
-# View Certbot logs
+# View Certbot logs (renewal failures are logged as "ERROR: certbot renew FAILED")
 docker logs n8n_certbot
+docker exec n8n_certbot cat /etc/letsencrypt/n8n-renewal-status.json
+
+# Detect / repair a broken certificate lineage (live/*.pem not symlinks)
+./scripts/repair_ssl_lineage.sh --check
+./scripts/repair_ssl_lineage.sh
 
 # Check certificate from outside
 echo | openssl s_client -connect YOUR_DOMAIN:443 2>/dev/null | openssl x509 -noout -dates
@@ -784,6 +856,9 @@ echo | openssl s_client -connect YOUR_DOMAIN:443 2>/dev/null | openssl x509 -noo
 | Certificate | `letsencrypt:/etc/letsencrypt/live/DOMAIN/fullchain.pem` | SSL certificate |
 | Private key | `letsencrypt:/etc/letsencrypt/live/DOMAIN/privkey.pem` | SSL private key |
 | Renewal config | `letsencrypt:/etc/letsencrypt/renewal/DOMAIN.conf` | Certbot renewal settings |
+| Renewal log | `letsencrypt:/etc/letsencrypt/n8n-renewal.log` | Output of every automatic renewal run |
+| Renewal status | `letsencrypt:/etc/letsencrypt/n8n-renewal-status.json` | Result of the last automatic renewal run |
+| Deploy hook | `letsencrypt:/etc/letsencrypt/renewal-hooks/deploy/n8n-reload-nginx` | Reloads nginx after renewal (installed from `scripts/certbot/`) |
 
 ### Environment Variables
 
@@ -793,4 +868,5 @@ echo | openssl s_client -connect YOUR_DOMAIN:443 2>/dev/null | openssl x509 -noo
 | `DNS_CERTBOT_IMAGE` | `certbot/dns-cloudflare:latest` | Certbot Docker image |
 | `DNS_CERTBOT_FLAGS` | `--dns-cloudflare --dns-cloudflare-credentials /credentials.ini` | Certbot CLI flags |
 | `DNS_CREDENTIALS_FILE` | `cloudflare.ini` | Credentials file name |
+| `DNS_CREDENTIALS_TARGET` | `/credentials.ini` | Mount path of the credentials file inside the certbot container |
 

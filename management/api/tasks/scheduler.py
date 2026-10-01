@@ -69,6 +69,34 @@ async def init_scheduler() -> None:
     scheduler.start()
     logger.info("Scheduler started")
 
+    # Jobs added before start() have no next_run_time yet; persist it now.
+    await _persist_backup_next_run_times()
+
+
+async def _persist_backup_next_run_times() -> None:
+    """Store each backup job's next run time on its BackupSchedule row."""
+    from api.database import async_session_maker
+    from api.models.backups import BackupSchedule
+    from sqlalchemy import update
+
+    try:
+        async with async_session_maker() as db:
+            for job in scheduler.get_jobs():
+                if not job.id.startswith("backup_"):
+                    continue
+                try:
+                    schedule_id = int(job.id.split("_", 1)[1])
+                except ValueError:
+                    continue
+                await db.execute(
+                    update(BackupSchedule)
+                    .where(BackupSchedule.id == schedule_id)
+                    .values(apscheduler_job_id=job.id, next_run=job.next_run_time)
+                )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to persist backup schedule next run times: {e}")
+
 
 async def shutdown_scheduler() -> None:
     """Shutdown the scheduler gracefully."""
@@ -134,12 +162,17 @@ async def _add_maintenance_jobs() -> None:
         replace_existing=True,
     )
 
-    # Retention policy enforcement - run daily at 2 AM
+    # Backup retention + pruning - run hourly at minute 15.
+    # GFS retention (Backup Settings > Retention), pending deletions and the
+    # space/size/time pruning rules, under the global operation lock (skipped
+    # if a backup/restore/verification is running). This replaces the legacy
+    # "maintenance_retention_enforcement" job, which read the unused
+    # RetentionPolicy table.
     scheduler.add_job(
-        _enforce_retention,
-        CronTrigger(hour=2, minute=0),
-        id="maintenance_retention_enforcement",
-        name="Retention Policy Enforcement",
+        _run_maintenance_pruning,
+        CronTrigger(minute=15),
+        id="maintenance_pruning",
+        name="Backup Retention & Pruning",
         replace_existing=True,
     )
 
@@ -350,11 +383,17 @@ async def _sync_backup_schedules() -> None:
             )
             schedules = result.scalars().all()
 
-            # Create APScheduler jobs for each enabled schedule
+            # Create APScheduler jobs for each enabled schedule. One bad
+            # schedule must not prevent the others from being registered.
+            synced = 0
             for schedule in schedules:
-                await add_backup_job(schedule)
+                try:
+                    await add_backup_job(schedule)
+                    synced += 1
+                except Exception as e:
+                    logger.error(f"Failed to register backup schedule {schedule.id}: {e}")
 
-            logger.info(f"Synced {len(schedules)} backup schedule(s) to APScheduler")
+            logger.info(f"Synced {synced}/{len(schedules)} backup schedule(s) to APScheduler")
     except Exception as e:
         logger.error(f"Failed to sync backup schedules: {e}")
 
@@ -406,9 +445,13 @@ async def add_backup_job(schedule) -> None:
         replace_existing=True,
     )
 
-    # Update next run time in database
+    # Update next run time in database. Before scheduler.start() the job is
+    # still pending and has no next_run_time attribute at all (APScheduler 3.x
+    # raises AttributeError), which used to abort the startup sync after the
+    # first schedule; init_scheduler() persists these after start instead.
     job = scheduler.get_job(job_id)
-    if job and job.next_run_time:
+    next_run_time = getattr(job, "next_run_time", None) if job else None
+    if next_run_time:
         from api.database import async_session_maker
         from api.models.backups import BackupSchedule
         from sqlalchemy import update
@@ -419,7 +462,7 @@ async def add_backup_job(schedule) -> None:
                 .where(BackupSchedule.id == schedule.id)
                 .values(
                     apscheduler_job_id=job_id,
-                    next_run=job.next_run_time,
+                    next_run=next_run_time,
                 )
             )
             await db.commit()
@@ -445,7 +488,6 @@ async def remove_backup_job(schedule_id: int) -> None:
 async def _run_scheduled_backup(schedule_id: int) -> None:
     """Execute a scheduled backup."""
     from api.database import async_session_maker, n8n_session_maker
-    from api.services.backup_service import BackupService
     from api.models.backups import BackupSchedule
     from sqlalchemy import select
     from datetime import timedelta
@@ -489,17 +531,23 @@ async def _run_scheduled_backup(schedule_id: int) -> None:
         backup_type = schedule.backup_type
         compression = schedule.compression
 
-    # Phase 2: Run the actual backup (outside the lock transaction)
+    # Phase 2: Run the actual backup (outside the lock transaction).
+    # run_backup_exclusive waits for the global operation lock (so a running
+    # restore/verification/pruning finishes first), then runs auto-verification
+    # and retention after releasing it.
+    from api.services.backup_runner import run_backup_exclusive
+
     async with async_session_maker() as db:
-        service = BackupService(db)
         try:
             # Get n8n database session for metadata capture
             async with n8n_session_maker() as n8n_db:
-                await service.run_backup_with_metadata(
+                await run_backup_exclusive(
+                    db,
+                    n8n_db,
                     backup_type=backup_type,
                     schedule_id=schedule_id,
                     compression=compression,
-                    n8n_db=n8n_db,
+                    wait=True,
                 )
             logger.info(f"Scheduled backup {schedule_id} completed successfully")
 
@@ -600,65 +648,24 @@ async def _check_container_health() -> None:
         logger.error(f"Container health check failed: {e}")
 
 
-async def _enforce_retention() -> None:
-    """Enforce backup retention policies."""
-    from api.database import async_session_maker
-    from api.models.backups import BackupHistory, RetentionPolicy
-    from sqlalchemy import select, delete
-    from datetime import timedelta
-    import os
+async def _run_maintenance_pruning() -> None:
+    """
+    Hourly backup retention and pruning.
 
-    logger.info("Enforcing retention policies")
+    Applies the GFS retention configured on Backup Settings > Retention, then
+    executes due pending deletions and the space/size/time pruning checks.
+    Runs under the global operation lock and is skipped (logged) when a
+    backup, restore or verification is in progress.
+    """
+    from api.services.pruning_service import run_retention_maintenance
 
-    async with async_session_maker() as db:
-        # Get all retention policies
-        result = await db.execute(select(RetentionPolicy))
-        policies = result.scalars().all()
+    await run_retention_maintenance(source="scheduled")
 
-        for policy in policies:
-            # Get backups of this type
-            result = await db.execute(
-                select(BackupHistory)
-                .where(BackupHistory.backup_type == policy.backup_type)
-                .where(BackupHistory.deleted_at.is_(None))
-                .where(BackupHistory.status == "success")
-                .order_by(BackupHistory.created_at.desc())
-            )
-            backups = list(result.scalars().all())
 
-            # Categorize and mark for deletion
-            now = datetime.now(UTC)
-            to_delete = []
-
-            for backup in backups:
-                age = now - backup.created_at
-
-                # Determine retention category
-                if age < timedelta(hours=24):
-                    if len([b for b in backups if (now - b.created_at) < timedelta(hours=24)]) > policy.keep_hourly:
-                        to_delete.append(backup)
-                elif age < timedelta(days=7):
-                    if len([b for b in backups if timedelta(hours=24) <= (now - b.created_at) < timedelta(days=7)]) > policy.keep_daily:
-                        to_delete.append(backup)
-                elif age < timedelta(days=30):
-                    if len([b for b in backups if timedelta(days=7) <= (now - b.created_at) < timedelta(days=30)]) > policy.keep_weekly:
-                        to_delete.append(backup)
-                else:
-                    if len([b for b in backups if (now - b.created_at) >= timedelta(days=30)]) > policy.keep_monthly:
-                        to_delete.append(backup)
-
-            # Delete old backups
-            for backup in to_delete:
-                try:
-                    if os.path.exists(backup.filepath):
-                        os.remove(backup.filepath)
-                    backup.deleted_at = now
-                    backup.deleted_by = "retention_policy"
-                    logger.info(f"Deleted backup: {backup.filename}")
-                except Exception as e:
-                    logger.error(f"Failed to delete backup {backup.filename}: {e}")
-
-            await db.commit()
+# NOTE: The legacy _enforce_retention() job, which applied the per-type
+# RetentionPolicy table (never populated by the UI), has been removed so that
+# BackupConfiguration.retention_* (GFS) is the single source of truth for
+# retention. The retention_policies table is left in place but unused.
 
 
 async def _cleanup_notification_history() -> None:

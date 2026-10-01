@@ -41,29 +41,44 @@ http {
     # IP-based Access Control
     # ===========================================================================
     # Classifies requests as "internal" (full access) or "external" (restricted)
-    # Internal: Tailscale, Docker networks, private IP ranges
-    # External: Cloudflare Tunnel, public internet
+    # Internal: localhost, your LAN/VPN ranges, the Tailscale container
+    # External: everything arriving through a Docker hop (Cloudflare Tunnel,
+    #           docker-proxy for IPv6/localhost, other containers), public internet
+    #
+    # geo uses longest-prefix match: the pinned Docker network n8n_network
+    # (N8N_NETWORK_SUBNET, default 172.30.0.0/24, see docker-compose.yaml) is
+    # listed as "external" and wins over the broader private ranges. Only the
+    # Tailscale container's static IP (.12) is trusted inside it. Entries
+    # tagged [managed] are maintained by setup.sh - do not remove them.
     geo $access_level {
         default          "external";
-        127.0.0.1/32     "internal";   # Localhost
-        10.0.0.0/8       "internal";   # Private network / Docker
-        172.16.0.0/12    "internal";   # Private network / Docker
-        192.168.0.0/16   "internal";   # Private network
-        100.64.0.0/10    "internal";   # Tailscale CGNAT range
+        127.0.0.1/32     "internal";   # [managed] Localhost (healthchecks)
+        10.0.0.0/8       "internal";   # Private network (LAN)
+        172.16.0.0/12    "internal";   # Private network (LAN)
+        192.168.0.0/16   "internal";   # Private network (LAN)
+        100.64.0.0/10    "internal";   # Tailscale CGNAT range (host-level Tailscale)
         # Add custom IPs here:
         # YOUR_PUBLIC_IP/32  "internal";
+        172.30.0.0/24    "external";   # [managed] Docker network n8n_network (proxied traffic)
+        172.30.0.12/32   "internal";   # [managed] Tailscale container (tailnet users via Tailscale Serve)
     }
 
     # ===========================================================================
     # ACCESS CONTROL SUMMARY:
     # ===========================================================================
-    # EXTERNALLY ACCESSIBLE (public internet via Cloudflare Tunnel):
+    # EXTERNALLY ACCESSIBLE (public internet):
     #   - /webhook/     - n8n workflow webhooks
     #   - /ntfy/        - NTFY push notifications (if enabled)
+    #
+    # CLOUDFLARE TUNNEL LISTENER (port 8080, not published on the host):
+    #   - /webhook/, /webhook-test/, /webhook-waiting/, /form/, /form-test/,
+    #     /form-waiting/, /ntfy/ (if enabled) - everything else is dropped
     #
     # INTERNAL ACCESS ONLY (Tailscale, VPN, whitelisted IPs):
     #   - /             - n8n editor
     #   - /management/  - Management console
+    #   - /files/       - File Browser (public website mode; also requires a
+    #                     management console session via auth_request)
     #   - /portainer/   - Container management (if enabled)
     #   - /adminer/     - Database management (if enabled)
     #   - /dozzle/      - Log viewer (if enabled)
@@ -72,6 +87,11 @@ http {
     # ===========================================================================
     # Main n8n HTTPS Server (Port 443)
     # ===========================================================================
+    # With the public website enabled, this server instead listens on plain
+    # port 80 behind nginx_router and trusts the router's X-Real-IP header only
+    # from the router's static IP:
+    #     set_real_ip_from 172.30.0.10/32;
+    #     real_ip_header X-Real-IP;
     server {
         listen 443 ssl;
         http2 on;
@@ -108,7 +128,7 @@ http {
             proxy_pass http://n8n;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -127,7 +147,7 @@ http {
             proxy_pass http://n8n;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -151,7 +171,7 @@ http {
             proxy_pass http://management/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -168,7 +188,7 @@ http {
             proxy_pass http://management/api/ws/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
 
             proxy_http_version 1.1;
@@ -192,7 +212,7 @@ http {
             proxy_pass http://management/api/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -243,5 +263,38 @@ http {
         #     proxy_set_header Upgrade $http_upgrade;
         #     proxy_set_header Connection "upgrade";
         # }
+    }
+
+    # ===========================================================================
+    # Cloudflare Tunnel listener (port 8080 - NOT published on the host)
+    # ===========================================================================
+    # Cloudflare Tunnel public hostname -> Service: HTTP -> n8n_nginx:8080
+    # Only public n8n endpoints are served; everything else is dropped (444).
+    server {
+        listen 8080 default_server;
+        server_name _;
+
+        location ~ ^/(webhook|webhook-test|webhook-waiting|form|form-test|form-waiting)/ {
+            proxy_pass http://n8n;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            # TLS is terminated by Cloudflare
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
+        }
+
+        location = /healthz {
+            access_log off;
+            return 200 "healthy\n";
+        }
+
+        # Everything else (editor, /rest/, /management/, /files/, tools): drop
+        location / {
+            return 444;
+        }
     }
 }

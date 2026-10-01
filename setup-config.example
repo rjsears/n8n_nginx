@@ -177,11 +177,22 @@ NFS_PATH=
 # ACCESS CONTROL
 # =============================================================================
 
-# Internal IP ranges with full access (space-separated CIDR blocks)
-INTERNAL_IP_RANGES=100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16
+# Internal IP ranges with full access (space-separated CIDR blocks, quoted -
+# this file is sourced by bash). These are for your real LAN/VPN clients.
+# Traffic that reaches nginx through a Docker hop (Cloudflare Tunnel,
+# docker-proxy for IPv6/localhost, other containers) comes from
+# N8N_NETWORK_SUBNET below, which is always treated as external.
+INTERNAL_IP_RANGES="127.0.0.1/32 100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
 
-# Additional custom IPs to allow full access
-CUSTOM_INTERNAL_IPS=
+# Additional custom IPs to allow full access (quoted, space-separated)
+CUSTOM_INTERNAL_IPS=""
+
+# Pinned subnet for the stack's Docker network (n8n_network). IPv4 network
+# address ending in .0, prefix /8-/24. Static IPs: nginx_router .10,
+# cloudflared .11, tailscale .12. Change only if it clashes with a network
+# you already use; existing installs must recreate the network afterwards
+# (docker compose down && docker compose up -d).
+N8N_NETWORK_SUBNET=172.30.0.0/24
 
 
 # =============================================================================
@@ -193,3 +204,10 @@ SKIP_DEPLOY=false
 
 # Auto-confirm all prompts (fully unattended)
 AUTO_CONFIRM=false
+
+# Re-running with AUTO_CONFIRM=true on an existing installation always reuses
+# the existing PostgreSQL password and n8n encryption key (read from .env and
+# the data volumes). It refuses to change the password of an existing database
+# or to generate a new encryption key for existing n8n data unless this is set
+# to true. Leave false unless you know exactly why you need it.
+FORCE_REGENERATE_SECRETS=false

@@ -144,6 +144,8 @@ print('Password updated, account unlocked')
 | Symptom | Likely fix |
 |---|---|
 | File Browser shows its own login prompt instead of using management console session | Confirm `.filebrowser.json` has `"auth": {"method": "proxy", "header": "X-Remote-User"}`. |
+| `/files/` returns 401 | nginx could not validate a management console session. Log out and back in so the browser gets the `session` cookie, then reload. |
+| `/files/` returns 502 after upgrading | File Browser moved to its own `filebrowser_network`. Regenerate the config (`./setup.sh` → *Regenerate all config files*) and run `docker compose down && docker compose up -d`. |
 | 500 error when opening `/files/` | Check `docker logs n8n_nginx --tail 50 \| grep files`. Often the `auth_request` directive is misconfigured. |
 | UI partially loads, CSS/JS missing | Confirm `.filebrowser.json` has `"baseURL": "/files"`. |
 | iframe too small in management console | Was fixed in PR #322. Pull latest `n8n_management` image and recreate. |

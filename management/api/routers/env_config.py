@@ -26,6 +26,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_current_user
+from api.services.env_file import (
+    ENV_KEY_PATTERN,
+    decode_env_value,
+    encode_env_value,
+    is_valid_env_key,
+    parse_env_line,
+    validate_env_key,
+    write_file_atomic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -401,7 +410,7 @@ class EnvConfigResponse(BaseModel):
 
 
 class EnvUpdateRequest(BaseModel):
-    key: str = Field(..., min_length=1, max_length=100)
+    key: str = Field(..., min_length=1, max_length=100, pattern=ENV_KEY_PATTERN)
     value: str = Field(..., max_length=10000)
 
 
@@ -434,23 +443,13 @@ def parse_env_file() -> Dict[str, str]:
     try:
         with open(ENV_FILE_PATH, "r") as f:
             for line in f:
-                line = line.strip()
-                # Skip comments and empty lines
-                if not line or line.startswith("#"):
+                # Skip comments, empty lines and non KEY=VALUE lines
+                parsed = parse_env_line(line)
+                if not parsed:
                     continue
-
-                # Parse KEY=VALUE
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    value = value.strip()
-
-                    # Remove quotes if present
-                    if (value.startswith('"') and value.endswith('"')) or \
-                       (value.startswith("'") and value.endswith("'")):
-                        value = value[1:-1]
-
-                    env_vars[key] = value
+                key, raw_value = parsed
+                # Decode with the same rules setup.sh uses to write values
+                env_vars[key] = decode_env_value(raw_value)
 
     except Exception as e:
         logger.error(f"Error parsing .env file: {e}")
@@ -459,7 +458,15 @@ def parse_env_file() -> Dict[str, str]:
 
 
 def write_env_file(env_vars: Dict[str, str]) -> bool:
-    """Write environment variables back to .env file with proper formatting."""
+    """Write environment variables back to .env file with proper formatting.
+
+    Returns False on I/O errors. Raises ValueError for an invalid key or a
+    value that cannot be encoded (callers map that to HTTP 400); nothing is
+    written in that case.
+    """
+    for key in env_vars:
+        validate_env_key(key)
+
     try:
         # Read existing file to preserve comments and structure
         lines = []
@@ -476,17 +483,19 @@ def write_env_file(env_vars: Dict[str, str]) -> bool:
                         continue
 
                     # Update existing variables
-                    if "=" in stripped:
-                        key = stripped.split("=", 1)[0].strip()
-                        if key in env_vars:
-                            # Escape value if it contains special characters
+                    parsed = parse_env_line(line)
+                    if parsed:
+                        key, raw_value = parsed
+                        if key in env_vars and key not in seen_keys:
                             value = env_vars[key]
-                            if " " in value or '"' in value or "'" in value or "$" in value:
-                                value = f'"{value}"'
-                            lines.append(f"{key}={value}")
+                            if decode_env_value(raw_value) == value:
+                                # Unchanged: keep the original line verbatim
+                                lines.append(line.rstrip("\n"))
+                            else:
+                                lines.append(f"{key}={encode_env_value(value)}")
                             seen_keys.add(key)
                         else:
-                            # Key was deleted, skip it
+                            # Key was deleted (or is a duplicate), skip it
                             continue
                     else:
                         lines.append(line.rstrip("\n"))
@@ -495,9 +504,7 @@ def write_env_file(env_vars: Dict[str, str]) -> bool:
         new_vars = []
         for key, value in env_vars.items():
             if key not in seen_keys:
-                if " " in value or '"' in value or "'" in value or "$" in value:
-                    value = f'"{value}"'
-                new_vars.append(f"{key}={value}")
+                new_vars.append(f"{key}={encode_env_value(value)}")
 
         if new_vars:
             if lines and lines[-1]:  # Add blank line before new vars
@@ -505,12 +512,13 @@ def write_env_file(env_vars: Dict[str, str]) -> bool:
             lines.append("# Custom Variables")
             lines.extend(new_vars)
 
-        # Write back
-        with open(ENV_FILE_PATH, "w") as f:
-            f.write("\n".join(lines) + "\n")
+        # Write back atomically (temp file + rename, mode/owner preserved)
+        write_file_atomic(str(ENV_FILE_PATH), ["\n".join(lines) + "\n"])
 
         return True
 
+    except ValueError:
+        raise
     except Exception as e:
         logger.error(f"Error writing .env file: {e}")
         return False
@@ -618,6 +626,28 @@ async def get_env_config(_=Depends(get_current_user)):
     return EnvConfigResponse(groups=groups, last_modified=last_modified)
 
 
+def _require_valid_key(key: str) -> None:
+    """Reject anything that is not a plain variable name (400)."""
+    if not is_valid_env_key(key):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid variable name '{key}': must match {ENV_KEY_PATTERN}",
+        )
+
+
+def _write_env_file_or_raise(env_vars: Dict[str, str]) -> None:
+    """write_env_file, mapping unencodable values to 400 and I/O errors to 500."""
+    try:
+        ok = write_env_file(env_vars)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to write .env file",
+        )
+
+
 @router.put("/{key}")
 async def update_env_variable(
     key: str,
@@ -625,6 +655,7 @@ async def update_env_variable(
     _=Depends(get_current_user),
 ):
     """Update an environment variable."""
+    _require_valid_key(key)
     if data.key != key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -656,11 +687,7 @@ async def update_env_variable(
     env_vars[key] = data.value
 
     # Write back
-    if not write_env_file(env_vars):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to write .env file",
-        )
+    _write_env_file_or_raise(env_vars)
 
     logger.info(f"Environment variable '{key}' updated")
 
@@ -692,11 +719,7 @@ async def add_env_variable(
     # Add the variable
     env_vars[data.key] = data.value
 
-    if not write_env_file(env_vars):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to write .env file",
-        )
+    _write_env_file_or_raise(env_vars)
 
     logger.info(f"Custom environment variable '{data.key}' added")
 
@@ -709,6 +732,7 @@ async def delete_env_variable(
     _=Depends(get_current_user),
 ):
     """Delete a custom environment variable."""
+    _require_valid_key(key)
     # Check if it's a system variable
     if key in SYSTEM_VARIABLES:
         raise HTTPException(
@@ -726,11 +750,7 @@ async def delete_env_variable(
 
     del env_vars[key]
 
-    if not write_env_file(env_vars):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to write .env file",
-        )
+    _write_env_file_or_raise(env_vars)
 
     logger.info(f"Custom environment variable '{key}' deleted")
 

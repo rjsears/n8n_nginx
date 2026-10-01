@@ -107,15 +107,23 @@ Access Control governs *direct* network access to the management host (the IP-ra
 
 ### How it interacts with Cloudflare Tunnel
 
-When traffic arrives via the Cloudflare Tunnel (`cloudflared`), it appears to nginx as coming from the internal Docker network — which is always allowed. The IP-range allowlist therefore only restricts *direct* connections (e.g., from your office network or a Tailscale peer). Public-internet users always come through Cloudflare, where access control is enforced by Cloudflare Access policies, not these rules.
+The stack's Docker network (`n8n_network`) uses a pinned subnet (`N8N_NETWORK_SUBNET`, default `172.30.0.0/24`) that is listed in the geo block as **external**. Because nginx uses the most specific match, this overrides the broad private ranges: traffic that arrives through the Cloudflare Tunnel (`cloudflared`), through Docker's port proxy (IPv6 clients, `localhost` on the host) or from any other container is never treated as internal. The Cloudflare Tunnel should point at the webhook-only listener `n8n_nginx:8080`, which serves only `/webhook*`, `/form*` and `/ntfy/` — see [Cloudflare Tunnel](../CLOUDFLARE.md).
+
+Entries marked **[managed]** (localhost, the Docker network, the Tailscale container) are written by `setup.sh`, are shown as protected, and cannot be deleted or changed here. You also cannot add an *internal* range that lies inside the Docker network.
+
+The IP-range allowlist decides who counts as internal among *direct* connections — your LAN, a VPN, or Tailscale users (via the Tailscale Serve URL `https://<hostname>.<tailnet>.ts.net`, which reaches nginx from the Tailscale container's trusted address).
 
 !!! note
 
-    The allowlist defaults are RFC-1918 private ranges plus Tailscale's CGNAT range. To restrict further, narrow these or remove them entirely — but only if you've confirmed that Cloudflare Tunnel covers all your real users, otherwise you'll lock everyone out of direct access.
+    The allowlist defaults are RFC-1918 private ranges plus Tailscale's CGNAT range. To restrict further, narrow these to your real management network(s).
 
 !!! danger
 
-    Removing all IP ranges and then restarting cloudflared (or losing tunnel connectivity) leaves you locked out of the management UI. Always keep at least one range covering your management network.
+    Removing all non-managed IP ranges leaves only localhost and the Tailscale container as internal. Make sure you keep a range covering your management network (or use Tailscale), otherwise you'll lock yourself out of the management UI.
+
+!!! warning "Existing installs"
+
+    Installs created before the Docker network was pinned must regenerate their configuration (`./setup.sh` → *Regenerate all config files*) and recreate the network with `docker compose down && docker compose up -d`; until then, proxied traffic may still be classified as internal.
 
 ## Environment
 

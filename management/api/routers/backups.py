@@ -12,7 +12,7 @@ https://github.com/rjsears
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Optional
 from datetime import datetime, date
@@ -180,20 +180,28 @@ async def run_backup(
     logger = logging.getLogger(__name__)
     logger.info(f"run_backup called: backup_type={data.backup_type}, skip_auto_verify={data.skip_auto_verify}")
 
-    service = BackupService(db)
+    from api.services.backup_runner import run_backup_exclusive
+    from api.services.operation_lock import OperationBusyError
 
     try:
-        history = await service.run_backup_with_metadata(
+        history = await run_backup_exclusive(
+            db,
+            n8n_db,
             backup_type=data.backup_type.value,
             compression=data.compression.value,
-            n8n_db=n8n_db,
             skip_auto_verify=data.skip_auto_verify,
+            wait=False,
         )
 
         return BackupRunResponse(
             backup_id=history.id,
             status=history.status,
             message=f"Backup {history.status}",
+        )
+    except OperationBusyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         )
     except Exception as e:
         raise HTTPException(
@@ -437,9 +445,15 @@ async def delete_backup(
     return SuccessResponse(message="Backup deleted")
 
 
-# Retention Policies
+# Retention Policies (legacy)
+#
+# DEPRECATED: the per-type RetentionPolicy table is no longer enforced. The
+# only retention that runs is the GFS policy in BackupConfiguration
+# (retention_* fields, edited on Backup Settings > Retention) applied by
+# PruningService.apply_gfs_retention(). These endpoints are kept only for API
+# compatibility.
 
-@router.get("/retention", response_model=List[RetentionPolicyResponse])
+@router.get("/retention", response_model=List[RetentionPolicyResponse], deprecated=True)
 async def list_retention_policies(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -450,7 +464,7 @@ async def list_retention_policies(
     return [RetentionPolicyResponse.model_validate(p) for p in policies]
 
 
-@router.put("/retention/{backup_type}", response_model=RetentionPolicyResponse)
+@router.put("/retention/{backup_type}", response_model=RetentionPolicyResponse, deprecated=True)
 async def update_retention_policy(
     backup_type: str,
     data: RetentionPolicyUpdate,
@@ -506,7 +520,12 @@ async def run_verification(
 ):
     """Manually verify a backup."""
     service = BackupService(db)
-    result = await service.verify_backup(backup_id)
+    try:
+        # exclusive_operation / _busy_conflict are defined in the restore section below
+        async with exclusive_operation("verification", wait=False):
+            result = await service.verify_backup(backup_id)
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     return VerificationRunResponse(
         backup_id=backup_id,
         status=result["status"],
@@ -590,20 +609,28 @@ async def run_full_backup(
     This creates a complete archive with workflow manifest, config files,
     database schemas, and an embedded restore.sh script.
     """
-    service = BackupService(db)
+    from api.services.backup_runner import run_backup_exclusive
+    from api.services.operation_lock import OperationBusyError
 
     try:
-        history = await service.run_backup_with_metadata(
+        history = await run_backup_exclusive(
+            db,
+            n8n_db,
             backup_type=data.backup_type.value,
             compression=data.compression.value,
-            n8n_db=n8n_db,
             skip_auto_verify=data.skip_auto_verify,
+            wait=False,
         )
 
         return BackupRunResponse(
             backup_id=history.id,
             status=history.status,
             message=f"Full backup {history.status} - {history.filename}",
+        )
+    except OperationBusyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         )
     except Exception as e:
         raise HTTPException(
@@ -992,6 +1019,46 @@ async def get_restore_container_status(
 # Phase 4: Full System Restore
 # ============================================================================
 
+from api.services.operation_lock import exclusive_operation, OperationBusyError
+from api.services.restore_script import RESTORE_SCRIPT_VERSION, render_restore_script
+
+
+def _busy_conflict(e: OperationBusyError) -> HTTPException:
+    """409 for a restore/verification requested while another operation runs."""
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"{e}. Wait for it to finish and try again.",
+    )
+
+
+@router.get("/restore-script")
+async def download_current_restore_script(
+    _=Depends(get_current_user),
+):
+    """
+    Download the CURRENT bare-metal restore.sh.
+
+    Archives created by older versions embed a restore.sh that cannot complete
+    (it exits after the first config file). Copy this script over the one in
+    the extracted archive before running it.
+    """
+    try:
+        script = render_restore_script()
+    except (OSError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"restore.sh template unavailable: {e}",
+        )
+    return Response(
+        content=script,
+        media_type="text/x-shellscript",
+        headers={
+            "Content-Disposition": 'attachment; filename="restore.sh"',
+            "X-Restore-Script-Version": RESTORE_SCRIPT_VERSION,
+        },
+    )
+
+
 class FullRestoreRequest(BaseModel):
     """Request for full system restore."""
     restore_databases: bool = True
@@ -1111,12 +1178,13 @@ async def restore_config_file(
     service = RestoreService(db)
 
     try:
-        result = await service.restore_config_file(
-            backup_id=backup_id,
-            config_path=data.config_path,
-            target_path=data.target_path,
-            create_backup=data.create_backup,
-        )
+        async with exclusive_operation("restore", wait=False):
+            result = await service.restore_config_file(
+                backup_id=backup_id,
+                config_path=data.config_path,
+                target_path=data.target_path,
+                create_backup=data.create_backup,
+            )
 
         if result["status"] == "failed":
             raise HTTPException(
@@ -1126,6 +1194,8 @@ async def restore_config_file(
 
         return result
 
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     except HTTPException:
         raise
     except Exception as e:
@@ -1149,27 +1219,41 @@ async def restore_database(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Restore a database from backup.
+    Restore the n8n database from backup.
 
-    WARNING: This will OVERWRITE the target database!
+    WARNING: This will REPLACE the live n8n database!
+
+    n8n is stopped during the swap and always restarted. A safety dump is taken
+    first and the previous database is kept as <name>_pre_restore_<timestamp>.
+    The management database cannot be restored here (use restore.sh).
+
+    Returns 409 if a backup/restore/verification is already running. On
+    failure returns 400 with the full result (error, stderr, safety_dump) as detail.
     """
     service = RestoreService(db)
 
-    try:
-        result = await service.restore_database(
-            backup_id=backup_id,
-            database_name=data.database_name,
-            target_database=data.target_database,
-        )
+    refusal = service.check_database_restorable(data.database_name, data.target_database)
+    if refusal:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=refusal)
 
-        if result["status"] == "failed":
+    try:
+        async with exclusive_operation("restore", wait=False):
+            result = await service.restore_database(
+                backup_id=backup_id,
+                database_name=data.database_name,
+                target_database=data.target_database,
+            )
+
+        if result["status"] != "success":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Restore failed"),
+                detail=result,
             )
 
         return result
 
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     except HTTPException:
         raise
     except Exception as e:
@@ -1197,28 +1281,36 @@ async def full_system_restore(
     WARNING: This will OVERWRITE existing data! Use with caution.
 
     By default, existing files are backed up before overwriting (create_backups=true).
+    Only the n8n database can be restored in-app; n8n_management is refused.
+
+    Returns 409 if another backup/restore/verification is running. A "failed"
+    result is returned as 400 with the full result as detail; "partial" is 200
+    with the errors listed.
     """
     service = RestoreService(db)
 
     try:
-        result = await service.full_system_restore(
-            backup_id=backup_id,
-            restore_databases=data.restore_databases,
-            restore_configs=data.restore_configs,
-            restore_ssl=data.restore_ssl,
-            database_names=data.database_names,
-            config_files=data.config_files,
-            create_backups=data.create_backups,
-        )
+        async with exclusive_operation("restore", wait=False):
+            result = await service.full_system_restore(
+                backup_id=backup_id,
+                restore_databases=data.restore_databases,
+                restore_configs=data.restore_configs,
+                restore_ssl=data.restore_ssl,
+                database_names=data.database_names,
+                config_files=data.config_files,
+                create_backups=data.create_backups,
+            )
 
         if result["status"] == "failed":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Restore failed"),
+                detail=result,
             )
 
         return result
 
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     except HTTPException:
         raise
     except Exception as e:
@@ -1280,11 +1372,12 @@ async def verify_backup_comprehensive(
     service = VerificationService(db)
 
     try:
-        result = await service.verify_backup(
-            backup_id=backup_id,
-            verify_all_workflows=data.verify_all_workflows,
-            workflow_sample_size=data.workflow_sample_size,
-        )
+        async with exclusive_operation("verification", wait=False):
+            result = await service.verify_backup(
+                backup_id=backup_id,
+                verify_all_workflows=data.verify_all_workflows,
+                workflow_sample_size=data.workflow_sample_size,
+            )
 
         return VerifyBackupResponse(
             backup_id=backup_id,
@@ -1297,6 +1390,8 @@ async def verify_backup_comprehensive(
             duration_seconds=result.get("duration_seconds"),
         )
 
+    except OperationBusyError as e:
+        raise _busy_conflict(e)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1438,9 +1533,15 @@ async def get_pruning_candidates(
     """
     service = PruningService(db)
     settings = await service.get_settings()
+    # Preview of what GFS retention (Backup Settings > Retention) would delete.
+    gfs_preview = await service.apply_gfs_retention(dry_run=True)
 
     if not settings:
-        return {"message": "No pruning settings configured", "candidates": []}
+        return {
+            "message": "No pruning settings configured",
+            "candidates": [],
+            "gfs_retention": gfs_preview,
+        }
 
     result = {
         "settings": {
@@ -1456,6 +1557,7 @@ async def get_pruning_candidates(
             "oldest_unprotected": [],
         },
         "storage": service.get_storage_usage(),
+        "gfs_retention": gfs_preview,
     }
 
     if settings.time_based_enabled:
@@ -1525,18 +1627,32 @@ async def run_pruning_manually(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Manually trigger all pruning checks.
+    Manually trigger retention and all pruning checks (same as the hourly job).
     This will:
-    1. Execute any pending deletions that are past their scheduled time
-    2. Check space-based pruning conditions
-    3. Check size-based pruning conditions
-    4. Check time-based pruning conditions
+    1. Apply GFS retention (Backup Settings > Retention)
+    2. Execute any pending deletions that are past their scheduled time
+    3. Check space-based pruning conditions
+    4. Check size-based pruning conditions
+    5. Check time-based pruning conditions
+
+    Returns 409 if a backup, restore, verification or pruning run is in progress.
     """
+    from api.services.operation_lock import exclusive_operation, OperationBusyError
+
     service = PruningService(db)
 
     try:
-        results = await service.run_all_pruning_checks()
+        async with exclusive_operation("pruning", wait=False):
+            results = {
+                "gfs_retention": await service.apply_gfs_retention(),
+                **(await service.run_all_pruning_checks()),
+            }
         return results
+    except OperationBusyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1551,12 +1667,21 @@ async def execute_pending_deletions(
 ):
     """
     Execute all pending deletions that have passed their scheduled time.
+    Returns 409 if a backup, restore, verification or pruning run is in progress.
     """
+    from api.services.operation_lock import exclusive_operation, OperationBusyError
+
     service = PruningService(db)
 
     try:
-        results = await service.execute_pending_deletions()
+        async with exclusive_operation("pruning", wait=False):
+            results = await service.execute_pending_deletions()
         return results
+    except OperationBusyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

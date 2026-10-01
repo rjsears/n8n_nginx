@@ -92,9 +92,19 @@ AUTOGEN_ADMIN_PASS=false
 
 # Internal IP ranges that get full access (space-separated CIDR blocks)
 # 127.0.0.1/32 is required for nginx healthchecks - DO NOT REMOVE
+# These are meant for your real LAN / VPN clients. Traffic that reaches nginx
+# through a Docker hop (Cloudflare Tunnel, docker-proxy, other containers) comes
+# from N8N_NETWORK_SUBNET, which is always emitted as a more specific
+# "external" entry in the nginx geo block (longest prefix wins).
 DEFAULT_INTERNAL_IP_RANGES="127.0.0.1/32 100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
 INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
 CUSTOM_INTERNAL_IPS=""
+
+# Pinned subnet for n8n_network (IPv4, network address ending in .0, prefix
+# /8-/24). Containers that proxy client traffic get static addresses in it
+# (see compute_docker_network_addrs) so nginx can tell them apart.
+DEFAULT_N8N_NETWORK_SUBNET="172.30.0.0/24"
+N8N_NETWORK_SUBNET="${N8N_NETWORK_SUBNET:-$DEFAULT_N8N_NETWORK_SUBNET}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COLORS & STYLING
@@ -182,17 +192,18 @@ prompt_with_default() {
     # In auto-confirm mode, use the existing/default value without prompting
     if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
         print_info "Using: $prompt = $default"
-        eval "$var_name='$default'"
+        printf -v "$var_name" '%s' "$default"
         return
     fi
 
     echo -ne "${WHITE}  $prompt [$default]${NC}: "
-    read value
+    read -r value
 
+    # printf -v (not eval) so values containing quotes or $ are stored verbatim
     if [ -z "$value" ]; then
-        eval "$var_name='$default'"
+        printf -v "$var_name" '%s' "$default"
     else
-        eval "$var_name='$value'"
+        printf -v "$var_name" '%s' "$value"
     fi
 }
 
@@ -452,6 +463,198 @@ get_local_ips() {
     hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^$' || \
     ip addr show 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d'/' -f1 || \
     ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'
+}
+
+# Derive the pinned n8n_network addresses from N8N_NETWORK_SUBNET.
+# Sets: N8N_NETWORK_SUBNET, N8N_NETWORK_GATEWAY, N8N_NETWORK_IP_RANGE,
+#       NGINX_ROUTER_IP, CLOUDFLARED_IP, TAILSCALE_IP
+# Static addresses live in .2-.127 of the first /24; Docker hands out dynamic
+# addresses only from .128/25 so they can never collide.
+compute_docker_network_addrs() {
+    local subnet="${N8N_NETWORK_SUBNET:-$DEFAULT_N8N_NETWORK_SUBNET}"
+    local re='^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.0/([0-9]{1,2})$'
+    if ! [[ "$subnet" =~ $re ]] || [ "${BASH_REMATCH[4]}" -lt 8 ] || [ "${BASH_REMATCH[4]}" -gt 24 ] || \
+       [ "${BASH_REMATCH[1]}" -gt 255 ] || [ "${BASH_REMATCH[2]}" -gt 255 ] || [ "${BASH_REMATCH[3]}" -gt 255 ] || \
+       ! ipv4_cidr_is_network "$subnet"; then
+        # ipv4_cidr_is_network rejects host bits (e.g. 10.20.5.0/16): the
+        # static IPs below are derived from the first three octets and would
+        # otherwise fall outside the network nginx trusts.
+        print_warning "Invalid N8N_NETWORK_SUBNET '${subnet}' (expected a network address, e.g. 172.30.0.0/24, prefix /8-/24) - using ${DEFAULT_N8N_NETWORK_SUBNET}"
+        subnet="$DEFAULT_N8N_NETWORK_SUBNET"
+    fi
+    # Re-match: ipv4_cidr_is_network above overwrites BASH_REMATCH
+    [[ "$subnet" =~ $re ]]
+    local base="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+    N8N_NETWORK_SUBNET="$subnet"
+    N8N_NETWORK_GATEWAY="${base}.1"
+    N8N_NETWORK_IP_RANGE="${base}.128/25"
+    NGINX_ROUTER_IP="${base}.10"
+    CLOUDFLARED_IP="${base}.11"
+    TAILSCALE_IP="${base}.12"
+}
+
+# Returns 0 (true) when the running stack's n8n_network does not use the pinned
+# N8N_NETWORK_SUBNET (installs from before the subnet was pinned). Such a
+# network must be recreated (docker compose down && docker compose up -d):
+# until then the nginx geo/realip rules do not match the real addresses.
+n8n_network_needs_recreate() {
+    compute_docker_network_addrs
+    local nginx_c="${NGINX_CONTAINER:-n8n_nginx}"
+    local existing_net existing_subnets
+    existing_net=$($DOCKER_SUDO docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$nginx_c" 2>/dev/null | grep 'n8n_network$' | head -1)
+    [ -z "$existing_net" ] && return 1
+    existing_subnets=$($DOCKER_SUDO docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' "$existing_net" 2>/dev/null)
+    case " ${existing_subnets} " in
+        *" ${N8N_NETWORK_SUBNET} "*) return 1 ;;
+    esac
+    print_warning "Network ${existing_net} uses '${existing_subnets% }', expected ${N8N_NETWORK_SUBNET}"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Pure-bash IPv4 CIDR helpers (no ipcalc/python dependency).
+# ---------------------------------------------------------------------------
+
+# Parse an IPv4 address or CIDR ("a.b.c.d" is treated as /32). On success sets
+# CIDR_ADDR (the address as an integer), CIDR_PREFIX and CIDR_NET (CIDR_ADDR
+# with the host bits cleared). Returns 1 when $1 is not valid IPv4.
+ipv4_cidr_parse() {
+    local cidr="$1" ip prefix
+    ip="${cidr%%/*}"
+    if [ "$ip" = "$cidr" ]; then
+        prefix=32
+    else
+        prefix="${cidr#*/}"
+    fi
+    [[ "$prefix" =~ ^[0-9]{1,2}$ ]] || return 1
+    prefix=$((10#$prefix))
+    [ "$prefix" -le 32 ] || return 1
+    local re='^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$'
+    [[ "$ip" =~ $re ]] || return 1
+    local o1=$((10#${BASH_REMATCH[1]})) o2=$((10#${BASH_REMATCH[2]}))
+    local o3=$((10#${BASH_REMATCH[3]})) o4=$((10#${BASH_REMATCH[4]}))
+    [ "$o1" -le 255 ] && [ "$o2" -le 255 ] && [ "$o3" -le 255 ] && [ "$o4" -le 255 ] || return 1
+    CIDR_ADDR=$(( (o1 << 24) | (o2 << 16) | (o3 << 8) | o4 ))
+    CIDR_PREFIX=$prefix
+    ipv4_prefix_mask "$prefix"
+    CIDR_NET=$(( CIDR_ADDR & IPV4_MASK ))
+    return 0
+}
+
+# Sets IPV4_MASK to the netmask (as an integer) for prefix length $1. Sets a
+# variable instead of printing so callers need no subshell (these helpers run
+# in loops).
+ipv4_prefix_mask() {
+    if [ "$1" -eq 0 ]; then
+        IPV4_MASK=0
+    else
+        IPV4_MASK=$(( (0xFFFFFFFF << (32 - $1)) & 0xFFFFFFFF ))
+    fi
+}
+
+# True (0) when the two IPv4 CIDRs share at least one address. Two CIDR blocks
+# overlap iff they are equal when both are truncated to the shorter prefix.
+# Returns 2 when either argument is not valid IPv4.
+ipv4_cidrs_overlap() {
+    local net_a prefix_a p
+    ipv4_cidr_parse "$1" || return 2
+    net_a=$CIDR_NET
+    prefix_a=$CIDR_PREFIX
+    ipv4_cidr_parse "$2" || return 2
+    p=$prefix_a
+    [ "$CIDR_PREFIX" -lt "$p" ] && p=$CIDR_PREFIX
+    ipv4_prefix_mask "$p"
+    [ $(( net_a & IPV4_MASK )) -eq $(( CIDR_NET & IPV4_MASK )) ]
+}
+
+# True (0) when $1 is a valid IPv4 CIDR whose host bits are all zero.
+ipv4_cidr_is_network() {
+    ipv4_cidr_parse "$1" || return 1
+    [ "$CIDR_ADDR" -eq "$CIDR_NET" ]
+}
+
+# True (0) when an "internal" range would override the pinned Docker subnet in
+# the nginx geo block, i.e. it overlaps N8N_NETWORK_SUBNET and is not strictly
+# broader than it (geo is longest-prefix match, so broader ranges such as
+# 172.16.0.0/12 lose to the more specific "external" subnet entry and are fine).
+range_inside_docker_subnet() {
+    local range="$1" range_prefix
+    ipv4_cidr_parse "$range" || return 1
+    range_prefix=$CIDR_PREFIX
+    ipv4_cidr_parse "$N8N_NETWORK_SUBNET" || return 1
+    [ "$range_prefix" -ge "$CIDR_PREFIX" ] || return 1
+    ipv4_cidrs_overlap "$range" "$N8N_NETWORK_SUBNET"
+}
+
+# Docker Compose project name for this install (networks are <project>_<name>).
+compose_project_name() {
+    local name="${COMPOSE_PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
+    printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-'
+}
+
+# Pre-flight check before any "docker compose down/up": N8N_NETWORK_SUBNET
+# must not overlap a subnet already used by another Docker network, or
+# "docker compose up" fails with "Pool overlaps with other one on this address
+# space" (and, after the down that recreates the network, the stack stays
+# down). This project's own n8n_network is ignored: it is recreated anyway.
+# Returns 1 (after printing what to do) on overlap; 0 otherwise, including
+# when Docker cannot be queried.
+check_n8n_network_subnet_free() {
+    compute_docker_network_addrs
+    command_exists docker || return 0
+
+    local project own_net listing
+    project=$(compose_project_name)
+    own_net=$($DOCKER_SUDO docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' \
+        "${NGINX_CONTAINER:-n8n_nginx}" 2>/dev/null | grep 'n8n_network$' | head -1) || true
+    # One line per network: name|compose project|compose network|subnets
+    # shellcheck disable=SC2086  # DOCKER_SUDO is empty or "sudo"
+    listing=$($DOCKER_SUDO docker network ls -q 2>/dev/null | xargs $DOCKER_SUDO docker network inspect \
+        -f '{{.Name}}|{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.network"}}|{{range .IPAM.Config}}{{.Subnet}} {{end}}' \
+        2>/dev/null) || true
+    [ -n "$listing" ] || return 0
+
+    local name lproj lnet subnets s conflicts="" used=""
+    while IFS='|' read -r name lproj lnet subnets; do
+        [ -n "$name" ] || continue
+        [ -n "$own_net" ] && [ "$name" = "$own_net" ] && continue
+        [ "$lnet" = "n8n_network" ] && [ "$lproj" = "$project" ] && continue
+        for s in $subnets; do
+            ipv4_cidr_parse "$s" || continue   # skips IPv6
+            used="${used} ${s}"
+            if ipv4_cidrs_overlap "$s" "$N8N_NETWORK_SUBNET"; then
+                conflicts="${conflicts}      ${name}: ${s}\n"
+            fi
+        done
+    done <<< "$listing"
+
+    [ -n "$conflicts" ] || return 0
+
+    # Suggest a free /24, avoiding other Docker networks and host routes.
+    local routes="" suggestion="" second third cand u clash
+    if command_exists ip; then
+        routes=$(ip -4 route show 2>/dev/null | awk '{print $1}' | grep -E '^[0-9.]+(/[0-9]+)?$' | grep -v '^0\.0\.0\.0') || true
+    fi
+    for second in 30 29 28 27 26 25 24; do
+        for third in $(seq 0 255); do
+            cand="172.${second}.${third}.0/24"
+            clash=false
+            for u in $used $routes; do
+                if ipv4_cidrs_overlap "$u" "$cand"; then clash=true; break; fi
+            done
+            if [ "$clash" = false ]; then suggestion="$cand"; break 2; fi
+        done
+    done
+
+    print_error "N8N_NETWORK_SUBNET ${N8N_NETWORK_SUBNET} overlaps existing Docker network(s):"
+    echo -e "$conflicts"
+    print_info "Docker cannot create n8n_network there (\"Pool overlaps\"). Nothing was stopped."
+    print_info "Pick a free subnet and set"
+    print_info "  N8N_NETWORK_SUBNET=${suggestion:-<free /24>}"
+    print_info "in ${CONFIG_FILE} (or in your preconfig file / the environment for a"
+    print_info "fresh install), regenerate the config files (setup.sh -> Reconfigure -> 7)"
+    print_info "and deploy again."
+    return 1
 }
 
 # Check if running inside an LXC container
@@ -774,6 +977,7 @@ SAVED_PUBLIC_WEBSITE_INCLUDE_ROOT="$PUBLIC_WEBSITE_INCLUDE_ROOT"
 # Access Control
 SAVED_INTERNAL_IP_RANGES="$INTERNAL_IP_RANGES"
 SAVED_CUSTOM_INTERNAL_IPS="$CUSTOM_INTERNAL_IPS"
+SAVED_N8N_NETWORK_SUBNET="$N8N_NETWORK_SUBNET"
 EOF
     chmod 600 "$STATE_FILE"
 }
@@ -839,6 +1043,7 @@ load_state() {
         # Access Control
         INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
         CUSTOM_INTERNAL_IPS="${SAVED_CUSTOM_INTERNAL_IPS:-}"
+        N8N_NETWORK_SUBNET="${SAVED_N8N_NETWORK_SUBNET:-$N8N_NETWORK_SUBNET}"
 
         CURRENT_STEP="${SAVED_STEP_NUM:-0}"
         return 0
@@ -920,6 +1125,42 @@ restore_dns_settings_from_provider() {
                 ;;
         esac
     fi
+
+    # DNS_CREDENTIALS_FILE must always match the provider (it is written to
+    # .env and mounted into the certbot container for renewals)
+    if [ -z "$DNS_CREDENTIALS_FILE" ] && [ -n "$DNS_PROVIDER_NAME" ]; then
+        case $DNS_PROVIDER_NAME in
+            cloudflare)   DNS_CREDENTIALS_FILE="cloudflare.ini" ;;
+            route53)      DNS_CREDENTIALS_FILE="route53.ini" ;;
+            google)       DNS_CREDENTIALS_FILE="google.json" ;;
+            digitalocean) DNS_CREDENTIALS_FILE="digitalocean.ini" ;;
+            *)            DNS_CREDENTIALS_FILE="credentials.ini" ;;
+        esac
+    fi
+}
+
+# Path inside the certbot container where the provider's credentials file is
+# mounted. Must match the path used at issuance (recorded in the lineage's
+# renewal config), otherwise renewals fail. Written to .env as
+# DNS_CREDENTIALS_TARGET and used by the certbot service in docker-compose.yaml.
+dns_credentials_target() {
+    case "${DNS_PROVIDER_NAME:-cloudflare}" in
+        route53) echo "/root/.aws/credentials" ;;
+        google)  echo "/credentials.json" ;;
+        *)       echo "/credentials.ini" ;;
+    esac
+}
+
+# Make sure the credentials file exists so the certbot bind mount does not make
+# Docker create a directory in its place (e.g. for the manual provider).
+ensure_dns_credentials_file() {
+    local cred_path="${SCRIPT_DIR}/${DNS_CREDENTIALS_FILE:-credentials.ini}"
+    if [ -d "$cred_path" ] && [ -z "$(ls -A "$cred_path" 2>/dev/null)" ]; then
+        rmdir "$cred_path" 2>/dev/null || true
+    fi
+    if [ ! -e "$cred_path" ]; then
+        touch "$cred_path" && chmod 600 "$cred_path"
+    fi
 }
 
 restore_optional_services_from_config() {
@@ -965,6 +1206,10 @@ restore_optional_services_from_config() {
     # Public Website
     if [ -n "$PUBLIC_WEBSITE_ENABLED" ]; then
         INSTALL_PUBLIC_WEBSITE="$PUBLIC_WEBSITE_ENABLED"
+    elif [ -f "${SCRIPT_DIR}/filebrowser.db" ]; then
+        # Configs saved by older versions did not record the public website;
+        # filebrowser.db only exists when it was installed.
+        INSTALL_PUBLIC_WEBSITE=true
     fi
 
 }
@@ -1014,27 +1259,16 @@ load_preconfig() {
     AUTOGEN_MGMT_SECRET=false
     AUTOGEN_ADMIN_PASS=false
 
-    # Auto-generate security credentials if not provided
-    if [ -z "$POSTGRES_PASSWORD" ] || [ "$POSTGRES_PASSWORD" = "" ]; then
-        if command_exists openssl; then
-            DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
-        else
-            DB_PASSWORD=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
-        fi
-        AUTOGEN_DB_PASSWORD=true
-        print_info "Auto-generated PostgreSQL password"
-    else
-        DB_PASSWORD="$POSTGRES_PASSWORD"
-    fi
+    # Database password and n8n encryption key are NOT generated here: an
+    # existing installation must keep the secrets stored in its data volumes.
+    # configure_database / generate_encryption_key reuse the existing values
+    # (or generate new ones for a brand-new install).
+    DB_PASSWORD="${POSTGRES_PASSWORD:-}"
+    N8N_ENCRYPTION_KEY="${N8N_ENCRYPTION_KEY:-}"
 
-    if [ -z "$N8N_ENCRYPTION_KEY" ] || [ "$N8N_ENCRYPTION_KEY" = "" ]; then
-        if command_exists openssl; then
-            N8N_ENCRYPTION_KEY=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
-        else
-            N8N_ENCRYPTION_KEY=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
-        fi
-        AUTOGEN_ENCRYPTION_KEY=true
-        print_info "Auto-generated n8n encryption key"
+    # Reuse the existing management secret (rotating it logs everyone out)
+    if [ -z "$MGMT_SECRET_KEY" ] && [ -f "${SCRIPT_DIR}/.env" ]; then
+        MGMT_SECRET_KEY=$(env_get_key "${SCRIPT_DIR}/.env" MGMT_SECRET_KEY) || MGMT_SECRET_KEY=""
     fi
 
     if [ -z "$MGMT_SECRET_KEY" ] || [ "$MGMT_SECRET_KEY" = "" ]; then
@@ -1315,6 +1549,11 @@ EOF
                 ;;
             manual)
                 print_info "Manual DNS validation selected - you will need to add DNS records manually"
+                print_warning "Manual DNS needs an interactive terminal and certificates will NOT auto-renew"
+                if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+                    print_error "DNS_PROVIDER=manual cannot be used in auto-confirm mode"
+                    exit 1
+                fi
                 ;;
             *)
                 print_error "Unknown DNS_PROVIDER: $DNS_PROVIDER_NAME"
@@ -1515,6 +1754,8 @@ handle_version_detection() {
             echo ""
             echo -e "    ${CYAN}1)${NC} ${GREEN}Reconfigure${NC} existing installation"
             echo -e "    ${CYAN}2)${NC} Start ${RED}Fresh${NC} (will backup existing config)"
+            echo -e "       ${GRAY}Docker volumes keep existing data, DB password and encryption key${NC}"
+            echo -e "       ${GRAY}unless you choose to delete them in the next step${NC}"
             echo -e "    ${CYAN}3)${NC} Exit"
             echo ""
 
@@ -1530,6 +1771,9 @@ handle_version_detection() {
                     ;;
                 2)
                     backup_existing_config
+                    # Existing volumes keep the old DB password / n8n key:
+                    # keep them (secrets are reused) or explicitly delete them
+                    handle_existing_data_on_fresh
                     INSTALL_MODE="fresh"
                     ;;
                 3)
@@ -1654,7 +1898,7 @@ backup_existing_config() {
         if $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
             -v letsencrypt:/source:ro \
             -v "${backup_dir}/letsencrypt:/backup" \
-            alpine sh -c "cp -rL /source/* /backup/ 2>/dev/null || true" 2>/dev/null; then
+            alpine sh -c "cp -a /source/. /backup/ 2>/dev/null || true" 2>/dev/null; then
             # Check if anything was actually copied
             if [ -n "$(ls -A ${backup_dir}/letsencrypt 2>/dev/null)" ]; then
                 print_success "Backed up Let's Encrypt certificates"
@@ -1779,7 +2023,7 @@ rollback_config() {
     if $DOCKER_SUDO docker volume inspect letsencrypt >/dev/null 2>&1; then
         mkdir -p "${safety_backup}/letsencrypt"
         $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/source:ro -v "${safety_backup}/letsencrypt:/backup" \
-            alpine sh -c "cp -rL /source/* /backup/ 2>/dev/null || true" 2>/dev/null
+            alpine sh -c "cp -a /source/. /backup/ 2>/dev/null || true" 2>/dev/null
     fi
 
     # Restore files from backup
@@ -1802,7 +2046,7 @@ rollback_config() {
         if $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
             -v "${backup_dir}/letsencrypt:/source:ro" \
             -v letsencrypt:/dest \
-            alpine sh -c "rm -rf /dest/* && cp -rL /source/* /dest/" 2>/dev/null; then
+            alpine sh -c "rm -rf /dest/* && cp -a /source/. /dest/" 2>/dev/null; then
             print_success "Restored Let's Encrypt certificates"
             restored=$((restored + 1))
         else
@@ -2185,6 +2429,27 @@ run_migration_v2_to_v3() {
         docker_compose_cmd="$DOCKER_SUDO $docker_compose_cmd"
     fi
 
+    # Recover the existing secrets BEFORE touching anything. The v2 .env uses
+    # POSTGRES_PASSWORD (not DB_PASSWORD) and the database/n8n volumes are
+    # kept, so the migrated .env must carry the exact same values.
+    env_adopt_existing_values "${SCRIPT_DIR}/.env"
+    DB_USER="${DB_USER:-$DEFAULT_DB_USER}"
+    DB_NAME="${DB_NAME:-$DEFAULT_DB_NAME}"
+    POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}"
+    if [ -z "${DB_PASSWORD:-}" ]; then
+        DB_PASSWORD=$(detect_running_postgres_password 2>/dev/null) || DB_PASSWORD=""
+    fi
+    if [ -z "${N8N_ENCRYPTION_KEY:-}" ]; then
+        N8N_ENCRYPTION_KEY=$(read_n8n_encryption_key_from_volume 2>/dev/null) || N8N_ENCRYPTION_KEY=""
+    fi
+    if [ -z "${DB_PASSWORD:-}" ] || [ -z "${N8N_ENCRYPTION_KEY:-}" ]; then
+        print_error "Could not determine the existing PostgreSQL password and/or n8n encryption key."
+        print_info "Make sure ${SCRIPT_DIR}/.env contains POSTGRES_PASSWORD and N8N_ENCRYPTION_KEY"
+        print_info "(or that the v2 containers still exist) and re-run. Nothing has been changed."
+        exit 1
+    fi
+    print_success "Existing database password and encryption key will be preserved"
+
     # Phase 1: Pre-migration backup
     print_section "Phase 1: Pre-Migration Backup"
     save_state "migration" "backup"
@@ -2229,12 +2494,11 @@ run_migration_v2_to_v3() {
     print_section "Phase 3: Database Preparation"
     save_state "migration" "database"
 
-    # Generate management database password
-    if command_exists openssl; then
-        MGMT_DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
-    else
-        MGMT_DB_PASSWORD=$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)
-    fi
+    # The management console connects with the existing n8n role
+    # (init-db.sh never runs on an already-initialised volume, so no separate
+    # role exists). generate_env_file writes MGMT_DB_USER/MGMT_DB_PASSWORD
+    # from DB_USER/DB_PASSWORD.
+    MGMT_DB_USER="${MGMT_DB_USER:-$DB_USER}"
 
     print_info "Creating management database..."
     $DOCKER_SUDO docker exec $POSTGRES_CONTAINER psql -U $DB_USER -c "CREATE DATABASE ${DEFAULT_MGMT_DB_NAME};" 2>/dev/null || true
@@ -2284,6 +2548,10 @@ run_migration_v2_to_v3() {
 
     print_info "Starting all services..."
     cd "$SCRIPT_DIR"
+    if ! check_n8n_network_subnet_free; then
+        print_error "Migration stopped before starting v3.0 services."
+        return 1
+    fi
     $docker_compose_cmd up -d
 
     # Wait for services to be healthy
@@ -2812,7 +3080,7 @@ generate_tool_auth_files() {
     bcrypt_hash=$(generate_bcrypt_hash "$ADMIN_PASS")
 
     if [ -z "$bcrypt_hash" ]; then
-        print_warn "Could not generate bcrypt hash - tools will use default authentication"
+        print_warning "Could not generate bcrypt hash - tools will use default authentication"
         return 1
     fi
 
@@ -2835,36 +3103,574 @@ EOF
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# .env HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+# These functions are self-contained (no dependency on installer state) so that
+# tests/test_env_helpers.sh can extract and exercise them without Docker.
+#
+# Encoding rules (must stay compatible with `docker compose`, `source .env` in
+# bash, and the management console's parser in management/api/services/env_file.py):
+#   * plain values ([A-Za-z0-9_./:@,+=%-]) are written unquoted
+#   * anything else without a single quote is written '...'  (literal, no $-interpolation)
+#   * values containing a single quote, or ending in a backslash (compose would
+#     read '...\' as an escaped closing quote), are written "..." with \ " $ escaped
+#   * values containing newlines, or a backtick together with a single quote or
+#     a trailing backslash, are rejected (compose and bash disagree on escaping
+#     ` inside "...")
+
+# Encode a value for a .env file. Returns 1 for values that cannot be stored.
+env_quote_value() {
+    local v="$1"
+    case "$v" in
+        *$'\n'*|*$'\r'*) return 1 ;;
+        *"'"*'`'*|*'`'*"'"*|*'`'*\\) return 1 ;;
+    esac
+    if [[ "$v" =~ ^[A-Za-z0-9_./:@,+=%-]*$ ]]; then
+        printf '%s' "$v"
+    elif [[ "$v" != *"'"* && "$v" != *\\ ]]; then
+        printf "'%s'" "$v"
+    else
+        v="${v//\\/\\\\}"
+        v="${v//\"/\\\"}"
+        v="${v//\$/\\\$}"
+        printf '"%s"' "$v"
+    fi
+}
+
+# Decode the raw right-hand side of a KEY=VALUE line.
+env_unquote_value() {
+    local raw="$1" out="" ch i n
+    raw="${raw#"${raw%%[![:space:]]*}"}"
+    case "$raw" in
+        \'*)
+            raw="${raw#\'}"
+            printf '%s' "${raw%%\'*}"
+            ;;
+        \"*)
+            raw="${raw#\"}"
+            n=${#raw}
+            for ((i = 0; i < n; i++)); do
+                ch="${raw:i:1}"
+                if [ "$ch" = "\\" ] && [ $((i + 1)) -lt "$n" ]; then
+                    i=$((i + 1))
+                    out+="${raw:i:1}"
+                elif [ "$ch" = '"' ]; then
+                    break
+                else
+                    out+="$ch"
+                fi
+            done
+            printf '%s' "$out"
+            ;;
+        *)
+            # Unquoted: drop an inline " # comment" and trailing whitespace
+            raw="${raw%%[[:space:]]#*}"
+            raw="${raw%"${raw##*[![:space:]]}"}"
+            printf '%s' "$raw"
+            ;;
+    esac
+}
+
+# env_get_key FILE KEY - print the decoded value of KEY (last occurrence wins).
+# Returns 1 if the file or key does not exist.
+env_get_key() {
+    local file="$1" key="$2" line raw="" found=1
+    [ -f "$file" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]] \
+            && [ "${BASH_REMATCH[2]}" = "$key" ]; then
+            raw="${BASH_REMATCH[3]}"
+            found=0
+        fi
+    done < "$file"
+    [ "$found" -eq 0 ] || return 1
+    env_unquote_value "$raw"
+}
+
+# env_set_key FILE KEY VALUE - set KEY in FILE, preserving every other line
+# (comments, ordering, keys the installer does not manage). The file is
+# rewritten atomically (temp file created with umask 077, then mv) and left
+# with mode 600. A key whose decoded value is already VALUE is left untouched.
+env_set_key() {
+    local file="$1" key="$2" value="$3" encoded current tmp src
+    if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "env_set_key: invalid key name '$key'" >&2
+        return 1
+    fi
+    if ! encoded=$(env_quote_value "$value"); then
+        echo "env_set_key: value for $key cannot be stored in .env (newline, or both ' and \`)" >&2
+        return 1
+    fi
+    if [ -f "$file" ] && current=$(env_get_key "$file" "$key") && [ "$current" = "$value" ]; then
+        return 0
+    fi
+    src="$file"
+    [ -f "$src" ] || src=/dev/null
+    tmp=$(umask 077 && mktemp "${file}.tmp.XXXXXX") || return 1
+    if ! ENV_SET_KEY="$key" ENV_SET_LINE="${key}=${encoded}" awk '
+        BEGIN { key = ENVIRON["ENV_SET_KEY"]; line = ENVIRON["ENV_SET_LINE"]; done = 0 }
+        {
+            probe = $0
+            sub(/\r$/, "", probe)
+            sub(/^[ \t]+/, "", probe)
+            sub(/^export[ \t]+/, "", probe)
+            if (match(probe, /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=/)) {
+                name = substr(probe, 1, RLENGTH - 1)
+                sub(/[ \t]+$/, "", name)
+                if (name == key) {
+                    if (!done) { print line; done = 1 }
+                    next
+                }
+            }
+            print
+        }
+        END { if (!done) print line }
+    ' "$src" > "$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    chmod 600 "$tmp"
+    if [ -f "$file" ]; then
+        chown --reference="$file" "$tmp" 2>/dev/null || true
+    fi
+    mv -f "$tmp" "$file"
+}
+
+# Mapping between .env keys and installer variables, used both to read an
+# existing .env back into the installer and to write it out again.
+#   KEY=VAR    adopt the .env value when VAR is empty
+#   KEY=VAR?   optional setting: adopt only when VAR is unset (empty = disabled)
+# Keys NOT listed here (N8N_API_KEY, NTFY_TOKEN, MGMT_ENCRYPTION_KEY, NTFY_*,
+# anything edited in the management console, ...) are never touched on an
+# existing .env.
+env_key_map() {
+    cat << 'EOF'
+DOMAIN=N8N_DOMAIN
+N8N_MANAGEMENT_HOST_IP=N8N_MANAGEMENT_HOST_IP?
+POSTGRES_USER=DB_USER
+POSTGRES_PASSWORD=DB_PASSWORD
+POSTGRES_DB=DB_NAME
+N8N_ENCRYPTION_KEY=N8N_ENCRYPTION_KEY
+MGMT_SECRET_KEY=MGMT_SECRET_KEY
+MGMT_DB_USER=MGMT_DB_USER
+MGMT_DB_PASSWORD=MGMT_DB_PASSWORD
+MGMT_PORT=MGMT_PORT
+ADMIN_USER=ADMIN_USER
+ADMIN_PASS=ADMIN_PASS
+ADMIN_EMAIL=ADMIN_EMAIL
+TIMEZONE=N8N_TIMEZONE
+NFS_SERVER=NFS_SERVER?
+NFS_PATH=NFS_PATH?
+NFS_LOCAL_MOUNT=NFS_LOCAL_MOUNT?
+CLOUDFLARE_TUNNEL_TOKEN=CLOUDFLARE_TUNNEL_TOKEN
+TAILSCALE_AUTH_KEY=TAILSCALE_AUTH_KEY
+TAILSCALE_HOSTNAME=TAILSCALE_HOSTNAME
+TAILSCALE_ROUTES=TAILSCALE_ROUTES?
+PUBLIC_SITE_ENABLE=INSTALL_PUBLIC_WEBSITE
+DNS_CERTBOT_IMAGE=DNS_CERTBOT_IMAGE
+DNS_CERTBOT_FLAGS=DNS_CERTBOT_FLAGS?
+DNS_CREDENTIALS_FILE=DNS_CREDENTIALS_FILE
+DNS_CREDENTIALS_TARGET=DNS_CREDENTIALS_TARGET
+POSTGRES_CONTAINER=POSTGRES_CONTAINER
+N8N_CONTAINER=N8N_CONTAINER
+NGINX_CONTAINER=NGINX_CONTAINER
+CERTBOT_CONTAINER=CERTBOT_CONTAINER
+MANAGEMENT_CONTAINER=MANAGEMENT_CONTAINER
+EOF
+}
+
+# Load values from an existing .env into installer variables (POSTGRES_PASSWORD
+# -> DB_PASSWORD, TIMEZONE -> N8N_TIMEZONE, ...) without overriding anything
+# the installer already knows.
+env_adopt_existing_values() {
+    local file="$1" key var optional val
+    [ -f "$file" ] || return 0
+    while IFS='=' read -r key var; do
+        [ -n "$key" ] || continue
+        optional=false
+        if [ "${var%\?}" != "$var" ]; then
+            optional=true
+            var="${var%\?}"
+        fi
+        if [ "$optional" = true ]; then
+            [ -z "${!var+x}" ] || continue
+        else
+            [ -z "${!var:-}" ] || continue
+        fi
+        if val=$(env_get_key "$file" "$key"); then
+            if [ "$optional" = true ] || [ -n "$val" ]; then
+                printf -v "$var" '%s' "$val"
+            fi
+        fi
+    done < <(env_key_map)
+    return 0
+}
+
+# Extract "encryptionKey" from n8n's ~/.n8n/config JSON (no jq dependency)
+n8n_config_extract_key() {
+    tr -d '\r\n' | sed -n 's/.*"encryptionKey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXISTING DATA / SECRET RECOVERY
+# ═══════════════════════════════════════════════════════════════════════════════
+# PostgreSQL ignores POSTGRES_PASSWORD once its volume is initialised and n8n
+# keeps its encryption key in the n8n_data volume, so an existing install must
+# keep using the secrets it was created with.
+
+random_secret() {
+    local len="${1:-32}"
+    if command_exists openssl; then
+        openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c "$len"
+    else
+        head -c 256 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c "$len"
+    fi
+}
+
+# Make sure DOCKER_SUDO is set and the daemon is reachable (safe to call
+# before check_and_install_docker, e.g. from the reconfigure/start-fresh menu).
+ensure_docker_access() {
+    command_exists docker || return 1
+    if [ -z "${DOCKER_SUDO+x}" ]; then
+        if [ "$(id -u)" -eq 0 ] || docker ps >/dev/null 2>&1; then
+            DOCKER_SUDO=""
+        elif command_exists sudo; then
+            DOCKER_SUDO="sudo"
+        else
+            return 1
+        fi
+    fi
+    $DOCKER_SUDO docker info >/dev/null 2>&1
+}
+
+run_compose() {
+    local -a cmd=()
+    [ -n "${DOCKER_SUDO:-}" ] && cmd+=("$DOCKER_SUDO")
+    if [ "${USE_STANDALONE_COMPOSE:-}" = true ] || ! $DOCKER_SUDO docker compose version >/dev/null 2>&1; then
+        cmd+=(docker-compose)
+    else
+        cmd+=(docker compose)
+    fi
+    (cd "$SCRIPT_DIR" && "${cmd[@]}" "$@")
+}
+
+# find_compose_volume NAME - print the real Docker volume name of the compose
+# volume NAME (e.g. n8n_data -> n8n_nginx_n8n_data). Returns 1 if absent.
+find_compose_volume() {
+    local vol="$1" project="" name="" c
+    ensure_docker_access || return 1
+    for c in "${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}" "${N8N_CONTAINER:-$DEFAULT_N8N_CONTAINER}"; do
+        project=$($DOCKER_SUDO docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$c" 2>/dev/null) || project=""
+        [ -n "$project" ] && [ "$project" != "<no value>" ] && break
+        project=""
+    done
+    if [ -z "$project" ]; then
+        project="${COMPOSE_PROJECT_NAME:-}"
+        [ -n "$project" ] || project=$(env_get_key "${SCRIPT_DIR}/.env" COMPOSE_PROJECT_NAME 2>/dev/null) || project=""
+        [ -n "$project" ] || project=$(basename "$SCRIPT_DIR")
+        project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+    fi
+    name=$($DOCKER_SUDO docker volume ls -q \
+        --filter "label=com.docker.compose.project=${project}" \
+        --filter "label=com.docker.compose.volume=${vol}" 2>/dev/null | head -n 1)
+    if [ -z "$name" ] && $DOCKER_SUDO docker volume inspect "${project}_${vol}" >/dev/null 2>&1; then
+        name="${project}_${vol}"
+    fi
+    [ -n "$name" ] || return 1
+    printf '%s\n' "$name"
+}
+
+# Print the encryption key n8n stored in its data volume (~/.n8n/config).
+read_n8n_encryption_key_from_volume() {
+    local cfg="" vol="" img="" candidate c="${N8N_CONTAINER:-$DEFAULT_N8N_CONTAINER}" key
+    ensure_docker_access || return 1
+    # 1) From the n8n container itself (running or stopped) - no image pull needed
+    cfg=$($DOCKER_SUDO docker cp "${c}:/home/node/.n8n/config" - 2>/dev/null | tar -xOf - 2>/dev/null) || cfg=""
+    # 2) Straight from the volume with a throwaway container
+    if [ -z "$cfg" ]; then
+        vol=$(find_compose_volume n8n_data) || return 1
+        for candidate in alpine:latest alpine pgvector/pgvector:pg16 nginx:alpine; do
+            if $DOCKER_SUDO docker image inspect "$candidate" >/dev/null 2>&1; then
+                img="$candidate"
+                break
+            fi
+        done
+        cfg=$($DOCKER_SUDO docker run --rm --network none --entrypoint cat \
+            -v "${vol}:/n8n_data:ro" "${img:-alpine:latest}" /n8n_data/config 2>/dev/null) || cfg=""
+    fi
+    key=$(printf '%s' "$cfg" | n8n_config_extract_key)
+    [ -n "$key" ] || return 1
+    printf '%s' "$key"
+}
+
+# Print POSTGRES_PASSWORD from the existing postgres container's environment.
+detect_running_postgres_password() {
+    local c="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}" line
+    ensure_docker_access || return 1
+    line=$($DOCKER_SUDO docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" 2>/dev/null \
+        | grep -m 1 '^POSTGRES_PASSWORD=') || return 1
+    line="${line#POSTGRES_PASSWORD=}"
+    [ -n "$line" ] || return 1
+    printf '%s' "$line"
+}
+
+wait_for_postgres_container() {
+    local c="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}" i
+    if [ "$($DOCKER_SUDO docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]; then
+        print_info "Starting PostgreSQL container..."
+        run_compose up -d postgres >/dev/null 2>&1 || return 1
+    fi
+    for i in $(seq 1 30); do
+        if $DOCKER_SUDO docker exec "$c" pg_isready -q >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+# Change the password of the existing superuser role inside the running
+# database. Must succeed BEFORE the new password is written to .env.
+apply_db_password_change() {
+    local new_pw="$1" role="${2:-$DB_USER}" db="${3:-$DB_NAME}"
+    local c="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}" ident lit
+    # Validate first: the new password must be storable in .env afterwards
+    if [ -z "$new_pw" ] || ! env_quote_value "$new_pw" >/dev/null; then
+        print_error "The new database password is empty or cannot be stored in .env (newline, or both ' and \`)"
+        return 1
+    fi
+    if ! ensure_docker_access; then
+        print_error "Docker is not reachable - cannot change the password of the existing database role"
+        return 1
+    fi
+    if ! wait_for_postgres_container; then
+        print_error "PostgreSQL container '${c}' is not running/ready - password not changed"
+        return 1
+    fi
+    ident="\"${role//\"/\"\"}\""
+    lit="'${new_pw//\'/\'\'}'"
+    # Send the statement on stdin so the password never appears in a process list
+    if printf 'ALTER ROLE %s WITH PASSWORD %s;\n' "$ident" "$lit" \
+        | $DOCKER_SUDO docker exec -i "$c" psql -v ON_ERROR_STOP=1 -q -U "$role" -d "${db:-postgres}" >/dev/null; then
+        print_success "Database password for role '${role}' changed (ALTER ROLE)"
+        print_warning "Running containers keep the old password until the stack is redeployed"
+        DB_PASSWORD_CHANGE_APPLIED=true
+        return 0
+    fi
+    print_error "ALTER ROLE failed - the database password was NOT changed"
+    return 1
+}
+
+# Called when the user picks "Start Fresh" on an existing installation.
+handle_existing_data_on_fresh() {
+    local n8n_vol="" pg_vol="" v typed choice="" ts dump_file c
+    local -a vols=()
+    ensure_docker_access || return 0
+    n8n_vol=$(find_compose_volume n8n_data 2>/dev/null) || n8n_vol=""
+    pg_vol=$(find_compose_volume postgres_data 2>/dev/null) || pg_vol=""
+    [ -n "$n8n_vol" ] && vols+=("$n8n_vol")
+    [ -n "$pg_vol" ] && vols+=("$pg_vol")
+    [ ${#vols[@]} -gt 0 ] || return 0
+
+    print_section "Existing Data Volumes Detected"
+    echo -e "  ${YELLOW}Start Fresh regenerates configuration files, but Docker volumes are NOT removed:${NC}"
+    for v in "${vols[@]}"; do
+        echo -e "    • ${CYAN}${v}${NC}"
+    done
+    echo ""
+    echo -e "  ${GRAY}PostgreSQL keeps the password it was created with and n8n keeps its${NC}"
+    echo -e "  ${GRAY}encryption key inside these volumes. New secrets would NOT match them and${NC}"
+    echo -e "  ${GRAY}n8n / the management console would fail to start.${NC}"
+    echo ""
+    echo -e "  ${WHITE}Options:${NC}"
+    echo -e "    ${CYAN}1)${NC} Keep existing data and reuse the existing secrets ${GREEN}(recommended)${NC}"
+    echo -e "    ${CYAN}2)${NC} ${RED}DELETE${NC} the volumes above and start with empty data"
+    echo -e "    ${CYAN}3)${NC} Exit"
+    echo ""
+
+    if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+        print_info "AUTO_CONFIRM: keeping existing data (volumes are never deleted automatically)"
+        return 0
+    fi
+    while [[ ! "$choice" =~ ^[123]$ ]]; do
+        echo -ne "${WHITE}  Enter your choice [1-3]${NC}: "
+        read choice
+    done
+    case $choice in
+        1)
+            print_success "Existing data will be kept; existing secrets will be reused"
+            return 0
+            ;;
+        3)
+            print_info "Exiting. Your installation remains unchanged."
+            exit 0
+            ;;
+    esac
+
+    if [ -n "$pg_vol" ] && confirm_prompt "Create a pg_dumpall backup of the database before deleting?" "y"; then
+        c="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}"
+        ts=$(date +%Y%m%d_%H%M%S)
+        dump_file="${SCRIPT_DIR}/backups/pre_fresh_${ts}.sql.gz"
+        mkdir -p "${SCRIPT_DIR}/backups"
+        local dump_user
+        dump_user=$(env_get_key "${SCRIPT_DIR}/.env" POSTGRES_USER 2>/dev/null) || dump_user=""
+        dump_user="${dump_user:-${DB_USER:-$DEFAULT_DB_USER}}"
+        if wait_for_postgres_container \
+            && (umask 077 && set -o pipefail && $DOCKER_SUDO docker exec "$c" pg_dumpall -U "$dump_user" | gzip > "$dump_file") \
+            && [ -s "$dump_file" ]; then
+            print_success "Database backup saved to ${dump_file}"
+        else
+            rm -f "$dump_file"
+            print_error "Database backup failed"
+            if ! confirm_prompt "Continue deleting WITHOUT a database backup?" "n"; then
+                print_info "Keeping existing data; existing secrets will be reused"
+                return 0
+            fi
+        fi
+    fi
+
+    echo ""
+    echo -e "  ${RED}This permanently deletes all n8n workflows, credentials, executions and${NC}"
+    echo -e "  ${RED}management console data stored in the volumes listed above.${NC}"
+    echo -ne "${WHITE}  Type DELETE to confirm${NC}: "
+    read typed
+    if [ "$typed" != "DELETE" ]; then
+        print_info "Not confirmed - keeping existing data; existing secrets will be reused"
+        return 0
+    fi
+
+    print_info "Stopping the stack..."
+    run_compose down --remove-orphans >/dev/null 2>&1 || true
+    for v in "${vols[@]}"; do
+        # Remove any remaining container still holding the volume
+        $DOCKER_SUDO docker ps -aq --filter "volume=${v}" | while read -r c; do
+            $DOCKER_SUDO docker rm -f "$c" >/dev/null 2>&1 || true
+        done
+        if $DOCKER_SUDO docker volume rm "$v" >/dev/null; then
+            print_success "Removed volume ${v}"
+        else
+            print_error "Could not remove volume ${v} - aborting"
+            exit 1
+        fi
+    done
+
+    # The old .env belongs to the deleted data (a copy is in .backups/); start clean
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        mv -f "${SCRIPT_DIR}/.env" "${SCRIPT_DIR}/.env.pre-fresh.$(date +%Y%m%d_%H%M%S)"
+        print_info "Previous .env moved aside (.env.pre-fresh.*)"
+    fi
+    unset DB_PASSWORD N8N_ENCRYPTION_KEY MGMT_SECRET_KEY MGMT_DB_USER MGMT_DB_PASSWORD
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # GENERATE .env FILE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 generate_env_file() {
+    local env_file="${SCRIPT_DIR}/.env" key var val old_pw vol_key tmp
+    local -a missing=()
     print_info "Generating .env file..."
 
-    # Read existing .env file to preserve values not stored in config
-    if [ -f "${SCRIPT_DIR}/.env" ]; then
-        # Source existing .env to get values we might not have in memory
-        # Use a subshell to avoid polluting current environment unexpectedly
-        while IFS='=' read -r key value; do
-            # Skip comments and empty lines
-            [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
-            # Remove any leading/trailing whitespace from key
-            key=$(echo "$key" | xargs)
-            # Only set if not already set in current environment
-            if [ -z "${!key}" ] && [ -n "$value" ]; then
-                export "$key=$value"
-            fi
-        done < "${SCRIPT_DIR}/.env"
+    # Map an existing .env back onto installer variables
+    # (POSTGRES_PASSWORD -> DB_PASSWORD, TIMEZONE -> N8N_TIMEZONE, ...)
+    env_adopt_existing_values "$env_file"
+
+    # Last-resort recovery of secrets from the existing stack
+    if [ -z "${N8N_ENCRYPTION_KEY:-}" ]; then
+        N8N_ENCRYPTION_KEY=$(read_n8n_encryption_key_from_volume 2>/dev/null) || N8N_ENCRYPTION_KEY=""
+    fi
+    if [ -z "${DB_PASSWORD:-}" ]; then
+        DB_PASSWORD=$(detect_running_postgres_password 2>/dev/null) || DB_PASSWORD=""
+    fi
+
+    # Never write a key that does not match the one n8n stored in its volume
+    if [ "${N8N_KEY_VERIFIED:-false}" != true ]; then
+        if vol_key=$(read_n8n_encryption_key_from_volume 2>/dev/null) && [ -n "$vol_key" ] \
+            && [ "$vol_key" != "${N8N_ENCRYPTION_KEY:-}" ]; then
+            print_warning "N8N_ENCRYPTION_KEY does not match the key stored in the n8n data volume - using the volume's key"
+            N8N_ENCRYPTION_KEY="$vol_key"
+        fi
+    fi
+
+    # Never change POSTGRES_PASSWORD in .env unless the role was actually changed
+    if [ -f "$env_file" ] && [ "${DB_PASSWORD_CHANGE_APPLIED:-false}" != true ] \
+        && old_pw=$(env_get_key "$env_file" POSTGRES_PASSWORD) && [ -n "$old_pw" ] \
+        && [ "$old_pw" != "${DB_PASSWORD:-}" ] && find_compose_volume postgres_data >/dev/null 2>&1; then
+        print_warning "POSTGRES_PASSWORD differs from the password of the existing database and was not applied with ALTER ROLE - keeping the existing password"
+        DB_PASSWORD="$old_pw"
     fi
 
     # Generate secrets if not already set
-    if command_exists openssl; then
-        MGMT_SECRET_KEY=${MGMT_SECRET_KEY:-$(openssl rand -base64 32)}
-    else
-        MGMT_SECRET_KEY=${MGMT_SECRET_KEY:-$(head /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32)}
+    if [ -z "${MGMT_SECRET_KEY:-}" ]; then
+        if command_exists openssl; then
+            MGMT_SECRET_KEY=$(openssl rand -base64 32)
+        else
+            MGMT_SECRET_KEY=$(random_secret 32)
+        fi
     fi
 
-    cat > "${SCRIPT_DIR}/.env" << EOF
+    # Defaults
+    MGMT_PORT="${MGMT_PORT:-${DEFAULT_MGMT_PORT:-3333}}"
+    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
+    TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-n8n-server}"
+    DNS_CERTBOT_IMAGE="${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}"
+    DNS_CREDENTIALS_FILE="${DNS_CREDENTIALS_FILE:-cloudflare.ini}"
+    # The mount target follows the provider; keep the stored one only when the
+    # provider is unknown (e.g. a reconfigure that did not touch DNS settings)
+    if [ -n "${DNS_PROVIDER_NAME:-}" ] || [ -z "${DNS_CREDENTIALS_TARGET:-}" ]; then
+        DNS_CREDENTIALS_TARGET=$(dns_credentials_target)
+    fi
+    POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-$DEFAULT_POSTGRES_CONTAINER}"
+    N8N_CONTAINER="${N8N_CONTAINER:-$DEFAULT_N8N_CONTAINER}"
+    NGINX_CONTAINER="${NGINX_CONTAINER:-$DEFAULT_NGINX_CONTAINER}"
+    CERTBOT_CONTAINER="${CERTBOT_CONTAINER:-$DEFAULT_CERTBOT_CONTAINER}"
+    MANAGEMENT_CONTAINER="${MANAGEMENT_CONTAINER:-$DEFAULT_MANAGEMENT_CONTAINER}"
+
+    # Management console uses the n8n role unless a separate role was configured
+    MGMT_DB_USER="${MGMT_DB_USER:-$DB_USER}"
+    if [ "$MGMT_DB_USER" = "$DB_USER" ]; then
+        MGMT_DB_PASSWORD="$DB_PASSWORD"
+    else
+        MGMT_DB_PASSWORD="${MGMT_DB_PASSWORD:-${DB_PASSWORD_PREVIOUS:-$DB_PASSWORD}}"
+    fi
+
+    # Abort rather than write a .env the stack cannot start with
+    for var in N8N_DOMAIN:DOMAIN DB_USER:POSTGRES_USER DB_PASSWORD:POSTGRES_PASSWORD DB_NAME:POSTGRES_DB \
+               N8N_ENCRYPTION_KEY:N8N_ENCRYPTION_KEY MGMT_SECRET_KEY:MGMT_SECRET_KEY MGMT_DB_PASSWORD:MGMT_DB_PASSWORD; do
+        val="${var%%:*}"
+        if [ -z "${!val:-}" ]; then
+            missing+=("${var#*:}")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        print_error "Refusing to write .env - required value(s) are empty: ${missing[*]}"
+        print_info "Restore a previous .env from ${SCRIPT_DIR}/.backups/ or set the value(s) in your setup-config and re-run."
+        exit 1
+    fi
+    while IFS='=' read -r key var; do
+        var="${var%\?}"
+        if ! env_quote_value "${!var:-}" >/dev/null; then
+            print_error "Value for ${key} cannot be written to .env (it contains a newline, or both ' and \`)"
+            exit 1
+        fi
+    done < <(env_key_map)
+
+    if [ -f "$env_file" ]; then
+        # Existing install: update installer-managed keys in place; everything
+        # else (console-managed keys, custom variables, comments) is preserved.
+        while IFS='=' read -r key var; do
+            var="${var%\?}"
+            if ! env_set_key "$env_file" "$key" "${!var:-}"; then
+                print_error "Failed to update ${key} in .env"
+                exit 1
+            fi
+        done < <(env_key_map)
+        chmod 600 "$env_file"
+        print_success ".env file updated (existing secrets and custom keys preserved)"
+    else
+        tmp=$(umask 077 && mktemp "${env_file}.tmp.XXXXXX")
+        cat > "$tmp" << EOF
 # n8n Management System v3.0 - Environment Variables
 # Generated by setup.sh on $(date)
 # WARNING: This file contains sensitive credentials - do not commit to git!
@@ -2874,76 +3680,81 @@ generate_env_file() {
 # ===========================================
 
 # Domain name for n8n (used for URLs, SSL certificates, etc.)
-DOMAIN=${N8N_DOMAIN}
+DOMAIN=$(env_quote_value "$N8N_DOMAIN")
 
 # Host IP address (local IP that matches the domain)
-N8N_MANAGEMENT_HOST_IP=${N8N_MANAGEMENT_HOST_IP:-}
+N8N_MANAGEMENT_HOST_IP=$(env_quote_value "${N8N_MANAGEMENT_HOST_IP:-}")
 
 # PostgreSQL credentials
-POSTGRES_USER=${DB_USER}
-POSTGRES_PASSWORD=${DB_PASSWORD}
-POSTGRES_DB=${DB_NAME}
+POSTGRES_USER=$(env_quote_value "$DB_USER")
+POSTGRES_PASSWORD=$(env_quote_value "$DB_PASSWORD")
+POSTGRES_DB=$(env_quote_value "$DB_NAME")
 
 # n8n encryption key
-N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+N8N_ENCRYPTION_KEY=$(env_quote_value "$N8N_ENCRYPTION_KEY")
 
 # Management console (uses same DB credentials as n8n)
-MGMT_SECRET_KEY=${MGMT_SECRET_KEY}
-MGMT_DB_USER=${DB_USER}
-MGMT_DB_PASSWORD=${DB_PASSWORD}
-MGMT_PORT=${MGMT_PORT:-3333}
+MGMT_SECRET_KEY=$(env_quote_value "$MGMT_SECRET_KEY")
+MGMT_DB_USER=$(env_quote_value "$MGMT_DB_USER")
+MGMT_DB_PASSWORD=$(env_quote_value "$MGMT_DB_PASSWORD")
+MGMT_PORT=$(env_quote_value "$MGMT_PORT")
 
 # Admin credentials (for management console)
-ADMIN_USER=${ADMIN_USER}
-ADMIN_PASS=${ADMIN_PASS}
-ADMIN_EMAIL=${ADMIN_EMAIL:-admin@localhost}
+ADMIN_USER=$(env_quote_value "${ADMIN_USER:-}")
+ADMIN_PASS=$(env_quote_value "${ADMIN_PASS:-}")
+ADMIN_EMAIL=$(env_quote_value "$ADMIN_EMAIL")
 
 # Timezone
-TIMEZONE=${N8N_TIMEZONE}
+TIMEZONE=$(env_quote_value "${N8N_TIMEZONE:-}")
 
 # ===========================================
 # Optional: NFS Backup Storage
 # ===========================================
-NFS_SERVER=${NFS_SERVER:-}
-NFS_PATH=${NFS_PATH:-}
-NFS_LOCAL_MOUNT=${NFS_LOCAL_MOUNT:-}
+NFS_SERVER=$(env_quote_value "${NFS_SERVER:-}")
+NFS_PATH=$(env_quote_value "${NFS_PATH:-}")
+NFS_LOCAL_MOUNT=$(env_quote_value "${NFS_LOCAL_MOUNT:-}")
 
 # ===========================================
 # Optional: Cloudflare Tunnel
 # ===========================================
-CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+CLOUDFLARE_TUNNEL_TOKEN=$(env_quote_value "${CLOUDFLARE_TUNNEL_TOKEN:-}")
 
 # ===========================================
 # Optional: Tailscale VPN
 # ===========================================
-TAILSCALE_AUTH_KEY=${TAILSCALE_AUTH_KEY:-}
-TAILSCALE_HOSTNAME=${TAILSCALE_HOSTNAME:-n8n-server}
-TAILSCALE_ROUTES=${TAILSCALE_ROUTES:-}
+TAILSCALE_AUTH_KEY=$(env_quote_value "${TAILSCALE_AUTH_KEY:-}")
+TAILSCALE_HOSTNAME=$(env_quote_value "$TAILSCALE_HOSTNAME")
+TAILSCALE_ROUTES=$(env_quote_value "${TAILSCALE_ROUTES:-}")
 
 # ===========================================
 # Optional: Public Website
 # ===========================================
-PUBLIC_SITE_ENABLE=${INSTALL_PUBLIC_WEBSITE}
+PUBLIC_SITE_ENABLE=$(env_quote_value "${INSTALL_PUBLIC_WEBSITE:-false}")
 
 # ===========================================
 # DNS Provider / SSL Certificate Settings
 # ===========================================
-DNS_CERTBOT_IMAGE=${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
-DNS_CERTBOT_FLAGS=${DNS_CERTBOT_FLAGS:-}
+DNS_CERTBOT_IMAGE=$(env_quote_value "$DNS_CERTBOT_IMAGE")
+DNS_CERTBOT_FLAGS=$(env_quote_value "${DNS_CERTBOT_FLAGS:-}")
+DNS_CREDENTIALS_FILE=$(env_quote_value "${DNS_CREDENTIALS_FILE:-cloudflare.ini}")
+DNS_CREDENTIALS_TARGET=$(env_quote_value "$DNS_CREDENTIALS_TARGET")
 
 # ===========================================
 # Container Names (generally don't change)
 # ===========================================
-POSTGRES_CONTAINER=${POSTGRES_CONTAINER}
-N8N_CONTAINER=${N8N_CONTAINER}
-NGINX_CONTAINER=${NGINX_CONTAINER}
-CERTBOT_CONTAINER=${CERTBOT_CONTAINER}
-MANAGEMENT_CONTAINER=${DEFAULT_MANAGEMENT_CONTAINER}
+POSTGRES_CONTAINER=$(env_quote_value "$POSTGRES_CONTAINER")
+N8N_CONTAINER=$(env_quote_value "$N8N_CONTAINER")
+NGINX_CONTAINER=$(env_quote_value "$NGINX_CONTAINER")
+CERTBOT_CONTAINER=$(env_quote_value "$CERTBOT_CONTAINER")
+MANAGEMENT_CONTAINER=$(env_quote_value "$MANAGEMENT_CONTAINER")
 EOF
+        chmod 600 "$tmp"
+        mv -f "$tmp" "$env_file"
+        print_success ".env file generated"
+    fi
 
     # Secure the .env file
-    chmod 600 "${SCRIPT_DIR}/.env"
-    print_success ".env file generated"
+    chmod 600 "$env_file"
 
     # Create env_backups directory for environment variable backups
     mkdir -p "${SCRIPT_DIR}/env_backups"
@@ -2957,24 +3768,20 @@ EOF
 generate_docker_compose_v3() {
     print_info "Generating docker-compose.yaml for v3.0..."
 
-    # Determine credential mount
-    local cred_mount=""
-    case $DNS_PROVIDER_NAME in
-        cloudflare|digitalocean)
-            cred_mount="./${DNS_CREDENTIALS_FILE}:/credentials.ini:ro"
-            ;;
-        route53)
-            cred_mount="./${DNS_CREDENTIALS_FILE}:/root/.aws/credentials:ro"
-            ;;
-        google)
-            cred_mount="./${DNS_CREDENTIALS_FILE}:/credentials.json:ro"
-            ;;
-        *)
-            cred_mount="./${DNS_CREDENTIALS_FILE:-credentials.ini}:/credentials.ini:ro"
-            ;;
-    esac
+    # The certbot service mounts ./${DNS_CREDENTIALS_FILE} at
+    # ${DNS_CREDENTIALS_TARGET} (both from .env); make sure the file exists.
+    ensure_dns_credentials_file
 
-    cat > "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+    # Pinned n8n_network subnet + static IPs for the containers that proxy
+    # client traffic (must match the geo/realip rules in nginx.conf)
+    compute_docker_network_addrs
+
+    # Build into a temp file and move it into place at the end, so an abort
+    # part-way through (set -e) never leaves a truncated docker-compose.yaml.
+    local compose_tmp="${SCRIPT_DIR}/.docker-compose.yaml.new"
+    rm -f "$compose_tmp"
+
+    cat > "$compose_tmp" << 'EOF'
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # /docker-compose.yaml
 #
@@ -3082,7 +3889,7 @@ EOF
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         # With public website: nginx_router handles SSL and port 443
         # n8n_nginx is internal only (port 80)
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Nginx Router (hostname-based routing for internal access)
   # ===========================================================================
@@ -3107,8 +3914,12 @@ EOF
       retries: 3
       start_period: 10s
     networks:
-      - n8n_network
+      n8n_network:
+        # Static IP: n8n_nginx trusts X-Real-IP only from this address
+        ipv4_address: ${NGINX_ROUTER_IP}
 
+EOF
+        cat >> "$compose_tmp" << 'EOF'
   # ===========================================================================
   # Nginx Reverse Proxy (internal - SSL terminated by router)
   # ===========================================================================
@@ -3133,10 +3944,12 @@ EOF
       start_period: 10s
     networks:
       - n8n_network
+      # Only nginx can reach File Browser
+      - filebrowser_network
 EOF
     else
         # Without public website: n8n_nginx handles SSL directly on port 443
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
   # ===========================================================================
   # Nginx Reverse Proxy (SSL termination)
   # ===========================================================================
@@ -3164,7 +3977,7 @@ EOF
 EOF
     fi
 
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+    cat >> "$compose_tmp" << 'EOF'
 
   # ===========================================================================
   # Certbot (SSL certificate management)
@@ -3172,17 +3985,22 @@ EOF
   certbot:
     image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
     container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
+    restart: unless-stopped
+    environment:
+      - NGINX_CONTAINER=${NGINX_CONTAINER:-n8n_nginx}
     volumes:
       - letsencrypt:/etc/letsencrypt
       - certbot_data:/var/www/certbot
-      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:/credentials.ini:ro
+      # Provider credentials, mounted where the renewal config recorded at issuance expects them
+      - ./${DNS_CREDENTIALS_FILE:-cloudflare.ini}:${DNS_CREDENTIALS_TARGET:-/credentials.ini}:ro
+      # Renewal loop + nginx reload deploy hook (scripts/certbot/)
+      - ./scripts/certbot:/opt/n8n-certbot:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    # apk add docker-cli on startup so the deploy-hook (`docker exec ... nginx -s reload`)
-    # passes certbot's hook validation. Without this, certbot bails with
-    # "Unable to find deploy-hook command docker in the PATH" and renewals
-    # never even attempt — which would silently fail until the cert expires.
-    # apk is idempotent: second container start is a no-op.
-    entrypoint: /bin/sh -c "apk add --no-cache docker-cli >/dev/null 2>&1; trap exit TERM; while :; do certbot renew --no-random-sleep-on-renew ${DNS_CERTBOT_FLAGS:-} --deploy-hook 'docker exec ${NGINX_CONTAINER:-n8n_nginx} nginx -s reload; docker exec n8n_nginx_router nginx -s reload || true' || true; sleep 12h & wait $${!}; done;"
+    # renew-loop.sh runs `certbot renew` every 12h, logs failures to `docker logs`
+    # and /etc/letsencrypt/n8n-renewal.log (status in n8n-renewal-status.json),
+    # retries hourly after a failure, and installs a deploy hook that reloads
+    # nginx through the Docker API (no docker CLI / apk install needed).
+    entrypoint: ["/bin/sh", "/opt/n8n-certbot/renew-loop.sh"]
     networks:
       - n8n_network
 
@@ -3194,11 +4012,11 @@ EOF
 
     # Add either pre-built image or build context based on user preference
     if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
     image: ${MANAGEMENT_IMAGE}
 EOF
     else
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
     build:
       context: ./management
       dockerfile: Dockerfile
@@ -3208,7 +4026,7 @@ EOF
     fi
 
     # Continue with the rest of management service configuration
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+    cat >> "$compose_tmp" << 'EOF'
     container_name: ${MANAGEMENT_CONTAINER:-n8n_management}
     restart: always
     environment:
@@ -3249,18 +4067,18 @@ EOF
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       # Public website backup/restore
-      - PUBLIC_SITE_ENABLE=${INSTALL_PUBLIC_WEBSITE}
+      - PUBLIC_SITE_ENABLE=${PUBLIC_SITE_ENABLE:-false}
 EOF
 
     # Add notification environment variables if configured
     if [ "$NOTIFICATIONS_CONFIGURED" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
       # Notifications
       - NOTIF_TYPE=${NOTIF_TYPE:-}
       - NOTIF_CONFIG=${NOTIF_CONFIG:-}
 EOF
         if [ -n "$EMAIL_HOST" ]; then
-            cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+            cat >> "$compose_tmp" << EOF
       - EMAIL_HOST=${EMAIL_HOST}
       - EMAIL_PORT=${EMAIL_PORT}
       - EMAIL_USER=${EMAIL_USER}
@@ -3273,7 +4091,7 @@ EOF
 
     # Add NTFY environment variable if configured
     if [ -n "$NTFY_BASE_URL" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
       # NTFY Push Notifications
       - NTFY_BASE_URL=${NTFY_BASE_URL}
 EOF
@@ -3282,12 +4100,12 @@ EOF
     # Status collector URL - needed for Cache tab to reach n8n_status service
     # n8n_status runs on host network, so we need to use host.docker.internal (Docker Desktop)
     # or the Docker gateway IP (Linux). Users can override via STATUS_COLLECTOR_URL env var.
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+    cat >> "$compose_tmp" << 'EOF'
       # Status Collector (n8n_status service on host network)
       - STATUS_COLLECTOR_URL=${STATUS_COLLECTOR_URL:-http://host.docker.internal:8080}
 EOF
 
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    cat >> "$compose_tmp" << EOF
     volumes:
       # Docker socket for container management (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -3306,7 +4124,7 @@ EOF
 
     # Add NFS bind mount if configured (host-level NFS mount)
     if [ "$NFS_CONFIGURED" = "true" ] && [ -n "$NFS_LOCAL_MOUNT" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
       # NFS backup mount
       - ${NFS_LOCAL_MOUNT}:/mnt/backups
 EOF
@@ -3314,13 +4132,13 @@ EOF
 
     # Add public website volume mount if configured (for backup/restore)
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
       # Public website files (read-only for backup)
       - public_web_root:/app/public_website:ro
 EOF
     fi
 
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    cat >> "$compose_tmp" << EOF
     expose:
       - "80"
     extra_hosts:
@@ -3399,7 +4217,7 @@ EOF
             portainer_cmd="$portainer_cmd --admin-password='${escaped_hash}'"
         fi
 
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Portainer - Container Management UI
   # ===========================================================================
@@ -3421,7 +4239,7 @@ EOF
 
     # Add Portainer Agent if configured (for remote management)
     if [ "$INSTALL_PORTAINER_AGENT" = true ] && [ "$INSTALL_PORTAINER" != true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << 'EOF'
   # ===========================================================================
   # Portainer Agent (for remote Portainer server)
   # ===========================================================================
@@ -3443,19 +4261,23 @@ EOF
 
     # Add Cloudflare Tunnel if configured
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Cloudflare Tunnel
   # ===========================================================================
+  # Point the tunnel's public hostname at HTTP -> n8n_nginx:8080 (webhook-only
+  # listener). The static IP is classified "external" by nginx, so even a
+  # tunnel pointed elsewhere can never reach the admin paths.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: n8n_cloudflared
     restart: always
     command: tunnel run
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      - TUNNEL_TOKEN=\${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
-      - n8n_network
+      n8n_network:
+        ipv4_address: ${CLOUDFLARED_IP}
 
 EOF
     fi
@@ -3465,7 +4287,7 @@ EOF
         # Generate tailscale-serve.json for Tailscale Serve
         generate_tailscale_serve_config
 
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << 'EOF'
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Tailscale VPN
   # ===========================================================================
@@ -3475,12 +4297,12 @@ EOF
     restart: always
     hostname: n8n-tailscale
     environment:
-      - TS_AUTHKEY=${TAILSCALE_AUTH_KEY}
-      - TS_HOSTNAME=${TAILSCALE_HOSTNAME}
+      - TS_AUTHKEY=\${TAILSCALE_AUTH_KEY}
+      - TS_HOSTNAME=\${TAILSCALE_HOSTNAME}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_EXTRA_ARGS=--accept-routes
-      - TS_ROUTES=${TAILSCALE_ROUTES}
+      - TS_ROUTES=\${TAILSCALE_ROUTES}
       - TS_AUTH_ONCE=true
       - TS_SERVE_CONFIG=/config/tailscale-serve.json
     volumes:
@@ -3489,14 +4311,17 @@ EOF
     cap_add:
       - NET_ADMIN
     networks:
-      - n8n_network
+      n8n_network:
+        # Static IP: Tailscale Serve proxies tailnet users to nginx from this
+        # address, which nginx trusts as "internal"
+        ipv4_address: ${TAILSCALE_IP}
 
 EOF
     fi
 
     # Add Adminer if configured
     if [ "$INSTALL_ADMINER" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Adminer - Database Management
   # ===========================================================================
@@ -3519,7 +4344,7 @@ EOF
 
     # Add Dozzle if configured
     if [ "$INSTALL_DOZZLE" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # Dozzle - Container Log Viewer
   # ===========================================================================
@@ -3544,7 +4369,7 @@ EOF
 
     # Add NTFY if configured
     if [ "$INSTALL_NTFY" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # NTFY - Push Notification Server
   # Accessible via its own subdomain (configured in Cloudflare Tunnel)
@@ -3597,11 +4422,29 @@ EOF
 
     # Add File Browser if configured (Public Website)
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        touch "${SCRIPT_DIR}/filebrowser.db"
-        # filebrowser runs as non-root (UID 1000), needs write access
-        chmod 666 "${SCRIPT_DIR}/filebrowser.db"
+        local fb_db="${SCRIPT_DIR}/filebrowser.db"
+        # Only create it on first install. On a re-run it is already owned by
+        # UID 1000 with mode 600, so a plain touch as another non-root user
+        # would fail (Permission denied) and abort setup under set -e.
+        if [ ! -e "$fb_db" ]; then
+            touch "$fb_db" 2>/dev/null || run_privileged touch "$fb_db" 2>/dev/null || \
+                print_warning "Could not create ${fb_db} - Docker will create it as a directory; create it manually"
+        fi
+        local fb_db_mode
+        fb_db_mode=$(stat -c '%u:%a' "$fb_db" 2>/dev/null || stat -f '%u:%Lp' "$fb_db" 2>/dev/null || true)
+        if [ -f "$fb_db" ] && [ "$fb_db_mode" != "1000:600" ]; then
+            # filebrowser runs as non-root (UID 1000) and needs write access.
+            # The DB holds File Browser users and its JWT signing key: owner-only.
+            run_privileged chown 1000:1000 "$fb_db" 2>/dev/null || \
+                print_warning "Could not chown filebrowser.db to 1000:1000"
+            run_privileged chmod 600 "$fb_db" 2>/dev/null || \
+                print_warning "Could not chmod 600 filebrowser.db"
+        fi
 
-        # Create File Browser config file with proxy auth
+        # Create File Browser config file with proxy auth. nginx only sets
+        # X-Remote-User after auth_request has validated the management
+        # console session, and File Browser is reachable only from nginx
+        # (filebrowser_network), so the header cannot be spoofed.
         cat > "${SCRIPT_DIR}/.filebrowser.json" << 'FBEOF'
 {
   "port": 80,
@@ -3617,7 +4460,7 @@ EOF
 }
 FBEOF
 
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   # ===========================================================================
   # File Browser - Public Website Management
   # ===========================================================================
@@ -3633,7 +4476,9 @@ FBEOF
       - ./filebrowser.db:/database/filebrowser.db
       - ./.filebrowser.json:/config/settings.json:ro
     networks:
-      - n8n_network
+      # Isolated: only nginx is attached to this network. Any other container
+      # could otherwise send its own X-Remote-User header.
+      - filebrowser_network
 
   # ===========================================================================
   # Public Website Nginx (separate from main nginx)
@@ -3662,7 +4507,7 @@ EOF
     fi
 
     # Add volumes section
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    cat >> "$compose_tmp" << EOF
 # ===========================================================================
 # Volumes
 # ===========================================================================
@@ -3686,7 +4531,7 @@ volumes:
 EOF
 
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   public_web_root:
     driver: local
 EOF
@@ -3697,7 +4542,7 @@ EOF
 
     # Add Tailscale volume if configured
     if [ "$INSTALL_TAILSCALE" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   tailscale_data:
     driver: local
 EOF
@@ -3705,7 +4550,7 @@ EOF
 
     # Add Portainer volume if full Portainer is configured
     if [ "$INSTALL_PORTAINER" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   portainer_data:
     driver: local
 EOF
@@ -3713,7 +4558,7 @@ EOF
 
     # Add NTFY volumes if configured
     if [ "$INSTALL_NTFY" = true ]; then
-        cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+        cat >> "$compose_tmp" << EOF
   ntfy_cache:
     driver: local
   ntfy_data:
@@ -3722,7 +4567,7 @@ EOF
     fi
 
     # Add networks section
-    cat >> "${SCRIPT_DIR}/docker-compose.yaml" << EOF
+    cat >> "$compose_tmp" << EOF
 
 # ===========================================================================
 # Networks
@@ -3730,15 +4575,31 @@ EOF
 networks:
   n8n_network:
     driver: bridge
+    # Pinned subnet: nginx treats this whole range as "external" (except the
+    # Tailscale container) so traffic arriving through a Docker hop is never
+    # trusted. Change it with N8N_NETWORK_SUBNET and re-run setup.sh.
+    ipam:
+      config:
+        - subnet: ${N8N_NETWORK_SUBNET}
+          ip_range: ${N8N_NETWORK_IP_RANGE}
+          gateway: ${N8N_NETWORK_GATEWAY}
 EOF
+
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        cat >> "$compose_tmp" << EOF
+  filebrowser_network:
+    driver: bridge
+    internal: true
+EOF
+    fi
 
     # Inject public_web_root volume into nginx service if configured
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
         if [ "$CHECK_PLATFORM" = "macos" ]; then
             sed -i '' '/letsencrypt:\/etc\/letsencrypt:ro/a\
-      - public_web_root:/var/www/public:ro' "${SCRIPT_DIR}/docker-compose.yaml"
+      - public_web_root:/var/www/public:ro' "$compose_tmp"
         else
-            sed -i '/letsencrypt:\/etc\/letsencrypt:ro/a\      - public_web_root:/var/www/public:ro' "${SCRIPT_DIR}/docker-compose.yaml"
+            sed -i '/letsencrypt:\/etc\/letsencrypt:ro/a\      - public_web_root:/var/www/public:ro' "$compose_tmp"
         fi
     fi
 
@@ -3746,16 +4607,20 @@ EOF
     # every service unconfined or container creation fails outright.
     if apparmor_unconfined_required; then
         awk '{print} /^    container_name: /{print "    security_opt:"; print "      - apparmor:unconfined"}' \
-            "${SCRIPT_DIR}/docker-compose.yaml" > "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp"
-        mv "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp" "${SCRIPT_DIR}/docker-compose.yaml"
+            "$compose_tmp" > "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp"
+        mv "${SCRIPT_DIR}/docker-compose.yaml.apparmor.tmp" "$compose_tmp"
         print_info "Added apparmor:unconfined to all generated services"
     fi
 
+    mv -f "$compose_tmp" "${SCRIPT_DIR}/docker-compose.yaml"
     print_success "docker-compose.yaml generated for v3.0"
 }
 
 generate_nginx_conf_v3() {
     print_info "Generating nginx.conf for v3.0..."
+
+    # Pinned Docker network addresses (same values as docker-compose.yaml)
+    compute_docker_network_addrs
 
     # Extract root domain for public website config
     local root_domain=$(echo "$N8N_DOMAIN" | awk -F. '{if (NF>2) {print $(NF-1)"."$NF} else {print $0}}')
@@ -3795,20 +4660,39 @@ http {
     # IP-based Access Control
     # ===========================================================================
     # Classifies requests as "internal" (full access) or "external" (restricted)
-    # Internal: Tailscale, Docker networks, private IP ranges
-    # External: Cloudflare Tunnel, public internet
+    # Internal: localhost, your LAN/VPN ranges, the Tailscale container
+    # External: everything arriving through a Docker hop (Cloudflare Tunnel,
+    #           docker-proxy for IPv6/localhost, other containers), public internet
+    # geo uses longest-prefix match, so the pinned Docker subnet below overrides
+    # broader private ranges such as 172.16.0.0/12 or 10.0.0.0/8.
+    # Entries tagged [managed] are maintained by setup.sh - do not remove them.
     geo \$access_level {
         default          "external";
+        127.0.0.1/32     "internal";  # [managed] Localhost (healthchecks)
 EOF
 
-    # Add internal IP ranges to geo block
+    # Add internal IP ranges to geo block (skipping the managed entries)
     for range in $INTERNAL_IP_RANGES $CUSTOM_INTERNAL_IPS; do
-        if [ -n "$range" ]; then
-            cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+        case "$range" in
+            ""|127.0.0.1/32|"$N8N_NETWORK_SUBNET"|"${TAILSCALE_IP}/32") continue ;;
+        esac
+        if range_inside_docker_subnet "$range"; then
+            print_warning "Ignoring internal range ${range}: it lies inside the Docker network ${N8N_NETWORK_SUBNET}, which must stay external"
+            continue
+        fi
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
         ${range}    "internal";
 EOF
-        fi
     done
+
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+        ${N8N_NETWORK_SUBNET}    "external";  # [managed] Docker network n8n_network (proxied traffic)
+EOF
+    if [ "$INSTALL_TAILSCALE" = "true" ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+        ${TAILSCALE_IP}/32    "internal";  # [managed] Tailscale container (tailnet users via Tailscale Serve)
+EOF
+    fi
 
     # Continue with ACCESS CONTROL SUMMARY and server block
     cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
@@ -3821,9 +4705,14 @@ EOF
     #   - /webhook/     - n8n workflow webhooks
     #   - /ntfy/        - NTFY push notifications (if enabled)
     #
+    # CLOUDFLARE TUNNEL LISTENER (port 8080, not published on the host):
+    #   - /webhook/, /webhook-test/, /webhook-waiting/, /form/, /form-test/,
+    #     /form-waiting/, /ntfy/ (if enabled) - everything else is dropped
+    #
     # INTERNAL ACCESS ONLY (Tailscale, VPN, whitelisted IPs):
     #   - /             - n8n editor
     #   - /management/  - Management console
+    #   - /files/       - File Browser (also needs a management console session)
     #   - /portainer/   - Container management (if enabled)
     #   - /adminer/     - Database management (if enabled)
     #   - /dozzle/      - Log viewer (if enabled)
@@ -3841,6 +4730,12 @@ EOF
     server {
         listen 80;
         server_name ${N8N_DOMAIN};
+
+        # Clients arrive via nginx_router: use the X-Real-IP it sets as the
+        # client address, but only when the connection comes from the router's
+        # static IP. Anything else keeps its real source address.
+        set_real_ip_from ${NGINX_ROUTER_IP}/32;
+        real_ip_header X-Real-IP;
 
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
@@ -3891,7 +4786,7 @@ EOF
             proxy_pass http://n8n;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For \$remote_addr;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
@@ -3911,7 +4806,7 @@ EOF
             proxy_pass http://n8n;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For \$remote_addr;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
@@ -3944,17 +4839,22 @@ EOF
             proxy_pass http://n8n_portainer:9000/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
 
         location /portainer/api/websocket/ {
+            # Block external access (container exec/attach websockets)
+            if ($access_level = "external") {
+                return 403;
+            }
+
             proxy_pass http://n8n_portainer:9000/api/websocket/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -3977,7 +4877,7 @@ EOF
             proxy_pass http://n8n_adminer:8080/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
         }
@@ -3999,7 +4899,7 @@ EOF
             proxy_pass http://n8n_dozzle:8080;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -4033,10 +4933,13 @@ EOF
                 return 204;
             }
 
-            proxy_pass $ntfy_upstream/;
+            # Strip the /ntfy prefix. (proxy_pass with a variable plus a URI part
+            # would replace the whole request URI with "/".)
+            rewrite ^/ntfy/(.*)$ /$1 break;
+            proxy_pass $ntfy_upstream;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -4057,28 +4960,44 @@ EOF
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
         # File Browser - Public Website Management - INTERNAL ACCESS ONLY
+        # Also requires a valid management console session.
         location /files/ {
             # Block external access
             if ($access_level = "external") {
                 return 403;
             }
 
-            # Authenticate via internal API
-            # Note: auth_request disabled - causes 500 errors; using IP-based access control instead
-            #auth_request /management/api/auth/verify;
+            # Authenticate against the management console session (HttpOnly
+            # "session" cookie set at login). 401 if missing/expired.
+            auth_request /_auth/management-session;
+            auth_request_set $files_auth_user $upstream_http_x_auth_user;
 
             # Proxy to filebrowser (uses --baseurl=/files via config)
             proxy_pass http://n8n_filebrowser:80;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
 
-            # Pass authenticated user to File Browser
-            proxy_set_header X-Remote-User admin;
+            # File Browser proxy auth: always overwrite any client-supplied
+            # X-Remote-User with the user validated by auth_request
+            proxy_set_header X-Remote-User $files_auth_user;
+        }
+
+        # Internal-only session check used by auth_request above
+        location = /_auth/management-session {
+            internal;
+            proxy_pass http://management/api/auth/verify;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Original-URI $request_uri;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
         }
 EOF
     fi
@@ -4096,7 +5015,7 @@ EOF
             proxy_pass http://management/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -4114,7 +5033,7 @@ EOF
             proxy_pass http://management/api/ws/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
 
             # WebSocket required headers
@@ -4139,10 +5058,109 @@ EOF
             proxy_pass http://management/api/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_buffering off;
+        }
+    }
+EOF
+
+    # Cloudflare Tunnel listener: plain HTTP on 8080 inside the Docker network
+    # only (never published on the host). It serves just the public n8n
+    # endpoints, so a tunnel pointed here cannot reach any admin path even if
+    # the geo rules were misconfigured.
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+    # ===========================================================================
+    # Cloudflare Tunnel listener (port 8080 - NOT published on the host)
+    # ===========================================================================
+    # Cloudflare Tunnel public hostname -> Service: HTTP -> n8n_nginx:8080
+    # Only public n8n endpoints are served; everything else is dropped (444).
+    server {
+        listen 8080 default_server;
+        server_name _;
+EOF
+    # cloudflared passes the visitor address (set by the Cloudflare edge) in
+    # CF-Connecting-IP. Trust it only from the cloudflared container's static
+    # IP so n8n sees the real client (e.g. for webhook IP whitelists) in
+    # X-Real-IP / X-Forwarded-For, which clients cannot spoof.
+    cat >> "${SCRIPT_DIR}/nginx.conf" << EOF
+
+        set_real_ip_from ${CLOUDFLARED_IP}/32;
+        real_ip_header CF-Connecting-IP;
+EOF
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+
+        # n8n webhooks and forms - PUBLICLY ACCESSIBLE
+        location ~ ^/(webhook|webhook-test|webhook-waiting|form|form-test|form-waiting)/ {
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
+            add_header X-Frame-Options "SAMEORIGIN" always;
+
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' '*';
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization';
+                add_header 'Access-Control-Max-Age' 86400;
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+
+            proxy_pass http://n8n;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            # TLS is terminated by Cloudflare
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
+        }
+EOF
+
+    if [ "$INSTALL_NTFY" = true ]; then
+        cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        # NTFY Push Notification Server - PUBLICLY ACCESSIBLE
+        location /ntfy/ {
+            set $ntfy_upstream http://n8n_ntfy:80;
+            # Strip the /ntfy prefix. (proxy_pass with a variable plus a URI part
+            # would replace the whole request URI with "/".)
+            rewrite ^/ntfy/(.*)$ /$1 break;
+            proxy_pass $ntfy_upstream;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_redirect off;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
+EOF
+    fi
+
+    cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
+
+        location = /healthz {
+            access_log off;
+            default_type application/json;
+            return 200 '{"status":"ok"}';
+        }
+
+        # Everything else (editor, /rest/, /management/, /files/, tools): drop
+        location / {
+            return 444;
         }
     }
 EOF
@@ -4275,7 +5293,7 @@ EOF
 # This container ONLY routes traffic - it has no access to internal services.
 #
 # Architecture:
-#   External traffic → Cloudflare Tunnel → n8n_nginx / nginx_public
+#   External traffic → Cloudflare Tunnel → n8n_nginx:8080 (webhooks only) / nginx_public
 #   Internal traffic → nginx_router:443 → n8n_nginx / nginx_public
 #
 # This container is ONLY added when public website is enabled.
@@ -4303,7 +5321,7 @@ generate_nginx_router_conf() {
 # website without hairpinning through Cloudflare Tunnel.
 #
 # Architecture:
-#   External traffic → Cloudflare Tunnel → n8n_nginx / nginx_public
+#   External traffic → Cloudflare Tunnel → n8n_nginx:8080 (webhooks only) / nginx_public
 #   Internal traffic → nginx_router:443 → n8n_nginx / nginx_public
 #
 # This container is ONLY added when public website is enabled.
@@ -4330,7 +5348,9 @@ http {
 
     # ===========================================================================
     # Internal Services (n8n, management, adminer, dozzle, portainer, ntfy, files)
-    # Routes to n8n_nginx which handles access control and proxying
+    # Routes to n8n_nginx which handles access control and proxying.
+    # n8n_nginx trusts the X-Real-IP set below only from this container's
+    # static IP (NGINX_ROUTER_IP), so it must always overwrite, never pass on.
     # ===========================================================================
     server {
         listen 443 ssl;
@@ -4351,7 +5371,7 @@ http {
             proxy_pass http://n8n_nginx:80;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For \$remote_addr;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
@@ -4383,7 +5403,7 @@ http {
             proxy_pass http://nginx_public:80;
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For \$remote_addr;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_http_version 1.1;
             proxy_buffering off;
@@ -4585,7 +5605,13 @@ configure_other_dns() {
     DNS_CERTBOT_FLAGS="--manual --preferred-challenges dns"
 
     print_warning "Manual DNS configuration selected"
-    echo -e "  ${GRAY}You will need to configure certbot manually.${NC}"
+    echo -e "  ${GRAY}During deployment certbot will show a TXT record (_acme-challenge.<domain>)${NC}"
+    echo -e "  ${GRAY}that you must create at your DNS provider, then press Enter to continue.${NC}"
+    echo -e "  ${YELLOW}${BOLD}Automatic renewal is NOT possible with manual DNS validation.${NC}"
+    echo -e "  ${YELLOW}The certificate expires after 90 days; you must re-run ./setup.sh (option 1)${NC}"
+    echo -e "  ${YELLOW}and add a new TXT record before then. The certbot container will log an${NC}"
+    echo -e "  ${YELLOW}error once the certificate is due for renewal.${NC}"
+    ensure_dns_credentials_file
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -4770,8 +5796,115 @@ validate_domain() {
 configure_database() {
     print_section "PostgreSQL Database Configuration"
 
+    local env_file="${SCRIPT_DIR}/.env" pg_volume="" existing_pw="" existing_user="" existing_db=""
+    local new_pw="" new_pw_confirm=""
+    if [ -f "$env_file" ]; then
+        existing_user=$(env_get_key "$env_file" POSTGRES_USER) || existing_user=""
+        existing_db=$(env_get_key "$env_file" POSTGRES_DB) || existing_db=""
+        existing_pw=$(env_get_key "$env_file" POSTGRES_PASSWORD) || existing_pw=""
+    fi
+    pg_volume=$(find_compose_volume postgres_data 2>/dev/null) || pg_volume=""
+    if [ -n "$pg_volume" ] && [ -z "$existing_pw" ]; then
+        existing_pw=$(detect_running_postgres_password 2>/dev/null) || existing_pw=""
+    fi
+
+    # ── Existing PostgreSQL data: the role/password are fixed by the volume ──
+    if [ -n "$pg_volume" ]; then
+        print_warning "Existing PostgreSQL data volume detected: ${pg_volume}"
+        echo -e "  ${GRAY}PostgreSQL ignores POSTGRES_PASSWORD once initialised - the existing${NC}"
+        echo -e "  ${GRAY}password is kept unless you change it here (applied with ALTER ROLE).${NC}"
+        echo ""
+        if [ -n "$existing_user" ] && [ -n "${DB_USER:-}" ] && [ "$DB_USER" != "$existing_user" ]; then
+            print_warning "Database user '${DB_USER}' ignored - existing data uses '${existing_user}'"
+        fi
+        if [ -n "$existing_db" ] && [ -n "${DB_NAME:-}" ] && [ "$DB_NAME" != "$existing_db" ]; then
+            print_warning "Database name '${DB_NAME}' ignored - existing data uses '${existing_db}'"
+        fi
+        DB_USER="${existing_user:-${DB_USER:-$DEFAULT_DB_USER}}"
+        DB_NAME="${existing_db:-${DB_NAME:-$DEFAULT_DB_NAME}}"
+        print_info "Database: ${DB_NAME} (user: ${DB_USER})"
+
+        if [ "$PRECONFIG_MODE" = "true" ]; then
+            if [ -z "${DB_PASSWORD:-}" ]; then
+                if [ -z "$existing_pw" ]; then
+                    print_error "Cannot determine the password of the existing database."
+                    print_info "Set POSTGRES_PASSWORD in your config file to the CURRENT database password."
+                    exit 1
+                fi
+                DB_PASSWORD="$existing_pw"
+                print_success "Reusing the existing PostgreSQL password"
+            elif [ -n "$existing_pw" ] && [ "$DB_PASSWORD" != "$existing_pw" ]; then
+                print_warning "POSTGRES_PASSWORD in the config differs from the existing database password"
+                if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ] && [ "${FORCE_REGENERATE_SECRETS:-false}" != "true" ]; then
+                    print_error "Refusing to change the password of an existing database in AUTO_CONFIRM mode."
+                    print_info "Remove POSTGRES_PASSWORD from the config to keep the existing password, or"
+                    print_info "set FORCE_REGENERATE_SECRETS=true to apply the new one with ALTER ROLE."
+                    exit 1
+                fi
+                if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ] || confirm_prompt "Change the existing database password now (ALTER ROLE)?" "n"; then
+                    if ! apply_db_password_change "$DB_PASSWORD" "$DB_USER" "$DB_NAME"; then
+                        print_error "Aborting - .env was not modified"
+                        exit 1
+                    fi
+                    DB_PASSWORD_PREVIOUS="$existing_pw"
+                else
+                    DB_PASSWORD="$existing_pw"
+                    print_success "Keeping the existing PostgreSQL password"
+                fi
+            fi
+            return
+        fi
+
+        if [ -n "$existing_pw" ]; then
+            if confirm_prompt "Keep the existing database password?" "y"; then
+                DB_PASSWORD="$existing_pw"
+                print_success "Keeping the existing PostgreSQL password"
+                return
+            fi
+            while true; do
+                echo -ne "${WHITE}  New database password${NC}: "
+                read -rs new_pw
+                echo ""
+                echo -ne "${WHITE}  Confirm new password${NC}: "
+                read -rs new_pw_confirm
+                echo ""
+                if [ -z "$new_pw" ]; then
+                    print_error "Password cannot be empty"
+                elif [ "$new_pw" != "$new_pw_confirm" ]; then
+                    print_error "Passwords do not match"
+                elif ! env_quote_value "$new_pw" >/dev/null; then
+                    print_error "Password cannot contain newlines, or both ' and \`"
+                else
+                    break
+                fi
+            done
+            if [ "$new_pw" != "$existing_pw" ]; then
+                if ! apply_db_password_change "$new_pw" "$DB_USER" "$DB_NAME"; then
+                    print_error "Aborting - .env was not modified"
+                    exit 1
+                fi
+                DB_PASSWORD_PREVIOUS="$existing_pw"
+            fi
+            DB_PASSWORD="$new_pw"
+        else
+            print_warning "Could not determine the current database password (no .env, container not found)."
+            while [ -z "${DB_PASSWORD:-}" ]; do
+                echo -ne "${WHITE}  Enter the CURRENT database password${NC}: "
+                read -rs DB_PASSWORD
+                echo ""
+            done
+        fi
+        return
+    fi
+
+    # ── New database ──
     # In preconfig mode, database is already configured by load_preconfig
     if [ "$PRECONFIG_MODE" = "true" ]; then
+        if [ -z "${DB_PASSWORD:-}" ]; then
+            DB_PASSWORD=$(random_secret 32)
+            AUTOGEN_DB_PASSWORD=true
+            print_info "Auto-generated PostgreSQL password"
+        fi
         print_info "Using pre-configured database: $DB_NAME (user: $DB_USER)"
         return
     fi
@@ -4949,6 +6082,68 @@ set_host_timezone() {
 generate_encryption_key() {
     print_section "Encryption Key Configuration"
 
+    local vol_key="" env_key="" n8n_volume=""
+
+    # 1) n8n refuses to start if the key differs from the one in its data
+    #    volume, so an existing volume's key always wins.
+    vol_key=$(read_n8n_encryption_key_from_volume 2>/dev/null) || vol_key=""
+    if [ -n "$vol_key" ]; then
+        if [ -n "${N8N_ENCRYPTION_KEY:-}" ] && [ "$N8N_ENCRYPTION_KEY" != "$vol_key" ]; then
+            print_warning "The configured N8N_ENCRYPTION_KEY does not match the key stored in the"
+            print_warning "existing n8n data volume (n8n would refuse to start) - using the volume's key."
+        fi
+        N8N_ENCRYPTION_KEY="$vol_key"
+        N8N_KEY_VERIFIED=true
+        AUTOGEN_ENCRYPTION_KEY=false
+        print_success "Reusing the encryption key from the existing n8n data volume"
+        return 0
+    fi
+
+    # 2) Key supplied via setup-config / environment / resumed state
+    if [ -n "${N8N_ENCRYPTION_KEY:-}" ]; then
+        print_success "Using the configured encryption key"
+        return 0
+    fi
+
+    # 3) Key from an existing .env
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        env_key=$(env_get_key "${SCRIPT_DIR}/.env" N8N_ENCRYPTION_KEY) || env_key=""
+    fi
+    if [ -n "$env_key" ]; then
+        N8N_ENCRYPTION_KEY="$env_key"
+        print_success "Reusing the encryption key from the existing .env"
+        return 0
+    fi
+
+    # 4) Data exists but its key could not be recovered: generating a new one
+    #    would make every stored credential undecryptable.
+    n8n_volume=$(find_compose_volume n8n_data 2>/dev/null) || n8n_volume=""
+    if [ -n "$n8n_volume" ]; then
+        print_warning "Existing n8n data volume '${n8n_volume}' found, but its encryption key could not be read."
+        if [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+            if [ "${FORCE_REGENERATE_SECRETS:-false}" != "true" ]; then
+                print_error "Refusing to generate a new encryption key for existing n8n data in AUTO_CONFIRM mode."
+                print_info "Set N8N_ENCRYPTION_KEY in your config to the existing key, or set"
+                print_info "FORCE_REGENERATE_SECRETS=true to accept that stored credentials become unreadable."
+                exit 1
+            fi
+            print_warning "FORCE_REGENERATE_SECRETS=true - generating a NEW key; stored n8n credentials will be unreadable"
+        else
+            echo -ne "${WHITE}  Enter the existing encryption key (blank = generate a new one)${NC}: "
+            read -rs N8N_ENCRYPTION_KEY
+            echo ""
+            if [ -n "$N8N_ENCRYPTION_KEY" ]; then
+                print_success "Using the entered encryption key"
+                return 0
+            fi
+            if ! confirm_prompt "Generate a NEW key? Credentials stored in n8n will become unreadable" "n"; then
+                print_error "Aborting - no encryption key available"
+                exit 1
+            fi
+        fi
+    fi
+
+    AUTOGEN_ENCRYPTION_KEY=true
     if command_exists openssl; then
         N8N_ENCRYPTION_KEY=$(openssl rand -base64 32)
         print_success "Generated secure encryption key"
@@ -5250,8 +6445,7 @@ configure_public_website() {
                 echo -e "  ${YELLOW}Since you are using Cloudflare Tunnel:${NC}"
                 echo -e "  You must add a Public Hostname in Cloudflare Zero Trust:"
                 echo -e "    - Hostname: ${CYAN}${public_domain}${NC}"
-                echo -e "    - Service:  ${CYAN}HTTPS${NC} -> ${CYAN}n8n_nginx:443${NC}"
-                echo -e "    - Settings: ${WHITE}No TLS Verify${NC}"
+                echo -e "    - Service:  ${CYAN}HTTP${NC} -> ${CYAN}nginx_public:80${NC}"
             else
                 echo -e "  ${YELLOW}This will cause the website to fail because:${NC}"
                 echo -e "    - SSL certificate validation may fail"
@@ -5382,11 +6576,16 @@ generate_tailscale_serve_config() {
         rm -rf "$ts_config_file"
     fi
 
-    # Use N8N_DOMAIN if DOMAIN is not set
-    local proxy_domain="${DOMAIN:-${N8N_DOMAIN}}"
-    if [ -z "$proxy_domain" ]; then
-        print_error "DOMAIN is not set - cannot generate tailscale-serve.json"
-        return 1
+    # Proxy straight to the nginx container over n8n_network. Going through
+    # the host's published port 443 would make docker-proxy re-originate the
+    # connection from the network gateway, which nginx treats as external.
+    # From here the source is the Tailscale container's static IP, which is
+    # the one Docker address nginx trusts as internal.
+    local nginx_c="${NGINX_CONTAINER:-n8n_nginx}"
+    local proxy_target="https+insecure://${nginx_c}:443"
+    if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then
+        # n8n_nginx listens on plain HTTP 80 behind nginx_router
+        proxy_target="http://${nginx_c}:80"
     fi
 
     cat > "$ts_config_file" << EOF
@@ -5395,7 +6594,7 @@ generate_tailscale_serve_config() {
   "Web": {
     "\${TS_CERT_DOMAIN}:443": {
       "Handlers": {
-        "/": { "Proxy": "https://${proxy_domain}:443" }
+        "/": { "Proxy": "${proxy_target}" }
       }
     }
   }
@@ -5717,9 +6916,25 @@ deploy_stack() {
         docker_compose_cmd="$DOCKER_SUDO $docker_compose_cmd"
     fi
 
+    cd "$SCRIPT_DIR"
+
+    # Must run before any "down": if the pinned subnet is taken, "up" would
+    # fail and leave the stack stopped.
+    if ! check_n8n_network_subnet_free; then
+        print_error "Deployment aborted before touching the running stack."
+        exit 1
+    fi
+
+    # Existing installs: n8n_network used to get a random Docker subnet. The
+    # nginx access control now depends on the pinned subnet, and Docker cannot
+    # change the subnet of an existing network, so recreate it (volumes kept).
+    if n8n_network_needs_recreate; then
+        print_info "Recreating the stack network (docker compose down; data volumes are kept)..."
+        $docker_compose_cmd down
+    fi
+
     # Start PostgreSQL
     print_step "1" "4" "Starting PostgreSQL database"
-    cd "$SCRIPT_DIR"
     $docker_compose_cmd up -d postgres
 
     echo -e "  ${GRAY}Waiting for PostgreSQL...${NC}"
@@ -5760,6 +6975,11 @@ deploy_stack() {
     # Verify
     print_step "4" "4" "Verifying services"
     verify_services_v3
+
+    # Make sure certificates will actually renew (dry-run), repair old broken lineages
+    if [ "${SSL_METHOD:-certbot}" = "certbot" ]; then
+        check_certificate_renewal || true
+    fi
 
     # Create backup of working configuration after successful deployment
     print_info "Creating backup of working configuration..."
@@ -5975,8 +7195,11 @@ obtain_ssl_certificate() {
     fi
 
     # Check for existing valid certificate first (use SSL_CERT_DOMAIN which may be root domain for wildcards)
+    local renewal_opt=""
     if check_existing_ssl_certificate "$SSL_CERT_DOMAIN"; then
         display_certificate_info
+        # Reaching certonly below means a new certificate was explicitly requested
+        renewal_opt="--force-renewal"
 
         # Check if force renewal via env var
         if [ "$force_renew" = "true" ]; then
@@ -6048,33 +7271,134 @@ obtain_ssl_certificate() {
             ;;
     esac
 
-    mkdir -p "${SCRIPT_DIR}/letsencrypt-temp"
+    # Manual DNS: certbot prints the TXT record and waits for the user, so it
+    # must run interactively. Such certificates can never renew automatically.
+    local interactive_opt="--non-interactive"
+    local tty_opt=""
+    if [ "$DNS_PROVIDER_NAME" = "manual" ]; then
+        if [ ! -t 0 ] || [ "$PRECONFIG_AUTO_CONFIRM" = "true" ]; then
+            print_error "Manual DNS validation needs an interactive terminal (TXT records must be added by hand)"
+            print_info "Re-run ./setup.sh from a terminal, or choose a supported DNS provider for automatic renewal"
+            exit 1
+        fi
+        certbot_flags="--manual --preferred-challenges dns"
+        interactive_opt=""
+        tty_opt="-it"
+        print_warning "Manual DNS validation: certbot will now ask you to create TXT record(s)."
+        print_warning "This certificate will NOT renew automatically - repeat this before it expires (90 days)."
+    fi
 
-    if ! $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
-        -v "$(pwd)/letsencrypt-temp:/etc/letsencrypt" \
+    # Issue directly into the letsencrypt volume (the same external volume the
+    # certbot service uses) so certbot's live/ -> archive/ symlinks stay intact.
+    # Copying with `cp -rL` (the old approach) broke the lineage and certbot
+    # then silently refused to ever renew it.
+    ensure_dns_credentials_file
+    $DOCKER_SUDO docker volume create letsencrypt >/dev/null 2>&1 || true
+
+    # A lineage broken by an older install (live/*.pem copied as regular files)
+    # would make certbot create "<name>-0001" instead of updating <name>, which
+    # nginx does not use. Move it aside (kept in lineage-repair-backup/) first.
+    local lineage_backup=""
+    if [ "$($DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt:ro alpine \
+            sh -c "f=/etc/letsencrypt/live/${SSL_CERT_DOMAIN}/cert.pem; [ -e \$f ] && [ ! -L \$f ] && echo broken" 2>/dev/null)" = "broken" ]; then
+        lineage_backup="/etc/letsencrypt/lineage-repair-backup/${SSL_CERT_DOMAIN}-$(date +%Y%m%d%H%M%S)"
+        print_warning "Existing certificate lineage for ${SSL_CERT_DOMAIN} is broken (not renewable) - replacing it"
+        $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt alpine sh -c "
+            n='${SSL_CERT_DOMAIN}'; b='${lineage_backup}'; mkdir -p \"\$b\"
+            cp -a /etc/letsencrypt/live/\$n \"\$b/live\" && rm -rf /etc/letsencrypt/live/\$n
+            [ -e /etc/letsencrypt/archive/\$n ] && mv /etc/letsencrypt/archive/\$n \"\$b/archive\"
+            [ -e /etc/letsencrypt/renewal/\$n.conf ] && mv /etc/letsencrypt/renewal/\$n.conf \"\$b/renewal.conf\"
+            true"
+        renewal_opt=""
+    fi
+
+    if ! $DOCKER_SUDO docker run --rm $tty_opt $DOCKER_APPARMOR_OPT \
+        -v letsencrypt:/etc/letsencrypt \
         $cred_volume_opt \
         $DNS_CERTBOT_IMAGE \
         certonly \
         $certbot_flags \
         $domains_arg \
+        --cert-name "$SSL_CERT_DOMAIN" \
+        $renewal_opt \
         --agree-tos \
-        --non-interactive \
+        $interactive_opt \
         --email "$LETSENCRYPT_EMAIL"; then
         print_error "Failed to obtain SSL certificate"
+        if [ -n "$lineage_backup" ]; then
+            print_info "Restoring the previous certificate files so nginx keeps working"
+            $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT -v letsencrypt:/etc/letsencrypt alpine sh -c "
+                n='${SSL_CERT_DOMAIN}'; b='${lineage_backup}'
+                rm -rf /etc/letsencrypt/live/\$n /etc/letsencrypt/archive/\$n /etc/letsencrypt/renewal/\$n.conf
+                [ -e \"\$b/live\" ] && cp -a \"\$b/live\" /etc/letsencrypt/live/\$n
+                [ -e \"\$b/archive\" ] && cp -a \"\$b/archive\" /etc/letsencrypt/archive/\$n
+                [ -e \"\$b/renewal.conf\" ] && cp -a \"\$b/renewal.conf\" /etc/letsencrypt/renewal/\$n.conf
+                true"
+        fi
         exit 1
     fi
 
-    print_success "SSL certificate obtained"
+    print_success "SSL certificate obtained and stored in the letsencrypt volume"
+}
 
-    # Copy to volume
-    $DOCKER_SUDO docker run --rm $DOCKER_APPARMOR_OPT \
-        -v "$(pwd)/letsencrypt-temp:/source:ro" \
-        -v letsencrypt:/dest \
-        alpine \
-        sh -c "cp -rL /source/* /dest/"
+# After deployment: make sure certificates can actually be renewed.
+# Detects broken lineages (live/*.pem not symlinks, left by older installs),
+# offers to repair them, then runs `certbot renew --dry-run` in the running
+# certbot container and reports the result.
+check_certificate_renewal() {
+    local certbot_container="${CERTBOT_CONTAINER:-$DEFAULT_CERTBOT_CONTAINER}"
+    local repair_script="${SCRIPT_DIR}/scripts/repair_ssl_lineage.sh"
 
-    rm -rf "${SCRIPT_DIR}/letsencrypt-temp"
-    print_success "Certificates copied to Docker volume"
+    print_info "Checking automatic certificate renewal..."
+
+    if ! $DOCKER_SUDO docker ps --format '{{.Names}}' | grep -q "^${certbot_container}$"; then
+        print_warning "Certbot container ${certbot_container} is not running - certificates will NOT auto-renew"
+        print_info "Check: docker logs ${certbot_container}"
+        return 1
+    fi
+
+    local broken
+    broken=$($DOCKER_SUDO docker exec "$certbot_container" sh -c \
+        'for f in /etc/letsencrypt/live/*/cert.pem /etc/letsencrypt/live/*/privkey.pem /etc/letsencrypt/live/*/fullchain.pem; do [ -e "$f" ] && [ ! -L "$f" ] && echo "$f"; done; true' 2>/dev/null || true)
+    if [ -n "$broken" ]; then
+        print_warning "Broken certificate lineage detected (live files are not symlinks):"
+        echo "$broken" | sed 's/^/    /'
+        print_info "certbot will never renew these certificates until the lineage is repaired."
+        if [ -x "$repair_script" ] && confirm_prompt "Repair the certificate lineage now (non-destructive, backup kept)?" "y"; then
+            if $DOCKER_SUDO "$repair_script"; then
+                print_success "Certificate lineage repaired and renewal verified"
+                return 0
+            fi
+            print_error "Automatic repair failed - see docs/CERTBOT.md (Repairing a broken lineage)"
+            return 1
+        fi
+        print_warning "Repair later with: ./scripts/repair_ssl_lineage.sh"
+        return 1
+    fi
+
+    if [ "$DNS_PROVIDER_NAME" = "manual" ]; then
+        print_warning "Manual DNS provider: automatic renewal is not possible."
+        print_info "Re-run ./setup.sh before the certificate expires to issue a new one."
+        return 0
+    fi
+
+    echo -e "  ${GRAY}Running certbot renew --dry-run (staging server, may take a few minutes for DNS propagation)...${NC}"
+    local dry_run_output="" attempt
+    for attempt in 1 2 3; do
+        if dry_run_output=$($DOCKER_SUDO docker exec "$certbot_container" certbot renew --dry-run --no-random-sleep-on-renew 2>&1); then
+            print_success "Renewal dry-run succeeded - certificates will renew automatically"
+            return 0
+        fi
+        # The renewal loop may be running its start-up `certbot renew` right now
+        echo "$dry_run_output" | grep -q "Another instance of Certbot" || break
+        sleep 15
+    done
+
+    print_error "Renewal dry-run FAILED - certificates will NOT renew automatically until this is fixed"
+    echo "$dry_run_output" | tail -n 15 | sed 's/^/    /'
+    print_info "Check the DNS credentials file (${DNS_CREDENTIALS_FILE}) and docs/CERTBOT.md"
+    print_info "Re-test with: docker exec ${certbot_container} certbot renew --dry-run"
+    return 1
 }
 
 verify_services_v3() {
@@ -6187,8 +7511,10 @@ show_final_summary_v3() {
         echo -e "    2. Find your ${WHITE}${TAILSCALE_HOSTNAME:-n8n-tailscale}${NC} node"
         echo -e "    3. Click the node and approve the advertised route: ${YELLOW}${TAILSCALE_ROUTES}${NC}"
         echo ""
-        echo -e "    ${RED}${BOLD}NOTE:${NC} ${WHITE}The management console will NOT be accessible via Tailscale${NC}"
-        echo -e "          ${WHITE}until this route has been approved!${NC}"
+        echo -e "    ${RED}${BOLD}NOTE:${NC} ${WHITE}For the n8n editor and management console over Tailscale, use${NC}"
+        echo -e "          ${CYAN}https://${TAILSCALE_HOSTNAME:-n8n-tailscale}.<your-tailnet>.ts.net${NC} ${WHITE}(Tailscale Serve).${NC}"
+        echo -e "          ${WHITE}Connections to the host IP through the advertised route reach nginx${NC}"
+        echo -e "          ${WHITE}via Docker's port proxy and are treated as external.${NC}"
         echo ""
     fi
 
@@ -6203,15 +7529,25 @@ show_final_summary_v3() {
         echo -e "    1. Visit: ${CYAN}https://one.dash.cloudflare.com${NC}"
         echo -e "    2. Go to: Networks → Tunnels → [Your Tunnel] → Configure → Public Hostname"
         echo ""
-        echo -e "    ${WHITE}Hostname 1 (n8n/Management):${NC}"
+        echo -e "    ${WHITE}Hostname 1 (n8n webhooks/forms only):${NC}"
         echo -e "      Hostname: ${CYAN}${N8N_DOMAIN}${NC}"
-        echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}n8n_nginx:80${NC}"
+        echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}${NGINX_CONTAINER:-n8n_nginx}:8080${NC}"
         echo ""
         echo -e "    ${WHITE}Hostname 2 (Public Website):${NC}"
         echo -e "      Hostname: ${CYAN}${public_domain}${NC}"
         echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}nginx_public:80${NC}"
         echo ""
         echo -e "    ${GRAY}Note: Both use HTTP internally. SSL is terminated by Cloudflare.${NC}"
+        echo -e "    ${GRAY}Port 8080 only serves webhooks/forms; the editor, management console${NC}"
+        echo -e "    ${GRAY}and admin tools are never reachable through the tunnel.${NC}"
+        echo ""
+    elif [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
+        echo -e "  ${YELLOW}${BOLD}⚠ CLOUDFLARE ACTION REQUIRED:${NC}"
+        echo -e "    ${WHITE}Add a Public Hostname in Zero Trust (Networks → Tunnels → Configure):${NC}"
+        echo -e "      Hostname: ${CYAN}${N8N_DOMAIN}${NC}"
+        echo -e "      Service:  ${WHITE}HTTP${NC} -> ${WHITE}${NGINX_CONTAINER:-n8n_nginx}:8080${NC}"
+        echo -e "    ${GRAY}Port 8080 only serves webhooks/forms; the editor, management console${NC}"
+        echo -e "    ${GRAY}and admin tools are never reachable through the tunnel.${NC}"
         echo ""
     fi
 
@@ -6241,7 +7577,7 @@ configure_access_control() {
     # Only configure if Cloudflare Tunnel is being used
     if [ "$INSTALL_CLOUDFLARE_TUNNEL" != "true" ]; then
         print_info "No Cloudflare Tunnel configured - skipping access control setup"
-        print_info "All access will be treated as internal (full access)"
+        print_info "Default internal IP ranges will be used (Docker network traffic is always external)"
         return
     fi
 
@@ -6253,9 +7589,10 @@ configure_access_control() {
     echo -e "  ${GRAY}sensitive endpoints from unauthorized access.${NC}"
     echo ""
     echo -e "  ${WHITE}${BOLD}How Access Control Works:${NC}"
-    echo -e "    - ${CYAN}Public Access${NC} (via Cloudflare Tunnel):"
+    echo -e "    - ${CYAN}Public Access${NC} (via Cloudflare Tunnel -> ${NGINX_CONTAINER:-n8n_nginx}:8080):"
     echo -e "      Only these endpoints are accessible:"
-    echo -e "        - ${GREEN}/webhook/${NC} - n8n workflow webhooks"
+    echo -e "        - ${GREEN}/webhook/${NC}, ${GREEN}/webhook-test/${NC}, ${GREEN}/webhook-waiting/${NC} - n8n webhooks"
+    echo -e "        - ${GREEN}/form/${NC}, ${GREEN}/form-test/${NC}, ${GREEN}/form-waiting/${NC} - n8n forms"
     echo -e "        - ${GREEN}/ntfy/${NC} - Push notification service"
     echo ""
     echo -e "    - ${CYAN}Internal Access${NC} (Tailscale, VPN, Local Network):"
@@ -6271,17 +7608,23 @@ configure_access_control() {
     CUSTOM_INTERNAL_IPS=""
 
     # Ask about Tailscale
+    compute_docker_network_addrs
     if [ "$INSTALL_TAILSCALE" = "true" ]; then
-        echo -e "  ${GREEN}[OK]${NC} Tailscale detected - Tailscale IPs (100.64.0.0/10) will have full access"
+        echo -e "  ${GREEN}[OK]${NC} Tailscale detected - tailnet users (via Tailscale Serve, ${TAILSCALE_IP}) will have full access"
         echo ""
     fi
 
     # Show default ranges
     echo -e "  ${WHITE}${BOLD}Default Internal IP Ranges:${NC}"
     echo -e "    ${CYAN}100.64.0.0/10${NC}  - Tailscale CGNAT range"
-    echo -e "    ${CYAN}172.16.0.0/12${NC}  - Docker/Internal networks"
+    echo -e "    ${CYAN}172.16.0.0/12${NC}  - Private network (Class B)"
     echo -e "    ${CYAN}10.0.0.0/8${NC}     - Private network (Class A)"
     echo -e "    ${CYAN}192.168.0.0/16${NC} - Private network (Class C)"
+    echo ""
+    echo -e "  ${WHITE}${BOLD}Always External:${NC}"
+    echo -e "    ${CYAN}${N8N_NETWORK_SUBNET}${NC} - Docker network n8n_network (Cloudflare Tunnel,"
+    echo -e "      docker-proxy/IPv6, other containers). More specific, so it wins over the"
+    echo -e "      private ranges above. Change with N8N_NETWORK_SUBNET."
     echo ""
 
     # Ask about custom IP ranges
@@ -6299,7 +7642,15 @@ configure_access_control() {
             fi
 
             # Validate CIDR notation
-            if [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+            if [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]] && ! ipv4_cidr_parse "$ip_range"; then
+                echo -e "    ${RED}[ERROR]${NC} Invalid IPv4 range: $ip_range"
+            elif [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]] && range_inside_docker_subnet "$ip_range"; then
+                # geo is longest-prefix match: a range inside the Docker
+                # network would make proxied traffic (e.g. cloudflared at
+                # ${CLOUDFLARED_IP}) internal again.
+                echo -e "    ${RED}[ERROR]${NC} $ip_range overlaps the Docker network ${N8N_NETWORK_SUBNET},"
+                echo -e "      ${GRAY}which must stay external (Cloudflare Tunnel and other containers).${NC}"
+            elif [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
                 CUSTOM_INTERNAL_IPS="$CUSTOM_INTERNAL_IPS $ip_range"
                 echo -e "    ${GREEN}[OK]${NC} Added: $ip_range"
             else
@@ -6330,15 +7681,14 @@ update_access_control() {
     echo -e "  ${GRAY}without reinstalling other services.${NC}"
     echo ""
 
-    # Load existing state if available
+    # Load existing state if available (in-progress install), otherwise the
+    # saved configuration of a completed install. All optional-service flags
+    # are needed: nginx.conf is regenerated as a whole, not just the geo block.
     if [ -f "$STATE_FILE" ]; then
-        source "$STATE_FILE"
-        INTERNAL_IP_RANGES="${SAVED_INTERNAL_IP_RANGES:-$DEFAULT_INTERNAL_IP_RANGES}"
-        CUSTOM_INTERNAL_IPS="${SAVED_CUSTOM_INTERNAL_IPS:-}"
-        N8N_DOMAIN="${SAVED_N8N_DOMAIN:-}"
-        SSL_CERT_DOMAIN="${SAVED_SSL_CERT_DOMAIN:-$N8N_DOMAIN}"
-        INSTALL_CLOUDFLARE_TUNNEL="${SAVED_INSTALL_CLOUDFLARE_TUNNEL:-false}"
-        INSTALL_TAILSCALE="${SAVED_INSTALL_TAILSCALE:-false}"
+        load_state
+    elif [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE" 2>/dev/null || true
+        restore_optional_services_from_config
     else
         print_error "No existing configuration found. Please run setup.sh first."
         exit 1
@@ -6372,6 +7722,12 @@ update_access_control() {
         generate_nginx_conf_v3
         generate_public_nginx_conf
         generate_nginx_router_conf
+
+        if ! grep -q 'ipam:' "${SCRIPT_DIR}/docker-compose.yaml" 2>/dev/null || n8n_network_needs_recreate; then
+            print_warning "SECURITY: docker-compose.yaml / the running network do not use the pinned subnet ${N8N_NETWORK_SUBNET}."
+            print_warning "Until fixed, proxied traffic may still be treated as internal. Run ./setup.sh,"
+            print_warning "choose 'Regenerate all config files', then: docker compose down && docker compose up -d"
+        fi
 
         # Reload nginx if running
         local nginx_container="${NGINX_CONTAINER:-n8n_nginx}"
@@ -6476,6 +7832,13 @@ main() {
         print_info "Running in non-interactive mode (AUTO_CONFIRM=true)"
         # Set install mode to fresh for preconfig
         INSTALL_MODE="fresh"
+        # Re-running on an existing install: back up and reuse its secrets.
+        # configure_database / generate_encryption_key refuse to regenerate
+        # secrets for existing data unless FORCE_REGENERATE_SECRETS=true.
+        if [ -f "${SCRIPT_DIR}/.env" ] || [ "$(detect_current_version)" != "none" ]; then
+            print_warning "Existing installation detected - existing secrets and data volumes will be kept"
+            backup_existing_config
+        fi
     else
         # Check for existing installation FIRST - before showing feature list
         local detected_version=$(detect_current_version)
@@ -6670,7 +8033,14 @@ main() {
             if confirm_prompt "Would you like to redeploy the stack now?"; then
                 deploy_stack
             else
-                print_info "Configuration saved. Run 'docker compose up -d' when ready."
+                if n8n_network_needs_recreate; then
+                    # Docker cannot change an existing network's subnet; a
+                    # plain "up -d" would fail or keep the old network.
+                    print_info "Configuration saved. When ready, recreate the stack network (data volumes are kept):"
+                    print_info "  docker compose down && docker compose up -d"
+                else
+                    print_info "Configuration saved. Run 'docker compose up -d' when ready."
+                fi
             fi
             exit 0
         fi
@@ -6814,6 +8184,12 @@ NTFY_ENABLED=${INSTALL_NTFY}
 NTFY_BASE_URL=${NTFY_BASE_URL}
 NTFY_PUBLIC_URL=${NTFY_PUBLIC_URL}
 NTFY_INTERNAL_URL=${NTFY_INTERNAL_URL:-http://n8n_ntfy:80}
+PUBLIC_WEBSITE_ENABLED=${INSTALL_PUBLIC_WEBSITE}
+PUBLIC_WEBSITE_DOMAIN=${PUBLIC_WEBSITE_DOMAIN}
+# Access control (reused by reconfigure when regenerating nginx.conf)
+INTERNAL_IP_RANGES="${INTERNAL_IP_RANGES}"
+CUSTOM_INTERNAL_IPS="${CUSTOM_INTERNAL_IPS}"
+N8N_NETWORK_SUBNET=${N8N_NETWORK_SUBNET}
 EOF
         chmod 600 "${CONFIG_FILE}"
 

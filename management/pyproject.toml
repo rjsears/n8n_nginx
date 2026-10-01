@@ -78,3 +78,8 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 # Use Unix line endings
 line-ending = "lf"
+
+[tool.pytest.ini_options]
+# Run from management/ with `pytest` (dev deps: requirements-dev.txt)
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -100,15 +100,7 @@ If you run n8n for anything you'd be upset to lose, this repo is the difference 
 
 ### 🔐 SSL renewal that provably renews
 
-Certbot validates `--deploy-hook` commands **before** attempting renewal. On stock certbot images, a hook that calls `docker` fails validation — and every renewal silently aborts before it begins. No error, no log noise, nothing until the cert expires. This stack installs `docker-cli` inside the certbot container at startup and runs renewal in a long-lived 12-hour loop:
-
-```yaml
-entrypoint: /bin/sh -c "apk add --no-cache docker-cli >/dev/null 2>&1; trap exit TERM;
-  while :; do certbot renew --no-random-sleep-on-renew ${DNS_CERTBOT_FLAGS:-}
-    --deploy-hook 'docker exec n8n_nginx nginx -s reload;
-                   docker exec n8n_nginx_router nginx -s reload || true' || true;
-  sleep 12h & wait ${!}; done;"
-```
+Certificates are issued straight into the `letsencrypt` volume, so certbot's `live/ → archive/` symlinks stay intact (copying them with `cp -L` makes certbot skip the lineage forever). The certbot container (`restart: unless-stopped`) runs [`scripts/certbot/renew-loop.sh`](scripts/certbot/renew-loop.sh): `certbot renew` every 12 hours, failures logged loudly to `docker logs n8n_certbot` and `/etc/letsencrypt/n8n-renewal.log` and retried hourly, and a deploy hook that reloads nginx through the Docker API with plain Python (no Docker CLI to install at start-up). Each provider's credentials file is mounted where the renewal config expects it (`DNS_CREDENTIALS_FILE` / `DNS_CREDENTIALS_TARGET` in `.env`), and `setup.sh` finishes with a `certbot renew --dry-run` to show that renewal actually works. Older installs can be checked and repaired with `./scripts/repair_ssl_lineage.sh`.
 
 The hook reloads **both** nginx instances, because the router terminates TLS in public-website topology and would otherwise keep serving the old certificate from memory. Certificates are issued via **DNS-01 challenges** (Cloudflare, AWS Route 53, Google Cloud DNS, DigitalOcean), so port 80 is never opened and wildcard certs are supported.
 
@@ -124,10 +116,12 @@ Verification is not a checksum. On demand or on a schedule, the console:
 On top of that: four backup types (full cluster, n8n DB, config, individual flows), hourly-to-monthly scheduling with tiered retention, four independent pruning modes with emergency low-disk handling, **selective restore** (mount a backup, browse workflows/credentials/config, restore one item with rename/overwrite/skip conflict handling), and a **bare-metal recovery archive** that embeds its own `restore.sh` — recovery does not depend on having this repo checked out.
 
 ```bash
-tar -xzf n8n-baremetal-2026-07-31.tar.gz
-cd n8n-baremetal-2026-07-31
-./restore.sh
+mkdir n8n-restore && tar -xzf backup_20260731_020000.n8n_backup.tar.gz -C n8n-restore
+cd n8n-restore
+sudo ./restore.sh --dry-run   # preview, then run without --dry-run
 ```
+
+`restore.sh` starts only PostgreSQL, restores every database in a single transaction (stopping on the first error), and only then brings up the rest of the stack. **Archives created before restore script v3.2.0 embed a `restore.sh` that cannot complete** — download the current one from *Backups → Bare Metal → Download latest restore.sh* (or `GET /api/backups/restore-script`), copy it over the one in the extracted archive, and take a fresh backup after upgrading. The in-app restore only restores the n8n database (stopping n8n, with a safety dump and the previous database kept); the management database is restored with `restore.sh`. See the [Backup Guide](docs/BACKUP_GUIDE.md#restoring-data).
 
 ### 🛡️ One exposed port — and a deliberate public/private split
 
@@ -135,16 +129,20 @@ The entire stack binds exactly two host ports: `443` (nginx router) and `127.0.0
 
 ```nginx
 geo $access_level {
-    default        "external";
-    127.0.0.1/32   "internal";
-    10.0.0.0/8     "internal";
-    172.16.0.0/12  "internal";
-    192.168.0.0/16 "internal";
-    100.64.0.0/10  "internal";   # Tailscale CGNAT — VPN clients are internal automatically
+    default          "external";
+    127.0.0.1/32     "internal";
+    10.0.0.0/8       "internal";   # your LAN
+    172.16.0.0/12    "internal";   # your LAN
+    192.168.0.0/16   "internal";   # your LAN
+    100.64.0.0/10    "internal";   # host-level Tailscale (CGNAT)
+    172.30.0.0/24    "external";   # the stack's own Docker network (pinned subnet)
+    172.30.0.12/32   "internal";   # the Tailscale container (Tailscale Serve)
 }
 ```
 
-`/webhook/` stays reachable from anywhere so third-party services can deliver callbacks. The n8n editor, management console, and admin tools are internal-only. With Cloudflare Tunnel or Tailscale enabled, you can run with **zero inbound ports**.
+`geo` is longest-prefix match, so the pinned Docker network (`N8N_NETWORK_SUBNET`, default `172.30.0.0/24`) overrides the broad private ranges: anything that reaches nginx through a Docker hop — Cloudflare Tunnel, Docker's port proxy (IPv6 clients, `localhost`), any other container such as an n8n HTTP Request node — is **external**. The only trusted Docker addresses are the Tailscale container and, via `set_real_ip_from`, the `X-Real-IP` set by `nginx_router` from its static IP.
+
+`/webhook/` stays reachable from anywhere so third-party services can deliver callbacks. The n8n editor, management console, and admin tools are internal-only. Cloudflare Tunnel points at a separate webhook-only listener (`n8n_nginx:8080`, not published on the host) that serves only `/webhook*` and `/form*` and drops everything else. With Cloudflare Tunnel or Tailscale enabled, you can run with **zero inbound ports**.
 
 ### 🧩 Proxmox LXC support that actually detects the problem
 
@@ -268,7 +266,8 @@ ADMIN_PASS=a-long-passphrase-you-choose
 ADMIN_EMAIL=admin@example.com
 
 N8N_TIMEZONE=America/Los_Angeles
-INTERNAL_IP_RANGES=100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16
+INTERNAL_IP_RANGES="127.0.0.1/32 100.64.0.0/10 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16"
+N8N_NETWORK_SUBNET=172.30.0.0/24   # pinned Docker network, always "external" in nginx
 AUTO_CONFIRM=true
 ```
 
@@ -344,6 +343,21 @@ INTERNAL_IP_RANGES="10.0.0.0/8 192.168.0.0/16 203.0.113.7/32" ./setup.sh --updat
 # always test before reload — a malformed geo block takes the proxy down:
 docker exec n8n_nginx nginx -t && docker exec n8n_nginx nginx -s reload
 ```
+
+### Upgrading an existing install (pinned Docker network)
+
+Older installs let Docker pick the `n8n_network` subnet and trusted all of `172.16.0.0/12` / `10.0.0.0/8` — which includes every Docker address, so Cloudflare Tunnel, the router and IPv6 clients were all "internal". To move to the fixed layout:
+
+```bash
+git pull
+./setup.sh                        # choose "7) Regenerate all config files"
+docker compose down               # the network must be recreated: Docker cannot change a network's subnet
+docker compose up -d
+```
+
+`setup.sh` does the `down` for you when it deploys and detects the old network. Then, in Cloudflare Zero Trust, change the tunnel's public hostname for your n8n domain to **HTTP → `n8n_nginx:8080`** (see [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)). Tailscale users should browse the Tailscale Serve URL (`https://<hostname>.<tailnet>.ts.net`). If `172.30.0.0/24` clashes with a network you already use, set `N8N_NETWORK_SUBNET` (in `.n8n_setup_config`) before regenerating — `setup.sh` checks the existing Docker networks before it stops anything, and refuses to deploy (suggesting a free `/24`) if the subnet overlaps one.
+
+**Management image:** File Browser (`/files/`) now authenticates through the management console: nginx calls `/api/auth/verify`, which must return an `X-Auth-User` header, and the console's internal nginx now takes the client address from `n8n_nginx`'s `X-Real-IP`. Both changes live in the management image. With `USE_PREBUILT_MANAGEMENT=true` (the default), pull the updated image once it is published (`docker compose pull n8n_management`) — an older prebuilt image breaks File Browser logins; with a local build, rebuild it (`docker compose build n8n_management`).
 
 ### Driving backups from the API
 
@@ -456,6 +470,9 @@ Honest accounting — what's enforced today, where it lives, and what's on the r
 | Zero-inbound-port operation | ✅ optional | Cloudflare Tunnel / Tailscale |
 | TLS 1.2/1.3 only, ECDHE AEAD ciphers | ✅ | `nginx.conf` / `nginx-router.conf` |
 | Editor internal-only, `/webhook/` public | ✅ | nginx `geo $access_level` |
+| Docker hops (tunnel, docker-proxy, containers) never internal | ✅ | pinned `n8n_network` subnet as `external` in `geo` |
+| Cloudflare Tunnel reaches webhooks/forms only | ✅ | `n8n_nginx:8080` listener |
+| File Browser requires a console session | ✅ | nginx `auth_request` → `/api/auth/verify`, isolated `filebrowser_network` |
 | Security headers (`nosniff`, `X-Frame-Options`, `X-XSS-Protection`) | ✅ | `nginx.conf` |
 | bcrypt password hashing (12 rounds) | ✅ | console `security.py` |
 | DB-backed opaque session tokens (`secrets.token_urlsafe(48)`) | ✅ | console auth |
@@ -538,7 +555,7 @@ Everything below lives on the full docs site — **[rjsears.github.io/n8n_nginx]
 |---|---|
 | Stack seems unhealthy | `./scripts/health_check.sh` — it checks all ten components |
 | Certificate problems | `./scripts/fix_ssl.sh your-domain.com`, then `docker exec n8n_certbot certbot certificates` |
-| Renewal seems stuck | `docker compose logs --tail 200 certbot` — look for deploy-hook validation errors |
+| Renewal seems stuck | `docker compose logs --tail 200 certbot` — look for `ERROR: certbot renew FAILED` / broken lineage; `./scripts/repair_ssl_lineage.sh --check` |
 | Management console errors | `docker exec n8n_management tail -200 /app/logs/uvicorn.log` (not `docker logs`) |
 | Webhooks failing externally | `docker exec n8n printenv WEBHOOK_URL N8N_TRUST_PROXY` — verify n8n knows its external identity |
 | Docker-in-LXC won't start containers | AppArmor — see [Proxmox LXC hosts](#proxmox-lxc-hosts) above |

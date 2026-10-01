@@ -383,20 +383,34 @@ async function loadAccessControl() {
   }
 }
 
+// FastAPI returns a string detail for HTTPException and a list of errors for 422s
+function apiErrorDetail(error, fallback) {
+  const detail = error.response?.data?.detail
+  if (Array.isArray(detail)) {
+    return detail.map((d) => (d?.msg || '').replace(/^Value error, /, '')).filter(Boolean).join('; ') || fallback
+  }
+  return detail || fallback
+}
+
 async function addIpRange() {
-  if (!newIpRange.value.cidr) {
+  const payload = {
+    ...newIpRange.value,
+    cidr: (newIpRange.value.cidr || '').trim(),
+    description: (newIpRange.value.description || '').trim(),
+  }
+  if (!payload.cidr) {
     notificationStore.error('Please enter a CIDR address')
     return
   }
 
   addingIpRange.value = true
   try {
-    await settingsApi.addIpRange(newIpRange.value)
-    notificationStore.success(`IP range ${newIpRange.value.cidr} added`)
+    await settingsApi.addIpRange(payload)
+    notificationStore.success(`IP range ${payload.cidr} added`)
     newIpRange.value = { cidr: '', description: '', access_level: 'internal' }
     await loadAccessControl()
   } catch (error) {
-    notificationStore.error(error.response?.data?.detail || 'Failed to add IP range')
+    notificationStore.error(apiErrorDetail(error, 'Failed to add IP range'))
   } finally {
     addingIpRange.value = false
   }
@@ -459,13 +473,13 @@ function cancelEditIpRangeDescription() {
 async function saveIpRangeDescription(cidr) {
   savingIpRangeDescription.value = true
   try {
-    await settingsApi.updateIpRange(cidr, editingIpRangeDescription.value)
+    await settingsApi.updateIpRange(cidr, (editingIpRangeDescription.value || '').trim())
     notificationStore.success('Description updated successfully')
     editingIpRangeIndex.value = null
     editingIpRangeDescription.value = ''
     await loadAccessControl()
   } catch (error) {
-    notificationStore.error(error.response?.data?.detail || 'Failed to update description')
+    notificationStore.error(apiErrorDetail(error, 'Failed to update description'))
   } finally {
     savingIpRangeDescription.value = false
   }
@@ -1050,8 +1064,8 @@ watch(activeTab, (newTab) => {
                   </span>
                 </p>
                 <p v-if="cloudflareRunning" class="text-sm text-green-600 dark:text-green-300 mt-1">
-                  External users access your services through Cloudflare Tunnel. Traffic arrives from the internal Docker network,
-                  bypassing IP-based restrictions. The IP ranges below control direct network access only.
+                  External users reach only public endpoints (webhooks, forms) through Cloudflare Tunnel. Traffic from the Docker
+                  network is always treated as external (entries marked [managed]); the IP ranges below control direct network access.
                 </p>
                 <p v-else class="text-sm text-red-600 dark:text-red-300 mt-1">
                   Cloudflare Tunnel is configured but currently not running. External access may be unavailable.
@@ -1490,6 +1504,7 @@ watch(activeTab, (newTab) => {
                               <input
                                 type="text"
                                 v-model="editingIpRangeDescription"
+                                maxlength="100"
                                 class="input-field w-full text-sm"
                                 placeholder="Enter description..."
                                 @click.stop
@@ -1554,7 +1569,7 @@ watch(activeTab, (newTab) => {
                         <label class="block text-sm text-secondary mb-1.5">CIDR Address</label>
                         <input
                           type="text"
-                          v-model="newIpRange.cidr"
+                          v-model.trim="newIpRange.cidr"
                           placeholder="e.g., 192.168.1.0/24"
                           class="input-field w-full font-mono"
                           @click.stop
@@ -1565,6 +1580,7 @@ watch(activeTab, (newTab) => {
                         <input
                           type="text"
                           v-model="newIpRange.description"
+                          maxlength="100"
                           placeholder="e.g., Home Network"
                           class="input-field w-full"
                           @click.stop

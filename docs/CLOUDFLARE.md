@@ -208,32 +208,24 @@ Configure what services are accessible through the tunnel:
 |-------|-------|
 | Subdomain | `n8n` (or leave blank for root) |
 | Domain | `example.com` (your domain) |
-| Type | `HTTPS` |
-| URL | `nginx:443` |
+| Type | `HTTP` |
+| URL | `n8n_nginx:8080` |
 
-This creates: `n8n.example.com` → your n8n instance
+This creates: `n8n.example.com` → the **webhook-only listener** of your n8n nginx.
 
-**Available Services (Path-Based Routing):**
+`n8n_nginx:8080` is a dedicated nginx server that exists only inside the Docker network (it is never published on the host). It serves just the endpoints that must be reachable from the internet and drops every other request:
 
-The n8n Management Suite uses nginx reverse proxy with path-based routing - no ports required:
+| Reachable through the tunnel | Not reachable through the tunnel |
+|------------------------------|----------------------------------|
+| `/webhook/`, `/webhook-test/`, `/webhook-waiting/` | `/` (n8n editor) and `/rest/` |
+| `/form/`, `/form-test/`, `/form-waiting/` | `/management/` (management console) |
+| `/ntfy/` (if NTFY is enabled) | `/files/`, `/portainer/`, `/adminer/`, `/dozzle/` |
 
-| Service | URL |
-|---------|-----|
-| **n8n** | `https://n8n.example.com` |
-| **Management Console** | `https://n8n.example.com/management` |
-| **Adminer** (optional) | `https://n8n.example.com/adminer` |
-| **Portainer** (optional) | `https://n8n.example.com/portainer` |
-| **Dozzle** (optional) | `https://n8n.example.com/dozzle` |
+The editor, management console and admin tools are for internal users only: your LAN, a VPN, or Tailscale (`https://<hostname>.<tailnet>.ts.net`). If you need them from the internet, put them behind a separate, Cloudflare Access–protected hostname *and* add that network to the IP allowlist deliberately — the tunnel does not grant internal access.
 
-> **Note**: All services are accessed via paths on your single domain. The tunnel only needs to expose one hostname - nginx handles routing to the appropriate service.
+> **Defense in depth**: the `cloudflared` container has a static address inside the pinned Docker network (`N8N_NETWORK_SUBNET`, default `172.30.0.0/24`), and nginx classifies that whole network as **external**. Even if the tunnel is (still) pointed at `n8n_nginx:443` or `n8n_nginx:80`, internet users only get the public paths (`/webhook/`, and `/ntfy/` if enabled); everything else returns 403.
 
-**Additional Options (click "Additional application settings"):**
-
-| Setting | Recommended | Purpose |
-|---------|-------------|---------|
-| TLS > No TLS Verify | ✅ Enable | Accept self-signed certs from nginx |
-| TLS > Origin Server Name | `your-domain.com` | SNI for the connection |
-| HTTP Settings > HTTP Host Header | `your-domain.com` | Preserve host header |
+No TLS settings are needed: the tunnel terminates TLS at Cloudflare and talks plain HTTP to nginx inside the Docker network.
 
 ### Step 6: Save the Tunnel
 
@@ -262,20 +254,31 @@ The `n8n` public hostname (e.g., `n8n.example.com`) only routes traffic to the n
 | Subdomain | `www` |
 | Domain | `example.com` |
 | Path | (leave empty) |
-| Type | `HTTPS` |
-| URL | `n8n_nginx:443` |
+| Type | `HTTP` |
+| URL | `nginx_public:80` |
 
 **For root domain (optional):**
 | Field | Value |
 |-------|-------|
 | Subdomain | (leave empty) |
 | Domain | `example.com` |
-| Type | `HTTPS` |
-| URL | `n8n_nginx:443` |
+| Type | `HTTP` |
+| URL | `nginx_public:80` |
 
-### Important Settings
-For both hostnames, you **must** enable this setting under **Additional application settings > TLS**:
-- **No TLS Verify**: ✅ Enabled
+`nginx_public` only serves the static website; it has no route to n8n or the management console. File Browser (`/files/`) is internal-only and additionally requires a management console login.
+
+### Upgrading an existing install
+
+Older versions told you to point the tunnel at `nginx:443` / `n8n_nginx:443` / `n8n_nginx:80`, and nginx treated every Docker address (including the tunnel) as internal — so the whole editor and management console were reachable from the internet. After updating:
+
+1. Regenerate the configuration: `./setup.sh` → **7) Regenerate all config files**.
+2. Recreate the Docker network (its subnet is now pinned and Docker cannot change it in place):
+   ```bash
+   docker compose down && docker compose up -d
+   ```
+   (`setup.sh` does this for you when it redeploys and detects the old network.)
+3. In Zero Trust, edit the n8n public hostname: **Type `HTTP`, URL `n8n_nginx:8080`**. Point the website hostnames at `HTTP` → `nginx_public:80`.
+4. Check: `https://n8n.example.com/management/` from outside your network must now fail, while a test webhook still works.
 
 ---
 
@@ -343,7 +346,8 @@ n8n_cloudflared:
   environment:
     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
   networks:
-    - n8n_network
+    n8n_network:
+      ipv4_address: 172.30.0.11   # derived from N8N_NETWORK_SUBNET; always "external" in nginx
   restart: unless-stopped
   depends_on:
     - n8n_nginx
@@ -397,7 +401,7 @@ sequenceDiagram
     Browser->>CF: 3. Connect to Cloudflare
     CF->>CF: 4. Find your tunnel
     CF->>CD: 5. Send through encrypted tunnel
-    CD->>Nginx: 6. Forward to nginx:443
+    CD->>Nginx: 6. Forward to n8n_nginx:8080 (webhooks/forms only)
     Nginx->>N8N: 7. Route to n8n
     N8N->>Browser: 8. Response travels back
 ```
@@ -569,15 +573,14 @@ docker logs n8n_cloudflared
 
 ### Connection Refused Errors
 
-**Verify nginx is accessible from cloudflared:**
+**Verify the tunnel listener is up:**
 ```bash
-docker exec n8n_cloudflared wget -q -O- https://nginx:443 --no-check-certificate
+docker exec n8n_nginx curl -s http://localhost:8080/healthz
 ```
 
 **Check tunnel configuration:**
 1. Go to tunnel in Cloudflare dashboard
-2. Verify the **URL** is correct (`nginx:443`)
-3. Ensure **No TLS Verify** is enabled
+2. Verify the service is **HTTP** and the **URL** is `n8n_nginx:8080`
 
 ### 502 Bad Gateway
 
@@ -662,8 +665,8 @@ docker logs n8n_cloudflared
 # Restart tunnel
 docker compose restart n8n_cloudflared
 
-# Test connectivity
-docker exec n8n_cloudflared wget -q -O- https://nginx:443 --no-check-certificate
+# Test the tunnel listener
+docker exec n8n_nginx curl -s http://localhost:8080/healthz
 ```
 
 ### URLs

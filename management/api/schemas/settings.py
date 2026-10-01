@@ -11,9 +11,14 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Any, Dict, List
 from datetime import datetime
+
+from api.services.nginx_geo import (
+    normalize_cidr,
+    validate_description as validate_ip_range_description,
+)
 
 
 class SettingValue(BaseModel):
@@ -94,12 +99,26 @@ class GeneralConfigUpdate(BaseModel):
 
 
 # Access Control schemas
+#
+# IP ranges end up verbatim in the geo block of nginx.conf
+# ("    <cidr>    "<level>";  # <description>"), so both fields are strictly
+# validated: anything else could inject geo lines or break the block's braces.
 class IPRange(BaseModel):
     """IP range configuration."""
     cidr: str = Field(..., min_length=1, description="CIDR notation (e.g., 192.168.1.0/24)")
     description: str = Field(default="", description="Description of the IP range")
     access_level: str = Field(default="internal", pattern="^(internal|external)$")
     protected: bool = Field(default=False, description="If true, this range cannot be deleted")
+
+    @field_validator("cidr")
+    @classmethod
+    def _check_cidr(cls, v: str) -> str:
+        return normalize_cidr(v)
+
+    @field_validator("description")
+    @classmethod
+    def _check_description(cls, v: str) -> str:
+        return validate_ip_range_description(v)
 
 
 class AccessControlConfig(BaseModel):
@@ -122,10 +141,25 @@ class AddIPRangeRequest(BaseModel):
     description: str = Field(default="", description="Description of the IP range")
     access_level: str = Field(default="internal", pattern="^(internal|external)$")
 
+    @field_validator("cidr")
+    @classmethod
+    def _check_cidr(cls, v: str) -> str:
+        return normalize_cidr(v)
+
+    @field_validator("description")
+    @classmethod
+    def _check_description(cls, v: str) -> str:
+        return validate_ip_range_description(v)
+
 
 class UpdateIPRangeRequest(BaseModel):
     """Request to update an IP range's description."""
     description: str = Field(..., description="New description for the IP range")
+
+    @field_validator("description")
+    @classmethod
+    def _check_description(cls, v: str) -> str:
+        return validate_ip_range_description(v)
 
 
 # External Routes schemas
