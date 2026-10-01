@@ -20,6 +20,7 @@ import os
 import shutil
 import logging
 import asyncio
+import secrets
 from datetime import datetime, UTC
 from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,13 +40,51 @@ from api.config import settings
 logger = logging.getLogger(__name__)
 
 
-# Verification container (separate from restore container)
+# Verification container (separate from restore container).
+# It holds a full copy of the production database, so it is started with
+# --network none and no published port: every query goes through
+# `docker exec` (local socket inside the container). The superuser password
+# is random per run and never leaves this process.
 VERIFY_CONTAINER_NAME = "n8n_postgres_verify"
 VERIFY_CONTAINER_IMAGE = "postgres:16"
-VERIFY_DB_PORT = 5434  # Different port from restore container
+VERIFY_CONTAINER_LABEL = "n8n_management.temp=verify"
 VERIFY_DB_USER = "verify_user"
-VERIFY_DB_PASSWORD = "verify_temp_password"
 VERIFY_DB_NAME = "n8n_verify"
+
+
+def _remove_verify_containers() -> int:
+    """Force-remove the verification container and any labelled leftovers."""
+    names = {VERIFY_CONTAINER_NAME}
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "-q", "--filter", f"label={VERIFY_CONTAINER_LABEL}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        names.update(line.strip() for line in result.stdout.splitlines() if line.strip())
+    except Exception as e:
+        logger.warning(f"Could not list leftover verification containers: {e}")
+
+    removed = 0
+    for name in names:
+        try:
+            result = subprocess.run(
+                ["docker", "rm", "-f", "-v", name], capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                removed += 1
+        except Exception as e:
+            logger.warning(f"Could not remove verification container {name}: {e}")
+    return removed
+
+
+async def remove_stale_verify_container() -> None:
+    """Remove a verification container left behind by a previous (crashed) run.
+
+    Called at API startup: no verification can be in progress at that point.
+    """
+    removed = await asyncio.to_thread(_remove_verify_containers)
+    if removed:
+        logger.info(f"Removed {removed} leftover verification container(s)")
 
 
 class VerificationService:
@@ -75,34 +114,6 @@ class VerificationService:
     # Container Management
     # ============================================================================
 
-    def _get_postgres_network(self) -> str:
-        """Get the Docker network name from the postgres container."""
-        try:
-            # Get network from POSTGRES_HOST container (e.g., n8n_postgres)
-            postgres_host = os.environ.get("POSTGRES_HOST", "n8n_postgres")
-            cmd = [
-                "docker", "inspect", postgres_host,
-                "--format", "{{range $key, $value := .NetworkSettings.Networks}}{{$key}}{{end}}"
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
-        except Exception as e:
-            logger.warning(f"Failed to get network from postgres container: {e}")
-
-        # Fallback: try to find network with n8n in the name
-        try:
-            cmd = ["docker", "network", "ls", "--format", "{{.Name}}"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            for network in result.stdout.strip().split('\n'):
-                if 'n8n' in network.lower() and 'network' in network.lower():
-                    return network
-        except Exception:
-            pass
-
-        # Final fallback
-        return "n8n_nginx_n8n_network"
-
     async def spin_up_verify_container(self) -> bool:
         """
         Create and start a temporary PostgreSQL container for verification.
@@ -119,25 +130,25 @@ class VerificationService:
             if VERIFY_CONTAINER_NAME in result.stdout:
                 # Remove existing container
                 logger.info("Removing existing verification container for fresh start...")
-                subprocess.run(["docker", "rm", "-f", VERIFY_CONTAINER_NAME], capture_output=True)
+                subprocess.run(["docker", "rm", "-f", "-v", VERIFY_CONTAINER_NAME], capture_output=True)
 
-            # Create new container
+            # Create new container: no network, no published port, random
+            # password (passed via the environment of this call only).
             logger.info("Creating new verification container...")
-            docker_network = self._get_postgres_network()
-            logger.info(f"Using Docker network: {docker_network}")
             create_cmd = [
                 "docker", "run", "-d",
                 "--name", VERIFY_CONTAINER_NAME,
+                "--label", VERIFY_CONTAINER_LABEL,
                 "--security-opt", "apparmor=unconfined",
+                "--network", "none",
                 "-e", f"POSTGRES_USER={VERIFY_DB_USER}",
-                "-e", f"POSTGRES_PASSWORD={VERIFY_DB_PASSWORD}",
+                "-e", "POSTGRES_PASSWORD",
                 "-e", f"POSTGRES_DB={VERIFY_DB_NAME}",
-                "-p", f"{VERIFY_DB_PORT}:5432",
-                "--network", docker_network,
                 VERIFY_CONTAINER_IMAGE,
             ]
             logger.info(f"Running: {' '.join(create_cmd)}")
-            create_result = subprocess.run(create_cmd, capture_output=True, text=True)
+            run_env = dict(os.environ, POSTGRES_PASSWORD=secrets.token_urlsafe(24))
+            create_result = subprocess.run(create_cmd, capture_output=True, text=True, env=run_env)
             logger.info(f"Create result - stdout: {create_result.stdout}, stderr: {create_result.stderr}, returncode: {create_result.returncode}")
             if create_result.returncode != 0:
                 logger.error(f"Failed to create container: {create_result.stderr}")
@@ -207,8 +218,8 @@ class VerificationService:
             if stop_result.returncode != 0:
                 logger.warning(f"Failed to stop verification container: {stop_result.stderr}")
 
-            # Remove container (force to ensure cleanup)
-            rm_cmd = ["docker", "rm", "-f", VERIFY_CONTAINER_NAME]
+            # Remove container and its anonymous data volume (force to ensure cleanup)
+            rm_cmd = ["docker", "rm", "-f", "-v", VERIFY_CONTAINER_NAME]
             rm_result = await asyncio.to_thread(
                 subprocess.run, rm_cmd, capture_output=True, text=True
             )

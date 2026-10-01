@@ -766,9 +766,20 @@ If you're NOT using Cloudflare Tunnel and are instead using traditional port for
   Are you using Portainer to manage your containers? [y/N]: y
   ✓ Portainer Agent will be included in docker-compose.yaml
 
-  The agent will be accessible on port 9001.
-  Add this server to Portainer using: <this-server-ip>:9001
+  IP address to publish the agent on [192.168.1.10]:
+  The agent will be accessible on <that-ip>:9001.
+  Add this server to Portainer using: <that-ip>:9001
 ```
+
+The agent has the Docker socket and the host root filesystem mounted, and
+Docker-published ports bypass ufw. Publish it only on a private address the
+Portainer server can reach (LAN or Tailscale IP, stored as
+`PORTAINER_AGENT_BIND` in `.env`; the default is `127.0.0.1`). The agent only
+accepts a Portainer server started with the same `AGENT_SECRET`: setup.sh
+generates `PORTAINER_AGENT_SECRET` in `.env`; set `AGENT_SECRET` to that value
+in your Portainer server's environment before adding this environment.
+Existing agent installs: re-run setup.sh, then `docker compose up -d portainer_agent`
+and update the Portainer server.
 
 ---
 

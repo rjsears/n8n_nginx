@@ -72,6 +72,7 @@ INSTALL_ADMINER=false
 INSTALL_DOZZLE=false
 INSTALL_PORTAINER=false
 INSTALL_PORTAINER_AGENT=false
+PORTAINER_AGENT_BIND=""
 INSTALL_NTFY=false
 NTFY_BASE_URL=""
 NTFY_PUBLIC_URL=""
@@ -3039,34 +3040,39 @@ perform_system_checks() {
 # GENERATE AUTH FILES FOR TOOLS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Print a bcrypt hash (cost 12) of $1. The password is passed on stdin, never
+# on a command line (where any local user could read it from the process list).
+BCRYPT_COST=12
 generate_bcrypt_hash() {
     local password="$1"
     local hash=""
 
     # Try Python with bcrypt first
     if command_exists python3; then
-        hash=$(python3 -c "
+        hash=$(printf '%s' "$password" | python3 -c "
 import sys
+pw = sys.stdin.buffer.read()
 try:
     import bcrypt
-    print(bcrypt.hashpw(sys.argv[1].encode(), bcrypt.gensalt()).decode())
+    print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=${BCRYPT_COST})).decode())
 except ImportError:
     try:
         from passlib.hash import bcrypt as passlib_bcrypt
-        print(passlib_bcrypt.hash(sys.argv[1]))
+        print(passlib_bcrypt.using(rounds=${BCRYPT_COST}).hash(pw.decode()))
     except ImportError:
         sys.exit(1)
-" "$password" 2>/dev/null)
+" 2>/dev/null)
     fi
 
-    # Fallback to htpasswd if available
+    # Fallback to htpasswd if available (-i: password from stdin)
     if [ -z "$hash" ] && command_exists htpasswd; then
-        hash=$(htpasswd -nbB admin "$password" 2>/dev/null | cut -d: -f2)
+        hash=$(printf '%s\n' "$password" | htpasswd -niBC "$BCRYPT_COST" admin 2>/dev/null | cut -d: -f2)
     fi
 
     # Fallback to Docker if available
     if [ -z "$hash" ] && command_exists docker; then
-        hash=$(docker run --rm $DOCKER_APPARMOR_OPT httpd:2.4-alpine htpasswd -nbB admin "$password" 2>/dev/null | cut -d: -f2)
+        hash=$(printf '%s\n' "$password" | ${DOCKER_SUDO:-} docker run --rm -i $DOCKER_APPARMOR_OPT httpd:2.4-alpine \
+            htpasswd -niBC "$BCRYPT_COST" admin 2>/dev/null | cut -d: -f2)
     fi
 
     echo "$hash"
@@ -3074,6 +3080,13 @@ except ImportError:
 
 generate_tool_auth_files() {
     print_info "Generating authentication files for tools..."
+
+    # Portainer reads its initial admin password from this file (mounted as a
+    # compose secret); it is only used when Portainer initialises its database.
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        (umask 077 && printf '%s' "$ADMIN_PASS" > "${SCRIPT_DIR}/portainer_password.txt")
+        chmod 600 "${SCRIPT_DIR}/portainer_password.txt"
+    fi
 
     # Generate bcrypt hash of admin password
     local bcrypt_hash
@@ -3083,9 +3096,6 @@ generate_tool_auth_files() {
         print_warning "Could not generate bcrypt hash - tools will use default authentication"
         return 1
     fi
-
-    # Save hash for Portainer (will be used in docker-compose)
-    PORTAINER_ADMIN_HASH="$bcrypt_hash"
 
     # Create Dozzle users.yml
     mkdir -p "${SCRIPT_DIR}/dozzle"
@@ -3241,9 +3251,10 @@ env_set_key() {
 # existing .env back into the installer and to write it out again.
 #   KEY=VAR    adopt the .env value when VAR is empty
 #   KEY=VAR?   optional setting: adopt only when VAR is unset (empty = disabled)
-# Keys NOT listed here (N8N_API_KEY, NTFY_TOKEN, MGMT_ENCRYPTION_KEY, NTFY_*,
+# Keys NOT listed here (N8N_API_KEY, MGMT_ENCRYPTION_KEY, other NTFY_* keys,
 # anything edited in the management console, ...) are never touched on an
-# existing .env.
+# existing .env. NTFY_TOKEN is listed so a value set in the console is adopted
+# and kept; the installer only generates it when it is empty.
 env_key_map() {
     cat << 'EOF'
 DOMAIN=N8N_DOMAIN
@@ -3277,7 +3288,39 @@ N8N_CONTAINER=N8N_CONTAINER
 NGINX_CONTAINER=NGINX_CONTAINER
 CERTBOT_CONTAINER=CERTBOT_CONTAINER
 MANAGEMENT_CONTAINER=MANAGEMENT_CONTAINER
+NTFY_ADMIN_USER=NTFY_ADMIN_USER
+NTFY_ADMIN_PASS=NTFY_ADMIN_PASS
+NTFY_ADMIN_PASSWORD_HASH=NTFY_ADMIN_PASSWORD_HASH
+NTFY_TOKEN=NTFY_TOKEN
+PORTAINER_AGENT_SECRET=PORTAINER_AGENT_SECRET
+PORTAINER_AGENT_BIND=PORTAINER_AGENT_BIND
 EOF
+}
+
+# Generate the self-hosted ntfy server's credentials (only those still empty):
+# an admin user for subscribers/the web app and an access token the console
+# publishes with. ntfy provisions both from NTFY_AUTH_USERS/NTFY_AUTH_TOKENS.
+ensure_ntfy_credentials() {
+    NTFY_ADMIN_USER="${NTFY_ADMIN_USER:-admin}"
+    if [ -z "${NTFY_ADMIN_PASS:-}" ]; then
+        NTFY_ADMIN_PASS=$(random_secret 24)
+        NTFY_ADMIN_PASSWORD_HASH=""
+    fi
+    if [ -z "${NTFY_ADMIN_PASSWORD_HASH:-}" ]; then
+        NTFY_ADMIN_PASSWORD_HASH=$(generate_bcrypt_hash "$NTFY_ADMIN_PASS")
+        if [ -z "$NTFY_ADMIN_PASSWORD_HASH" ]; then
+            print_error "Could not generate a bcrypt hash for the NTFY admin password (needs python3-bcrypt, htpasswd or Docker)"
+            exit 1
+        fi
+    fi
+    # ntfy only accepts tokens of the form tk_ + 29 characters
+    if [ -n "${NTFY_TOKEN:-}" ] && ! [[ "$NTFY_TOKEN" =~ ^tk_[-_A-Za-z0-9]{29}$ ]]; then
+        print_warning "NTFY_TOKEN in .env is not an ntfy token (tk_...); generating a new one for the local server"
+        NTFY_TOKEN=""
+    fi
+    if [ -z "${NTFY_TOKEN:-}" ]; then
+        NTFY_TOKEN="tk_$(random_secret 64 | tr 'A-Z' 'a-z' | head -c 29)"
+    fi
 }
 
 # Load values from an existing .env into installer variables (POSTGRES_PASSWORD
@@ -3628,6 +3671,17 @@ generate_env_file() {
     MANAGEMENT_CONTAINER="${MANAGEMENT_CONTAINER:-$DEFAULT_MANAGEMENT_CONTAINER}"
 
     # Management console uses the n8n role unless a separate role was configured
+    # Self-hosted ntfy: deny-all server, provisioned admin user + publish token
+    if [ "${INSTALL_NTFY:-false}" = true ]; then
+        ensure_ntfy_credentials
+    fi
+
+    # Portainer Agent only accepts a server that presents this secret
+    if [ "${INSTALL_PORTAINER_AGENT:-false}" = true ]; then
+        PORTAINER_AGENT_SECRET="${PORTAINER_AGENT_SECRET:-$(random_secret 48)}"
+        PORTAINER_AGENT_BIND="${PORTAINER_AGENT_BIND:-127.0.0.1}"
+    fi
+
     MGMT_DB_USER="${MGMT_DB_USER:-$DB_USER}"
     if [ "$MGMT_DB_USER" = "$DB_USER" ]; then
         MGMT_DB_PASSWORD="$DB_PASSWORD"
@@ -3747,6 +3801,24 @@ N8N_CONTAINER=$(env_quote_value "$N8N_CONTAINER")
 NGINX_CONTAINER=$(env_quote_value "$NGINX_CONTAINER")
 CERTBOT_CONTAINER=$(env_quote_value "$CERTBOT_CONTAINER")
 MANAGEMENT_CONTAINER=$(env_quote_value "$MANAGEMENT_CONTAINER")
+
+# ===========================================
+# Optional: Self-hosted NTFY (anonymous access is denied)
+# ===========================================
+# Admin login for the ntfy web app / mobile subscriptions. If you change
+# NTFY_ADMIN_PASS, clear NTFY_ADMIN_PASSWORD_HASH and re-run setup.sh.
+NTFY_ADMIN_USER=$(env_quote_value "${NTFY_ADMIN_USER:-}")
+NTFY_ADMIN_PASS=$(env_quote_value "${NTFY_ADMIN_PASS:-}")
+NTFY_ADMIN_PASSWORD_HASH=$(env_quote_value "${NTFY_ADMIN_PASSWORD_HASH:-}")
+# Access token the management console publishes with
+NTFY_TOKEN=$(env_quote_value "${NTFY_TOKEN:-}")
+
+# ===========================================
+# Optional: Portainer Agent
+# ===========================================
+# The remote Portainer server must be started with AGENT_SECRET set to this value
+PORTAINER_AGENT_SECRET=$(env_quote_value "${PORTAINER_AGENT_SECRET:-}")
+PORTAINER_AGENT_BIND=$(env_quote_value "${PORTAINER_AGENT_BIND:-}")
 EOF
         chmod 600 "$tmp"
         mv -f "$tmp" "$env_file"
@@ -4095,6 +4167,11 @@ EOF
       # NTFY Push Notifications
       - NTFY_BASE_URL=${NTFY_BASE_URL}
 EOF
+        # Access token the console publishes with (the self-hosted server
+        # denies anonymous access; for an external server set it in .env)
+        cat >> "$compose_tmp" << 'EOF'
+      - NTFY_TOKEN=${NTFY_TOKEN:-}
+EOF
     fi
 
     # Status collector URL - needed for Cache tab to reach n8n_status service
@@ -4209,15 +4286,9 @@ EOF
 
     # Add full Portainer if configured
     if [ "$INSTALL_PORTAINER" = true ]; then
-        # Build Portainer command with optional admin password
-        local portainer_cmd="--base-url /portainer"
-        if [ -n "$PORTAINER_ADMIN_HASH" ]; then
-            # Escape $ as $$ for Docker Compose
-            local escaped_hash="${PORTAINER_ADMIN_HASH//\$/\$\$}"
-            portainer_cmd="$portainer_cmd --admin-password='${escaped_hash}'"
-        fi
-
-        cat >> "$compose_tmp" << EOF
+        # The initial admin password is read from portainer_password.txt
+        # (written by generate_tool_auth_files, mode 600) as a compose secret.
+        cat >> "$compose_tmp" << 'EOF'
   # ===========================================================================
   # Portainer - Container Management UI
   # ===========================================================================
@@ -4225,7 +4296,9 @@ EOF
     image: portainer/portainer-ce:latest
     container_name: n8n_portainer
     restart: always
-    command: ${portainer_cmd}
+    command: --base-url /portainer --admin-password-file /run/secrets/portainer_admin_password
+    secrets:
+      - portainer_admin_password
     expose:
       - "9000"
     volumes:
@@ -4243,12 +4316,18 @@ EOF
   # ===========================================================================
   # Portainer Agent (for remote Portainer server)
   # ===========================================================================
+  # The agent has the Docker socket and the host root filesystem, so it is
+  # only published on PORTAINER_AGENT_BIND (default 127.0.0.1; set a LAN or
+  # Tailscale IP the Portainer server can reach) and only accepts a server
+  # configured with the same AGENT_SECRET. Published ports bypass ufw.
   portainer_agent:
     image: portainer/agent:latest
     container_name: portainer_agent
     restart: always
+    environment:
+      - AGENT_SECRET=${PORTAINER_AGENT_SECRET:?PORTAINER_AGENT_SECRET is required (re-run setup.sh)}
     ports:
-      - "9001:9001"
+      - "${PORTAINER_AGENT_BIND:-127.0.0.1}:9001:9001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/docker/volumes:/var/lib/docker/volumes
@@ -4385,11 +4464,16 @@ EOF
       - TZ=\${TIMEZONE:-America/Los_Angeles}
       # NTFY_BASE_URL: Public URL for NTFY (must match Cloudflare Tunnel hostname)
       - NTFY_BASE_URL=${NTFY_PUBLIC_URL}
-      - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
+      # Only needed for iOS instant push (forwards a poll request to ntfy.sh)
+      - NTFY_UPSTREAM_BASE_URL=\${NTFY_UPSTREAM_BASE_URL:-}
       - NTFY_BEHIND_PROXY=true
       - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
+      # Authentication: nobody may read or publish anonymously. The admin user
+      # and the console's publish token are provisioned from .env.
       - NTFY_AUTH_FILE=/var/lib/ntfy/auth.db
-      - NTFY_AUTH_DEFAULT_ACCESS=\${NTFY_AUTH_DEFAULT_ACCESS:-read-write}
+      - NTFY_AUTH_DEFAULT_ACCESS=\${NTFY_AUTH_DEFAULT_ACCESS:-deny-all}
+      - NTFY_AUTH_USERS=\${NTFY_ADMIN_USER:-admin}:\${NTFY_ADMIN_PASSWORD_HASH:?NTFY_ADMIN_PASSWORD_HASH is required (re-run setup.sh)}:admin
+      - NTFY_AUTH_TOKENS=\${NTFY_ADMIN_USER:-admin}:\${NTFY_TOKEN:?NTFY_TOKEN is required (re-run setup.sh)}:management-console
       - NTFY_ENABLE_LOGIN=\${NTFY_ENABLE_LOGIN:-true}
       - NTFY_ENABLE_SIGNUP=\${NTFY_ENABLE_SIGNUP:-false}
       - NTFY_CACHE_DURATION=\${NTFY_CACHE_DURATION:-24h}
@@ -4566,6 +4650,19 @@ EOF
 EOF
     fi
 
+    # Portainer's initial admin password file
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        cat >> "$compose_tmp" << 'EOF'
+
+# ===========================================================================
+# Secrets
+# ===========================================================================
+secrets:
+  portainer_admin_password:
+    file: ./portainer_password.txt
+EOF
+    fi
+
     # Add networks section
     cat >> "$compose_tmp" << EOF
 
@@ -4703,7 +4800,8 @@ EOF
     # ===========================================================================
     # EXTERNALLY ACCESSIBLE (public internet):
     #   - /webhook/     - n8n workflow webhooks
-    #   - /ntfy/        - NTFY push notifications (if enabled)
+    #   - /ntfy/        - NTFY push notifications (if enabled; ntfy requires
+    #                     a login or token, anonymous access is denied)
     #
     # CLOUDFLARE TUNNEL LISTENER (port 8080, not published on the host):
     #   - /webhook/, /webhook-test/, /webhook-waiting/, /form/, /form-test/,
@@ -4913,25 +5011,13 @@ EOF
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
         # NTFY Push Notification Server - EXTERNALLY ACCESSIBLE
-        # Required for mobile apps and external services to receive notifications
+        # Required for mobile apps and external services to receive notifications.
+        # ntfy itself enforces authentication (auth-default-access deny-all):
+        # every read and publish needs the admin login or an access token.
+        # ntfy answers CORS preflights itself, so no extra headers here.
         location /ntfy/ {
             # Use variable to enable runtime DNS resolution (prevents startup failure)
             set $ntfy_upstream http://n8n_ntfy:80;
-
-            # CORS headers for external access
-            add_header 'Access-Control-Allow-Origin' '*' always;
-            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-            add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
-
-            if ($request_method = 'OPTIONS') {
-                add_header 'Access-Control-Allow-Origin' '*';
-                add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS';
-                add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With';
-                add_header 'Access-Control-Max-Age' 86400;
-                add_header 'Content-Length' 0;
-                add_header 'Content-Type' 'text/plain charset=UTF-8';
-                return 204;
-            }
 
             # Strip the /ntfy prefix. (proxy_pass with a variable plus a URI part
             # would replace the whole request URI with "/".)
@@ -5128,6 +5214,7 @@ EOF
         cat >> "${SCRIPT_DIR}/nginx.conf" << 'EOF'
 
         # NTFY Push Notification Server - PUBLICLY ACCESSIBLE
+        # (ntfy denies anonymous access; clients need a login or token)
         location /ntfy/ {
             set $ntfy_upstream http://n8n_ntfy:80;
             # Strip the /ntfy prefix. (proxy_pass with a variable plus a URI part
@@ -6175,7 +6262,28 @@ configure_portainer() {
         1)
             INSTALL_PORTAINER=false
             INSTALL_PORTAINER_AGENT=true
-            print_success "Portainer Agent will be installed (connect to your existing Portainer server on port 9001)"
+            echo ""
+            echo -e "  ${YELLOW}Security:${NC} ${GRAY}the agent has full control of Docker and the host filesystem.${NC}"
+            echo -e "  ${GRAY}Publish it only on an address your Portainer server reaches privately${NC}"
+            echo -e "  ${GRAY}(LAN or Tailscale IP). Docker-published ports bypass ufw; 0.0.0.0 exposes${NC}"
+            echo -e "  ${GRAY}it on every interface. The server must also use the generated AGENT_SECRET.${NC}"
+            local default_bind="${PORTAINER_AGENT_BIND:-${N8N_MANAGEMENT_HOST_IP:-127.0.0.1}}"
+            local agent_bind=""
+            while true; do
+                echo -ne "${WHITE}  IP address to publish the agent on [${default_bind}]${NC}: "
+                read agent_bind
+                agent_bind="${agent_bind:-$default_bind}"
+                if [[ "$agent_bind" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+                    if [ "$agent_bind" = "0.0.0.0" ] && \
+                        ! confirm_prompt "  0.0.0.0 exposes the agent on every interface. Continue?" "n"; then
+                        continue
+                    fi
+                    break
+                fi
+                print_warning "Enter an IPv4 address"
+            done
+            PORTAINER_AGENT_BIND="$agent_bind"
+            print_success "Portainer Agent will be installed on ${PORTAINER_AGENT_BIND}:9001 (set AGENT_SECRET on your Portainer server; it is PORTAINER_AGENT_SECRET in .env)"
             ;;
         2)
             INSTALL_PORTAINER=true
@@ -6679,6 +6787,9 @@ configure_ntfy() {
     echo -e "      ${GRAY}  - Service type:    ${CYAN}HTTP${NC}"
     echo -e "      ${GRAY}  - Service URL:     ${CYAN}n8n_ntfy:80${NC}"
     echo ""
+    echo -e "  ${CYAN}ℹ${NC}  ${GRAY}Anonymous access is denied. Subscribe/log in with NTFY_ADMIN_USER and${NC}"
+    echo -e "      ${GRAY}NTFY_ADMIN_PASS from .env (generated during setup).${NC}"
+    echo ""
 }
 
 create_ntfy_config() {
@@ -6699,9 +6810,9 @@ attachment-total-size-limit: 100M
 attachment-file-size-limit: 15M
 attachment-expiry-duration: 3h
 
-# Auth settings (managed via environment variables)
-# auth-file: /var/lib/ntfy/auth.db
-# auth-default-access: read-write
+# Auth settings (managed via environment variables in docker-compose.yaml):
+# auth-file /var/lib/ntfy/auth.db, auth-default-access deny-all, and the admin
+# user + console token provisioned from NTFY_ADMIN_* / NTFY_TOKEN in .env
 
 # Logging
 log-level: info
@@ -6753,7 +6864,7 @@ show_configuration_summary() {
         if [ "$INSTALL_PORTAINER" = true ]; then
             echo -e "    Portainer:           ${GREEN}enabled${NC} (/portainer/)"
         elif [ "$INSTALL_PORTAINER_AGENT" = true ]; then
-            echo -e "    Portainer Agent:     ${GREEN}enabled${NC} (port 9001)"
+            echo -e "    Portainer Agent:     ${GREEN}enabled${NC} (${PORTAINER_AGENT_BIND:-127.0.0.1}:9001, AGENT_SECRET required)"
         fi
         if [ "$INSTALL_CLOUDFLARE_TUNNEL" = true ]; then
             echo -e "    Cloudflare Tunnel:   ${GREEN}enabled${NC}"
@@ -7440,6 +7551,9 @@ show_final_summary_v3() {
     echo -e "    Management Console:  ${CYAN}https://${N8N_DOMAIN}/management/${NC}"
     if [ "$INSTALL_PORTAINER" = true ]; then
         echo -e "    Portainer:           ${CYAN}https://${N8N_DOMAIN}/portainer/${NC}"
+    elif [ "$INSTALL_PORTAINER_AGENT" = true ]; then
+        echo -e "    Portainer Agent:     ${CYAN}${PORTAINER_AGENT_BIND:-127.0.0.1}:9001${NC}"
+        echo -e "                         ${GRAY}start your Portainer server with AGENT_SECRET=<PORTAINER_AGENT_SECRET from .env>${NC}"
     fi
     if [ "$INSTALL_ADMINER" = true ]; then
         echo -e "    Adminer (DB):        ${CYAN}https://${N8N_DOMAIN}/adminer/${NC}"
@@ -7449,6 +7563,7 @@ show_final_summary_v3() {
     fi
     if [ "$INSTALL_NTFY" = true ]; then
         echo -e "    NTFY (Push):         ${CYAN}${NTFY_PUBLIC_URL:-https://ntfy.${N8N_DOMAIN}}${NC}"
+        echo -e "                         ${GRAY}login: NTFY_ADMIN_USER / NTFY_ADMIN_PASS in .env (anonymous access denied)${NC}"
         echo -e "                         ${GRAY}(Configure in Cloudflare Tunnel)${NC}"
     fi
     if [ "$INSTALL_PUBLIC_WEBSITE" = "true" ]; then

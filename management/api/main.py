@@ -76,6 +76,14 @@ async def lifespan(app: FastAPI):
             await create_default_templates(db)
         logger.info("Default email templates created")
 
+        # A verification container left by a crashed run holds a full copy of
+        # the database; nothing can be verifying yet, so remove it now.
+        try:
+            from api.services.verification_service import remove_stale_verify_container
+            await remove_stale_verify_container()
+        except Exception as e:
+            logger.warning(f"Leftover verification container cleanup failed: {e}")
+
         # Initialize scheduler
         await init_scheduler()
         logger.info("Scheduler initialized")
