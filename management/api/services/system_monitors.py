@@ -325,10 +325,41 @@ def _schedule_baseline(schedule, last_success: Optional[datetime]) -> Optional[d
     alert at once).
     """
     candidates = [t for t in (last_success, schedule.created_at) if t is not None]
-    updated = schedule.updated_at
-    if updated is not None and (schedule.last_run is None or updated - schedule.last_run > _SCHEDULE_EDIT_SLACK):
-        candidates.append(updated)
+    changed = getattr(schedule, "config_changed_at", None)
+    if changed is not None:
+        # Set only by the API create/update paths, never by the scheduler.
+        candidates.append(changed)
+    else:
+        # Rows not yet backfilled: updated_at is also bumped by the scheduler
+        # stamping last_run, so only trust it when clearly later than that.
+        updated = schedule.updated_at
+        if updated is not None and (schedule.last_run is None or updated - schedule.last_run > _SCHEDULE_EDIT_SLACK):
+            candidates.append(updated)
     return max(candidates) if candidates else None
+
+
+def _process_started_at() -> datetime:
+    """When this management process started (rows started before it cannot be live)."""
+    try:
+        import psutil
+
+        return datetime.fromtimestamp(psutil.Process().create_time(), UTC)
+    except Exception:  # pragma: no cover - psutil missing or /proc unreadable
+        return _MODULE_LOADED_AT
+
+
+_MODULE_LOADED_AT = datetime.now(UTC)
+PROCESS_STARTED_AT = _process_started_at()
+
+
+def _backup_in_progress() -> bool:
+    """True while a backup is running in this process (lock holder or active job)."""
+    from api.services import operation_jobs, operation_lock
+
+    if (operation_lock.current_operation() or "").startswith("backup"):
+        return True
+    job = operation_jobs.active_job()
+    return job is not None and job.kind == "backup"
 
 
 async def check_backup_freshness(now: Optional[datetime] = None) -> List[str]:
@@ -342,7 +373,10 @@ async def check_backup_freshness(now: Optional[datetime] = None) -> List[str]:
       and runs that keep failing before they can record a failure.
     * ``backup_stuck``: a backup_history row still 'running' after
       ``stuck_hours``. The row is marked failed (nothing else would ever
-      finish it) and the event fires once for it.
+      finish it) and the event fires once for it. A row started by this
+      process is left alone while a backup is still running here (a slow
+      backup is not a stuck one); rows from before a restart are always
+      closed, since nothing can finish them.
 
     Returns "<event>:<target_id>" for each dispatch.
     """
@@ -369,8 +403,12 @@ async def check_backup_freshness(now: Optional[datetime] = None) -> List[str]:
                 BackupHistory.started_at < now - timedelta(hours=stuck_hours),
             )
         )
+        backup_live = _backup_in_progress()
         for row in result.scalars().all():
             started = row.started_at
+            if backup_live and started is not None and started >= PROCESS_STARTED_AT:
+                logger.info(f"Backup {row.id} has run for over {stuck_hours:g}h but is still in progress; not marking it stuck")
+                continue
             row.status = "failed"
             row.completed_at = now
             row.duration_seconds = int((now - started).total_seconds()) if started else None

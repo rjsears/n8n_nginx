@@ -235,6 +235,8 @@ async def run_schema_migrations() -> None:
         # backup_contents public website manifest columns
         ("backup_contents", "public_website_file_count", "INTEGER DEFAULT 0"),
         ("backup_contents", "public_website_manifest", "JSONB"),
+        # backup_schedules.config_changed_at: human edits only (backup-overdue baseline)
+        ("backup_schedules", "config_changed_at", "TIMESTAMP WITH TIME ZONE"),
     ]
 
     async with engine.begin() as conn:
@@ -256,6 +258,8 @@ async def run_schema_migrations() -> None:
             except Exception as e:
                 logger.warning(f"Migration check for {table_name}.{column_name} failed: {e}")
 
+        await _backfill_schedule_config_changed_at(conn)
+
         # Generate slugs for existing notification services that don't have one
         await _migrate_notification_service_slugs(conn)
 
@@ -264,6 +268,30 @@ async def run_schema_migrations() -> None:
 
         # Remove registry rows for events that were never produced by any code
         await _remove_retired_notification_events(conn)
+
+
+async def _backfill_schedule_config_changed_at(conn) -> None:
+    """
+    Fill backup_schedules.config_changed_at on rows that predate the column.
+    updated_at is only trusted as an edit time when it is clearly later than
+    the last run (the scheduler stamping last_run also bumps it); otherwise
+    the creation time is used.
+    """
+    try:
+        result = await conn.execute(text("""
+            UPDATE backup_schedules
+            SET config_changed_at = CASE
+                WHEN updated_at IS NOT NULL
+                     AND (last_run IS NULL OR updated_at > last_run + INTERVAL '1 minute')
+                THEN updated_at
+                ELSE created_at
+            END
+            WHERE config_changed_at IS NULL
+        """))
+        if result.rowcount > 0:
+            logger.info(f"Backfilled config_changed_at on {result.rowcount} backup schedule(s)")
+    except Exception as e:
+        logger.warning(f"Failed to backfill backup_schedules.config_changed_at: {e}")
 
 
 # Events that had a card in the UI but no code path that could ever fire them.

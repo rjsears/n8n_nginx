@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Optional
-from datetime import datetime, date
+from datetime import UTC, datetime, date
 import os
 
 from api.database import get_db, get_n8n_db
@@ -122,6 +122,8 @@ async def update_schedule(
     for key in ["frequency", "compression"]:
         if key in updates and hasattr(updates[key], "value"):
             updates[key] = updates[key].value
+    # A person changed the schedule: the backup-overdue baseline restarts here.
+    updates["config_changed_at"] = datetime.now(UTC)
 
     updated = await service.update_schedule(schedule_id, **updates)
 

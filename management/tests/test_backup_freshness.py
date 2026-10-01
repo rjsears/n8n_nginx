@@ -58,6 +58,7 @@ def make_schedule(db):
             created_at=created,
             last_run=last_run,
             updated_at=NOW - edited_ago if edited_ago is not None else (last_run or created),
+            config_changed_at=NOW - edited_ago if edited_ago is not None else created,
         )
         db.add(schedule)
         await db.commit()
@@ -207,3 +208,143 @@ async def test_new_backup_events_inherit_backup_failure_targets(db, session_make
             select(SystemNotificationTarget).where(SystemNotificationTarget.event_id == event.id)
         )).scalars().all()
         assert [t.channel_id for t in targets] == [channel.id], event_type
+
+
+# --- a restart must not reset the overdue baseline -----------------------------------------------
+
+class _FakeScheduler:
+    """Just enough of AsyncIOScheduler for the next_run persistence paths."""
+
+    def __init__(self, next_run):
+        self.next_run = next_run
+        self.jobs = {}
+
+    def add_job(self, func, trigger, args, id, name, replace_existing):  # noqa: A002
+        from types import SimpleNamespace
+
+        self.jobs[id] = SimpleNamespace(id=id, next_run_time=self.next_run)
+
+    def get_job(self, job_id):
+        return self.jobs.get(job_id)
+
+    def get_jobs(self):
+        return list(self.jobs.values())
+
+
+async def test_scheduler_start_does_not_reset_the_overdue_baseline(
+    db, events, make_schedule, make_history, sent, monkeypatch
+):
+    """init_scheduler persists next_run on every start; that is not a human edit."""
+    from api.models.backups import BackupSchedule
+    from api.models.system_notifications import SystemNotificationState
+    from api.tasks import scheduler as sched
+
+    schedule = await make_schedule("daily", created_ago=timedelta(days=10), last_run_ago=timedelta(hours=72))
+    await make_history("success", ago=timedelta(hours=72), schedule=schedule)
+    assert await monitors.check_backup_freshness(NOW) == [f"backup_overdue:schedule:{schedule.id}"]
+    before = await _fresh(db, BackupSchedule, schedule.id)
+
+    fake = _FakeScheduler(next_run=NOW + timedelta(hours=14))
+    monkeypatch.setattr(sched, "scheduler", fake)
+    await sched.add_backup_job(before)
+    await sched._persist_backup_next_run_times()
+
+    after = await _fresh(db, BackupSchedule, schedule.id)
+    assert after.next_run is not None and after.apscheduler_job_id == f"backup_{schedule.id}"
+    assert after.updated_at == before.updated_at, "persisting next_run bumped updated_at"
+    assert after.config_changed_at == before.config_changed_at
+
+    await db.execute(SystemNotificationState.__table__.update().values(last_sent_at=None))
+    await db.commit()
+    assert await monitors.check_backup_freshness(NOW + timedelta(minutes=5)) == [
+        f"backup_overdue:schedule:{schedule.id}"
+    ], "a management restart silenced the overdue alarm"
+
+
+async def test_baseline_ignores_updated_at_when_config_changed_at_is_set(make_schedule):
+    schedule = await make_schedule("daily", created_ago=timedelta(days=10), last_run_ago=timedelta(hours=72))
+    schedule.updated_at = NOW  # bumped by something other than a person
+    assert monitors._schedule_baseline(schedule, NOW - timedelta(hours=72)) == NOW - timedelta(hours=72)
+
+
+async def test_schedule_edit_through_the_api_restarts_the_baseline(
+    db, session_maker, events, make_schedule, make_history, sent
+):
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from httpx import AsyncClient
+
+    from api.database import get_db
+    from api.dependencies import get_current_user
+    from api.models.backups import BackupSchedule
+    from api.routers import backups
+
+    schedule = await make_schedule("daily", created_ago=timedelta(days=10), last_run_ago=timedelta(hours=72))
+    await make_history("success", ago=timedelta(hours=72), schedule=schedule)
+    schedule.timezone = "UTC"
+    await db.commit()
+
+    app = FastAPI()
+    app.include_router(backups.router, prefix="/api/backups")
+
+    async def _db():
+        async with session_maker() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, username="tester")
+    async with AsyncClient(app=app, base_url="http://test") as http:
+        response = await http.put(f"/api/backups/schedules/{schedule.id}", json={"hour": 3})
+    assert response.status_code == 200, response.text
+
+    edited = await _fresh(db, BackupSchedule, schedule.id)
+    assert edited.config_changed_at > NOW
+    assert await monitors.check_backup_freshness(NOW + timedelta(days=1)) == []
+
+
+# --- a long backup that is still running is not stuck ---------------------------------------------
+
+@pytest.fixture
+def started_before_backups(monkeypatch):
+    """This process started before the test's backups did."""
+    monkeypatch.setattr(monitors, "PROCESS_STARTED_AT", NOW - timedelta(days=1))
+
+
+async def test_live_long_backup_is_not_marked_stuck(db, events, make_history, sent, started_before_backups):
+    from api.models.backups import BackupHistory
+    from api.services.operation_lock import exclusive_operation
+
+    row = await make_history("running", ago=timedelta(hours=7))
+    async with exclusive_operation("backup"):
+        assert await monitors.check_backup_freshness(NOW) == []
+    fresh = await _fresh(db, BackupHistory, row.id)
+    assert fresh.status == "running" and fresh.error_message is None
+    assert sent.calls == []
+
+
+async def test_active_backup_job_also_counts_as_live(
+    db, events, make_history, sent, started_before_backups, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from api.models.backups import BackupHistory
+    from api.services import operation_jobs
+
+    monkeypatch.setattr(operation_jobs, "active_job", lambda: SimpleNamespace(kind="backup"))
+    row = await make_history("running", ago=timedelta(hours=7))
+    assert await monitors.check_backup_freshness(NOW) == []
+    assert (await _fresh(db, BackupHistory, row.id)).status == "running"
+
+
+async def test_row_from_before_a_restart_is_closed_even_while_a_backup_runs(
+    db, events, make_history, sent, monkeypatch
+):
+    from api.models.backups import BackupHistory
+    from api.services.operation_lock import exclusive_operation
+
+    monkeypatch.setattr(monitors, "PROCESS_STARTED_AT", NOW - timedelta(hours=2))
+    orphan = await make_history("running", ago=timedelta(hours=7))
+    async with exclusive_operation("backup"):
+        assert await monitors.check_backup_freshness(NOW) == [f"backup_stuck:backup:{orphan.id}"]
+    assert (await _fresh(db, BackupHistory, orphan.id)).status == "failed"
