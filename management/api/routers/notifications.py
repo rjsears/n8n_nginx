@@ -23,6 +23,7 @@ from api.database import get_db
 from api.dependencies import get_current_user
 from api.config import settings
 from api.services.notification_service import NotificationService
+from api.services.notification_secrets import redact_config
 from api.schemas.notifications import (
     NotificationServiceCreate,
     NotificationServiceUpdate,
@@ -44,17 +45,16 @@ from api.models.notifications import NotificationService as NotificationServiceM
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Config keys that must never leave the API in clear text.
-SENSITIVE_CONFIG_KEYS = ("password", "token", "secret", "api_key")
-
-
-def _redacted_config(config: Optional[dict]) -> dict:
+def _redacted_config(config: Optional[dict], service_type: Optional[str] = None) -> dict:
     """Copy of a channel config with secret values masked. Used by every endpoint that returns one."""
-    redacted = dict(config or {})
-    for key in SENSITIVE_CONFIG_KEYS:
-        if key in redacted:
-            redacted[key] = "***"
-    return redacted
+    return redact_config(config, service_type)
+
+
+def _service_response(svc: NotificationServiceModel) -> NotificationServiceResponse:
+    """Response model for one channel, with its config redacted."""
+    response = NotificationServiceResponse.model_validate(svc)
+    response.config = _redacted_config(svc.config, svc.service_type)
+    return response
 
 
 # Import sync function lazily to avoid circular imports
@@ -171,7 +171,7 @@ async def list_services(
     # Redact sensitive config values and add group info
     result = []
     for s in services:
-        config = _redacted_config(s.config)
+        config = _redacted_config(s.config, s.service_type)
 
         # Get groups this service belongs to
         groups = await service.get_groups_for_service(s.id)
@@ -240,7 +240,7 @@ async def create_service(
     if data.service_type.value == "ntfy":
         await _sync_ntfy_channel_to_topic(db, created, "create")
 
-    return NotificationServiceResponse.model_validate(created)
+    return _service_response(created)
 
 
 @router.get("/services/{service_id}", response_model=NotificationServiceResponse)
@@ -259,9 +259,7 @@ async def get_service(
             detail="Service not found",
         )
 
-    response = NotificationServiceResponse.model_validate(svc)
-    response.config = _redacted_config(svc.config)
-    return response
+    return _service_response(svc)
 
 
 @router.put("/services/{service_id}", response_model=NotificationServiceResponse)
@@ -310,7 +308,7 @@ async def update_service(
     if updated.service_type == "ntfy":
         await _sync_ntfy_channel_to_topic(db, updated, "update")
 
-    return NotificationServiceResponse.model_validate(updated)
+    return _service_response(updated)
 
 
 @router.delete("/services/{service_id}", response_model=SuccessResponse)
@@ -400,7 +398,7 @@ async def list_groups(
         channels = []
         for membership in g.memberships:
             s = membership.service
-            config = _redacted_config(s.config)
+            config = _redacted_config(s.config, s.service_type)
 
             channels.append(NotificationServiceResponse(
                 id=s.id,
@@ -461,7 +459,7 @@ async def create_group(
     channels = []
     for membership in created.memberships:
         s = membership.service
-        config = _redacted_config(s.config)
+        config = _redacted_config(s.config, s.service_type)
 
         channels.append(NotificationServiceResponse(
             id=s.id,
@@ -513,7 +511,7 @@ async def get_group(
     channels = []
     for membership in group.memberships:
         s = membership.service
-        config = _redacted_config(s.config)
+        config = _redacted_config(s.config, s.service_type)
 
         channels.append(NotificationServiceResponse(
             id=s.id,
@@ -580,7 +578,7 @@ async def update_group(
     channels = []
     for membership in updated.memberships:
         s = membership.service
-        config = _redacted_config(s.config)
+        config = _redacted_config(s.config, s.service_type)
 
         channels.append(NotificationServiceResponse(
             id=s.id,

@@ -15,7 +15,8 @@ The notification system alerts you about important events like backup failures, 
 5. [Using the Management Console](#using-the-management-console)
 6. [Common Service Setups](#common-service-setups)
 7. [Best Practices](#best-practices)
-8. [Troubleshooting](#troubleshooting)
+8. [Alerting When the Stack Itself Is Down](#alerting-when-the-stack-itself-is-down)
+9. [Troubleshooting](#troubleshooting)
 
 ### Other Documentation
 
@@ -131,6 +132,15 @@ Email notifications use your configured email provider.
 3. Select **Email**
 4. Enter recipient email addresses
 5. Test and save
+
+Port 465 uses SMTPS (TLS from the first byte) automatically; other ports use
+STARTTLS when it is enabled. The **Use SSL/TLS (SMTPS)** toggle overrides the
+port-based choice. Every SMTP operation times out after 15 seconds.
+
+Saved secrets (passwords, tokens, credentials inside Apprise or webhook URLs,
+`Authorization`-style webhook headers) are never sent back to the browser:
+they appear as `***`. Leaving a masked value unchanged when editing keeps the
+stored secret; typing a new value replaces it.
 
 ### Webhook
 
@@ -435,6 +445,10 @@ You'll also need:
 | `verification.started` | Backup verification started | normal |
 | `verification.passed` | Backup verification passed | normal |
 | `verification.failed` | Backup verification failed | critical |
+| `backup_overdue` | A scheduled backup has not succeeded within its interval plus a grace period (`grace_minutes`, default 60): the run was missed, skipped or keeps failing. Checked hourly and shortly after startup. | critical |
+| `backup_stuck` | A backup has been `running` longer than `stuck_hours` (default 6); it is marked failed. | critical |
+
+`backup_overdue` and `backup_stuck` start with the same channels as **Backup Failure** when they are first added.
 
 ### Container Events
 
@@ -689,6 +703,67 @@ Prevent alert fatigue by setting cooldown periods in event configuration:
 - Keep a list of notification channels and their purposes
 - Document who receives what alerts
 - Update documentation when rules change
+
+---
+
+## Alerting When the Stack Itself Is Down
+
+Notification channels are stored in PostgreSQL and sent from the management
+container, so a Postgres outage, a crashed management container or a dead
+host cannot alert through them. Two database-free mechanisms cover that.
+Both are read from `.env` (or the environment) when they are used, so no
+restart is needed after adding them.
+
+| Key | Purpose |
+|-----|---------|
+| `HEARTBEAT_URL` | Pinged (HTTP GET) by the management container while the stack is healthy. |
+| `HEARTBEAT_INTERVAL_MINUTES` | Ping interval, default `5`. |
+| `ALERT_FALLBACK_URL` | Plain-text POST target for alerts that cannot use the normal channels. |
+| `ALERT_REPEAT_MINUTES` | Host script: repeat interval while still failing, default `60`. |
+| `BACKUP_MAX_AGE_HOURS` | Host script: newest successful backup older than this is an error, default `192`. |
+
+### Heartbeat (dead-man's switch for the whole stack)
+
+1. Create a check at [healthchecks.io](https://healthchecks.io) (period 5
+   minutes, grace e.g. 10 minutes) or an Uptime Kuma **Push** monitor.
+2. Put its ping URL in `.env`:
+
+   ```bash
+   HEARTBEAT_URL=https://hc-ping.com/your-uuid
+   # or: HEARTBEAT_URL=https://kuma.example.com/api/push/abc123?status=up&msg=OK
+   ```
+
+The management scheduler pings it only when the management database answers
+a query and n8n's `/healthz` responds. When Postgres, n8n, the management
+container, Docker or the host fails, the pings stop and the external service
+alerts you. Because the alert comes from outside, it works for every kind of
+outage.
+
+### Fallback alert URL
+
+```bash
+ALERT_FALLBACK_URL=https://ntfy.sh/your-private-topic
+```
+
+* When a notification cannot be dispatched because the management database is
+  unreachable, the management container logs a clear error and POSTs the alert
+  text here (at most once per 15 minutes per event and target).
+* `scripts/health_check.sh --alert` posts here from the host. Run it from cron
+  or a systemd timer so the management container and Postgres being down are
+  reported too:
+
+  ```bash
+  # /etc/cron.d/n8n-health
+  */5 * * * * root /opt/n8n_nginx/scripts/health_check.sh --quiet --alert
+  ```
+
+  It alerts when any check is in error, repeats every `ALERT_REPEAT_MINUTES`
+  while it stays failing, and sends one recovery message when everything
+  passes again.
+
+An ntfy topic URL works as is (the title and priority are sent as ntfy
+headers; for a protected topic use ntfy's `auth` query parameter); any endpoint that accepts
+a plain-text POST will do.
 
 ---
 

@@ -14,6 +14,16 @@
 # health_check.sh - System Health Check Script for n8n_nginx v3.0
 # Performs comprehensive health checks on all system components
 #
+# Host-side alerting (--alert): the management console's own notifications
+# live in PostgreSQL and run inside n8n_management, so they cannot report
+# Postgres or the management container being down. Run this from cron or a
+# systemd timer with --alert and it POSTs a plain-text alert to
+# ALERT_FALLBACK_URL (environment or .env; an ntfy topic URL works as is)
+# when a check fails, repeats every ALERT_REPEAT_MINUTES (default 60) while it
+# stays failing, and sends one recovery message when it passes again:
+#
+#   */5 * * * * /opt/n8n_nginx/scripts/health_check.sh --quiet --alert
+#
 
 set -e
 
@@ -22,6 +32,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="${PROJECT_ROOT}/logs/health_check.log"
 STATE_FILE="${PROJECT_ROOT}/.health_state"
+ALERT_STATE_FILE="${PROJECT_ROOT}/.health_alert_state"
+ENV_FILE="${PROJECT_ROOT}/.env"
 
 # Colors
 RED='\033[0;31m'
@@ -44,8 +56,9 @@ ERRORS=0
 log() {
     local level="$1"
     shift
-    local message="$@"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local message="$*"
+    local timestamp
+    timestamp=$(date "+%Y-%m-%d %H:%M:%S")
 
     # Create log directory if needed
     mkdir -p "$(dirname "$LOG_FILE")"
@@ -74,6 +87,21 @@ log() {
             echo "[$level] $message"
             ;;
     esac
+}
+
+# Value of KEY from the environment, else from the project's .env (read, not
+# sourced). Surrounding quotes are stripped.
+env_value() {
+    local key="$1"
+    local value="${!key:-}"
+    if [ -z "$value" ] && [ -f "$ENV_FILE" ]; then
+        value=$(grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-)
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+    fi
+    printf '%s' "$value"
 }
 
 section() {
@@ -521,33 +549,46 @@ check_backup_status() {
 
     log INFO "Checking backup status..."
 
-    local backup_dir="${PROJECT_ROOT}/backups"
+    # Backups are recorded in the management database (backup_history); the
+    # archives live under the backup mount (/opt/n8n_backups on the host) or
+    # in the mgmt_backup_staging volume, never in ${PROJECT_ROOT}/backups.
+    local max_age_hours pg_user age_seconds=""
+    max_age_hours=$(env_value BACKUP_MAX_AGE_HOURS)
+    max_age_hours="${max_age_hours:-192}"
+    pg_user=$(env_value POSTGRES_USER)
+    pg_user="${pg_user:-n8n}"
 
-    if [ ! -d "$backup_dir" ]; then
-        log WARN "Backup directory does not exist"
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^n8n_postgres$"; then
+        age_seconds=$(docker exec n8n_postgres psql -U "$pg_user" -d n8n_management -tAc \
+            "SELECT COALESCE((EXTRACT(EPOCH FROM now() - max(completed_at)))::bigint::text, 'none') FROM backup_history WHERE status = 'success'" \
+            2>/dev/null | tr -d '[:space:]') || age_seconds=""
+    fi
+
+    if [ -z "$age_seconds" ]; then
+        # Database unreachable: fall back to the newest archive on the host mount
+        local backup_root newest
+        backup_root=$(env_value BACKUP_HOST_DIR)
+        backup_root="${backup_root:-/opt/n8n_backups}"
+        newest=$(find "$backup_root" -type f \( -name '*.tar.gz' -o -name '*.sql.gz' -o -name '*.sql' \) \
+            -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
+        if [ -n "$newest" ]; then
+            age_seconds=$(( $(date +%s) - ${newest%.*} ))
+            log INFO "Backup age taken from files in $backup_root (database not reachable)"
+        fi
+    fi
+
+    if [ -z "$age_seconds" ] || [ "$age_seconds" = "none" ]; then
+        log WARN "No successful backup found"
         HEALTH_STATUS["backups"]="warning"
         return 0
     fi
 
-    # Find most recent backup
-    local latest_backup
-    latest_backup=$(find "$backup_dir" -maxdepth 1 -type d -name "backup_*" -printf '%T+ %p\n' 2>/dev/null | sort -r | head -1 | cut -d' ' -f2-)
-
-    if [ -z "$latest_backup" ]; then
-        log WARN "No backups found"
-        HEALTH_STATUS["backups"]="warning"
-        return 0
-    fi
-
-    # Check backup age
-    local backup_age
-    backup_age=$(( ($(date +%s) - $(stat -c %Y "$latest_backup" 2>/dev/null || stat -f %m "$latest_backup" 2>/dev/null)) / 86400 ))
-
-    if [ "$backup_age" -gt 7 ]; then
-        log WARN "Latest backup is $backup_age days old"
-        HEALTH_STATUS["backups"]="warning"
+    local age_hours=$(( age_seconds / 3600 ))
+    if [ "$age_hours" -gt "$max_age_hours" ]; then
+        log ERROR "Latest successful backup is ${age_hours}h old (limit ${max_age_hours}h, BACKUP_MAX_AGE_HOURS)"
+        HEALTH_STATUS["backups"]="error"
     else
-        log OK "Latest backup is $backup_age days old"
+        log OK "Latest successful backup is ${age_hours}h old"
         HEALTH_STATUS["backups"]="healthy"
     fi
 }
@@ -654,6 +695,66 @@ EOF
 }
 
 # ============================================================================
+# Host-side alerting (--alert)
+# ============================================================================
+
+send_alert() {
+    local title="$1" body="$2" priority="$3" url
+    url=$(env_value ALERT_FALLBACK_URL)
+    if [ -z "$url" ]; then
+        log WARN "ALERT_FALLBACK_URL is not set; cannot send alert: $title"
+        return 1
+    fi
+    if curl -fsS --max-time 15 \
+        -H "Title: $title" -H "Priority: $priority" -H "Tags: rotating_light" \
+        --data-binary "$body" "$url" > /dev/null 2>&1; then
+        log INFO "Alert sent: $title"
+        return 0
+    fi
+    log WARN "Could not deliver alert to ALERT_FALLBACK_URL: $title"
+    return 1
+}
+
+# Alert when any component is in error; repeat while it stays failing, and
+# announce the recovery once.
+process_alerts() {
+    local repeat_minutes failing="" key previous="" last_sent=0 now host
+    repeat_minutes=$(env_value ALERT_REPEAT_MINUTES)
+    repeat_minutes="${repeat_minutes:-60}"
+    for key in "${!HEALTH_STATUS[@]}"; do
+        case "${HEALTH_STATUS[$key]}" in
+            error|unhealthy) failing="${failing}${key} " ;;
+        esac
+    done
+    if [ "$ERRORS" -gt 0 ] && [ -z "$failing" ]; then
+        failing="(see ${LOG_FILE})"
+    fi
+
+    if [ -f "$ALERT_STATE_FILE" ]; then
+        read -r previous last_sent < "$ALERT_STATE_FILE" || true
+    fi
+    now=$(date +%s)
+    host=$(hostname 2>/dev/null || echo "host")
+
+    if [ -n "$failing" ]; then
+        if [ "$previous" != "down" ] || [ $(( now - ${last_sent:-0} )) -ge $(( repeat_minutes * 60 )) ]; then
+            if send_alert "[$host] n8n stack UNHEALTHY" \
+                "Failing: ${failing}
+Errors: ${ERRORS}, warnings: ${WARNINGS}
+Checked: $(date '+%Y-%m-%d %H:%M:%S %Z')
+Details: ${LOG_FILE}" 5; then
+                echo "down $now" > "$ALERT_STATE_FILE"
+            fi
+        fi
+    elif [ "$previous" = "down" ]; then
+        if send_alert "[$host] n8n stack recovered" \
+            "All checks pass again ($(date '+%Y-%m-%d %H:%M:%S %Z'))." 3; then
+            echo "up $now" > "$ALERT_STATE_FILE"
+        fi
+    fi
+}
+
+# ============================================================================
 # Main Execution
 # ============================================================================
 
@@ -663,19 +764,20 @@ run_health_checks() {
     echo "Started: $(date)"
     echo ""
 
-    # Run all health checks
-    check_all_containers
-    check_n8n_api
-    check_postgres_connection
-    check_nginx_status
-    check_management_api
-    check_disk_space
-    check_memory_usage
-    check_cpu_usage
-    check_ssl_certificates
-    check_network_connectivity
-    check_backup_status
-    check_recent_errors
+    # Run all health checks. A failing check returns 1; "|| true" keeps
+    # set -e from stopping the sweep (and the report and alert) at the first.
+    check_all_containers || true
+    check_n8n_api || true
+    check_postgres_connection || true
+    check_nginx_status || true
+    check_management_api || true
+    check_disk_space || true
+    check_memory_usage || true
+    check_cpu_usage || true
+    check_ssl_certificates || true
+    check_network_connectivity || true
+    check_backup_status || true
+    check_recent_errors || true
 
     # Generate report
     generate_report
@@ -705,6 +807,8 @@ Options:
     -h, --help              Show this help message
     -q, --quiet             Quiet mode (only show errors)
     -j, --json              Output in JSON format
+    -a, --alert             POST an alert to ALERT_FALLBACK_URL when a check fails
+                            (and a recovery message when it passes again)
     --check COMPONENT       Check specific component only
 
 Components:
@@ -723,6 +827,7 @@ Examples:
     $0                      Run all health checks
     $0 --check docker       Check only Docker containers
     $0 -j                   Output results in JSON format
+    $0 --quiet --alert      Cron/systemd timer: alert via ALERT_FALLBACK_URL
 
 EOF
 }
@@ -730,6 +835,7 @@ EOF
 # Parse arguments
 QUIET_MODE=false
 JSON_OUTPUT=false
+ALERT_MODE=false
 CHECK_COMPONENT=""
 
 while [[ $# -gt 0 ]]; do
@@ -744,6 +850,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -j|--json)
             JSON_OUTPUT=true
+            shift
+            ;;
+        -a|--alert)
+            ALERT_MODE=true
             shift
             ;;
         --check)
@@ -768,36 +878,36 @@ fi
 if [ -n "$CHECK_COMPONENT" ]; then
     case "$CHECK_COMPONENT" in
         docker)
-            check_all_containers
+            check_all_containers || true
             ;;
         n8n)
-            check_n8n_api
+            check_n8n_api || true
             ;;
         postgres)
-            check_postgres_connection
+            check_postgres_connection || true
             ;;
         nginx)
-            check_nginx_status
+            check_nginx_status || true
             ;;
         management)
-            check_management_api
+            check_management_api || true
             ;;
         resources)
-            check_disk_space
-            check_memory_usage
-            check_cpu_usage
+            check_disk_space || true
+            check_memory_usage || true
+            check_cpu_usage || true
             ;;
         ssl)
-            check_ssl_certificates
+            check_ssl_certificates || true
             ;;
         network)
-            check_network_connectivity
+            check_network_connectivity || true
             ;;
         backups)
-            check_backup_status
+            check_backup_status || true
             ;;
         logs)
-            check_recent_errors
+            check_recent_errors || true
             ;;
         *)
             echo "Unknown component: $CHECK_COMPONENT"
@@ -806,7 +916,11 @@ if [ -n "$CHECK_COMPONENT" ]; then
     esac
     generate_report
 else
-    run_health_checks
+    run_health_checks || true
+fi
+
+if [ "$ALERT_MODE" = true ]; then
+    process_alerts || true
 fi
 
 # Restore output if quiet mode was used
@@ -819,4 +933,7 @@ if [ "$JSON_OUTPUT" = true ]; then
     cat "$STATE_FILE"
 fi
 
-exit $?
+if [ "$OVERALL_STATUS" = "healthy" ]; then
+    exit 0
+fi
+exit 1

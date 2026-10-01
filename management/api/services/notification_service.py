@@ -18,7 +18,9 @@ from datetime import datetime, timedelta, UTC
 from typing import Optional, List, Dict, Any
 import logging
 import asyncio
+import functools
 import re
+import weakref
 
 from api.models.notifications import (
     NotificationService as NotificationServiceModel,
@@ -30,6 +32,16 @@ from api.models.notifications import (
 from api.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Upper bound for one delivery to one channel (connect + send). The SMTP
+# socket timeout (email_service.SMTP_TIMEOUT_SECONDS) applies per operation
+# within this.
+SEND_TIMEOUT_SECONDS = 45.0
+
+# How long dispatch_notification() waits for delivery before returning to its
+# caller. Delivery continues in the background after that; callers (backups,
+# the health job, container actions) are never held longer than this.
+DISPATCH_WAIT_SECONDS = 5.0
 
 
 class UnsupportedServiceType(ValueError):
@@ -64,17 +76,26 @@ class NotificationDispatcher:
         if service_type == "webhook":
             payload = dict(event_data or {})
             payload.setdefault("priority", priority)
-            return await self.send_webhook(service.config, title, body, payload)
+            send = self.send_webhook(service.config, title, body, payload)
+        else:
+            transports = {
+                "apprise": self.send_apprise,
+                "ntfy": self.send_ntfy,
+                "email": self.send_email,
+            }
+            transport = transports.get(service_type)
+            if transport is None:
+                raise UnsupportedServiceType(service_type)
+            send = transport(service.config, title, body, priority)
 
-        transports = {
-            "apprise": self.send_apprise,
-            "ntfy": self.send_ntfy,
-            "email": self.send_email,
-        }
-        transport = transports.get(service_type)
-        if transport is None:
-            raise UnsupportedServiceType(service_type)
-        return await transport(service.config, title, body, priority)
+        # One slow or hung transport must not hold up the others (or the
+        # caller): every send is bounded, whatever the transport does.
+        try:
+            return await asyncio.wait_for(send, timeout=SEND_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"{service_type} send to '{getattr(service, 'name', '?')}' timed out after {SEND_TIMEOUT_SECONDS:g}s"
+            ) from None
 
     async def send_apprise(self, config: Dict[str, Any], title: str, body: str, priority: str) -> bool:
         """Send notification via Apprise."""
@@ -211,7 +232,7 @@ class NotificationDispatcher:
     async def send_email(self, config: Dict[str, Any], title: str, body: str, priority: str) -> bool:
         """Send notification via SMTP email using red-mail."""
         try:
-            from redmail import EmailSender
+            from api.services.email_service import build_email_sender
 
             smtp_server = config.get("smtp_server", "localhost")
             smtp_port = config.get("smtp_port", 587)
@@ -219,6 +240,8 @@ class NotificationDispatcher:
             smtp_password = config.get("smtp_password", "")
             use_tls = config.get("use_tls", True)
             use_starttls = config.get("use_starttls", True)
+            # SMTPS (implicit TLS): explicit "use_ssl", or port 465 by default
+            use_ssl = config.get("use_ssl")
             from_email = config.get("from_email", smtp_user or f"n8n@{smtp_server}")
             to_emails = config.get("to_emails", [])
 
@@ -228,33 +251,18 @@ class NotificationDispatcher:
             if not to_emails:
                 raise ValueError("No recipient email addresses configured")
 
-            # Determine if this is Gmail relay (no auth needed with IP whitelist)
+            # Gmail relay with IP whitelisting needs no auth; otherwise log in
+            # only when both a user and a password are configured.
             is_gmail_relay = "gmail" in smtp_server.lower() and not smtp_user
-
-            # Create email sender with appropriate configuration
-            if is_gmail_relay:
-                # Gmail relay with IP whitelisting - no auth needed
-                email = EmailSender(
-                    host=smtp_server,
-                    port=smtp_port,
-                    use_starttls=use_starttls,
-                )
-            elif smtp_user and smtp_password:
-                # Authenticated SMTP
-                email = EmailSender(
-                    host=smtp_server,
-                    port=smtp_port,
-                    username=smtp_user,
-                    password=smtp_password,
-                    use_starttls=use_starttls if use_tls else False,
-                )
-            else:
-                # Unauthenticated SMTP (internal mail servers)
-                email = EmailSender(
-                    host=smtp_server,
-                    port=smtp_port,
-                    use_starttls=use_starttls if use_tls else False,
-                )
+            authenticated = not is_gmail_relay and bool(smtp_user and smtp_password)
+            email = build_email_sender(
+                smtp_server,
+                smtp_port,
+                username=smtp_user if authenticated else None,
+                password=smtp_password if authenticated else None,
+                use_starttls=use_starttls if (use_tls or is_gmail_relay) else False,
+                use_ssl=use_ssl,
+            )
 
             # Build HTML body with simple formatting
             html_body = f"""
@@ -381,6 +389,13 @@ class NotificationService:
         service = await self.get_service(service_id)
         if not service:
             return None
+
+        # The client only ever sees a redacted config; masked or omitted
+        # secrets in what it sends back keep the stored values.
+        if updates.get("config") is not None:
+            from api.services.notification_secrets import merge_config_secrets
+
+            updates["config"] = merge_config_secrets(service.config, updates["config"], service.service_type)
 
         for key, value in updates.items():
             if value is not None and hasattr(service, key):
@@ -1013,7 +1028,113 @@ async def _deliver_to_targets(
     return sent_count, channels_sent
 
 
+# Background dispatches that are still running. Holding the references keeps
+# the tasks from being garbage collected mid-send; drain_notifications() waits
+# for them at shutdown.
+_pending_dispatches: "set[asyncio.Task]" = set()
+# One lock per event loop: dispatches run one at a time, in the order they were
+# raised, so two occurrences cannot race on the same throttle-state row.
+_dispatch_locks: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _dispatch_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _dispatch_locks.get(loop)
+    if lock is None:
+        lock = _dispatch_locks[loop] = asyncio.Lock()
+    return lock
+
+
+def _is_database_unavailable(error: BaseException) -> bool:
+    """True for errors that mean the management database cannot be reached."""
+    from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+    if isinstance(error, (OperationalError, InterfaceError, ConnectionError, OSError, asyncio.TimeoutError)):
+        return True
+    return isinstance(error, DBAPIError) and bool(getattr(error, "connection_invalidated", False))
+
+
+async def _dispatch_guarded(event_type: str, event_data: Dict[str, Any]) -> None:
+    """Run one dispatch; log every failure and hand it to the fallback URL. Never raises."""
+    try:
+        async with _dispatch_lock():
+            await _dispatch_now(event_type, event_data)
+    except asyncio.CancelledError:
+        logger.error(f"Notification '{event_type}' was cancelled before it was delivered")
+        raise
+    except Exception as e:
+        if _is_database_unavailable(e):
+            logger.error(
+                f"Notification '{event_type}' NOT delivered: the management database is unreachable "
+                f"({type(e).__name__}: {e}). Channels are stored in the database; "
+                "set ALERT_FALLBACK_URL and HEARTBEAT_URL to be alerted during database outages."
+            )
+        else:
+            logger.exception(f"Notification '{event_type}' could not be dispatched: {e}")
+        try:
+            from api.services.external_alerts import notify_dispatch_failure
+
+            await notify_dispatch_failure(event_type, event_data, e)
+        except Exception as fallback_error:  # pragma: no cover - defensive
+            logger.error(f"Fallback alert for '{event_type}' failed: {fallback_error}")
+
+
 async def dispatch_notification(
+    event_type: str,
+    event_data: Dict[str, Any],
+    *,
+    wait: Optional[float] = None,
+) -> None:
+    """
+    Raise a system notification event. Never raises and never blocks its
+    caller for more than ``wait`` seconds (default DISPATCH_WAIT_SECONDS).
+
+    The dispatch runs as a tracked background task. The caller waits for it
+    up to ``wait`` seconds so that, normally, the notification is delivered
+    and recorded by the time this returns; a slow channel, a hung SMTP
+    server or an unreachable database only cost the caller that long, and
+    delivery carries on in the background. Pass ``wait=0`` to return at once.
+
+    A notification error can therefore never change the outcome of a backup,
+    a health check or a container action. Failures are logged; when the
+    database itself is unreachable the alert goes to ALERT_FALLBACK_URL
+    (see api.services.external_alerts).
+    """
+    try:
+        task = asyncio.get_running_loop().create_task(
+            _dispatch_guarded(event_type, dict(event_data or {})),
+            name=f"notify:{event_type}",
+        )
+    except Exception as e:  # pragma: no cover - no running loop
+        logger.error(f"Could not schedule notification '{event_type}': {e}")
+        return
+    _pending_dispatches.add(task)
+    task.add_done_callback(_pending_dispatches.discard)
+
+    timeout = DISPATCH_WAIT_SECONDS if wait is None else wait
+    if timeout and timeout > 0:
+        done, _ = await asyncio.wait({task}, timeout=timeout)
+        if not done:
+            logger.warning(
+                f"Notification '{event_type}' still sending after {timeout:g}s; continuing in the background"
+            )
+
+
+async def drain_notifications(timeout: float = 10.0) -> int:
+    """
+    Wait up to ``timeout`` seconds for background dispatches to finish
+    (used at shutdown). Returns how many were still running afterwards.
+    """
+    pending = {t for t in _pending_dispatches if not t.done()}
+    if not pending:
+        return 0
+    _, still_running = await asyncio.wait(pending, timeout=timeout)
+    if still_running:
+        logger.warning(f"{len(still_running)} notification(s) still sending at shutdown")
+    return len(still_running)
+
+
+async def _dispatch_now(
     event_type: str,
     event_data: Dict[str, Any],
 ) -> None:
@@ -1290,6 +1411,7 @@ async def dispatch_notification(
         logger.info(f"Dispatched '{event_type}' notification to {sent_count} channel(s)")
 
 
+@functools.lru_cache(maxsize=1)
 def _get_container_name() -> str:
     """
     Get the container name from Docker API instead of hostname (which returns container ID).
@@ -1557,6 +1679,27 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         if kind == "webhook_invalid_key":
             return f"Host: {hostname}\n\nNotification webhook called with an invalid API key.\n\nFrom: {client_ip}"
         return f"Host: {hostname}\n\nSecurity event: {kind}\nFrom: {client_ip}"
+
+    # Backup dead-man's switch
+    elif event_type == "backup_overdue":
+        name = event_data.get("schedule_name", "unknown")
+        frequency = event_data.get("frequency", "?")
+        last = event_data.get("last_success")
+        last_text = _format_local_time(last) if last else "never"
+        return (
+            f"Host: {hostname}\n\nScheduled backup '{name}' ({frequency}, {event_data.get('backup_type', '?')}) "
+            f"is overdue.\n\nLast successful run: {last_text}\n"
+            f"Hours since: {event_data.get('hours_since', '?')} (grace {event_data.get('grace_minutes', '?')} min)\n\n"
+            "Check the Backups page and the management container logs."
+        )
+    elif event_type == "backup_stuck":
+        started = event_data.get("started_at")
+        started_text = _format_local_time(started) if started else "unknown"
+        return (
+            f"Host: {hostname}\n\nBackup #{event_data.get('backup_id', '?')} ({event_data.get('backup_type', '?')}) "
+            f"was still 'running' after {event_data.get('stuck_hours', '?')} hours and has been marked failed.\n\n"
+            f"Started: {started_text}"
+        )
 
     # Pruning events
     elif event_type == "backup_pending_deletion":
