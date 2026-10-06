@@ -71,7 +71,7 @@ RUN apt-get purge -y gcc python3-dev libc-dev && apt-get autoremove -y
 # ═══════════════════════════════════════════════════════════════════════════
 # Build Frontend (separate stage for smaller final image)
 # ═══════════════════════════════════════════════════════════════════════════
-FROM node:20-slim AS frontend-builder
+FROM node:25-slim AS frontend-builder
 
 WORKDIR /frontend
 
