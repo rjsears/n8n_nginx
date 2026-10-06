@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://fastapi.tiangolo.com"><img src="https://img.shields.io/badge/FastAPI-Python%203.11+-009688?logo=fastapi&logoColor=white" alt="FastAPI"></a>
-  <a href="#authentication"><img src="https://img.shields.io/badge/Auth-JWT%20Bearer-blue" alt="JWT Auth"></a>
+  <a href="#authentication"><img src="https://img.shields.io/badge/Auth-Session%20Cookie-blue" alt="Session cookie auth"></a>
   <a href="#"><img src="https://img.shields.io/badge/API%20Version-3.0.0-orange" alt="API Version"></a>
 </p>
 
@@ -62,42 +62,49 @@ All requests and responses use `application/json` unless otherwise specified.
 
 ## Authentication
 
-The API uses JWT (JSON Web Token) Bearer authentication. Most endpoints require authentication.
+The API uses opaque, database-backed session tokens (`secrets.token_urlsafe(48)`),
+not JWTs. A successful login sets the token **only** as a cookie:
 
-### Obtaining a Token
-
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "username": "admin",
-  "password": "your-password"
-}
+```
+Set-Cookie: session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400
 ```
 
-**Response:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "token_type": "bearer",
-  "expires_in": 86400
-}
-```
+The token never appears in a response body. Sessions expire 24 hours after
+login (built-in default); there is no refresh endpoint, log in again instead. Changing the password ends all of that user's sessions.
 
-### Using the Token
+Rules that apply to every request:
 
-Include the token in the `Authorization` header:
+- **Network:** `/management/` (and therefore the API) is internal-only in the
+  outer nginx (`geo $access_level`); external clients get `403`.
+- **CSRF:** a `POST`/`PUT`/`PATCH`/`DELETE` that carries any `Cookie` header
+  and no `Authorization` header must also send an `X-Requested-With` header
+  (any value), and if the client sends an `Origin` header it must be
+  `https://` plus this console's host, or one listed in `ALLOWED_ORIGINS`.
+  Otherwise the request is rejected with `403 CSRF check failed`.
+- **CORS:** none by default; `ALLOWED_ORIGINS` (comma-separated) enables CORS
+  for exactly those origins.
+- **Login throttling:** the management container's nginx allows 5 login
+  requests per minute per client IP (burst 3). After 5 failed passwords the
+  account is locked for 30 minutes, doubling with each further failure up to
+  24 hours (built-in defaults).
 
-```http
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
+An `Authorization: Bearer <token>` header is still accepted by the backend,
+but since the token is only delivered as an HttpOnly cookie, scripts should
+use a cookie jar:
 
-### Token Refresh
+```bash
+BASE=https://n8n.example.com/management/api
+curl -sk -c cookies.txt -X POST "$BASE/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"your-password"}'
 
-```http
-POST /api/auth/refresh
-Authorization: Bearer <current-token>
+# state-changing requests with the cookie need X-Requested-With
+curl -sk -b cookies.txt -X POST "$BASE/backups/run" \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  -H 'Content-Type: application/json' \
+  -d '{"backup_type":"postgres_full"}'
+# -> 202 {"id": "<job id>", "status": "queued", ...}; then poll the job:
+curl -sk -b cookies.txt "$BASE/backups/jobs/<job id>"
 ```
 
 ---
@@ -108,10 +115,9 @@ Authorization: Bearer <current-token>
 
 #### Login
 
-Authenticate and obtain a JWT token.
-
 ```http
 POST /api/auth/login
+Content-Type: application/json
 ```
 
 **Request Body:**
@@ -120,22 +126,32 @@ POST /api/auth/login
 | `username` | string | Yes | Username |
 | `password` | string | Yes | Password |
 
-**Response:** `200 OK`
+**Response:** `200 OK` (plus the `Set-Cookie: session=...` header)
 ```json
 {
-  "access_token": "string",
-  "token_type": "bearer",
-  "expires_in": 86400
+  "expires_at": "2026-01-02T03:04:05Z",
+  "user": {
+    "id": 1,
+    "username": "admin",
+    "email": "admin@example.com",
+    "totp_enabled": false,
+    "last_login": "2026-01-01T03:04:05Z",
+    "created_at": "2025-12-01T00:00:00Z"
+  }
 }
 ```
 
+`401` for a wrong password or a locked account, `403` if the client IP is
+outside the allowed subnets, `429` when rate-limited.
+
 #### Logout
 
-Invalidate the current session.
+Invalidate the current session, close its terminal sessions and clear the cookie.
 
 ```http
 POST /api/auth/logout
-Authorization: Bearer <token>
+Cookie: session=<token>
+X-Requested-With: XMLHttpRequest
 ```
 
 **Response:** `200 OK`
@@ -145,40 +161,38 @@ Authorization: Bearer <token>
 }
 ```
 
-#### Verify Token
-
-Check if the current token is valid.
+#### Verify Session (nginx `auth_request`)
 
 ```http
 GET /api/auth/verify
-Authorization: Bearer <token>
+Cookie: session=<token>
 ```
 
-**Response:** `200 OK`
-```json
-{
-  "valid": true,
-  "user": {
-    "id": 1,
-    "username": "admin"
-  }
-}
+Returns `200` with an `X-Auth-User: <username>` header for a valid session,
+`401` otherwise. Used by nginx to gate File Browser, Adminer and Dozzle.
+
+#### Current Session / User
+
+```http
+GET /api/auth/session     # user_id, created_at, expires_at, ip_address (no token)
+GET /api/auth/me          # the logged-in user
+GET /api/auth/sessions    # active sessions of this user
+DELETE /api/auth/sessions # end all sessions of this user, including this one
 ```
 
 #### Change Password
 
-Update the current user's password.
-
 ```http
-POST /api/auth/change-password
-Authorization: Bearer <token>
+PUT /api/auth/password
+Cookie: session=<token>
+X-Requested-With: XMLHttpRequest
 ```
 
 **Request Body:**
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `current_password` | string | Yes | Current password |
-| `new_password` | string | Yes | New password (min 8 characters) |
+| `new_password` | string | Yes | New password (8-128 characters) |
 
 **Response:** `200 OK`
 ```json
@@ -186,6 +200,8 @@ Authorization: Bearer <token>
   "message": "Password changed successfully"
 }
 ```
+
+All sessions of the user (including the current one) end; log in again.
 
 ---
 
@@ -294,10 +310,15 @@ Authorization: Bearer <token>
 | `compression` | string | No | `gzip` (default), `zstd`, or `none` |
 | `skip_auto_verify` | boolean | No | Skip the post-backup verification even if it is globally enabled |
 
-**Response:** `200 OK` — `BackupRunResponse`
+**Response:** `202 Accepted` — `BackupJobResponse` (the backup runs in the
+background, see [Background jobs](#background-jobs)); `409 Conflict` while
+another backup, restore or verification is running.
 ```json
-{ "backup_id": 42, "status": "started", "message": "Full backup started" }
+{ "id": "3f9c0a1b2c3d4e5f", "job_id": "3f9c0a1b2c3d4e5f", "kind": "backup", "status": "queued",
+  "backup_id": null, "progress": 0, "message": "Queued", "result": null, "error": null }
 ```
+When the job has finished, `result` is
+`{ "backup_id": 42, "status": "success", "message": "...", "filename": "backup_20261001T020000Z_42.n8n_backup.tar.gz" }`.
 
 #### Run — Trigger Full Backup (everything)
 
@@ -309,7 +330,34 @@ POST /api/backups/run-full
 Authorization: Bearer <token>
 ```
 
-**Response:** `200 OK` — `BackupRunResponse`
+**Response:** `202 Accepted` — `BackupJobResponse`, or `409 Conflict` (same as `/run`).
+
+#### Background jobs
+
+Backups, verifications (`/{backup_id}/verify`, `/verification/run/{backup_id}`)
+and restores (`/{backup_id}/restore/database`, `/{backup_id}/restore/full`)
+can take much longer than the 300 s proxy timeout, so these endpoints start a
+background job and return `202 Accepted` at once. Only one job runs at a time;
+starting one while another job, a scheduled backup or a pruning run holds the
+operation lock returns `409 Conflict`.
+
+```http
+GET /api/backups/jobs/{job_id}
+GET /api/backups/jobs?limit=20&kind=backup|verify|restore
+Authorization: Bearer <token>
+```
+
+| Field | Description |
+|-------|-------------|
+| `status` | `queued`, `running`, `success`, `failed` or `interrupted` (the API restarted while it ran) |
+| `progress`, `message` | Live progress (0–100) and current step |
+| `backup_id` | The backup being created, verified or restored (for a new backup: set once it has a history record) |
+| `result` | Final result: what the endpoint used to return synchronously (backup id, verification report, restore result) |
+| `error` | Why it failed: a message, or for a failed restore the full restore result |
+
+Poll every second or two until `status` is `success`, `failed` or
+`interrupted`. A verification that finds problems is a `success` job whose
+`result.overall_status` is `failed`.
 
 ---
 
@@ -487,7 +535,10 @@ Authorization: Bearer <token>
 | `hour` | integer | 3 | Hour to run (0–23) |
 | `verify_latest_count` | integer | 5 | How many of the most-recent backups to verify each run (1–20) |
 
-**Run / Quick Verify Response:** `VerifyBackupResponse` / `VerificationRunResponse`
+**Run / Quick Verify Response:** `/verification/run/{id}` and `/{id}/verify`
+return `202 Accepted` with a background job (see [Background jobs](#background-jobs));
+its `result` is the `VerificationRunResponse` / `VerifyBackupResponse` below.
+`/{id}/verify/quick` still answers synchronously.
 ```json
 { "backup_id": 42, "status": "passed", "details": { "checksum": "ok", "archive": "ok", "database": "ok" } }
 ```
@@ -641,7 +692,10 @@ Authorization: Bearer <token>
 
 `/restore/preview` returns a dry-run summary of what will change.
 `/restore/database` and `/restore/full` accept an optional
-`create_pre_restore_backup` boolean (default `true`).
+`create_pre_restore_backup` boolean (default `true`). Both run as background
+jobs: `202 Accepted` with a job (see [Background jobs](#background-jobs)), `404`
+for an unknown backup, `409` while another operation runs. A failed restore
+ends the job as `failed` with the full restore result in `error`.
 `/restore/status` reports the running restore session, if any.
 `/restore/cleanup` tears down a stuck restore container.
 
@@ -1109,31 +1163,40 @@ Authorization: Bearer <token>
 | `severity` | string | No | "info", "warning", "critical" |
 | `channel_ids` | array | No | Channels to notify |
 | `cooldown_minutes` | integer | No | Minimum time between notifications |
-| `escalation_enabled` | boolean | No | Enable L2 escalation |
-| `escalation_delay_minutes` | integer | No | Delay before escalation |
-| `escalation_channel_ids` | array | No | L2 escalation channels |
+| `escalation_enabled` | boolean | No | Enable L2 escalation. When enabled, L2 targets are notified immediately if the event is critical or if no L1 target accepted the message. There is no time-delayed escalation. |
 
 #### Get Global Notification Settings
 
 ```http
-GET /api/system-notifications/settings
+GET /api/system-notifications/global-settings
 Authorization: Bearer <token>
 ```
 
 **Response:** `200 OK`
 ```json
 {
-  "global_enabled": true,
+  "id": 1,
   "maintenance_mode": false,
+  "maintenance_until": null,
+  "maintenance_reason": null,
   "quiet_hours_enabled": false,
   "quiet_hours_start": "22:00",
   "quiet_hours_end": "07:00",
-  "default_cooldown_minutes": 5,
-  "flapping_detection_enabled": true,
-  "flapping_threshold": 5,
-  "flapping_window_minutes": 10
+  "quiet_hours_reduce_priority": true,
+  "blackout_enabled": false,
+  "blackout_start": null,
+  "blackout_end": null,
+  "max_notifications_per_hour": 50,
+  "notifications_this_hour": 3,
+  "hour_started_at": "2026-09-28T14:02:11Z",
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-09-28T14:02:11Z"
 }
 ```
+
+Every one of these is enforced by the notification gate. `quiet_hours_reduce_priority`
+chooses between lowering non-critical notifications to low priority (`true`) and
+muting them (`false`) during quiet hours. Times are in the console's `TIMEZONE`.
 
 #### Update Global Notification Settings
 

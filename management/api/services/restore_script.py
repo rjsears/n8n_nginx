@@ -23,7 +23,7 @@ from pathlib import Path
 
 # Bump whenever restore.sh.tpl changes in a way operators should know about.
 # Recorded in each archive's metadata.json as "restore_script_version".
-RESTORE_SCRIPT_VERSION = "3.2.1"
+RESTORE_SCRIPT_VERSION = "3.4.0"
 
 _PLACEHOLDER = "__RESTORE_SCRIPT_VERSION__"
 _TEMPLATE_NAME = "restore.sh.tpl"

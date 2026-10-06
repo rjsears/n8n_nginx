@@ -124,7 +124,7 @@ https://github.com/rjsears
 
         <!-- Settings Tab -->
         <div v-else-if="activeTab === 'settings'" class="space-y-6">
-          <ServerSettings :config="serverConfig" :on-update="handleUpdateConfig" />
+          <ServerSettings :config="serverConfig" />
         </div>
 
         <!-- Integration Hub Tab -->
@@ -399,18 +399,6 @@ async function loadMoreHistory() {
     history.value = [...history.value, ...(res.data || [])]
   } catch (error) {
     console.error('Failed to load more history:', error)
-  }
-}
-
-// Config handler
-async function handleUpdateConfig(config) {
-  try {
-    await api.ntfy.updateConfig(config)
-    const res = await api.ntfy.getConfig()
-    serverConfig.value = res.data || {}
-    return { success: true }
-  } catch (error) {
-    return { success: false, error: error.response?.data?.detail || error.message }
   }
 }
 

@@ -71,7 +71,7 @@ docker exec n8n_nginx_router nginx -s reload   # Public Website installs only
 
 ### Many Alpine containers stuck in "Created" state {: #tb-stuck-alpine }
 
-**Symptom:** Running `docker ps -a --filter "ancestor=alpine:latest"` shows dozens of orphaned Alpine containers in `Created` state that never ran. Common when running Docker inside an LXC.
+**Symptom:** Running `docker ps -a --filter "ancestor=alpine:3.24.2"` shows dozens of orphaned Alpine containers in `Created` state that never ran. Common when running Docker inside an LXC.
 
 **Cause:** The host's AppArmor profile blocks Alpine containers from starting inside an unprivileged LXC. The container is created but cannot transition to running state.
 
@@ -80,8 +80,8 @@ docker exec n8n_nginx_router nginx -s reload   # Public Website installs only
 ```
 docker compose pull n8n_management
 docker compose up -d n8n_management
-docker ps -a --filter "ancestor=alpine:latest" --filter "status=created" -q | xargs -r docker rm -f
-docker ps -a --filter "ancestor=alpine:latest" --filter "status=exited" -q | xargs -r docker rm -f
+docker ps -a --filter "ancestor=alpine:3.24.2" --filter "status=created" -q | xargs -r docker rm -f
+docker ps -a --filter "ancestor=alpine:3.24.2" --filter "status=exited" -q | xargs -r docker rm -f
 ```
 
 ### Container creation fails: "docker-default profile could not be loaded" {: #tb-apparmor-compose }
@@ -223,5 +223,5 @@ redis-cli FLUSHDB
 docker exec n8n_nginx openssl x509 -in /etc/letsencrypt/live/your-domain.com/fullchain.pem -noout -dates
 
 # Clean orphaned Alpine containers
-docker ps -a --filter "ancestor=alpine:latest" --filter "status=exited" -q | xargs -r docker rm -f
+docker ps -a --filter "ancestor=alpine:3.24.2" --filter "status=exited" -q | xargs -r docker rm -f
 ```

@@ -54,22 +54,27 @@ router = APIRouter()
 
 async def reset_tailscale_container():
     """
-    Reset Tailscale container state when auth key changes.
-    Uses shell commands to ensure proper cleanup:
-    1. docker stop n8n_tailscale
-    2. docker volume rm n8n_nginx_tailscale_data
-    3. docker compose up -d tailscale
+    Reset Tailscale container state when the auth key changes:
+    1. docker stop / rm n8n_tailscale
+    2. docker volume rm <project>_tailscale_data (found by compose labels)
+    3. docker compose -p <project> --project-directory <host dir> up -d --no-deps tailscale
+
+    The compose command uses the running stack's project name and host
+    directory (see api.services.compose_cli); otherwise compose would create
+    the container in a new "host_project" project with an empty serve config.
     """
     import subprocess
-    import os
 
-    # Get the host project directory (where docker-compose.yaml is)
-    host_dir = "/app/host_project"
+    from api.services import compose_cli
+    from api.services import proc as _proc
 
     try:
+        # Resolve the compose project first: without it nothing is removed.
+        ctx = await compose_cli.discover_compose_context()
+
         # Step 1: Stop the container
         logger.info("Stopping Tailscale container...")
-        stop_result = subprocess.run(
+        stop_result = await _proc.run(
             ['docker', 'stop', 'n8n_tailscale'],
             capture_output=True,
             text=True,
@@ -79,9 +84,9 @@ async def reset_tailscale_container():
             # Container might already be stopped, that's OK
             logger.info(f"Stop returned: {stop_result.stderr.strip() or 'container may already be stopped'}")
 
-        # Step 2: Remove the volume (need to remove container first to release it)
+        # Step 2: Remove the container to release the volume
         logger.info("Removing Tailscale container to release volume...")
-        rm_container = subprocess.run(
+        rm_container = await _proc.run(
             ['docker', 'rm', '-f', 'n8n_tailscale'],
             capture_output=True,
             text=True,
@@ -91,11 +96,9 @@ async def reset_tailscale_container():
 
         # Step 3: Remove the volume
         logger.info("Removing Tailscale data volume...")
-        # Try common volume name patterns
-        volume_names = ['n8n_nginx_tailscale_data', 'n8n-nginx_tailscale_data', 'tailscale_data']
-        volume_removed = False
-        for vol_name in volume_names:
-            vol_result = subprocess.run(
+        vol_name = await compose_cli.find_compose_volume("tailscale_data", ctx)
+        if vol_name:
+            vol_result = await _proc.run(
                 ['docker', 'volume', 'rm', vol_name],
                 capture_output=True,
                 text=True,
@@ -103,36 +106,16 @@ async def reset_tailscale_container():
             )
             if vol_result.returncode == 0:
                 logger.info(f"Removed volume: {vol_name}")
-                volume_removed = True
-                break
             else:
-                logger.debug(f"Volume {vol_name} not found or already removed")
-
-        if not volume_removed:
-            logger.warning("Could not find/remove Tailscale volume - may already be removed")
+                logger.warning(f"Could not remove volume {vol_name}: {vol_result.stderr.strip()}")
+        else:
+            logger.warning("Could not find the Tailscale volume - may already be removed")
 
         # Step 4: Recreate and start the container
         logger.info("Starting Tailscale container with new auth key...")
-
-        # Try docker compose V2 first, fall back to docker-compose V1
-        up_result = subprocess.run(
-            ['docker', 'compose', 'up', '-d', 'tailscale'],
-            cwd=host_dir,
-            capture_output=True,
-            text=True,
-            timeout=120
+        up_result = await compose_cli.run_compose(
+            ['up', '-d', '--no-deps', 'tailscale'], timeout=120, ctx=ctx
         )
-
-        # If V2 failed, try V1 (docker-compose)
-        if up_result.returncode != 0 and 'unknown' in up_result.stderr.lower():
-            logger.info("Docker Compose V2 not available, trying V1...")
-            up_result = subprocess.run(
-                ['docker-compose', 'up', '-d', 'tailscale'],
-                cwd=host_dir,
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
 
         if up_result.returncode == 0:
             logger.info("Tailscale container started successfully")
@@ -250,7 +233,23 @@ async def get_nfs_status(
             message="NFS not configured",
         )
 
-    is_mounted = os.path.ismount(mount_point)
+    # A bind mount is always a mount point; only a network filesystem type
+    # means the NFS share is really mounted (see api.services.backup_storage).
+    from api.services.backup_storage import inspect_storage_target_async
+
+    target = await inspect_storage_target_async(mount_point)
+    is_mounted = target.offsite or (target.is_network_fs and target.exists)
+
+    if not is_mounted:
+        return NFSStatusResponse(
+            status="disconnected",
+            message=f"NFS not mounted: {target.reason}",
+            server=nfs_server,
+            path=nfs_path,
+            mount_point=mount_point,
+            is_mounted=False,
+            last_check=datetime.now(UTC),
+        )
 
     if is_mounted:
         # Test write capability
@@ -727,7 +726,8 @@ async def reload_nginx(
         nginx_container = os.environ.get("NGINX_CONTAINER", "n8n_nginx")
 
         # Try to reload nginx container
-        result = subprocess.run(
+        from api.services import proc as _proc
+        result = await _proc.run(
             ["docker", "exec", nginx_container, "nginx", "-s", "reload"],
             capture_output=True,
             text=True,
@@ -908,7 +908,8 @@ async def get_tailscale_status(
 
     try:
         # Check container status
-        result = subprocess.run(
+        from api.services import proc as _proc
+        result = await _proc.run(
             ['docker', 'inspect', '--format', '{{.State.Status}}', 'n8n_tailscale'],
             capture_output=True,
             text=True,

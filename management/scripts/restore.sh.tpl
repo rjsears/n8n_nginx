@@ -17,25 +17,37 @@
 # (template: management/scripts/restore.sh.tpl)
 #
 # This script performs a COMPLETE bare metal restore of an n8n installation
-# from an extracted backup archive (metadata.json, config/, databases/, ssl/).
+# from an extracted backup archive (metadata.json, project/, config/,
+# databases/, letsencrypt/, volumes/).
+#
+# Encrypted archives (*.n8n_backup.tar.gz.gpg) must be decrypted first, either
+#   gpg --decrypt backup_X.n8n_backup.tar.gz.gpg | tar -xzf - -C /some/dir
+# and then run /some/dir/restore.sh, or let this script do it:
+#   ./restore.sh --archive backup_X.n8n_backup.tar.gz.gpg [--passphrase-file F]
+# (the passphrase is BACKUP_ENCRYPTION_PASSPHRASE from the original .env; it
+# is also read from the BACKUP_ENCRYPTION_PASSPHRASE environment variable).
 #
 # It can also be downloaded on its own from the management console
 # (Backups > Bare Metal > "Download latest restore.sh") and copied over the
 # restore.sh inside an OLDER archive before running it.
 #
 # Order of operations:
-#   1. Pre-flight checks (backup contents, OS, system requirements, utilities)
+#   1. Pre-flight checks (decrypt/extract with --archive, backup contents, OS,
+#      system requirements, utilities)
 #   2. Docker / Docker Compose
 #   3. Stop the stack if it is running in the target directory, then restore
-#      configuration files (including dotfiles such as .env)
+#      the project directory (every bind-mounted config, scripts, build
+#      contexts) and configuration files (including dotfiles such as .env)
 #   4. DNS / NFS validation
-#   5. Docker volumes and SSL certificates (full /etc/letsencrypt tree with
-#      symlinks preserved, so certbot can keep renewing)
+#   5. Docker volumes: SSL certificates (full /etc/letsencrypt tree with
+#      symlinks preserved, so certbot can keep renewing) and the n8n_data /
+#      ntfy_data snapshots, into the volume names Compose will use
 #   6. Public website files
-#   7. Start ONLY the postgres service, wait until it accepts TCP connections
-#      (i.e. the image's first-start init has finished) and restore each
-#      database with pg_restore (single transaction, stops on the first error)
-#      - nothing else is running against the databases
+#   7. Pin the image versions recorded in the backup (no :latest pulls), start
+#      ONLY the postgres service, wait until it accepts TCP connections (i.e.
+#      the image's first-start init has finished) and restore each database
+#      with pg_restore (single transaction, stops on the first error) -
+#      nothing else is running against the databases
 #   8. Start the rest of the stack
 #   9. Health checks
 #
@@ -74,6 +86,9 @@ SKIP_SYSTEM_CHECK=false
 DRY_RUN=false
 FORCE=false
 AUTO_MODE=false
+ARCHIVE=""
+PASSPHRASE_FILE=""
+EXTRACT_DIR=""
 
 # Minimum requirements
 MIN_DISK_GB=5
@@ -121,6 +136,11 @@ Usage: ./restore.sh [options]
 
 Options:
   --target-dir DIR       Directory to restore to (default: /opt/n8n)
+  --archive FILE         Decrypt (if .gpg) and extract this backup archive to a
+                         private temporary directory and restore from it
+  --passphrase-file FILE File holding the archive passphrase (otherwise the
+                         BACKUP_ENCRYPTION_PASSPHRASE environment variable, or
+                         gpg prompts for it)
   --skip-docker          Skip Docker installation check
   --skip-ssl             Skip SSL certificate restoration
   --skip-db              Skip database restoration
@@ -217,6 +237,277 @@ meta_get() {
     printf '%s' "${value:-$default}"
 }
 
+# Image references recorded at backup time, one per line:
+# service<TAB>reference<TAB>registry digest (may be empty)
+meta_images() {
+    if command_exists python3; then
+        python3 -c '
+import json, sys
+for img in json.load(open(sys.argv[1])).get("images") or []:
+    print("\t".join([img.get("service") or "", img.get("ref") or "", img.get("repo_digest") or ""]))
+' "$SCRIPT_DIR/metadata.json" 2>/dev/null || true
+    elif command_exists jq; then
+        jq -r '.images[]? | [(.service // ""), (.ref // ""), (.repo_digest // "")] | @tsv' \
+            "$SCRIPT_DIR/metadata.json" 2>/dev/null || true
+    fi
+}
+
+# ============================================================================
+# Encrypted / packed archives (--archive)
+# ============================================================================
+
+cleanup_extract_dir() {
+    if [[ -n "$EXTRACT_DIR" ]] && [[ -d "$EXTRACT_DIR" ]]; then
+        rm -rf "$EXTRACT_DIR"
+    fi
+}
+
+archive_is_encrypted() {
+    local file="$1" magic=""
+    [[ "$file" == *.gpg ]] && return 0
+    magic=$(head -c 2 "$file" | od -An -tx1 | tr -d ' \n') || magic=""
+    [[ "$magic" != "1f8b" ]]
+}
+
+# Decrypt (if needed) and extract --archive into a private temporary
+# directory, then restore from there. The extracted files contain every
+# secret of the installation and are removed when the script exits.
+prepare_archive() {
+    [[ -n "$ARCHIVE" ]] || return 0
+    if [[ ! -f "$ARCHIVE" ]]; then
+        log_error "Archive not found: $ARCHIVE"
+        exit 1
+    fi
+
+    EXTRACT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/n8n_restore.XXXXXX")
+    chmod 700 "$EXTRACT_DIR"
+    trap cleanup_extract_dir EXIT
+
+    # Run as root, tar keeps the owners recorded in the archive (the project
+    # files' original uid/gid, which restore_tree then copies with cp -a).
+    # --numeric-owner: the names in the archive come from the management
+    # container's user database, not this host's, so restore the numeric ids.
+    if archive_is_encrypted "$ARCHIVE"; then
+        log_info "Archive is encrypted (gpg); decrypting into $EXTRACT_DIR"
+        if ! command_exists gpg; then
+            log_info "Installing gnupg..."
+            pkg_update || true
+            pkg_install gnupg || true
+            command_exists gpg || { log_error "gpg is required to decrypt $ARCHIVE"; exit 1; }
+        fi
+        if [[ -n "$PASSPHRASE_FILE" ]]; then
+            gpg --batch --quiet --pinentry-mode loopback --passphrase-file "$PASSPHRASE_FILE" \
+                --decrypt "$ARCHIVE" | tar --numeric-owner -xzf - -C "$EXTRACT_DIR"
+        elif [[ -n "${BACKUP_ENCRYPTION_PASSPHRASE:-}" ]]; then
+            gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 \
+                --decrypt "$ARCHIVE" 3<<<"$BACKUP_ENCRYPTION_PASSPHRASE" | tar --numeric-owner -xzf - -C "$EXTRACT_DIR"
+        else
+            log_info "Enter the backup passphrase (BACKUP_ENCRYPTION_PASSPHRASE from the original .env)"
+            gpg --quiet --pinentry-mode loopback --decrypt "$ARCHIVE" | tar --numeric-owner -xzf - -C "$EXTRACT_DIR"
+        fi
+    else
+        log_info "Extracting $ARCHIVE into $EXTRACT_DIR"
+        tar --numeric-owner -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
+    fi
+    SCRIPT_DIR="$EXTRACT_DIR"
+    log_success "Archive extracted"
+}
+
+# ============================================================================
+# Docker Compose names (match what "docker compose up" in TARGET_DIR uses)
+# ============================================================================
+
+COMPOSE_CONFIG_JSON=""
+compose_config_json() {
+    if [[ -z "$COMPOSE_CONFIG_JSON" ]] && command_exists docker && \
+       { [[ -f "$TARGET_DIR/docker-compose.yaml" ]] || [[ -f "$TARGET_DIR/docker-compose.yml" ]]; }; then
+        COMPOSE_CONFIG_JSON=$(cd "$TARGET_DIR" && compose config --format json 2>/dev/null) || COMPOSE_CONFIG_JSON=""
+    fi
+    printf '%s' "$COMPOSE_CONFIG_JSON"
+}
+
+# json_from_compose_config KEY [VOLUME]: top-level "name", or the resolved
+# name of a volume
+json_from_compose_config() {
+    local json
+    json=$(compose_config_json)
+    [[ -n "$json" ]] || return 0
+    if command_exists python3; then
+        printf '%s' "$json" | python3 -c '
+import json, sys
+cfg = json.load(sys.stdin)
+if sys.argv[1] == "name":
+    print(cfg.get("name") or "")
+else:
+    print(((cfg.get("volumes") or {}).get(sys.argv[2]) or {}).get("name") or "")
+' "$@" 2>/dev/null || true
+    elif command_exists jq; then
+        if [[ "$1" == "name" ]]; then
+            printf '%s' "$json" | jq -r '.name // empty' 2>/dev/null || true
+        else
+            printf '%s' "$json" | jq -r --arg v "$2" '.volumes[$v].name // empty' 2>/dev/null || true
+        fi
+    fi
+}
+
+# Same rule as setup.sh compose_project_name(): COMPOSE_PROJECT_NAME, else
+# the directory name, lower-cased, keeping [a-z0-9_-].
+compose_project() {
+    local name=""
+    name=$(json_from_compose_config name)
+    if [[ -z "$name" ]]; then
+        name="${COMPOSE_PROJECT_NAME:-}"
+        [[ -n "$name" ]] || name=$(env_get "$TARGET_DIR/.env" COMPOSE_PROJECT_NAME)
+        [[ -n "$name" ]] || name=$(basename "$TARGET_DIR")
+        name=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+    fi
+    printf '%s' "$name"
+}
+
+# Docker volume name Compose uses for the volume KEY of docker-compose.yaml
+compose_volume_name() {
+    local key="$1" name=""
+    name=$(json_from_compose_config volume "$key")
+    [[ -n "$name" ]] || name="$(compose_project)_${key}"
+    printf '%s' "$name"
+}
+
+# Create a volume the way Compose would (labels included, so Compose adopts
+# it without warnings and setup.sh's find_compose_volume finds it).
+ensure_compose_volume() {
+    local key="$1" name="$2"
+    if docker volume inspect "$name" &>/dev/null; then
+        return 0
+    fi
+    docker volume create \
+        --label "com.docker.compose.project=$(compose_project)" \
+        --label "com.docker.compose.volume=${key}" \
+        "$name" >/dev/null
+    log_success "Created volume $name"
+}
+
+# Restore volumes/<key>.tar (taken at backup time) into the volume Compose
+# uses for <key>, replacing its contents.
+restore_volume_snapshot() {
+    local snapshot="$1" key name owner="" non_empty=""
+    key=$(basename "$snapshot" .tar)
+    if [[ ! "$key" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        log_warning "Skipping volume snapshot with unexpected name: $snapshot"
+        return 0
+    fi
+    name=$(compose_volume_name "$key")
+    case "$key" in
+        n8n_data) owner="1000:1000" ;;  # n8n runs as the "node" user
+    esac
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        dry_run_note "Would restore $(basename "$snapshot") into Docker volume $name (replacing its contents)"
+        return 0
+    fi
+
+    ensure_compose_volume "$key" "$name"
+    non_empty=$(docker run --rm --network none -v "${name}:/dest" alpine sh -c 'ls -A /dest | head -n 1') || non_empty=""
+    if [[ -n "$non_empty" ]] && ! confirm "Volume $name already has data. Replace it with the backup's copy?"; then
+        log_warning "Kept the existing contents of $name"
+        return 0
+    fi
+    # Extract into a staging directory inside the volume first and swap only
+    # after the extraction succeeded: a damaged snapshot leaves the volume's
+    # current contents untouched instead of an empty volume.
+    # shellcheck disable=SC2016  # expanded by the container's shell
+    if ! docker run --rm --network none \
+        -v "${name}:/dest" \
+        -v "$(dirname "$snapshot"):/source:ro" \
+        alpine sh -c 'set -e
+            stage=/dest/.n8n_restore_staging
+            rm -rf "$stage"
+            mkdir "$stage"
+            if ! tar -xpf "/source/$1" -C "$stage"; then
+                rm -rf "$stage"
+                echo "extracting $1 failed; the volume was left unchanged" >&2
+                exit 1
+            fi
+            find /dest -mindepth 1 -maxdepth 1 ! -name .n8n_restore_staging -exec rm -rf {} \;
+            find "$stage" -mindepth 1 -maxdepth 1 -exec mv {} /dest/ \;
+            rmdir "$stage"
+            if [ -n "$2" ]; then chown -R "$2" /dest; fi' sh "$(basename "$snapshot")" "$owner"; then
+        log_error "Could not restore $(basename "$snapshot") into $name (its previous contents were kept)"
+        return 1
+    fi
+    log_success "Restored volume $name from $(basename "$snapshot")"
+}
+
+# Use the image versions the backed-up data was running on. A plain
+# "compose up" only pulls images that are missing, so pinning the recorded
+# digest under its usual tag (e.g. n8nio/n8n:latest) keeps Compose from
+# pulling a newer release whose migrations might not match the data.
+pin_images() {
+    local lines service ref digest pinned=0
+    lines=$(meta_images)
+    if [[ -z "$lines" ]]; then
+        log_warning "This backup does not record image versions (older archive)."
+        log_warning "Images missing on this host will be pulled at their CURRENT tag (e.g. :latest),"
+        log_warning "which may be newer than the version the backup was taken with."
+        return 0
+    fi
+    while IFS=$'\t' read -r service ref digest; do
+        [[ -n "$ref" ]] || continue
+        if [[ -z "$digest" ]]; then
+            if docker image inspect "$ref" &>/dev/null; then
+                log_info "  $service: using local $ref (built locally, no registry digest recorded)"
+            else
+                log_warning "  $service: $ref has no recorded registry digest (built locally?); Compose will build or pull it"
+            fi
+            continue
+        fi
+        if docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$ref" 2>/dev/null | grep -qxF "$digest"; then
+            log_info "  $service: $ref is already the backed-up version"
+            continue
+        fi
+        if [[ "$DRY_RUN" == "true" ]]; then
+            dry_run_note "Would pull $digest and tag it as $ref"
+            continue
+        fi
+        log_info "  $service: pulling backed-up version $digest"
+        if docker pull "$digest" >/dev/null && docker tag "$digest" "$ref"; then
+            pinned=$((pinned + 1))
+        else
+            log_warning "  $service: could not pull $digest; Compose will use or pull $ref instead"
+        fi
+    done <<< "$lines"
+    log_success "Image versions pinned to the backup ($pinned pulled)"
+}
+
+# Copy every file under SRC (relative paths kept) into TARGET_DIR. Existing
+# files that differ are kept as <file>.bak.<stamp>. Sets RESTORE_TREE_COUNT.
+RESTORE_TREE_COUNT=0
+restore_tree() {
+    local src_root="$1" stamp="$2" count=0 src rel dest
+    while IFS= read -r -d '' src; do
+        rel="${src#"$src_root/"}"
+        dest="$TARGET_DIR/$rel"
+
+        if [[ -e "$dest" || -L "$dest" ]] && ! cmp -s "$src" "$dest" 2>/dev/null; then
+            run_cmd cp -a "$dest" "${dest}.bak.${stamp}"
+            log_info "Backed up existing $rel"
+        fi
+
+        run_cmd mkdir -p "$(dirname "$dest")"
+        run_cmd rm -f "$dest"
+        run_cmd cp -a "$src" "$dest"
+
+        # Top-level secrets: .env, DNS credentials, File Browser database
+        if [[ "$rel" != */* ]]; then
+            case "$rel" in
+                .env|*.ini|google.json|filebrowser.db) run_cmd chmod 600 "$dest" ;;
+                *) ;;
+            esac
+        fi
+        count=$((count + 1))
+    done < <(find "$src_root" \( -type f -o -type l \) -print0 | sort -z)
+    RESTORE_TREE_COUNT=$count
+}
+
 # Check if running in LXC container
 is_lxc_container() {
     if command_exists systemd-detect-virt && [[ "$(systemd-detect-virt 2>/dev/null || true)" == "lxc" ]]; then
@@ -244,6 +535,18 @@ parse_args() {
                     exit 1
                 fi
                 TARGET_DIR="$2"; shift 2 ;;
+            --archive)
+                if [[ $# -lt 2 ]] || [[ -z "$2" ]]; then
+                    log_error "--archive requires a file"
+                    exit 1
+                fi
+                ARCHIVE="$2"; shift 2 ;;
+            --passphrase-file)
+                if [[ $# -lt 2 ]] || [[ -z "$2" ]]; then
+                    log_error "--passphrase-file requires a file"
+                    exit 1
+                fi
+                PASSPHRASE_FILE="$2"; shift 2 ;;
             --skip-docker) SKIP_DOCKER=true; shift ;;
             --skip-ssl) SKIP_SSL=true; shift ;;
             --skip-db) SKIP_DB=true; shift ;;
@@ -604,6 +907,19 @@ validate_backup_contents() {
         fi
     fi
 
+    if [[ -d "$SCRIPT_DIR/project" ]]; then
+        log_success "Found project directory ($(find "$SCRIPT_DIR/project" -type f | wc -l) files)"
+    else
+        log_warning "No project/ directory (archive created before restore.sh 3.3.0): only config/ files are restored"
+    fi
+
+    if [[ -d "$SCRIPT_DIR/volumes" ]]; then
+        local snap
+        for snap in "$SCRIPT_DIR"/volumes/*.tar; do
+            log_success "Found volume snapshot: $(basename "$snap" .tar)"
+        done
+    fi
+
     if [[ -d "$SCRIPT_DIR/public_website" ]]; then
         local pw_count
         pw_count=$(find "$SCRIPT_DIR/public_website" -type f | wc -l)
@@ -794,7 +1110,13 @@ psql_postgres() {
 db_restore_failed() {
     log_error "$1"
     log_error "Database restore failed. The remaining services have NOT been started."
-    log_error "Fix the problem and re-run: $0 --target-dir $TARGET_DIR --skip-config"
+    local rerun="$0 --target-dir $TARGET_DIR --skip-config"
+    # With --archive the extracted copy is deleted on exit; the re-run must extract it again
+    if [[ -n "$ARCHIVE" ]]; then
+        rerun+=" --archive $(printf '%q' "$ARCHIVE")"
+        [[ -z "$PASSPHRASE_FILE" ]] || rerun+=" --passphrase-file $(printf '%q' "$PASSPHRASE_FILE")"
+    fi
+    log_error "Fix the problem and re-run: $rerun"
     exit 1
 }
 
@@ -943,6 +1265,8 @@ main() {
 
     detect_os
 
+    prepare_archive
+
     validate_backup_contents || exit 1
 
     if [[ "$SKIP_SYSTEM_CHECK" != "true" ]]; then
@@ -1075,35 +1399,29 @@ main() {
     # this script is about to replace.
     stop_running_stack
 
-    if [[ "$SKIP_CONFIG" != "true" ]] && [[ -d "$SCRIPT_DIR/config" ]]; then
+    if [[ "$SKIP_CONFIG" != "true" ]] && { [[ -d "$SCRIPT_DIR/project" ]] || [[ -d "$SCRIPT_DIR/config" ]]; }; then
         run_cmd mkdir -p "$TARGET_DIR"
-
-        local config_count=0
-        local stamp src rel dest
+        local stamp
         stamp=$(date +%Y%m%d_%H%M%S)
-        while IFS= read -r -d '' src; do
-            rel="${src#"$SCRIPT_DIR/config/"}"
-            dest="$TARGET_DIR/$rel"
 
-            if [[ -f "$dest" ]]; then
-                run_cmd cp -a "$dest" "${dest}.bak.${stamp}"
-                log_info "Backed up existing $rel"
-            fi
+        # The project directory: every bind-mounted config (nginx-router.conf,
+        # nginx-public.conf, .filebrowser.json, ntfy/, dozzle/, ...),
+        # scripts/certbot and the build contexts (management/, n8n_status/).
+        if [[ -d "$SCRIPT_DIR/project" ]]; then
+            log_info "Restoring the project directory into $TARGET_DIR"
+            restore_tree "$SCRIPT_DIR/project" "$stamp"
+            log_success "Restored $RESTORE_TREE_COUNT project file(s)"
+        else
+            log_warning "This backup has no project/ directory (older archive format): only the files"
+            log_warning "under config/ are restored. Clone the repository into $TARGET_DIR first so that"
+            log_warning "nginx-router.conf, scripts/certbot, management/ etc. exist."
+        fi
 
-            log_info "Restoring: $rel"
-            run_cmd mkdir -p "$(dirname "$dest")"
-            run_cmd cp -a "$src" "$dest"
-
-            case "$(basename "$rel")" in
-                package.json) ;;
-                .env|*.ini|*.json) run_cmd chmod 600 "$dest" ;;
-                *) ;;
-            esac
-
-            config_count=$((config_count + 1))
-        done < <(find "$SCRIPT_DIR/config" -type f -print0 | sort -z)
-
-        log_success "Restored $config_count config file(s)"
+        # config/ (also inside project/; kept for older archives)
+        if [[ -d "$SCRIPT_DIR/config" ]]; then
+            restore_tree "$SCRIPT_DIR/config" "$stamp"
+            log_success "Restored $RESTORE_TREE_COUNT config file(s)"
+        fi
     else
         log_info "Skipping config file restoration"
     fi
@@ -1152,6 +1470,10 @@ main() {
     # Step 5: Docker Volumes and SSL Certificates
     # ========================================================================
     log_step "Step 5: Docker Volumes and SSL Certificates"
+
+    # Resolve the compose project/volume names once (in this shell, so the
+    # result is cached for the helpers that run in command substitutions)
+    compose_config_json > /dev/null
 
     # The stack declares 'letsencrypt' as an external volume, so it must exist.
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -1229,6 +1551,26 @@ main() {
         log_info "No SSL certificates in backup"
     fi
 
+    # n8n_data (~/.n8n: config with the encryption key, binary data, community
+    # nodes) and ntfy_data, snapshotted at backup time
+    local snapshots=()
+    if [[ -d "$SCRIPT_DIR/volumes" ]]; then
+        snapshots=("$SCRIPT_DIR"/volumes/*.tar)
+    fi
+    if [[ ${#snapshots[@]} -eq 0 ]]; then
+        log_warning "No volume snapshots in this backup (older archive format): n8n_data starts empty."
+        log_warning "n8n will use N8N_ENCRYPTION_KEY from .env; community nodes must be reinstalled."
+    elif [[ "$DRY_RUN" != "true" ]] && ! command_exists docker; then
+        log_error "Docker is required to restore volume snapshots"
+        exit 1
+    else
+        log_info "Compose project: $(compose_project)"
+        local snapshot
+        for snapshot in "${snapshots[@]}"; do
+            restore_volume_snapshot "$snapshot"
+        done
+    fi
+
     # ========================================================================
     # Step 6: Public Website Files
     # ========================================================================
@@ -1236,17 +1578,14 @@ main() {
 
     if [[ "$SKIP_PUBLIC_WEBSITE" != "true" ]] && [[ -d "$SCRIPT_DIR/public_website" ]]; then
         log_info "Found public website files in backup"
+        local web_volume
+        web_volume=$(compose_volume_name public_web_root)
         if [[ "$DRY_RUN" != "true" ]] && command_exists docker; then
-            if ! docker volume inspect public_web_root &>/dev/null; then
-                docker volume create public_web_root
-                log_success "Created public_web_root volume"
-            else
-                log_info "public_web_root volume already exists"
-            fi
+            ensure_compose_volume public_web_root "$web_volume"
 
-            log_info "Restoring public website files to Docker volume..."
+            log_info "Restoring public website files to Docker volume $web_volume..."
             if docker run --rm \
-                -v public_web_root:/dest \
+                -v "${web_volume}:/dest" \
                 -v "$SCRIPT_DIR/public_website:/source:ro" \
                 alpine \
                 sh -c "cp -a /source/. /dest/"; then
@@ -1255,7 +1594,7 @@ main() {
                 log_warning "Failed to restore some public website files"
             fi
         else
-            dry_run_note "Would create public_web_root volume and restore files"
+            dry_run_note "Would create volume $web_volume and restore the public website files into it"
         fi
     elif [[ "$SKIP_PUBLIC_WEBSITE" == "true" ]]; then
         log_info "Skipping public website restoration (--skip-public-website)"
@@ -1278,6 +1617,9 @@ main() {
     elif [[ ${#dumps[@]} -eq 0 ]]; then
         log_warning "No database dumps found in backup - skipping database restoration"
     elif [[ "$DRY_RUN" == "true" ]]; then
+        if command_exists docker; then
+            pin_images
+        fi
         dry_run_note "Would run (in $TARGET_DIR): docker compose up -d postgres"
         dry_run_note "Would wait for $PG_READY_CONSECUTIVE consecutive successes of: pg_isready -h 127.0.0.1 -U $PG_USER -d $PG_DB"
         local dump_file
@@ -1294,9 +1636,10 @@ main() {
             exit 1
         fi
 
-        if confirm "Pull latest Docker images before starting?"; then
-            compose pull || log_warning "Some images failed to pull"
-        fi
+        # Never "compose pull" here: that would fetch the newest :latest
+        # images, not the versions this data was written by.
+        log_info "Pinning the image versions recorded in the backup..."
+        pin_images
 
         log_info "Starting ONLY the postgres service for the database restore..."
         compose up -d postgres
@@ -1319,6 +1662,9 @@ main() {
     if [[ "$DRY_RUN" != "true" ]]; then
         cd "$TARGET_DIR"
         if [[ -f "docker-compose.yaml" ]] || [[ -f "docker-compose.yml" ]]; then
+            if [[ "$SKIP_DB" == "true" ]] || [[ ${#dumps[@]} -eq 0 ]]; then
+                pin_images
+            fi
             log_info "Starting all services with docker compose..."
             compose up -d
             log_success "Services started"

@@ -214,7 +214,7 @@ async def run_schema_migrations() -> None:
         ("system_notification_container_configs", "cpu_threshold", "INTEGER DEFAULT 80"),
         ("system_notification_container_configs", "monitor_high_memory", "BOOLEAN DEFAULT FALSE"),
         ("system_notification_container_configs", "memory_threshold", "INTEGER DEFAULT 80"),
-        # system_notification_targets.escalation_timeout_minutes for per-target L2 timeout
+        # system_notification_targets.escalation_timeout_minutes (RETIRED: delayed L2 removed; column kept)
         ("system_notification_targets", "escalation_timeout_minutes", "INTEGER"),
         # backup_history protection and pending deletion columns (Phase 7)
         ("backup_history", "is_protected", "BOOLEAN DEFAULT FALSE"),
@@ -235,6 +235,8 @@ async def run_schema_migrations() -> None:
         # backup_contents public website manifest columns
         ("backup_contents", "public_website_file_count", "INTEGER DEFAULT 0"),
         ("backup_contents", "public_website_manifest", "JSONB"),
+        # backup_schedules.config_changed_at: human edits only (backup-overdue baseline)
+        ("backup_schedules", "config_changed_at", "TIMESTAMP WITH TIME ZONE"),
     ]
 
     async with engine.begin() as conn:
@@ -256,11 +258,62 @@ async def run_schema_migrations() -> None:
             except Exception as e:
                 logger.warning(f"Migration check for {table_name}.{column_name} failed: {e}")
 
+        await _backfill_schedule_config_changed_at(conn)
+
         # Generate slugs for existing notification services that don't have one
         await _migrate_notification_service_slugs(conn)
 
         # Fix certificate_expiring event category (move from security to ssl)
         await _migrate_certificate_event_category(conn)
+
+        # Remove registry rows for events that were never produced by any code
+        await _remove_retired_notification_events(conn)
+
+
+async def _backfill_schedule_config_changed_at(conn) -> None:
+    """
+    Fill backup_schedules.config_changed_at on rows that predate the column.
+    updated_at is only trusted as an edit time when it is clearly later than
+    the last run (the scheduler stamping last_run also bumps it); otherwise
+    the creation time is used.
+    """
+    try:
+        result = await conn.execute(text("""
+            UPDATE backup_schedules
+            SET config_changed_at = CASE
+                WHEN updated_at IS NOT NULL
+                     AND (last_run IS NULL OR updated_at > last_run + INTERVAL '1 minute')
+                THEN updated_at
+                ELSE created_at
+            END
+            WHERE config_changed_at IS NULL
+        """))
+        if result.rowcount > 0:
+            logger.info(f"Backfilled config_changed_at on {result.rowcount} backup schedule(s)")
+    except Exception as e:
+        logger.warning(f"Failed to backfill backup_schedules.config_changed_at: {e}")
+
+
+# Events that had a card in the UI but no code path that could ever fire them.
+# Seeding is insert-if-missing, so removing one from DEFAULT_SYSTEM_EVENTS is
+# not enough: existing databases keep the row unless it is deleted here.
+RETIRED_NOTIFICATION_EVENTS = (
+    "update_available",  # no update checker exists; retired 2026-09
+)
+
+
+async def _remove_retired_notification_events(conn) -> None:
+    """Delete registry rows (targets cascade) for retired event types."""
+    for event_type in RETIRED_NOTIFICATION_EVENTS:
+        try:
+            result = await conn.execute(
+                text("DELETE FROM system_notification_events WHERE event_type = :event_type"),
+                {"event_type": event_type},
+            )
+            if result.rowcount > 0:
+                logger.info(f"Removed retired notification event '{event_type}'")
+        except Exception as e:
+            logger.warning(f"Failed to remove retired notification event '{event_type}': {e}")
 
 
 async def _migrate_certificate_event_category(conn) -> None:
@@ -275,6 +328,39 @@ async def _migrate_certificate_event_category(conn) -> None:
             logger.info(f"Migrated certificate_expiring event to ssl category")
     except Exception as e:
         logger.warning(f"Failed to migrate certificate event category: {e}")
+
+
+async def _copy_seed_targets(session, new_events) -> None:
+    """Give newly seeded events the targets of the event named in SEED_TARGETS_FROM."""
+    from sqlalchemy import select
+    from api.models.system_notifications import (
+        SEED_TARGETS_FROM,
+        SystemNotificationEvent,
+        SystemNotificationTarget,
+    )
+
+    for new_event in new_events:
+        source_type = SEED_TARGETS_FROM.get(new_event.event_type)
+        if not source_type:
+            continue
+        source = (await session.execute(
+            select(SystemNotificationEvent).where(SystemNotificationEvent.event_type == source_type)
+        )).scalar_one_or_none()
+        if source is None:
+            continue
+        targets = (await session.execute(
+            select(SystemNotificationTarget).where(SystemNotificationTarget.event_id == source.id)
+        )).scalars().all()
+        for target in targets:
+            session.add(SystemNotificationTarget(
+                event_id=new_event.id,
+                target_type=target.target_type,
+                channel_id=target.channel_id,
+                group_id=target.group_id,
+                escalation_level=target.escalation_level,
+            ))
+        if targets:
+            logger.info(f"Event '{new_event.event_type}' starts with the {len(targets)} target(s) of '{source_type}'")
 
 
 async def seed_system_notification_events() -> None:
@@ -302,6 +388,8 @@ async def seed_system_notification_events() -> None:
 
             if events_to_add:
                 session.add_all(events_to_add)
+                await session.flush()
+                await _copy_seed_targets(session, events_to_add)
                 await session.commit()
                 logger.info(f"Seeded {len(events_to_add)} system notification events")
             else:

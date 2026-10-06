@@ -40,6 +40,8 @@ const notificationStore = useNotificationStore()
 const step = ref('preview') // 'preview', 'confirm', 'restoring', 'complete'
 const loading = ref(false)
 const preview = ref(null)
+// Background restore job while it runs (progress / message)
+const restoreJob = ref(null)
 
 // The management console's own database can only be restored with the
 // bare-metal restore.sh (the API refuses it as well).
@@ -186,6 +188,7 @@ async function performRestore() {
   if (!confirmationOk.value) return
   step.value = 'restoring'
   loading.value = true
+  restoreJob.value = null
 
   try {
     restoreResult.value = await backupStore.fullSystemRestore(props.backup.id, {
@@ -197,7 +200,7 @@ async function performRestore() {
         : [],
       configFiles: restoreOptions.value.selectedConfigs,
       createBackups: restoreOptions.value.createBackups,
-    })
+    }, (job) => { restoreJob.value = job })
 
     step.value = 'complete'
 
@@ -529,8 +532,11 @@ function close() {
               <div class="text-center">
                 <LoadingSpinner size="lg" />
                 <p class="mt-4 text-lg font-medium text-primary">Restoring System...</p>
+                <p v-if="restoreJob?.message && restoreJob.status === 'running'" class="text-sm text-primary mt-2">
+                  {{ restoreJob.message }}
+                </p>
                 <p class="text-sm text-secondary mt-2">
-                  This may take a few minutes. Do not close this window.
+                  This may take a while. The restore runs on the server; keep this window open to see the result.
                 </p>
               </div>
             </div>

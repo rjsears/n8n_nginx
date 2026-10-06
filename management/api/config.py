@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # Docker
     docker_socket: str = Field(default="/var/run/docker.sock", description="Docker socket path")
     container_prefix: str = Field(default="n8n_", description="Container name prefix for this project")
+    helper_image: str = Field(
+        default="alpine:3.24.2",
+        description="Pinned image for short-lived helper containers (volume copies, host terminal, host stats)"
+    )
 
     # Public Website Backup/Restore
     public_site_enable: bool = Field(
@@ -123,6 +127,29 @@ class Settings(BaseSettings):
     n8n_editor_base_url: Optional[str] = Field(
         default=None,
         description="n8n web UI URL (browser-accessible). Uses existing N8N_EDITOR_BASE_URL env var."
+    )
+
+    # Web terminal
+    enable_host_terminal: bool = Field(
+        default=False,
+        description=(
+            "Allow the web terminal to open a root shell on the Docker host (privileged "
+            "container with / mounted). Off unless explicitly set to true."
+        ),
+    )
+    terminal_revalidate_seconds: int = Field(
+        default=30,
+        description="How often an open terminal re-checks that its login session is still valid",
+    )
+
+    # Browser origin policy
+    allowed_origins: str = Field(
+        default="",
+        description=(
+            "Extra comma-separated origins (e.g. https://manage.example.com) allowed to open the "
+            "terminal WebSocket and send state-changing requests, in addition to the request's own "
+            "host. Also enables CORS for exactly these origins."
+        ),
     )
 
     # API settings

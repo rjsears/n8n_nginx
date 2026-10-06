@@ -11,11 +11,13 @@ https://github.com/rjsears
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 """
 
+import asyncio
+import os
 import re
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime, UTC, timedelta
 import logging
 import json
@@ -47,7 +49,6 @@ from api.schemas.ntfy import (
     NtfySavedMessageCreate,
     NtfySavedMessageResponse,
     NtfyMessageHistoryResponse,
-    NtfyServerConfigUpdate,
     NtfyServerConfigResponse,
     EmojiSearchResponse,
     IntegrationExample,
@@ -1156,100 +1157,111 @@ async def get_message_history(
 # Server Configuration
 # =============================================================================
 
+NTFY_CONTAINER_NAME = os.environ.get("NTFY_CONTAINER", "n8n_ntfy")
+
+
+def _read_ntfy_container_env() -> Optional[Dict[str, str]]:
+    """Environment of the running ntfy container, or None if unavailable."""
+    try:
+        import docker
+
+        client = docker.from_env()
+        try:
+            container = client.containers.get(NTFY_CONTAINER_NAME)
+            env_list = (container.attrs.get("Config") or {}).get("Env") or []
+        finally:
+            client.close()
+    except Exception as e:
+        logger.debug(f"Could not inspect {NTFY_CONTAINER_NAME}: {e}")
+        return None
+    env: Dict[str, str] = {}
+    for item in env_list:
+        key, sep, value = item.partition("=")
+        if sep:
+            env[key] = value
+    return env
+
+
 @router.get("/config", response_model=NtfyServerConfigResponse)
 async def get_server_config(
     _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Get NTFY server configuration with real-time health check."""
-    from datetime import datetime
+    """
+    Report the effective NTFY server configuration.
 
-    result = await db.execute(select(NtfyServerConfig).limit(1))
-    config = result.scalar_one_or_none()
+    The values come from the running ntfy container (they are set from the
+    NTFY_* keys in .env when the container is created), so they reflect what
+    the server actually enforces. They are read-only here.
+    """
+    from api.services.ntfy_service import get_ntfy_token
 
-    # Run a health check and get real-time status
     health_result = await ntfy_service.health_check()
     health_status = "healthy" if health_result["healthy"] else health_result.get("status", "unknown")
-    last_health_check = datetime.utcnow()
 
-    if not config:
-        # Create config with health status
-        config = NtfyServerConfig(
+    env = await asyncio.to_thread(_read_ntfy_container_env)
+    if env is None:
+        return NtfyServerConfigResponse(
+            source="unavailable",
+            token_configured=bool(get_ntfy_token()),
             health_status=health_status,
-            last_health_check=last_health_check,
+            last_health_check=datetime.utcnow(),
         )
-        db.add(config)
-        await db.commit()
-        await db.refresh(config)
-    else:
-        # Update health status in existing config
-        config.health_status = health_status
-        config.last_health_check = last_health_check
-        await db.commit()
+
+    def flag(key: str, default: bool) -> bool:
+        value = env.get(key)
+        if value is None or value == "":
+            return default
+        return value.strip().lower() in ("1", "true", "yes", "on")
+
+    def text(key: str, default: Optional[str]) -> Optional[str]:
+        value = env.get(key)
+        return value if value else default
+
+    daily_limit = text("NTFY_VISITOR_MESSAGE_DAILY_LIMIT", "0")
+    try:
+        daily_limit_value = int(daily_limit)
+    except (TypeError, ValueError):
+        daily_limit_value = 0
 
     return NtfyServerConfigResponse(
-        base_url=config.base_url,
-        upstream_base_url=config.upstream_base_url,
-        default_access=config.default_access,
-        enable_login=config.enable_login,
-        enable_signup=config.enable_signup,
-        cache_duration=config.cache_duration,
-        attachment_total_size_limit=config.attachment_total_size_limit,
-        attachment_file_size_limit=config.attachment_file_size_limit,
-        attachment_expiry_duration=config.attachment_expiry_duration,
-        visitor_message_daily_limit=config.visitor_message_daily_limit,
-        smtp_configured=bool(config.smtp_sender_addr),
-        web_push_configured=bool(config.web_push_public_key),
+        source="container",
+        base_url=text("NTFY_BASE_URL", None),
+        upstream_base_url=text("NTFY_UPSTREAM_BASE_URL", None),
+        auth_enabled=bool(env.get("NTFY_AUTH_FILE")),
+        # ntfy's own default when auth-default-access is not set
+        default_access=text("NTFY_AUTH_DEFAULT_ACCESS", "read-write"),
+        enable_login=flag("NTFY_ENABLE_LOGIN", False),
+        enable_signup=flag("NTFY_ENABLE_SIGNUP", False),
+        cache_duration=text("NTFY_CACHE_DURATION", "12h"),
+        attachment_total_size_limit=text("NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT", "5G"),
+        attachment_file_size_limit=text("NTFY_ATTACHMENT_FILE_SIZE_LIMIT", "15M"),
+        attachment_expiry_duration=text("NTFY_ATTACHMENT_EXPIRY_DURATION", "3h"),
+        visitor_message_daily_limit=daily_limit_value,
+        smtp_configured=bool(env.get("NTFY_SMTP_SENDER_ADDR")),
+        web_push_configured=bool(env.get("NTFY_WEB_PUSH_PUBLIC_KEY")),
+        token_configured=bool(get_ntfy_token()),
         health_status=health_status,
-        last_health_check=last_health_check,
+        last_health_check=datetime.utcnow(),
     )
 
 
-@router.put("/config", response_model=NtfyServerConfigResponse)
+@router.put("/config")
 async def update_server_config(
-    update: NtfyServerConfigUpdate,
     _=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Update NTFY server configuration."""
-    from datetime import datetime
+    """
+    Server settings are not editable from the console.
 
-    result = await db.execute(select(NtfyServerConfig).limit(1))
-    config = result.scalar_one_or_none()
-
-    if not config:
-        config = NtfyServerConfig()
-        db.add(config)
-
-    for field, value in update.model_dump(exclude_unset=True).items():
-        setattr(config, field, value)
-
-    # Run a health check and update status
-    health_result = await ntfy_service.health_check()
-    health_status = "healthy" if health_result["healthy"] else health_result.get("status", "unknown")
-    last_health_check = datetime.utcnow()
-
-    config.health_status = health_status
-    config.last_health_check = last_health_check
-
-    await db.commit()
-    await db.refresh(config)
-
-    return NtfyServerConfigResponse(
-        base_url=config.base_url,
-        upstream_base_url=config.upstream_base_url,
-        default_access=config.default_access,
-        enable_login=config.enable_login,
-        enable_signup=config.enable_signup,
-        cache_duration=config.cache_duration,
-        attachment_total_size_limit=config.attachment_total_size_limit,
-        attachment_file_size_limit=config.attachment_file_size_limit,
-        attachment_expiry_duration=config.attachment_expiry_duration,
-        visitor_message_daily_limit=config.visitor_message_daily_limit,
-        smtp_configured=bool(config.smtp_sender_addr),
-        web_push_configured=bool(config.web_push_public_key),
-        health_status=health_status,
-        last_health_check=last_health_check,
+    They used to be stored only in the database and never reached the ntfy
+    server. Edit the NTFY_* keys in .env (Settings > Environment) and recreate
+    the ntfy container instead.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        detail=(
+            "NTFY server settings are read-only here. Set the NTFY_* keys in .env "
+            "and recreate the ntfy container to change them."
+        ),
     )
 
 
@@ -1314,6 +1326,7 @@ async def get_integration_examples(
             description="Send a simple notification using cURL",
             category="curl",
             code=f'''curl -X POST \\
+  -H "Authorization: Bearer $NTFY_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{{"topic":"alerts","message":"Hello World!","title":"Test"}}' \\
   {ntfy_url}''',
@@ -1324,6 +1337,7 @@ async def get_integration_examples(
             description="Send with priority and emoji tags",
             category="curl",
             code=f'''curl -X POST \\
+  -H "Authorization: Bearer $NTFY_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{{
     "topic": "alerts",
@@ -1339,6 +1353,7 @@ async def get_integration_examples(
             description="Send notification with action buttons",
             category="curl",
             code=f'''curl -X POST \\
+  -H "Authorization: Bearer $NTFY_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{{
     "topic": "alerts",
@@ -1359,6 +1374,7 @@ async def get_integration_examples(
   "method": "POST",
   "url": "{ntfy_url}",
   "headers": {{
+    "Authorization": "Bearer YOUR_NTFY_TOKEN",
     "Content-Type": "application/json"
   }},
   "body": {{
@@ -1399,6 +1415,7 @@ async def get_integration_examples(
 
 response = requests.post(
     "{ntfy_url}",
+    headers={{"Authorization": "Bearer YOUR_NTFY_TOKEN"}},
     json={{
         "topic": "alerts",
         "message": "Hello from Python!",
@@ -1414,6 +1431,7 @@ print(response.json())''',
             description="Send a delayed/scheduled notification",
             category="curl",
             code=f'''curl -X POST \\
+  -H "Authorization: Bearer $NTFY_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{{
     "topic": "reminders",
@@ -1429,7 +1447,10 @@ print(response.json())''',
             category="javascript",
             code=f'''const response = await fetch("{ntfy_url}", {{
   method: "POST",
-  headers: {{ "Content-Type": "application/json" }},
+  headers: {{
+    "Authorization": "Bearer YOUR_NTFY_TOKEN",
+    "Content-Type": "application/json"
+  }},
   body: JSON.stringify({{
     topic: "alerts",
     message: "Hello from JavaScript!",
@@ -1462,6 +1483,7 @@ async def generate_webhook_url(
         url=f"{base_url}/{topic}",
         topic=topic,
         example_curl=f'''curl -X POST \\
+  -H "Authorization: Bearer $NTFY_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{{"message":"Your message here"}}' \\
   {base_url}/{topic}''',

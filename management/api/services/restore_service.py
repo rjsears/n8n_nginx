@@ -13,6 +13,7 @@ https://github.com/rjsears
 
 import contextlib
 import re
+import secrets
 import subprocess
 import tarfile
 import tempfile
@@ -27,19 +28,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from api.services.backup_service import BackupService
+from api.services.backup_archive import (
+    ENCRYPTED_SUFFIX,
+    PASSPHRASE_ENV_KEY,
+    BackupEncryptionError,
+    chmod_quietly,
+    encrypt_file,
+    get_encryption_passphrase,
+    make_private_dir,
+    open_backup_archive,
+    plaintext_archive,
+    safe_extract,
+)
 from api.services.n8n_api_service import N8nApiService
 from api.config import settings
+from api.services import proc as _proc
 
 logger = logging.getLogger(__name__)
 
 
 # Container configuration
 RESTORE_CONTAINER_NAME = "n8n_postgres_restore"
-RESTORE_CONTAINER_IMAGE = "pgvector/pgvector:pg16"  # Use pgvector image to support vector extension
-RESTORE_DB_PORT = 5433  # Different port to avoid conflict
+RESTORE_CONTAINER_IMAGE = "pgvector/pgvector:0.8.6-pg16"  # Use pgvector image to support vector extension
 RESTORE_DB_USER = "restore_user"
-RESTORE_DB_PASSWORD = "restore_temp_password"
 RESTORE_DB_NAME = "n8n_restore"
+# Every temporary restore container carries this label so leftovers (crash,
+# restart while a backup was mounted) can be found and removed at startup.
+RESTORE_CONTAINER_LABEL = "n8n_management.temporary=restore"
 
 # Module-level state for mounted backup (database restore container)
 _mounted_backup_id: Optional[int] = None
@@ -255,36 +270,113 @@ async def _run_subprocess(
     """
     Run a command without blocking the event loop.
 
-    Returns (returncode, stdout, stderr). A timeout kills the process and is
-    reported as returncode -1.
+    Returns (returncode, stdout, stderr). A timeout kills the process (and its
+    process group) and is reported as returncode -1; cancellation (job
+    cancelled, shutdown) kills it too, via proc.run.
     """
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
+        result = await _proc.run(cmd, capture_output=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
         return -1, "", f"{cmd[0]} timed out after {int(timeout)}s and was killed"
     return (
-        proc.returncode,
-        stdout.decode("utf-8", errors="replace"),
-        stderr.decode("utf-8", errors="replace"),
+        result.returncode,
+        (result.stdout or b"").decode("utf-8", errors="replace"),
+        (result.stderr or b"").decode("utf-8", errors="replace"),
     )
+
+
+def _keep_backup_passphrase(current_env_path: str, restored: bytes) -> Tuple[bytes, Optional[str]]:
+    """
+    Restoring an older .env must not silently switch backup encryption off.
+    When the current .env sets BACKUP_ENCRYPTION_PASSPHRASE and the restored
+    content does not, append the current line to the restored content.
+    Returns (content, warning or None).
+    """
+    from api.services.env_file import parse_env_line
+
+    def passphrase_line(lines) -> Optional[str]:
+        found = None
+        for line in lines:
+            parsed = parse_env_line(line)
+            if parsed and parsed[0] == PASSPHRASE_ENV_KEY and parsed[1].strip().strip("'\""):
+                found = line.rstrip("\r\n")
+            elif parsed and parsed[0] == PASSPHRASE_ENV_KEY:
+                found = None  # last occurrence wins; an empty value unsets it
+        return found
+
+    try:
+        with open(current_env_path, "r", encoding="utf-8", errors="replace") as f:
+            current_line = passphrase_line(f)
+    except OSError:
+        return restored, None
+    restored_text = restored.decode("utf-8", errors="replace")
+    restored_line = passphrase_line(restored_text.splitlines())
+    if not current_line:
+        return restored, None
+    if not restored_line:
+        sep = b"" if restored.endswith(b"\n") or not restored else b"\n"
+        content = restored + sep + current_line.encode("utf-8") + b"\n"
+        return content, (
+            f"the restored .env had no {PASSPHRASE_ENV_KEY}; the current one was kept so backups stay encrypted"
+        )
+    if restored_line.strip() != current_line.strip():
+        return restored, (
+            f"the restored .env sets a different {PASSPHRASE_ENV_KEY}: new backups use it, and backups "
+            "encrypted with the previous passphrase need that passphrase to be restored"
+        )
+    return restored, None
 
 
 def _extract_tar_sync(archive_path: str, dest_dir: str) -> None:
-    """Extract a .tar.gz, refusing absolute paths / path traversal where supported."""
+    """
+    Extract a backup archive (decrypting it first if it is encrypted),
+    refusing absolute paths / path traversal where supported.
+    """
+    with open_backup_archive(archive_path) as tar:
+        safe_extract(tar, dest_dir)
+
+
+def _extract_plain_tar_sync(archive_path: str, dest_dir: str) -> None:
+    """Extract an already-decrypted .tar.gz, refusing path traversal."""
     with tarfile.open(archive_path, "r:gz") as tar:
-        try:
-            tar.extractall(dest_dir, filter="tar")
-        except TypeError:
-            # Python without extraction filters (< 3.11.4)
-            tar.extractall(dest_dir)
+        safe_extract(tar, dest_dir)
+
+
+def _remove_restore_containers_sync() -> int:
+    """
+    Remove (with their anonymous volumes) every temporary restore container:
+    those carrying RESTORE_CONTAINER_LABEL, plus one named
+    RESTORE_CONTAINER_NAME created before the label existed.
+    """
+    ids = set()
+    for filt in (f"label={RESTORE_CONTAINER_LABEL}", f"name=^/?{RESTORE_CONTAINER_NAME}$"):
+        result = subprocess.run(["docker", "ps", "-aq", "--filter", filt], capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
+        if result.returncode == 0:
+            ids.update(line.strip() for line in result.stdout.splitlines() if line.strip())
+    removed = 0
+    for cid in sorted(ids):
+        result = subprocess.run(["docker", "rm", "-f", "-v", cid], capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
+        if result.returncode == 0:
+            removed += 1
+        else:
+            logger.warning(f"Could not remove restore container {cid}: {result.stderr.strip()}")
+    return removed
+
+
+async def cleanup_leftover_restore_containers() -> int:
+    """
+    Startup hook: remove temporary restore containers left behind by a crash
+    or restart (nothing can be mounted right after startup). Returns how many
+    were removed; never raises.
+    """
+    try:
+        removed = await asyncio.to_thread(_remove_restore_containers_sync)
+    except Exception as e:
+        logger.warning(f"Could not clean up leftover restore containers: {e}")
+        return 0
+    if removed:
+        logger.info(f"Removed {removed} leftover temporary restore container(s)")
+    return removed
 
 
 def _remove_path_sync(path: str) -> None:
@@ -417,7 +509,7 @@ class RestoreService:
                 "docker", "inspect", postgres_host,
                 "--format", "{{range $key, $value := .NetworkSettings.Networks}}{{$key}}{{end}}"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
             if result.returncode == 0 and result.stdout.strip():
                 network = result.stdout.strip()
                 logger.info(f"Found network from postgres container: {network}")
@@ -428,7 +520,7 @@ class RestoreService:
         # Fallback: try to find network with n8n in the name
         try:
             cmd = ["docker", "network", "ls", "--format", "{{.Name}}"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
             for network in result.stdout.strip().split('\n'):
                 if 'n8n' in network.lower():
                     logger.info(f"Found n8n network by search: {network}")
@@ -445,38 +537,36 @@ class RestoreService:
         Create and start a temporary PostgreSQL container for restore operations.
         Always removes existing container and creates fresh to avoid stale state.
         Returns True if successful.
+
+        The container has no network (all access is `docker exec`), a random
+        per-run superuser password passed through the environment (never on
+        the command line), and RESTORE_CONTAINER_LABEL. If it does not become
+        ready it is removed together with its anonymous data volume.
         """
         logger.info("Starting restore container...")
-
+        created = False
+        ready = False
         try:
             # Always remove existing container and create fresh
-            check_cmd = ["docker", "ps", "-a", "--filter", f"name={RESTORE_CONTAINER_NAME}", "--format", "{{.Names}}"]
-            result = subprocess.run(check_cmd, capture_output=True, text=True)
+            await asyncio.to_thread(_remove_restore_containers_sync)
 
-            if RESTORE_CONTAINER_NAME in result.stdout:
-                logger.info("Removing existing restore container...")
-                rm_result = subprocess.run(["docker", "rm", "-f", RESTORE_CONTAINER_NAME], capture_output=True, text=True)
-                if rm_result.returncode != 0:
-                    logger.warning(f"Failed to remove container: {rm_result.stderr}")
-
-            # Get the correct Docker network
-            docker_network = self._get_postgres_network()
-            logger.info(f"Using Docker network: {docker_network}")
-
-            # Create new container (no port binding needed - we use docker exec)
+            # Create new container (no network, no ports: we use docker exec)
             logger.info("Creating new restore container...")
             create_cmd = [
                 "docker", "run", "-d",
                 "--name", RESTORE_CONTAINER_NAME,
+                "--label", RESTORE_CONTAINER_LABEL,
+                "--network", "none",
                 "--security-opt", "apparmor=unconfined",
                 "-e", f"POSTGRES_USER={RESTORE_DB_USER}",
-                "-e", f"POSTGRES_PASSWORD={RESTORE_DB_PASSWORD}",
+                "-e", "POSTGRES_PASSWORD",
                 "-e", f"POSTGRES_DB={RESTORE_DB_NAME}",
-                "--network", docker_network,
                 RESTORE_CONTAINER_IMAGE,
             ]
+            env = {**os.environ, "POSTGRES_PASSWORD": secrets.token_urlsafe(24)}
             logger.info(f"Running: {' '.join(create_cmd)}")
-            result = subprocess.run(create_cmd, capture_output=True, text=True)
+            result = await _proc.run(create_cmd, capture_output=True, text=True, env=env, timeout=_proc.DOCKER_RUN_TIMEOUT)
+            created = True  # a failed run can still leave a created container behind
             if result.returncode != 0:
                 logger.error(f"Docker run failed (exit code {result.returncode}): stdout={result.stdout}, stderr={result.stderr}")
                 return False
@@ -485,6 +575,7 @@ class RestoreService:
             # Wait for PostgreSQL to be ready
             await self._wait_for_postgres_ready()
             self._container_ready = True
+            ready = True
             logger.info("Restore container is ready")
             return True
 
@@ -497,6 +588,9 @@ class RestoreService:
             import traceback
             logger.error(traceback.format_exc())
             return False
+        finally:
+            if created and not ready:
+                await asyncio.to_thread(_remove_restore_containers_sync)
 
     async def _wait_for_postgres_ready(self, timeout: int = 30) -> None:
         """Wait for PostgreSQL to accept connections."""
@@ -505,15 +599,15 @@ class RestoreService:
 
         while time.time() - start_time < timeout:
             # First check if container is still running
-            check_running = subprocess.run(
+            check_running = await _proc.run(
                 ["docker", "ps", "--filter", f"name={RESTORE_CONTAINER_NAME}", "--format", "{{.Names}}"],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
             )
             if RESTORE_CONTAINER_NAME not in check_running.stdout:
                 # Container stopped - get logs to see why
-                logs_result = subprocess.run(
+                logs_result = await _proc.run(
                     ["docker", "logs", "--tail", "50", RESTORE_CONTAINER_NAME],
-                    capture_output=True, text=True
+                    capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
                 )
                 logger.error(f"Restore container stopped unexpectedly. Logs:\n{logs_result.stdout}\n{logs_result.stderr}")
                 raise Exception(f"Restore container stopped unexpectedly. Check logs for details.")
@@ -523,7 +617,7 @@ class RestoreService:
                     "docker", "exec", RESTORE_CONTAINER_NAME,
                     "pg_isready", "-U", RESTORE_DB_USER
                 ]
-                result = subprocess.run(check_cmd, capture_output=True, text=True)
+                result = await _proc.run(check_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
                 if result.returncode == 0:
                     return
             except Exception as e:
@@ -531,9 +625,9 @@ class RestoreService:
             await asyncio.sleep(1)
 
         # Timeout - get container status and logs
-        logs_result = subprocess.run(
+        logs_result = await _proc.run(
             ["docker", "logs", "--tail", "50", RESTORE_CONTAINER_NAME],
-            capture_output=True, text=True
+            capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
         )
         logger.error(f"Timeout waiting for PostgreSQL. Container logs:\n{logs_result.stdout}\n{logs_result.stderr}")
         raise Exception("Timeout waiting for PostgreSQL to be ready")
@@ -546,15 +640,15 @@ class RestoreService:
             # Stop container (with timeout)
             stop_cmd = ["docker", "stop", "-t", "10", RESTORE_CONTAINER_NAME]
             stop_result = await asyncio.to_thread(
-                subprocess.run, stop_cmd, capture_output=True, text=True
+                subprocess.run, stop_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
             )
             if stop_result.returncode != 0:
                 logger.warning(f"Failed to stop container: {stop_result.stderr}")
 
-            # Remove container (force to ensure cleanup)
-            rm_cmd = ["docker", "rm", "-f", RESTORE_CONTAINER_NAME]
+            # Remove container and its anonymous data volume (force to ensure cleanup)
+            rm_cmd = ["docker", "rm", "-f", "-v", RESTORE_CONTAINER_NAME]
             rm_result = await asyncio.to_thread(
-                subprocess.run, rm_cmd, capture_output=True, text=True
+                subprocess.run, rm_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT
             )
             if rm_result.returncode != 0:
                 logger.warning(f"Failed to remove container: {rm_result.stderr}")
@@ -574,7 +668,7 @@ class RestoreService:
         """Check if restore container is running."""
         try:
             check_cmd = ["docker", "ps", "--filter", f"name={RESTORE_CONTAINER_NAME}", "--format", "{{.Names}}"]
-            result = subprocess.run(check_cmd, capture_output=True, text=True)
+            result = await _proc.run(check_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
             return RESTORE_CONTAINER_NAME in result.stdout
         except Exception:
             return False
@@ -755,7 +849,7 @@ class RestoreService:
         # This handles cases where state was lost (worker restart, etc.)
         try:
             check_cmd = ["docker", "ps", "--filter", f"name={RESTORE_CONTAINER_NAME}", "--format", "{{.Names}}"]
-            result = subprocess.run(check_cmd, capture_output=True, text=True)
+            result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=_proc.DOCKER_TIMEOUT)
             if RESTORE_CONTAINER_NAME in result.stdout:
                 # Container is running - update memory state and allow operation
                 # We can't know for sure which backup was loaded, but if container is running
@@ -793,129 +887,141 @@ class RestoreService:
                 return False
 
         try:
-            # Reset the database before loading (use separate commands to avoid transaction block error)
-            logger.info("Resetting restore database...")
+            archive_ctx = plaintext_archive(backup.filepath)
+            # decrypting a large archive takes a while: keep it off the event loop
+            archive_file = await asyncio.to_thread(archive_ctx.__enter__)
+        except BackupEncryptionError as e:
+            logger.error(f"Cannot open backup {backup_id}: {e}")
+            return False
+        with contextlib.ExitStack() as stack:
+            # removes the decrypted temporary copy (if any) on every return path
+            stack.push(archive_ctx)
             try:
-                drop_cmd = [
-                    "docker", "exec", RESTORE_CONTAINER_NAME,
-                    "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
-                    "-c", f"DROP DATABASE IF EXISTS {RESTORE_DB_NAME};"
-                ]
-                result = subprocess.run(drop_cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    logger.warning(f"DROP DATABASE warning: {result.stderr}")
+                # Reset the database before loading (use separate commands to avoid transaction block error)
+                logger.info("Resetting restore database...")
+                try:
+                    drop_cmd = [
+                        "docker", "exec", RESTORE_CONTAINER_NAME,
+                        "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
+                        "-c", f"DROP DATABASE IF EXISTS {RESTORE_DB_NAME};"
+                    ]
+                    result = await _proc.run(drop_cmd, capture_output=True, text=True, timeout=_proc.PSQL_TIMEOUT)
+                    if result.returncode != 0:
+                        logger.warning(f"DROP DATABASE warning: {result.stderr}")
 
-                create_cmd = [
-                    "docker", "exec", RESTORE_CONTAINER_NAME,
-                    "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
-                    "-c", f"CREATE DATABASE {RESTORE_DB_NAME};"
-                ]
-                result = subprocess.run(create_cmd, capture_output=True, text=True, check=True)
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to reset restore database: {e.stderr if hasattr(e, 'stderr') else e}")
-                return False
+                    create_cmd = [
+                        "docker", "exec", RESTORE_CONTAINER_NAME,
+                        "psql", "-U", RESTORE_DB_USER, "-d", "postgres",
+                        "-c", f"CREATE DATABASE {RESTORE_DB_NAME};"
+                    ]
+                    result = await _proc.run(create_cmd, capture_output=True, text=True, check=True, timeout=_proc.PSQL_TIMEOUT)
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to reset restore database: {e.stderr if hasattr(e, 'stderr') else e}")
+                    return False
 
-            # Check if it's a tar archive or a legacy gzipped SQL file
-            is_tar_archive = False
-            try:
-                with tarfile.open(backup.filepath, "r:gz") as tar:
-                    # Check if it has our expected structure
-                    members = tar.getnames()
-                    is_tar_archive = True
+                # Check if it's a tar archive or a legacy gzipped SQL file
+                def archive_members() -> Optional[List[str]]:
+                    try:
+                        with tarfile.open(archive_file, "r:gz") as tar:
+                            return tar.getnames()
+                    except tarfile.TarError:
+                        return None
+
+                members = await asyncio.to_thread(archive_members)
+                is_tar_archive = members is not None
+                if is_tar_archive:
                     logger.info(f"Backup archive contains: {members[:10]}...")  # Log first 10 members
-            except tarfile.TarError:
-                logger.info("Not a tar archive, trying legacy format")
-                is_tar_archive = False
+                else:
+                    logger.info("Not a tar archive, trying legacy format")
 
-            if not is_tar_archive:
-                # Legacy format: gzipped SQL file
-                logger.info("Legacy backup format detected")
-                return await self._load_legacy_backup(backup.filepath)
+                if not is_tar_archive:
+                    # Legacy format: gzipped SQL file
+                    logger.info("Legacy backup format detected")
+                    return await self._load_legacy_backup(backup.filepath)
 
-            # Extract backup archive to temp directory
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Extract tar.gz
-                with tarfile.open(backup.filepath, "r:gz") as tar:
-                    tar.extractall(temp_dir)
+                # Extract backup archive to temp directory
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Extract tar.gz (in a worker thread)
+                    await asyncio.to_thread(_extract_plain_tar_sync, archive_file, temp_dir)
 
-                # Find the n8n database dump - check multiple possible locations
-                n8n_dump = None
-                possible_paths = [
-                    os.path.join(temp_dir, "databases", "n8n.dump"),
-                    os.path.join(temp_dir, "n8n.dump"),
-                    os.path.join(temp_dir, "databases", "n8n.sql"),
-                ]
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        n8n_dump = path
-                        logger.info(f"Found database dump at: {path}")
-                        break
+                    # Find the n8n database dump - check multiple possible locations
+                    n8n_dump = None
+                    possible_paths = [
+                        os.path.join(temp_dir, "databases", "n8n.dump"),
+                        os.path.join(temp_dir, "n8n.dump"),
+                        os.path.join(temp_dir, "databases", "n8n.sql"),
+                    ]
+                    for path in possible_paths:
+                        if os.path.exists(path):
+                            n8n_dump = path
+                            logger.info(f"Found database dump at: {path}")
+                            break
 
-                if not n8n_dump:
-                    # List what we actually found
-                    for root, dirs, files in os.walk(temp_dir):
-                        for f in files:
-                            logger.info(f"Found in archive: {os.path.join(root, f)}")
-                    logger.error("No database dump found in backup archive")
-                    return False
+                    if not n8n_dump:
+                        # List what we actually found
+                        for root, dirs, files in os.walk(temp_dir):
+                            for f in files:
+                                logger.info(f"Found in archive: {os.path.join(root, f)}")
+                        logger.error("No database dump found in backup archive")
+                        return False
 
-                # Copy dump file to container
-                copy_cmd = [
-                    "docker", "cp", n8n_dump,
-                    f"{RESTORE_CONTAINER_NAME}:/tmp/n8n.dump"
-                ]
-                result = subprocess.run(copy_cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    logger.error(f"Failed to copy dump to container: {result.stderr}")
-                    return False
+                    # Copy dump file to container
+                    copy_cmd = [
+                        "docker", "cp", n8n_dump,
+                        f"{RESTORE_CONTAINER_NAME}:/tmp/n8n.dump"
+                    ]
+                    result = await _proc.run(copy_cmd, capture_output=True, text=True, timeout=_proc.PG_RESTORE_TIMEOUT)
+                    if result.returncode != 0:
+                        logger.error(f"Failed to copy dump to container: {result.stderr}")
+                        return False
 
-                # Restore the dump using pg_restore (for custom format) or psql (for SQL)
-                if n8n_dump.endswith('.sql'):
-                    restore_cmd = [
+                    # Restore the dump using pg_restore (for custom format) or psql (for SQL)
+                    if n8n_dump.endswith('.sql'):
+                        restore_cmd = [
+                            "docker", "exec", RESTORE_CONTAINER_NAME,
+                            "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
+                            "-f", "/tmp/n8n.dump"
+                        ]
+                    else:
+                        restore_cmd = [
+                            "docker", "exec", RESTORE_CONTAINER_NAME,
+                            "pg_restore",
+                            "-U", RESTORE_DB_USER,
+                            "-d", RESTORE_DB_NAME,
+                            "--clean", "--if-exists",
+                            "--no-owner", "--no-acl",
+                            "/tmp/n8n.dump"
+                        ]
+
+                    result = await _proc.run(restore_cmd, capture_output=True, text=True, timeout=_proc.PG_RESTORE_TIMEOUT)
+                    logger.info(f"Restore command output: stdout={result.stdout[:500] if result.stdout else 'none'}, stderr={result.stderr[:500] if result.stderr else 'none'}")
+
+                    # pg_restore often returns non-zero for warnings, only fail on actual errors
+                    if result.returncode != 0:
+                        if "ERROR" in result.stderr and "already exists" not in result.stderr:
+                            logger.error(f"pg_restore failed: {result.stderr}")
+                            return False
+                        else:
+                            logger.warning(f"pg_restore completed with warnings: {result.stderr[:200] if result.stderr else 'none'}")
+
+                    # Verify the restore worked by checking for workflow_entity table
+                    verify_cmd = [
                         "docker", "exec", RESTORE_CONTAINER_NAME,
                         "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
-                        "-f", "/tmp/n8n.dump"
+                        "-t", "-c", "SELECT COUNT(*) FROM workflow_entity;"
                     ]
-                else:
-                    restore_cmd = [
-                        "docker", "exec", RESTORE_CONTAINER_NAME,
-                        "pg_restore",
-                        "-U", RESTORE_DB_USER,
-                        "-d", RESTORE_DB_NAME,
-                        "--clean", "--if-exists",
-                        "--no-owner", "--no-acl",
-                        "/tmp/n8n.dump"
-                    ]
-
-                result = subprocess.run(restore_cmd, capture_output=True, text=True)
-                logger.info(f"Restore command output: stdout={result.stdout[:500] if result.stdout else 'none'}, stderr={result.stderr[:500] if result.stderr else 'none'}")
-
-                # pg_restore often returns non-zero for warnings, only fail on actual errors
-                if result.returncode != 0:
-                    if "ERROR" in result.stderr and "already exists" not in result.stderr:
-                        logger.error(f"pg_restore failed: {result.stderr}")
+                    verify_result = await _proc.run(verify_cmd, capture_output=True, text=True, timeout=_proc.PSQL_TIMEOUT)
+                    if verify_result.returncode != 0:
+                        logger.error(f"Verification failed - workflow_entity table not found: {verify_result.stderr}")
                         return False
-                    else:
-                        logger.warning(f"pg_restore completed with warnings: {result.stderr[:200] if result.stderr else 'none'}")
 
-                # Verify the restore worked by checking for workflow_entity table
-                verify_cmd = [
-                    "docker", "exec", RESTORE_CONTAINER_NAME,
-                    "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
-                    "-t", "-c", "SELECT COUNT(*) FROM workflow_entity;"
-                ]
-                verify_result = subprocess.run(verify_cmd, capture_output=True, text=True)
-                if verify_result.returncode != 0:
-                    logger.error(f"Verification failed - workflow_entity table not found: {verify_result.stderr}")
-                    return False
+                    workflow_count = verify_result.stdout.strip()
+                    logger.info(f"Backup {backup_id} loaded successfully. Found {workflow_count} workflows.")
+                    return True
 
-                workflow_count = verify_result.stdout.strip()
-                logger.info(f"Backup {backup_id} loaded successfully. Found {workflow_count} workflows.")
-                return True
-
-        except Exception as e:
-            logger.error(f"Failed to load backup: {e}")
-            return False
+            except Exception as e:
+                logger.error(f"Failed to load backup: {e}")
+                return False
 
     async def _load_legacy_backup(self, filepath: str) -> bool:
         """Load a legacy (non-archive) backup format."""
@@ -924,16 +1030,19 @@ class RestoreService:
         try:
             # Decompress if gzipped
             if filepath.endswith('.gz'):
-                with tempfile.NamedTemporaryFile(suffix='.sql', delete=False) as tmp:
-                    with gzip.open(filepath, 'rb') as f_in:
-                        tmp.write(f_in.read())
-                    sql_path = tmp.name
+                def decompress() -> str:
+                    with tempfile.NamedTemporaryFile(suffix='.sql', delete=False) as tmp:
+                        with gzip.open(filepath, 'rb') as f_in:
+                            shutil.copyfileobj(f_in, tmp)
+                        return tmp.name
+
+                sql_path = await asyncio.to_thread(decompress)
             else:
                 sql_path = filepath
 
             # Copy to container
             copy_cmd = ["docker", "cp", sql_path, f"{RESTORE_CONTAINER_NAME}:/tmp/backup.sql"]
-            subprocess.run(copy_cmd, capture_output=True, check=True)
+            await _proc.run(copy_cmd, capture_output=True, check=True, timeout=_proc.PG_RESTORE_TIMEOUT)
 
             # Restore
             restore_cmd = [
@@ -941,7 +1050,7 @@ class RestoreService:
                 "psql", "-U", RESTORE_DB_USER, "-d", RESTORE_DB_NAME,
                 "-f", "/tmp/backup.sql"
             ]
-            subprocess.run(restore_cmd, capture_output=True, check=True)
+            await _proc.run(restore_cmd, capture_output=True, check=True, timeout=_proc.PG_RESTORE_TIMEOUT)
 
             return True
         except Exception as e:
@@ -968,7 +1077,7 @@ class RestoreService:
                 "-t", "-A", "-c",
                 'SELECT id, name, active, "createdAt", "updatedAt", COALESCE("isArchived", false) FROM workflow_entity ORDER BY name'
             ]
-            result = subprocess.run(query_cmd, capture_output=True, text=True)
+            result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
 
             workflows = []
             for line in result.stdout.strip().split('\n'):
@@ -1011,7 +1120,7 @@ class RestoreService:
                     FROM workflow_entity ORDER BY name
                 ) t'''
             ]
-            result = subprocess.run(query_cmd, capture_output=True, text=True)
+            result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
 
             if result.returncode != 0:
                 logger.error(f"Failed to query workflows: {result.stderr}")
@@ -1078,7 +1187,7 @@ class RestoreService:
                     FROM workflow_entity WHERE id = '{workflow_id}'
                 ) t'''
             ]
-            result = subprocess.run(query_cmd, capture_output=True, text=True)
+            result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
 
             if not result.stdout.strip():
                 # Log available IDs for debugging
@@ -1088,7 +1197,7 @@ class RestoreService:
                     "-t", "-A", "-c",
                     "SELECT id FROM workflow_entity"
                 ]
-                list_result = subprocess.run(list_cmd, capture_output=True, text=True)
+                list_result = await _proc.run(list_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
                 available_ids = [id.strip() for id in list_result.stdout.strip().split('\n') if id.strip()]
                 logger.error(f"Workflow {workflow_id} not found in database. Available IDs: {available_ids}")
                 return None
@@ -1134,7 +1243,7 @@ class RestoreService:
                 "-t", "-A", "-c",
                 'SELECT id, name, type, "createdAt", "updatedAt" FROM credentials_entity ORDER BY name'
             ]
-            result = subprocess.run(query_cmd, capture_output=True, text=True)
+            result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
 
             credentials = []
             for line in result.stdout.strip().split('\n'):
@@ -1175,7 +1284,7 @@ class RestoreService:
                     FROM credentials_entity ORDER BY name
                 ) t'''
             ]
-            result = subprocess.run(query_cmd, capture_output=True, text=True)
+            result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
 
             if result.returncode != 0:
                 logger.error(f"Failed to query credentials: {result.stderr}")
@@ -1236,7 +1345,7 @@ class RestoreService:
                     FROM credentials_entity WHERE id = '{credential_id}'
                 ) t'''
             ]
-            result = subprocess.run(query_cmd, capture_output=True, text=True)
+            result = await _proc.run(query_cmd, capture_output=True, text=True, timeout=_proc.QUERY_TIMEOUT)
 
             if not result.stdout.strip():
                 logger.error(f"Credential {credential_id} not found in database")
@@ -1273,7 +1382,7 @@ class RestoreService:
         """
         try:
             # Check if the correct backup is mounted
-            if not self.is_backup_mounted(backup_id):
+            if not await asyncio.to_thread(self.is_backup_mounted, backup_id):
                 logger.error(f"Backup {backup_id} is not mounted")
                 return None
 
@@ -1329,7 +1438,7 @@ class RestoreService:
 
         try:
             # Check if the correct backup is mounted
-            if not self.is_backup_mounted(backup_id):
+            if not await asyncio.to_thread(self.is_backup_mounted, backup_id):
                 return {
                     "status": "failed",
                     "error": f"Backup {backup_id} is not mounted. Please mount the backup first.",
@@ -1407,7 +1516,7 @@ class RestoreService:
         """
         try:
             # Check if the correct backup is mounted
-            if not self.is_backup_mounted(backup_id):
+            if not await asyncio.to_thread(self.is_backup_mounted, backup_id):
                 logger.error(f"Backup {backup_id} is not mounted")
                 return None
 
@@ -1697,6 +1806,9 @@ class RestoreService:
                     "config/.env": "/app/host_project/.env",
                     "config/docker-compose.yaml": "/app/host_project/docker-compose.yaml",
                     "config/nginx.conf": "/app/host_project/nginx.conf",
+                    "config/nginx-router.conf": "/app/host_project/nginx-router.conf",
+                    "config/nginx-public.conf": "/app/host_project/nginx-public.conf",
+                    "config/.filebrowser.json": "/app/host_project/.filebrowser.json",
                     "config/init-db.sh": "/app/host_project/init-db.sh",
                     # DNS credential files
                     "config/cloudflare.ini": "/app/host_project/cloudflare.ini",
@@ -1727,8 +1839,7 @@ class RestoreService:
             backup_created = None
             if create_backup and os.path.exists(target_path):
                 # Save to mounted backup volume
-                config_backup_dir = "/app/backups/config_backups"
-                os.makedirs(config_backup_dir, exist_ok=True)
+                config_backup_dir = make_private_dir("/app/backups/config_backups")
 
                 # Create backup filename: original_name.bak.TIMESTAMP
                 original_filename = os.path.basename(target_path)
@@ -1737,6 +1848,7 @@ class RestoreService:
                 backup_path = os.path.join(config_backup_dir, backup_filename)
 
                 shutil.copy2(target_path, backup_path)
+                chmod_quietly(backup_path, 0o600)
                 backup_created = backup_path
                 logger.info(f"Created backup: {backup_created}")
 
@@ -1749,6 +1861,12 @@ class RestoreService:
             # instead of potentially creating a new file in the overlay
             with open(source_path, 'rb') as src:
                 content = src.read()
+            warnings: List[str] = []
+            if os.path.basename(target_path) == ".env":
+                content, warning = _keep_backup_passphrase(target_path, content)
+                if warning:
+                    warnings.append(warning)
+                    logger.warning(warning)
             with open(target_path, 'wb') as dst:
                 dst.write(content)
             # Copy metadata (permissions, timestamps)
@@ -1763,13 +1881,17 @@ class RestoreService:
                 logger.error(f"File not found after restore: {target_path}")
                 return {"status": "failed", "config_path": config_path, "error": f"File not found after restore: {target_path}"}
 
-            return {
+            restored = {
                 "status": "success",
                 "config_path": config_path,
                 "target_path": target_path,
                 "backup_created": backup_created,
                 "message": f"Restored {os.path.basename(config_path)}",
             }
+            if warnings:
+                restored["warnings"] = warnings
+                restored["message"] += " (" + "; ".join(warnings) + ")"
+            return restored
 
         except Exception as e:
             logger.error(f"Failed to restore config file: {e}")
@@ -1896,20 +2018,40 @@ class RestoreService:
         except RuntimeError as e:
             return fail(str(e))
 
-        # 2. Safety dump of the live database
+        # 2. Safety dump of the live database. It holds the same secrets as a
+        # backup, so with BACKUP_ENCRYPTION_PASSPHRASE set it is encrypted
+        # like the archives (dumped to a private local temp dir, encrypted
+        # into the safety dir, plaintext removed): <old_db>.dump.gpg.
         if target_exists:
-            os.makedirs(safety_dir, exist_ok=True)
-            safety_path = os.path.join(safety_dir, f"{old_db}.dump")
-            rc, _, err = await _run_subprocess(
-                ["pg_dump", "-h", host, "-U", user, "-d", target,
-                 "--no-owner", "--no-acl", "-F", "c", "-f", safety_path],
-                env=env, timeout=PG_LONG_TIMEOUT,
-            )
+            try:
+                passphrase = get_encryption_passphrase()
+            except BackupEncryptionError as e:
+                return fail(f"{e}; nothing was changed.")
+            make_private_dir(safety_dir)
+            safety_path = os.path.join(safety_dir, f"{old_db}.dump" + (ENCRYPTED_SUFFIX if passphrase else ""))
+            plain_dir = tempfile.mkdtemp(prefix="n8n_safety_") if passphrase else None
+            dump_target = os.path.join(plain_dir, f"{old_db}.dump") if plain_dir else safety_path
+            try:
+                rc, _, err = await _run_subprocess(
+                    ["pg_dump", "-h", host, "-U", user, "-d", target,
+                     "--no-owner", "--no-acl", "-F", "c", "-f", dump_target],
+                    env=env, timeout=PG_LONG_TIMEOUT,
+                )
+                if rc == 0 and passphrase:
+                    try:
+                        await asyncio.to_thread(encrypt_file, dump_target, safety_path, passphrase)
+                    except Exception as e:
+                        rc, err = 1, f"encrypting the safety dump failed: {_exc_text(e)}"
+            finally:
+                if plain_dir:
+                    await asyncio.to_thread(shutil.rmtree, plain_dir, True)
             if rc != 0:
                 with contextlib.suppress(OSError):
                     os.remove(safety_path)
                 return fail("Could not take a safety dump of the current database; nothing was changed.", err)
+            chmod_quietly(safety_path, 0o600)
             result["safety_dump"] = safety_path
+            result["safety_dump_encrypted"] = bool(passphrase)
             logger.info(f"Safety dump of {target} written to {safety_path}")
 
         # 3. Fresh temporary database
@@ -2283,6 +2425,8 @@ class RestoreService:
                             results["config_files"].append(result)
                             if result["status"] == "failed":
                                 results["errors"].append(f"Config {rel}: {result.get('error')}")
+                            for warning in result.get("warnings", []):
+                                results["warnings"].append(f"Config {rel}: {warning}")
 
             # Restore SSL certificates
             if restore_ssl:
@@ -2411,32 +2555,37 @@ class RestoreService:
             if not os.path.exists(archive_path):
                 return {"status": "failed", "error": f"Backup file not found: {archive_path}"}
 
-            file_count = 0
-            with tarfile.open(archive_path, "r:gz") as tar:
-                # Find and extract only the public_website directory
-                for member in tar.getmembers():
-                    if member.name.startswith("public_website/"):
-                        # Adjust the extraction path to remove the public_website prefix
-                        member_copy = tarfile.TarInfo(member.name)
-                        member_copy.size = member.size
-                        member_copy.mode = member.mode
-                        member_copy.mtime = member.mtime
+            def extract_public_website() -> int:
+                file_count = 0
+                with open_backup_archive(archive_path) as tar:
+                    # Find and extract only the public_website directory
+                    for member in tar.getmembers():
+                        if member.name.startswith("public_website/"):
+                            # Adjust the extraction path to remove the public_website prefix
+                            member_copy = tarfile.TarInfo(member.name)
+                            member_copy.size = member.size
+                            member_copy.mode = member.mode
+                            member_copy.mtime = member.mtime
 
-                        if member.isfile():
-                            # Extract file
-                            rel_path = member.name[len("public_website/"):]
-                            if rel_path:  # Skip the directory itself
-                                dest_path = os.path.join(mount_dir, rel_path)
-                                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                                with tar.extractfile(member) as src:
-                                    if src:
-                                        with open(dest_path, 'wb') as dst:
-                                            shutil.copyfileobj(src, dst)
-                                        file_count += 1
-                        elif member.isdir():
-                            rel_path = member.name[len("public_website/"):]
-                            if rel_path:
-                                os.makedirs(os.path.join(mount_dir, rel_path), exist_ok=True)
+                            if member.isfile():
+                                # Extract file
+                                rel_path = member.name[len("public_website/"):]
+                                if rel_path:  # Skip the directory itself
+                                    dest_path = os.path.join(mount_dir, rel_path)
+                                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                                    with tar.extractfile(member) as src:
+                                        if src:
+                                            with open(dest_path, 'wb') as dst:
+                                                shutil.copyfileobj(src, dst)
+                                            file_count += 1
+                            elif member.isdir():
+                                rel_path = member.name[len("public_website/"):]
+                                if rel_path:
+                                    os.makedirs(os.path.join(mount_dir, rel_path), exist_ok=True)
+                return file_count
+
+            # Decrypting and reading the archive can take minutes: not on the event loop
+            file_count = await asyncio.to_thread(extract_public_website)
 
             if file_count == 0:
                 # Clean up empty mount
@@ -2722,43 +2871,39 @@ class RestoreService:
         try:
             from api.services.backup_service import calculate_file_checksum, PUBLIC_WEBSITE_VOLUME
 
-            # Get list of files from mounted backup
-            backup_files = {}
-            for root, dirs, files in os.walk(_public_website_mount_dir):
-                for filename in files:
-                    file_path = os.path.join(root, filename)
-                    rel_path = os.path.relpath(file_path, _public_website_mount_dir)
-                    backup_files[rel_path] = {
-                        "size": os.path.getsize(file_path),
-                        "checksum": calculate_file_checksum(file_path),
-                    }
+            def checksum_tree(base: str) -> Dict[str, Dict[str, Any]]:
+                found = {}
+                for root, dirs, files in os.walk(base):
+                    for filename in files:
+                        file_path = os.path.join(root, filename)
+                        found[os.path.relpath(file_path, base)] = {
+                            "size": os.path.getsize(file_path),
+                            "checksum": calculate_file_checksum(file_path),
+                        }
+                return found
+
+            # Get list of files from mounted backup (hashing in a worker thread)
+            backup_files = await asyncio.to_thread(checksum_tree, _public_website_mount_dir)
 
             # Create temp directory to extract current volume contents
             live_files = {}
             with tempfile.TemporaryDirectory() as live_temp:
                 # Extract current volume contents using Docker
-                result = subprocess.run(
+                result = await _proc.run(
                     [
                         "docker", "run", "--rm",
                         "--security-opt", "apparmor=unconfined",
                         "-v", f"{PUBLIC_WEBSITE_VOLUME}:/source:ro",
                         "-v", f"{live_temp}:/dest",
-                        "alpine",
+                        settings.helper_image,
                         "sh", "-c", "cp -r /source/. /dest/"
                     ],
                     capture_output=True,
-                    text=True,
+                    text=True, timeout=_proc.COPY_TIMEOUT
                 )
 
                 if result.returncode == 0:
-                    for root, dirs, files in os.walk(live_temp):
-                        for filename in files:
-                            file_path = os.path.join(root, filename)
-                            rel_path = os.path.relpath(file_path, live_temp)
-                            live_files[rel_path] = {
-                                "size": os.path.getsize(file_path),
-                                "checksum": calculate_file_checksum(file_path),
-                            }
+                    live_files = await asyncio.to_thread(checksum_tree, live_temp)
 
             # Compare
             to_add = []
@@ -2864,17 +3009,17 @@ class RestoreService:
                     script_content = "\n".join(script_lines)
 
                     # Run batch restore via Docker
-                    result = subprocess.run(
+                    result = await _proc.run(
                         [
                             "docker", "run", "--rm",
                             "--security-opt", "apparmor=unconfined",
                             "-v", f"{mount_dir}:/source:ro",
                             "-v", f"{PUBLIC_WEBSITE_VOLUME}:/dest",
-                            "alpine",
+                            settings.helper_image,
                             "sh", "-c", script_content,
                         ],
                         capture_output=True,
-                        text=True,
+                        text=True, timeout=_proc.COPY_TIMEOUT
                     )
 
                     if result.returncode == 0:
@@ -2885,17 +3030,17 @@ class RestoreService:
                         for file_path in batch:
                             dest_dir = os.path.dirname(file_path)
                             mkdir_cmd = f'mkdir -p "/dest/{dest_dir}" && ' if dest_dir else ""
-                            individual_result = subprocess.run(
+                            individual_result = await _proc.run(
                                 [
                                     "docker", "run", "--rm",
                                     "--security-opt", "apparmor=unconfined",
                                     "-v", f"{mount_dir}:/source:ro",
                                     "-v", f"{PUBLIC_WEBSITE_VOLUME}:/dest",
-                                    "alpine",
+                                    settings.helper_image,
                                     "sh", "-c", f'{mkdir_cmd}cp "/source/{file_path}" "/dest/{file_path}"',
                                 ],
                                 capture_output=True,
-                                text=True,
+                                text=True, timeout=_proc.COPY_TIMEOUT
                             )
                             if individual_result.returncode == 0:
                                 restored_count += 1

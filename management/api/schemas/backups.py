@@ -168,6 +168,39 @@ class BackupRunResponse(BaseModel):
     message: str
 
 
+class BackupJobResponse(BaseModel):
+    """
+    A background backup / verification / restore job
+    (api.services.operation_jobs). Returned with 202 by the endpoints that
+    start one and by GET /backups/jobs/{id}.
+
+    status: queued | running | success | failed | interrupted
+    result: the operation's result once it finished (for a backup:
+        backup_id, status, message, filename; for a verification or restore:
+        the same object the endpoint used to return synchronously)
+    error: why it failed - a message, or the full result object for a
+        failed restore
+    """
+    id: str
+    job_id: str
+    kind: str
+    status: str
+    backup_id: Optional[int] = None
+    params: Dict[str, Any] = {}
+    progress: int = 0
+    message: Optional[str] = None
+    result: Optional[Any] = None
+    error: Optional[Any] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+
+class BackupJobListResponse(BaseModel):
+    """Recent background jobs, newest first."""
+    jobs: List[BackupJobResponse]
+
+
 class VerificationScheduleUpdate(BaseModel):
     """Update verification schedule."""
     enabled: bool = True

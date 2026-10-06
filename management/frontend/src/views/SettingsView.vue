@@ -12,7 +12,7 @@ https://github.com/rjsears
 -->
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notifications'
@@ -63,6 +63,7 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
+const router = useRouter()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
@@ -278,8 +279,11 @@ async function changePassword() {
       current_password: passwordForm.value.current,
       new_password: passwordForm.value.new,
     })
-    notificationStore.success('Password changed successfully')
     passwordForm.value = { current: '', new: '', confirm: '' }
+    // The API ends every session (and open terminal) on a password change
+    notificationStore.success('Password changed. Please sign in with your new password.')
+    authStore.clearSession()
+    router.replace({ name: 'login' })
   } catch (error) {
     notificationStore.error(error.response?.data?.detail || 'Failed to change password')
   } finally {

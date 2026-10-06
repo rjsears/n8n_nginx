@@ -83,9 +83,6 @@ https://github.com/rjsears
             ]">
               {{ topic.enabled ? 'Active' : 'Disabled' }}
             </span>
-            <span v-if="topic.requires_auth" class="px-2 py-0.5 rounded text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
-              Auth Required
-            </span>
             <span class="text-xs text-gray-500 dark:text-gray-400 ml-auto">
               {{ topic.message_count }} messages
             </span>
@@ -112,10 +109,6 @@ https://github.com/rjsears
             {{ topic.description }}
           </p>
           <div class="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span class="text-gray-500 dark:text-gray-400">Access Level:</span>
-              <span class="ml-2 text-gray-900 dark:text-white">{{ topic.access_level }}</span>
-            </div>
             <div>
               <span class="text-gray-500 dark:text-gray-400">Default Priority:</span>
               <span class="ml-2 text-gray-900 dark:text-white">{{ getPriorityLabel(topic.default_priority) }}</span>
@@ -190,20 +183,12 @@ https://github.com/rjsears
             />
           </div>
 
-          <!-- Access Level -->
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Access Level
-            </label>
-            <select
-              v-model="editorForm.access_level"
-              class="w-full rounded-lg border border-gray-400 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
-            >
-              <option value="read-write">Read & Write</option>
-              <option value="read-only">Read Only</option>
-              <option value="write-only">Write Only</option>
-            </select>
-          </div>
+          <!-- Access control is enforced by the ntfy server itself -->
+          <p class="text-xs text-gray-500 dark:text-gray-400">
+            Topic access is enforced by the NTFY server, which denies anonymous access.
+            Subscribers log in with the NTFY user created by the installer
+            (NTFY_ADMIN_USER / NTFY_ADMIN_PASS in .env); the console publishes with NTFY_TOKEN.
+          </p>
 
           <!-- Default Priority -->
           <div>
@@ -237,17 +222,6 @@ https://github.com/rjsears
 
           <!-- Options -->
           <div class="space-y-2">
-            <div class="flex items-center">
-              <input
-                id="requires_auth"
-                v-model="editorForm.requires_auth"
-                type="checkbox"
-                class="rounded border-gray-400 text-blue-600 focus:ring-blue-500"
-              />
-              <label for="requires_auth" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                Require authentication
-              </label>
-            </div>
             <div v-if="editingTopic" class="flex items-center">
               <input
                 id="enabled"
@@ -418,8 +392,6 @@ function getPriorityLabel(priority) {
 const editorForm = ref({
   name: '',
   description: '',
-  access_level: 'read-write',
-  requires_auth: false,
   default_priority: 3,
   enabled: true,
 })
@@ -440,8 +412,6 @@ function openEditor(topic) {
     editorForm.value = {
       name: topic.name,
       description: topic.description || '',
-      access_level: topic.access_level,
-      requires_auth: topic.requires_auth,
       default_priority: topic.default_priority,
       enabled: topic.enabled,
     }
@@ -450,8 +420,6 @@ function openEditor(topic) {
     editorForm.value = {
       name: '',
       description: '',
-      access_level: 'read-write',
-      requires_auth: false,
       default_priority: 3,
       enabled: true,
     }

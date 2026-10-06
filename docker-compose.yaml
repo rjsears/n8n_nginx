@@ -18,7 +18,7 @@ services:
   # PostgreSQL Database (shared by n8n and management)
   # ===========================================================================
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.6-pg16
     container_name: ${POSTGRES_CONTAINER:-n8n_postgres}
     restart: always
     security_opt:
@@ -42,7 +42,7 @@ services:
   # n8n Workflow Automation
   # ===========================================================================
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:${N8N_VERSION:-2.41.4}
     container_name: ${N8N_CONTAINER:-n8n}
     restart: always
     security_opt:
@@ -113,7 +113,7 @@ services:
   # This container ONLY routes traffic - it has no access to internal services.
   # It allows internal network access without hairpinning through Cloudflare.
   nginx_router:
-    image: nginx:alpine
+    image: nginx:${NGINX_VERSION:-1.30.5-alpine}
     container_name: n8n_nginx_router
     restart: always
     security_opt:
@@ -142,7 +142,7 @@ services:
   # Nginx Reverse Proxy (internal - SSL terminated by router)
   # ===========================================================================
   nginx:
-    image: nginx:alpine
+    image: nginx:${NGINX_VERSION:-1.30.5-alpine}
     container_name: ${NGINX_CONTAINER:-n8n_nginx}
     restart: always
     security_opt:
@@ -172,7 +172,7 @@ services:
   # Certbot (SSL certificate management)
   # ===========================================================================
   certbot:
-    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:latest}
+    image: ${DNS_CERTBOT_IMAGE:-certbot/certbot:v5.8.0}
     security_opt:
       - apparmor:unconfined
     container_name: ${CERTBOT_CONTAINER:-n8n_certbot}
@@ -199,7 +199,8 @@ services:
   # Management Console (NEW in v3.0)
   # ===========================================================================
   n8n_management:
-    image: rjsears/n8n_management:latest
+    # Pinned release tag; if it is not published yet compose builds ./management
+    image: rjsears/n8n_management:${MGMT_VERSION:-3.0.0}
     build:
       context: ./management
       dockerfile: Dockerfile
@@ -243,13 +244,21 @@ services:
       - POSTGRES_HOST=${POSTGRES_CONTAINER:-n8n_postgres}
       - POSTGRES_USER=${POSTGRES_USER:-n8n}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # nginx container (certificate status falls back to reading it there)
+      - NGINX_CONTAINER=${NGINX_CONTAINER:-n8n_nginx}
       # Redis connection (for status caching)
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # NTFY Push Notifications
-      - NTFY_BASE_URL=https://ntfy.n8nmanagement.net
+      # NTFY Push Notifications (internal URL; the server denies anonymous
+      # access, the console publishes with the installer-provisioned token)
+      - NTFY_BASE_URL=http://n8n_ntfy:80
+      - NTFY_TOKEN=${NTFY_TOKEN:-}
       - PUBLIC_SITE_ENABLE=${PUBLIC_SITE_ENABLE:-false}
       - STATUS_COLLECTOR_URL=${STATUS_COLLECTOR_URL:-http://host.docker.internal:8080}
+      # Web terminal root shell on the Docker host: off unless set to true in .env
+      - ENABLE_HOST_TERMINAL=${ENABLE_HOST_TERMINAL:-false}
+      # Extra browser origins allowed to use the console API (normally empty)
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -267,9 +276,16 @@ services:
       # SSL certificates for backup/restore (read-write for selective restore)
       - letsencrypt:/etc/letsencrypt:rw
       # NFS backup mount. Unless an NFS share is actually mounted at
-      # /opt/n8n_backups on the host, this is the host root disk (usually the
-      # same disk as postgres_data) - keep backup retention enabled.
-      - /opt/n8n_backups:/mnt/backups
+      # NFS_LOCAL_MOUNT (default /opt/n8n_backups) on the host, this is the
+      # host root disk (usually the same disk as postgres_data) - keep backup
+      # retention enabled. rslave: a share mounted on the host after the
+      # container started (boot order, automount) becomes visible inside.
+      - type: bind
+        source: ${NFS_LOCAL_MOUNT:-/opt/n8n_backups}
+        target: /mnt/backups
+        bind:
+          propagation: rslave
+          create_host_path: true
       # Public Website Files
       - public_web_root:/app/public_website:ro
     expose:
@@ -292,7 +308,7 @@ services:
   # Redis - Cache for status data (collected by n8n_status)
   # ===========================================================================
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: n8n_redis
     restart: unless-stopped
     security_opt:
@@ -314,7 +330,8 @@ services:
   # Status Collector - Caches system metrics in Redis
   # ===========================================================================
   n8n_status:
-    image: rjsears/n8n_status:latest
+    image: rjsears/n8n_status:${MGMT_VERSION:-3.0.0}
+    build: ./n8n_status
     container_name: n8n_status
     restart: unless-stopped
     security_opt:
@@ -343,12 +360,16 @@ services:
   # Portainer - Container Management UI
   # ===========================================================================
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.45.1
     container_name: n8n_portainer
     restart: always
     security_opt:
       - apparmor:unconfined
-    command: --base-url /portainer --admin-password='$$2y$$05$$TGAtNjzruuxLJsEVv3MIBeXHrSDzU8Ymu3AaMWhz00XRhbyPriqCW'
+    # Initial admin password (first start only) from a file written by
+    # setup.sh with mode 600; Portainer hashes it itself.
+    command: --base-url /portainer --admin-password-file /run/secrets/portainer_admin_password
+    secrets:
+      - portainer_admin_password
     expose:
       - "9000"
     volumes:
@@ -364,7 +385,7 @@ services:
   # listener). The static IP is classified "external" by nginx, so even a
   # tunnel pointed elsewhere can never reach the admin paths.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.9.3
     container_name: n8n_cloudflared
     restart: always
     security_opt:
@@ -380,7 +401,7 @@ services:
   # Tailscale VPN
   # ===========================================================================
   tailscale:
-    image: tailscale/tailscale:latest
+    image: tailscale/tailscale:v1.102.5
     container_name: n8n_tailscale
     restart: always
     security_opt:
@@ -410,7 +431,7 @@ services:
   # Adminer - Database Management
   # ===========================================================================
   adminer:
-    image: adminer:latest
+    image: adminer:6.1.1
     container_name: n8n_adminer
     restart: always
     security_opt:
@@ -429,7 +450,7 @@ services:
   # Dozzle - Container Log Viewer
   # ===========================================================================
   dozzle:
-    image: amir20/dozzle:latest
+    image: amir20/dozzle:v11.1.3
     container_name: n8n_dozzle
     restart: always
     security_opt:
@@ -451,7 +472,7 @@ services:
   # Accessible via its own subdomain (configured in Cloudflare Tunnel)
   # ===========================================================================
   ntfy:
-    image: binwiederhier/ntfy:latest
+    image: binwiederhier/ntfy:v2.28.0
     container_name: n8n_ntfy
     restart: unless-stopped
     security_opt:
@@ -462,12 +483,17 @@ services:
     environment:
       - TZ=${TIMEZONE:-America/Los_Angeles}
       # NTFY_BASE_URL: Public URL for NTFY (must match Cloudflare Tunnel hostname)
-      - NTFY_BASE_URL=https://ntfy.n8nmanagement.net
-      - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
+      - NTFY_BASE_URL=${NTFY_PUBLIC_URL:-https://ntfy.${DOMAIN}}
+      # Only needed for iOS instant push (forwards a poll request to ntfy.sh)
+      - NTFY_UPSTREAM_BASE_URL=${NTFY_UPSTREAM_BASE_URL:-}
       - NTFY_BEHIND_PROXY=true
       - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
+      # Authentication: nobody may read or publish anonymously. setup.sh
+      # provisions the admin user and the console's publish token in .env.
       - NTFY_AUTH_FILE=/var/lib/ntfy/auth.db
-      - NTFY_AUTH_DEFAULT_ACCESS=${NTFY_AUTH_DEFAULT_ACCESS:-read-write}
+      - NTFY_AUTH_DEFAULT_ACCESS=${NTFY_AUTH_DEFAULT_ACCESS:-deny-all}
+      - NTFY_AUTH_USERS=${NTFY_ADMIN_USER:-admin}:${NTFY_ADMIN_PASSWORD_HASH:?NTFY_ADMIN_PASSWORD_HASH is required (re-run setup.sh)}:admin
+      - NTFY_AUTH_TOKENS=${NTFY_ADMIN_USER:-admin}:${NTFY_TOKEN:?NTFY_TOKEN is required (re-run setup.sh)}:management-console
       - NTFY_ENABLE_LOGIN=${NTFY_ENABLE_LOGIN:-true}
       - NTFY_ENABLE_SIGNUP=${NTFY_ENABLE_SIGNUP:-false}
       - NTFY_CACHE_DURATION=${NTFY_CACHE_DURATION:-24h}
@@ -499,7 +525,7 @@ services:
   # File Browser - Public Website Management
   # ===========================================================================
   filebrowser:
-    image: filebrowser/filebrowser:latest
+    image: filebrowser/filebrowser:v2.63.23
     container_name: n8n_filebrowser
     restart: unless-stopped
     security_opt:
@@ -520,7 +546,10 @@ services:
   # This container serves ONLY the public website. Traffic is routed here
   # via Cloudflare Tunnel based on hostname. No external ports exposed.
   nginx_public:
-    image: rjsears/nginx-public:latest
+    # stock nginx + an fbuser (uid 1000) account, see nginx_public/Dockerfile
+    image: n8n_nginx_public:local
+    build: ./nginx_public
+    pull_policy: build
     container_name: n8n_nginx_public
     restart: unless-stopped
     security_opt:
@@ -569,6 +598,13 @@ volumes:
     driver: local
   ntfy_data:
     driver: local
+
+# ===========================================================================
+# Secrets
+# ===========================================================================
+secrets:
+  portainer_admin_password:
+    file: ./portainer_password.txt
 
 # ===========================================================================
 # Networks

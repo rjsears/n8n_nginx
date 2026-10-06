@@ -49,6 +49,7 @@ class SystemNotificationEvent(Base):
     cooldown_minutes = Column(Integer, default=5)
 
     # Flapping detection settings
+    # RETIRED: never enforced, no UI or API. Kept so existing databases load; drop in a future migration.
     flapping_enabled = Column(Boolean, default=True)
     flapping_threshold_count = Column(Integer, default=3)  # Events in window to trigger flapping
     flapping_threshold_minutes = Column(Integer, default=10)  # Window size
@@ -61,9 +62,10 @@ class SystemNotificationEvent(Base):
 
     # Escalation settings
     escalation_enabled = Column(Boolean, default=False)
-    escalation_timeout_minutes = Column(Integer, default=30)
+    escalation_timeout_minutes = Column(Integer, default=30)  # RETIRED: delayed L2 escalation was removed
 
     # Daily digest inclusion
+    # RETIRED: never enforced, no UI or API. Kept so existing databases load; drop in a future migration.
     include_in_digest = Column(Boolean, default=False)
 
     # Timestamps
@@ -96,6 +98,7 @@ class SystemNotificationTarget(Base):
     # Escalation level: 1 = primary (L1), 2 = escalation (L2)
     escalation_level = Column(Integer, default=1)
 
+    # RETIRED: delayed L2 escalation was removed; not exposed by the API
     # Per-target escalation timeout (for L2 targets)
     # If set, overrides the event's default escalation_timeout_minutes
     escalation_timeout_minutes = Column(Integer, nullable=True)
@@ -142,6 +145,7 @@ class SystemNotificationContainerConfig(Base):
     monitor_high_memory = Column(Boolean, default=False)
     memory_threshold = Column(Integer, default=80)  # percentage
 
+    # RETIRED: never read by dispatch, no UI; not exposed by the API
     # Custom targets override (optional, JSON array of {type, id} objects)
     # If null, uses default targets from the event configuration
     # Example: [{"type": "channel", "id": 1}, {"type": "group", "id": 2}]
@@ -170,6 +174,7 @@ class SystemNotificationState(Base):
     # Cooldown tracking
     last_sent_at = Column(DateTime(timezone=True), nullable=True)
 
+    # RETIRED: flapping detection was never implemented; columns unused
     # Flapping detection
     event_count_in_window = Column(Integer, default=0)
     window_start = Column(DateTime(timezone=True), nullable=True)
@@ -225,8 +230,10 @@ class SystemNotificationGlobalSettings(Base):
     max_notifications_per_hour = Column(Integer, default=50)
     notifications_this_hour = Column(Integer, default=0)
     hour_started_at = Column(DateTime(timezone=True), nullable=True)
+    # RETIRED: no defined semantics; not exposed by the API
     emergency_contact_id = Column(Integer, ForeignKey("notification_services.id", ondelete="SET NULL"), nullable=True)
 
+    # RETIRED: digest was never built; not exposed by the API
     # Daily digest settings
     digest_enabled = Column(Boolean, default=False)
     digest_time = Column(String(5), default="08:00")  # When to send digest (HH:MM)
@@ -290,6 +297,15 @@ class SystemNotificationHistory(Base):
         return f"<SystemNotificationHistory(event='{self.event_type}', target='{self.target_id}', status='{self.status}')>"
 
 
+# When one of these events is first seeded, it starts with a copy of the
+# targets (channels/groups) of the named event, so whoever already receives
+# backup failures also hears about overdue and stuck backups without having
+# to find the new cards first.
+SEED_TARGETS_FROM = {
+    "backup_overdue": "backup_failure",
+    "backup_stuck": "backup_failure",
+}
+
 # Default event configurations to seed on first run
 DEFAULT_SYSTEM_EVENTS = [
     {
@@ -316,6 +332,27 @@ DEFAULT_SYSTEM_EVENTS = [
         "flapping_enabled": True,
         "flapping_threshold_count": 2,
         "flapping_threshold_minutes": 120,
+    },
+    {
+        "event_type": "backup_overdue",
+        "display_name": "Backup Overdue",
+        "description": "A scheduled backup has not succeeded within its interval plus a grace period "
+                       "(the job was missed, skipped or keeps failing). Grace period: grace_minutes (default 60).",
+        "icon": "XCircleIcon",
+        "category": "backup",
+        "severity": "critical",
+        "frequency": "once_per_4h",
+        "thresholds": {"grace_minutes": 60},
+    },
+    {
+        "event_type": "backup_stuck",
+        "display_name": "Backup Stuck",
+        "description": "A backup has been 'running' for longer than stuck_hours (default 6); it is marked failed.",
+        "icon": "ArrowPathIcon",
+        "category": "backup",
+        "severity": "critical",
+        "frequency": "every_time",
+        "thresholds": {"stuck_hours": 6},
     },
     {
         "event_type": "disk_space_low",
@@ -410,16 +447,6 @@ DEFAULT_SYSTEM_EVENTS = [
         "flapping_threshold_count": 5,
         "flapping_threshold_minutes": 5,
     },
-    {
-        "event_type": "update_available",
-        "display_name": "Update Available",
-        "description": "Notification when software updates are available",
-        "icon": "ArrowDownTrayIcon",
-        "category": "system",
-        "severity": "info",
-        "frequency": "once_per_day",
-        "include_in_digest": True,
-    },
     # Additional backup events
     {
         "event_type": "backup_started",
@@ -452,6 +479,17 @@ DEFAULT_SYSTEM_EVENTS = [
         "severity": "critical",
         "frequency": "every_time",
         "cooldown_minutes": 30,
+        "flapping_enabled": False,
+    },
+    {
+        "event_type": "backup_storage_unavailable",
+        "display_name": "Backup Storage Unavailable",
+        "description": "Off-host (NFS) backup storage is configured but the target is missing or is actually the local disk (share not mounted on the host). Backups set to NFS-only are refused; 'both' falls back to local storage.",
+        "icon": "CircleStackIcon",
+        "category": "backup",
+        "severity": "critical",
+        "frequency": "every_time",
+        "cooldown_minutes": 240,
         "flapping_enabled": False,
     },
     # Backup verification events
@@ -507,6 +545,17 @@ DEFAULT_SYSTEM_EVENTS = [
         "icon": "TrashIcon",
         "category": "container",
         "severity": "warning",
+        "frequency": "every_time",
+        "cooldown_minutes": 0,
+        "flapping_enabled": False,
+    },
+    {
+        "event_type": "container_recreated",
+        "display_name": "Container Recreated",
+        "description": "Notification when a container is recreated from the management console (with or without pulling a new image)",
+        "icon": "ArrowPathIcon",
+        "category": "container",
+        "severity": "info",
         "frequency": "every_time",
         "cooldown_minutes": 0,
         "flapping_enabled": False,

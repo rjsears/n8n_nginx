@@ -15,7 +15,8 @@ The notification system alerts you about important events like backup failures, 
 5. [Using the Management Console](#using-the-management-console)
 6. [Common Service Setups](#common-service-setups)
 7. [Best Practices](#best-practices)
-8. [Troubleshooting](#troubleshooting)
+8. [Alerting When the Stack Itself Is Down](#alerting-when-the-stack-itself-is-down)
+9. [Troubleshooting](#troubleshooting)
 
 ### Other Documentation
 
@@ -49,7 +50,7 @@ Set up where notifications will be sent:
 Group channels together for easier management:
 
 1. Go to **Settings** > **Notifications** > **Groups**
-2. Create groups like "Critical Alerts" or "Daily Digest"
+2. Create groups like "Critical Alerts" or "Low Priority"
 3. Add channels to groups
 
 ### Step 3: Enable Global Event Types
@@ -92,7 +93,7 @@ All channel configuration is done through the Management Console UI. Here are th
 |--------------|-------------|----------|
 | **Apprise** | Universal notification library (80+ services) | Slack, Discord, Teams, Telegram, etc. |
 | **NTFY** | Push notifications to phone | Mobile alerts |
-| **Email** | SMTP email | Record keeping, digests |
+| **Email** | SMTP email | Record keeping |
 | **Webhook** | Custom HTTP endpoints | Integration with other systems |
 
 ### Apprise (Recommended for Chat Services)
@@ -131,6 +132,21 @@ Email notifications use your configured email provider.
 3. Select **Email**
 4. Enter recipient email addresses
 5. Test and save
+
+Port 465 uses SMTPS (TLS from the first byte) automatically; other ports use
+STARTTLS when it is enabled. The **Use SSL/TLS (SMTPS)** toggle overrides the
+port-based choice. Every SMTP operation times out after 15 seconds.
+
+The SMTP server's certificate is always verified (chain against the system CA
+store, and host name), for both SMTPS and STARTTLS. There is no setting to
+turn this off: a server with a self-signed or private-CA certificate needs
+that CA added to the management container's trust store, or use a relay with
+a public certificate.
+
+Saved secrets (passwords, tokens, credentials inside Apprise or webhook URLs,
+`Authorization`-style webhook headers) are never sent back to the browser:
+they appear as `***`. Leaving a masked value unchanged when editing keeps the
+stored secret; typing a new value replaces it.
 
 ### Webhook
 
@@ -250,8 +266,12 @@ Or add to your `.env` file:
 # NTFY public URL - MUST be a subdomain
 NTFY_BASE_URL=https://ntfy.yourdomain.com
 
-# Authentication settings
-NTFY_AUTH_DEFAULT_ACCESS=read-write
+# Authentication (setup.sh generates these; anonymous access is denied)
+NTFY_ADMIN_USER=admin
+NTFY_ADMIN_PASS=<generated>
+NTFY_ADMIN_PASSWORD_HASH='<bcrypt hash of NTFY_ADMIN_PASS>'
+NTFY_TOKEN=tk_<29 characters>
+NTFY_AUTH_DEFAULT_ACCESS=deny-all
 NTFY_ENABLE_LOGIN=true
 NTFY_ENABLE_SIGNUP=false
 
@@ -299,49 +319,53 @@ Self-hosted NTFY requires an additional public hostname in your Cloudflare Tunne
 
 > **Important:** Notice the URL is `HTTP` to `n8n_ntfy:80`, not HTTPS. The NTFY container exposes port 80 internally. Cloudflare provides the HTTPS termination.
 
-#### Step 3: Create NTFY Users
+#### Step 3: Users and Access Tokens (provisioned automatically)
 
-After deployment, create user accounts for authentication:
+The server runs with `auth-default-access: deny-all`: nobody can read or
+publish without credentials. setup.sh generates and ntfy provisions at
+startup (via `NTFY_AUTH_USERS` / `NTFY_AUTH_TOKENS` in docker-compose.yaml):
 
-```bash
-# Enter the NTFY container
-docker exec -it n8n_ntfy sh
+- an admin user, `NTFY_ADMIN_USER` / `NTFY_ADMIN_PASS` from `.env`. Use it to
+  log in to the ntfy web app and to subscribe from the Android/iOS apps
+  (add the server with "Use another server" and enter these credentials);
+- an access token, `NTFY_TOKEN`, that the Management Console sends as
+  `Authorization: Bearer ...` for every message to this server (it is never
+  sent to other ntfy servers such as ntfy.sh).
 
-# Add a user
-ntfy user add admin
+To change the admin password, set `NTFY_ADMIN_PASS`, clear
+`NTFY_ADMIN_PASSWORD_HASH` and re-run setup.sh (or put a new cost-12 bcrypt
+hash in `NTFY_ADMIN_PASSWORD_HASH` yourself), then recreate the ntfy
+container. For extra users with per-topic rights use `ntfy user add` /
+`ntfy access` inside the container.
 
-# Set password when prompted
-# Grant admin role if needed
-ntfy user change-role admin admin
+The ntfy server settings shown in the console (NTFY > Settings) are
+read-only: they are what the running container enforces. Change the
+`NTFY_*` keys in `.env` and recreate the container to change them.
 
-# List users
-ntfy user list
-
-# Exit container
-exit
-```
-
-#### Step 4: Configure Access Tokens
-
-For the Management Console to send notifications:
-
-```bash
-# Create an access token for the management console
-docker exec n8n_ntfy ntfy token add admin
-
-# This outputs a token like: tk_xxxxxxxxxxxxxxxxxxxxx
-# Save this token for the notification channel configuration
-```
-
-#### Step 5: Add NTFY Channel in Management Console
+#### Step 4: Add NTFY Channel in Management Console
 
 1. Go to **Settings** > **Notifications** > **Add Channel**
 2. Select **NTFY**
 3. Configure:
-   - **Server:** `https://ntfy.yourdomain.com`
+   - **Server:** `https://ntfy.yourdomain.com` (or `http://n8n_ntfy:80`)
    - **Topic:** `alerts` (or any topic name)
-   - **Token:** `tk_xxxxxxxxxxxxxxxxxxxxx` (from Step 4)
+   - **Token:** leave empty for this server; `NTFY_TOKEN` is used automatically
 4. Test and save
+
+#### Upgrading an existing install
+
+Older installs ran ntfy with anonymous read-write access. After updating:
+
+1. Re-run `setup.sh` (reconfigure) so it generates `NTFY_ADMIN_*` and
+   `NTFY_TOKEN` in `.env` and regenerates docker-compose.yaml. A previous
+   `NTFY_TOKEN` that is not an ntfy token (`tk_` + 29 characters) is replaced.
+2. Recreate the container: `docker compose up -d ntfy n8n_management`.
+3. Every existing subscriber (phone apps, web app, scripts, n8n workflows
+   that call ntfy directly) must now authenticate: add the admin login in
+   the apps, or send `Authorization: Bearer <token>` from scripts. Topics
+   subscribed anonymously stop receiving messages until then.
+4. iOS instant push needs `NTFY_UPSTREAM_BASE_URL=https://ntfy.sh` in `.env`
+   (it is no longer set by default).
 
 ### Self-Hosted NTFY Advanced Features
 
@@ -427,6 +451,10 @@ You'll also need:
 | `verification.started` | Backup verification started | normal |
 | `verification.passed` | Backup verification passed | normal |
 | `verification.failed` | Backup verification failed | critical |
+| `backup_overdue` | A scheduled backup has not succeeded within its interval plus a grace period (`grace_minutes`, default 60): the run was missed, skipped or keeps failing. Checked hourly and shortly after startup. | critical |
+| `backup_stuck` | A backup has been `running` longer than `stuck_hours` (default 6); it is marked failed. | critical |
+
+`backup_overdue` and `backup_stuck` start with the same channels as **Backup Failure** when they are first added.
 
 ### Container Events
 
@@ -648,7 +676,7 @@ Don't rely on a single notification method:
 | Critical | PagerDuty + Phone | Slack |
 | High | Slack | Email |
 | Normal | Slack | - |
-| Low | Email digest | - |
+| Low | Email | - |
 
 ### 3. Set Appropriate Priorities
 
@@ -668,7 +696,7 @@ Prevent alert fatigue by setting cooldown periods in event configuration:
 | Critical | 0-5 minutes |
 | High | 15-30 minutes |
 | Normal | 1-4 hours |
-| Low | Daily digest |
+| Low | Set the event's frequency to `once_per_day` |
 
 ### 5. Test Regularly
 
@@ -681,6 +709,67 @@ Prevent alert fatigue by setting cooldown periods in event configuration:
 - Keep a list of notification channels and their purposes
 - Document who receives what alerts
 - Update documentation when rules change
+
+---
+
+## Alerting When the Stack Itself Is Down
+
+Notification channels are stored in PostgreSQL and sent from the management
+container, so a Postgres outage, a crashed management container or a dead
+host cannot alert through them. Two database-free mechanisms cover that.
+Both are read from `.env` (or the environment) when they are used, so no
+restart is needed after adding them.
+
+| Key | Purpose |
+|-----|---------|
+| `HEARTBEAT_URL` | Pinged (HTTP GET) by the management container while the stack is healthy. |
+| `HEARTBEAT_INTERVAL_MINUTES` | Ping interval, default `5`. |
+| `ALERT_FALLBACK_URL` | Plain-text POST target for alerts that cannot use the normal channels. |
+| `ALERT_REPEAT_MINUTES` | Host script: repeat interval while still failing, default `60`. |
+| `BACKUP_MAX_AGE_HOURS` | Host script: newest successful backup older than this is an error, default `192`. |
+
+### Heartbeat (dead-man's switch for the whole stack)
+
+1. Create a check at [healthchecks.io](https://healthchecks.io) (period 5
+   minutes, grace e.g. 10 minutes) or an Uptime Kuma **Push** monitor.
+2. Put its ping URL in `.env`:
+
+   ```bash
+   HEARTBEAT_URL=https://hc-ping.com/your-uuid
+   # or: HEARTBEAT_URL=https://kuma.example.com/api/push/abc123?status=up&msg=OK
+   ```
+
+The management scheduler pings it only when the management database answers
+a query and n8n's `/healthz` responds. When Postgres, n8n, the management
+container, Docker or the host fails, the pings stop and the external service
+alerts you. Because the alert comes from outside, it works for every kind of
+outage.
+
+### Fallback alert URL
+
+```bash
+ALERT_FALLBACK_URL=https://ntfy.sh/your-private-topic
+```
+
+* When a notification cannot be dispatched because the management database is
+  unreachable, the management container logs a clear error and POSTs the alert
+  text here (at most once per 15 minutes per event and target).
+* `scripts/health_check.sh --alert` posts here from the host. Run it from cron
+  or a systemd timer so the management container and Postgres being down are
+  reported too:
+
+  ```bash
+  # /etc/cron.d/n8n-health
+  */5 * * * * root /opt/n8n_nginx/scripts/health_check.sh --quiet --alert
+  ```
+
+  It alerts when any check is in error, repeats every `ALERT_REPEAT_MINUTES`
+  while it stays failing, and sends one recovery message when everything
+  passes again.
+
+An ntfy topic URL works as is (the title and priority are sent as ntfy
+headers; for a protected topic use ntfy's `auth` query parameter); any endpoint that accepts
+a plain-text POST will do.
 
 ---
 
@@ -793,7 +882,7 @@ Prevent alert fatigue by setting cooldown periods in event configuration:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `NTFY_BASE_URL` | Yes | Public URL (e.g., `https://ntfy.yourdomain.com`) |
-| `NTFY_AUTH_DEFAULT_ACCESS` | No | Default: `read-write` |
+| `NTFY_AUTH_DEFAULT_ACCESS` | No | Default: `deny-all` (anonymous users can neither read nor publish). Setting it in `.env` overrides that; `read-write` makes every topic public |
 | `NTFY_ENABLE_LOGIN` | No | Default: `true` |
 | `NTFY_ENABLE_SIGNUP` | No | Default: `false` |
 | `NTFY_CACHE_DURATION` | No | Default: `24h` |

@@ -30,6 +30,7 @@
 
 <p align="center">
   <a href="https://github.com/rjsears/n8n_nginx/actions/workflows/docker-build-management.yml"><img src="https://github.com/rjsears/n8n_nginx/actions/workflows/docker-build-management.yml/badge.svg" alt="Docker Build"></a>
+  <a href="https://github.com/rjsears/n8n_nginx/actions/workflows/test.yml"><img src="https://github.com/rjsears/n8n_nginx/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
   <a href="https://github.com/rjsears/n8n_nginx/actions/workflows/lint.yml"><img src="https://github.com/rjsears/n8n_nginx/actions/workflows/lint.yml/badge.svg" alt="Lint"></a>
   <a href="https://hub.docker.com/r/rjsears/n8n_management"><img src="https://img.shields.io/docker/pulls/rjsears/n8n_management?logo=docker&logoColor=white" alt="Docker Pulls"></a>
   <a href="https://github.com/rjsears/n8n_nginx"><img src="https://img.shields.io/github/stars/rjsears/n8n_nginx?style=social" alt="Stars"></a>
@@ -55,9 +56,9 @@
   <strong><a href="https://rjsears.github.io/n8n_nginx/">View Full Documentation</a></strong>
 </p>
 
-A production-grade, self-hosted **n8n** deployment that treats the unglamorous parts — TLS renewal, backups that actually restore, reverse-proxy webhook plumbing, disaster recovery — as first-class engineering problems. One interactive `setup.sh` deploys n8n, PostgreSQL 16 + pgvector, nginx, Certbot, Redis, and a full FastAPI/Vue.js management console, all behind **a single exposed port**.
+A production-grade, self-hosted **n8n** deployment that treats the unglamorous parts — TLS renewal, backups that actually restore, reverse-proxy webhook plumbing, disaster recovery — as first-class engineering problems. One interactive `setup.sh` deploys n8n, PostgreSQL 16 + pgvector, nginx, Certbot, Redis, and a full FastAPI/Vue.js management console, all behind **one public HTTPS port** (443).
 
-This is not a `docker run n8nio/n8n` wrapper. It is the infrastructure you build *around* n8n once you depend on it: automatic DNS-01 certificates with a renewal path that provably fires, restore-tested backup verification, selective per-workflow restore, bare-metal recovery archives, 21 notification event types with escalation, and a management console that replaces a half-dozen SSH sessions.
+This is not a `docker run n8nio/n8n` wrapper. It is the infrastructure you build *around* n8n once you depend on it: automatic DNS-01 certificates with a renewal path that provably fires, restore-tested backup verification, selective per-workflow restore, bare-metal recovery archives, 22 notification event types with escalation, and a management console that replaces a half-dozen SSH sessions.
 
 <p align="center">
   <img src="docs/images/screenshots/dashboard-01-overview.png" alt="Management Console dashboard overview" width="850"/>
@@ -123,9 +124,9 @@ sudo ./restore.sh --dry-run   # preview, then run without --dry-run
 
 `restore.sh` starts only PostgreSQL, restores every database in a single transaction (stopping on the first error), and only then brings up the rest of the stack. **Archives created before restore script v3.2.0 embed a `restore.sh` that cannot complete** — download the current one from *Backups → Bare Metal → Download latest restore.sh* (or `GET /api/backups/restore-script`), copy it over the one in the extracted archive, and take a fresh backup after upgrading. The in-app restore only restores the n8n database (stopping n8n, with a safety dump and the previous database kept); the management database is restored with `restore.sh`. See the [Backup Guide](docs/BACKUP_GUIDE.md#restoring-data).
 
-### 🛡️ One exposed port — and a deliberate public/private split
+### 🛡️ One public port — and a deliberate public/private split
 
-The entire stack binds exactly two host ports: `443` (nginx router) and `127.0.0.1:6379` (Redis, loopback only). Port 80 is never bound — DNS-01 makes it unnecessary. Inside, nginx classifies every request by source address before routing:
+The only port published for clients is `443` (`n8n_nginx`, or `nginx_router` when the public website is enabled). Port 80 is never bound — DNS-01 makes it unnecessary. Redis is published on `127.0.0.1:6379` only. Two more listeners exist on the host and should be firewalled from untrusted networks: the status collector (`n8n_status`, host networking) serves unauthenticated `/health` and `/metrics` on `0.0.0.0:8080`, and the optional Portainer agent listens on `PORTAINER_AGENT_BIND:9001` (default `127.0.0.1`). See [Security Posture](#security-posture). Inside, nginx classifies every request by source address before routing:
 
 ```nginx
 geo $access_level {
@@ -142,19 +143,19 @@ geo $access_level {
 
 `geo` is longest-prefix match, so the pinned Docker network (`N8N_NETWORK_SUBNET`, default `172.30.0.0/24`) overrides the broad private ranges: anything that reaches nginx through a Docker hop — Cloudflare Tunnel, Docker's port proxy (IPv6 clients, `localhost`), any other container such as an n8n HTTP Request node — is **external**. The only trusted Docker addresses are the Tailscale container and, via `set_real_ip_from`, the `X-Real-IP` set by `nginx_router` from its static IP.
 
-`/webhook/` stays reachable from anywhere so third-party services can deliver callbacks. The n8n editor, management console, and admin tools are internal-only. Cloudflare Tunnel points at a separate webhook-only listener (`n8n_nginx:8080`, not published on the host) that serves only `/webhook*` and `/form*` and drops everything else. With Cloudflare Tunnel or Tailscale enabled, you can run with **zero inbound ports**.
+`/webhook/` and `/form/` stay reachable from anywhere so third-party services can deliver callbacks, and `/ntfy/` is public but ntfy itself denies anonymous access. The n8n editor, management console, and admin tools are internal-only. Cloudflare Tunnel points at a separate webhook-only listener (`n8n_nginx:8080`, not published on the host) that serves only `/webhook*` and `/form*` and drops everything else. With Cloudflare Tunnel or Tailscale enabled, you can run with **zero inbound ports**.
 
 ### 🧩 Proxmox LXC support that actually detects the problem
 
 Docker inside an LXC container fails with AppArmor policy errors that platform-string guessing can't reliably predict. `setup.sh` runs an actual **runtime probe** — it launches a throwaway Alpine container, reads the error, and only then reacts:
 
 ```bash
-if ! probe_output=$($DOCKER_SUDO docker run --rm --name n8n_apparmor_probe alpine:latest true 2>&1); then
+if ! probe_output=$($DOCKER_SUDO docker run --rm --name n8n_apparmor_probe "$ALPINE_IMAGE" true 2>&1); then
     if echo "$probe_output" | grep -qiE "apparmor|policy admin"; then
         APPARMOR_UNCONFINED="true"
 ```
 
-If the probe trips, every generated compose service gets `security_opt: apparmor:unconfined` and all helper `docker run` invocations carry the matching flag. Hosts that pass the probe keep full AppArmor confinement — the relaxation is never applied globally. And because `setup.sh` injects the fix into generated configs, it **survives regeneration** instead of being a manual edit that the next config rebuild silently clobbers.
+If the probe trips, every generated compose service gets `security_opt: apparmor:unconfined` and all helper `docker run` invocations carry the matching flag. On hosts that pass the probe the generated compose file keeps Docker's default AppArmor profile. Two exceptions: the `docker-compose.yaml` committed to the repo is a reference file that lists `apparmor:unconfined` on every service (`setup.sh` replaces it with the generated one), and the console's host terminal, when enabled, always runs unconfined. And because `setup.sh` injects the fix into generated configs, it **survives regeneration** instead of being a manual edit that the next config rebuild silently clobbers.
 
 ### 🔁 An installer you can Ctrl-C
 
@@ -166,7 +167,7 @@ If the probe trips, every generated compose service gets `security_opt: apparmor
 
 ```mermaid
 flowchart TB
-    subgraph ingress["Ingress — the only exposed port"]
+    subgraph ingress["Ingress — the public port"]
         INET(("Internet / LAN / Tailscale")) -->|":443 TLS"| ROUTER["nginx_router<br/>TLS termination · TLSv1.2/1.3<br/>hostname routing"]
     end
 
@@ -191,7 +192,7 @@ flowchart TB
 
 | Component | Container | Purpose |
 |---|---|---|
-| **nginx router** | `n8n_nginx_router` | The single host-exposed service — TLS termination and hostname routing |
+| **nginx router** | `n8n_nginx_router` | Public website topology only: publishes `443`, TLS termination and hostname routing (otherwise `n8n_nginx` publishes `443` itself) |
 | **nginx** | `n8n_nginx` | Internal proxy: access-level enforcement, webhook/editor split, security headers |
 | **n8n** | `n8n` | Workflow engine, proxy-aware (`N8N_TRUST_PROXY`, correct `WEBHOOK_URL`) |
 | **PostgreSQL 16 + pgvector** | `n8n_postgres` | n8n data, console data, and vector storage for AI/RAG workflows |
@@ -200,7 +201,7 @@ flowchart TB
 | **Redis** | `n8n_redis` | Metrics cache (loopback-bound) — dashboard reads cache, never computes per request |
 | **Status collector** | `n8n_status` | Six pollers feeding Redis with TTL-based staleness detection |
 | **Tailscale / Cloudflared** | optional | Remote access with zero inbound ports |
-| **NTFY / Portainer / Adminer / Dozzle / FileBrowser** | optional | Push notifications, container / DB / log / file UIs behind console SSO |
+| **NTFY / Portainer / Adminer / Dozzle / FileBrowser** | optional | Push notifications (ntfy: login or token required), container / DB / log / file UIs; internal-only, File Browser / Adminer / Dozzle also behind the console login |
 
 ---
 
@@ -290,12 +291,16 @@ The commands you'll actually run once it's deployed.
 ./scripts/health_check.sh --json          # machine-readable, for monitoring agents
 ```
 
-Silent cron check that alerts only on failure (exit `0` healthy, `1` unhealthy):
+Silent cron check that alerts only on failure (exit `0` healthy, `1` unhealthy). With `--alert` the script POSTs a plain-text alert to `ALERT_FALLBACK_URL` (from the environment or `.env`; an ntfy topic URL works as is), repeats it every `ALERT_REPEAT_MINUTES` (default 60) while the stack stays unhealthy and sends one recovery message. It runs on the host, so it still reports when PostgreSQL or the management container is down:
 
 ```bash
-*/10 * * * * cd /opt/n8n_nginx && ./scripts/health_check.sh --quiet || \
-  /usr/local/bin/notify "n8n stack unhealthy"
+# /etc/cron.d/n8n-health
+*/5 * * * * root /opt/n8n_nginx/scripts/health_check.sh --quiet --alert
 ```
+
+The backups check fails when the newest successful backup is older than `BACKUP_MAX_AGE_HOURS` (default 192); if the database is unreachable it looks at archives under `BACKUP_HOST_DIR` (default `/opt/n8n_backups`) instead.
+
+For "the whole host is gone" alerts, set `HEARTBEAT_URL` (a healthchecks.io check or an Uptime Kuma push monitor): while the stack is healthy the management console pings it every `HEARTBEAT_INTERVAL_MINUTES` (default 5) and the external service alerts when the pings stop. When a notification cannot be sent because the database is unreachable, the console posts it to `ALERT_FALLBACK_URL` instead. All of these are optional `.env` keys and are read when used (no restart needed); see [docs/ENVIRONMENTAL_VARIABLES.md](docs/ENVIRONMENTAL_VARIABLES.md).
 
 ### Testing SSL renewal without burning rate limits
 
@@ -357,32 +362,42 @@ docker compose up -d
 
 `setup.sh` does the `down` for you when it deploys and detects the old network. Then, in Cloudflare Zero Trust, change the tunnel's public hostname for your n8n domain to **HTTP → `n8n_nginx:8080`** (see [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)). Tailscale users should browse the Tailscale Serve URL (`https://<hostname>.<tailnet>.ts.net`). If `172.30.0.0/24` clashes with a network you already use, set `N8N_NETWORK_SUBNET` (in `.n8n_setup_config`) before regenerating — `setup.sh` checks the existing Docker networks before it stops anything, and refuses to deploy (suggesting a free `/24`) if the subnet overlaps one.
 
-**Management image:** File Browser (`/files/`) now authenticates through the management console: nginx calls `/api/auth/verify`, which must return an `X-Auth-User` header, and the console's internal nginx now takes the client address from `n8n_nginx`'s `X-Real-IP`. Both changes live in the management image. With `USE_PREBUILT_MANAGEMENT=true` (the default), pull the updated image once it is published (`docker compose pull n8n_management`) — an older prebuilt image breaks File Browser logins; with a local build, rebuild it (`docker compose build n8n_management`).
+**Management image:** File Browser (`/files/`) now authenticates through the management console: nginx calls `/api/auth/verify`, which must return an `X-Auth-User` header, and the console's internal nginx now takes the client address from `n8n_nginx`'s `X-Real-IP`. Both changes live in the management image. With `USE_PREBUILT_MANAGEMENT=true` (the default) compose uses `rjsears/n8n_management:<release>` (the version of this `setup.sh`, or `MGMT_VERSION` in `.env`) and builds it from `./management` if that tag is not published yet; with a local build, rebuild it (`docker compose build n8n_management n8n_status`). An older prebuilt image breaks File Browser logins.
 
 ### Driving backups from the API
 
-The console exposes a REST API (~130 endpoints, interactive OpenAPI docs at `/api/docs`):
+The console exposes a REST API (interactive OpenAPI docs at `/management/api/docs`). Login returns the session only as an HttpOnly cookie, so use a cookie jar; state-changing requests made with the cookie must send `X-Requested-With` (CSRF check). Like the console, the API answers internal clients only.
 
 ```bash
-TOKEN=$(curl -sk -X POST https://n8n.example.com/api/auth/login \
+BASE=https://n8n.example.com/management/api
+curl -sk -c cookies.txt -X POST "$BASE/auth/login" \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"your-password"}' \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+  -d '{"username":"admin","password":"your-password"}'
 
-curl -sk -X POST https://n8n.example.com/api/backups/run \
-  -H "Authorization: Bearer $TOKEN" \
+curl -sk -b cookies.txt -X POST "$BASE/backups/run" \
+  -H 'X-Requested-With: XMLHttpRequest' \
   -H 'Content-Type: application/json' \
   -d '{"backup_type":"full"}'
 ```
 
 ### Upgrading n8n
 
+Every image is pinned to an explicit version; nothing follows `:latest`, so a `docker compose pull` never upgrades n8n by surprise. n8n database migrations are one-way, so upgrade deliberately:
+
 ```bash
-docker exec n8n_postgres pg_dump -U n8n -Fc n8n > pre-upgrade-$(date +%F).dump   # safety net first
-$EDITOR docker-compose.yaml            # bump the n8n image tag
+# 1. back up (and keep the dump until the new version has run for a while)
+docker exec n8n_postgres pg_dump -U n8n -Fc n8n > pre-upgrade-$(date +%F).dump
+# 2. read the release notes for every version between the current and the target one
+#    https://docs.n8n.io/release-notes/
+# 3. set the version in .env (empty = the version pinned in docker-compose.yaml)
+sed -i 's/^N8N_VERSION=.*/N8N_VERSION=2.42.1/' .env    # example tag
+# 4. pull and restart
 docker compose pull n8n && docker compose up -d n8n
+# 5. verify
 ./scripts/health_check.sh
 ```
+
+`NGINX_VERSION` and `MGMT_VERSION` (management console and status collector) work the same way. `setup.sh` keeps these keys when it rewrites `.env`. To roll back, set the previous version and restore the dump: a newer n8n may already have migrated the schema.
 
 > **Preserve `N8N_ENCRYPTION_KEY` across every upgrade.** All credentials stored in n8n are encrypted with it; losing it makes them unrecoverable. Note that `docker-compose.yaml` is regenerated by `setup.sh` — record manual edits somewhere durable.
 
@@ -400,15 +415,25 @@ features: nesting=1,keyctl=1
 Verify what the probe would decide on your host:
 
 ```bash
-docker run --rm alpine:latest true && echo "AppArmor OK — no workaround needed"
+docker run --rm alpine:3.24.2 true && echo "AppArmor OK — no workaround needed"
 ```
 
 ### Running the test suite
 
+CI (`.github/workflows/test.yml`) runs on every pull request and push to `main`, and the image builds only run after it passes:
+
 ```bash
-./tests/test_installation.sh --group syntax            # fast: shell syntax across all scripts
-./tests/test_installation.sh --group security --junit results.xml
-./tests/test_installation.sh --integration --verbose   # everything
+(cd management && pip install -r requirements.txt -r requirements-dev.txt && python -m pytest -q)
+bash tests/test_env_helpers.sh      # .env writer: secrets and custom keys survive re-runs
+bash tests/test_setup_flows.sh      # cert lineage, v2 -> v3 migration rollback, --config loading
+shellcheck -S error setup.sh scripts/*.sh tests/*.sh
+```
+
+`tests/test_installation.sh` is a smoke check for a live host (it expects Docker and a deployed stack) and is not part of CI:
+
+```bash
+./tests/test_installation.sh --group syntax
+./tests/test_installation.sh --integration --verbose
 ```
 
 ---
@@ -423,11 +448,11 @@ Ten screens replacing a half-dozen SSH sessions — dark/light themes, top or si
 | **Backups** | Scheduling, tiered retention, restore-tested verification, selective restore, bare-metal archive |
 | **Containers** | Start/stop/restart, live stats, per-container log viewer and terminal |
 | **Flows** | n8n workflow inventory with activate/deactivate toggles and execution history |
-| **Notifications** | 80+ services via Apprise, native NTFY push, channels/groups, L1→L2 escalation, quiet hours, flapping detection |
-| **System** | Health cards (incl. SSL expiry with Force Renew), Redis cache status, network tools, host terminal, file manager |
+| **Notifications** | 80+ services via Apprise, native NTFY push, channels/groups, L1→L2 escalation, quiet hours, rate limiting, maintenance windows |
+| **System** | Health cards (incl. SSL expiry with Force Renew), Redis cache status, network tools, container terminal (host terminal only with `ENABLE_HOST_TERMINAL=true`), file manager |
 | **Settings** | CIDR access control, n8n API key, categorized `.env` editor with validation |
 
-Adminer, Dozzle, Portainer, and FileBrowser inherit console login via nginx `auth_request` — one session, every tool.
+File Browser, Adminer and Dozzle are gated by the console login via nginx `auth_request` (one session for all three). Portainer is internal-only but keeps its own login.
 
 <details>
 <summary><strong>📸 Screenshot gallery — click to expand</strong></summary>
@@ -461,31 +486,52 @@ Adminer, Dozzle, Portainer, and FileBrowser inherit console login via nginx `aut
 
 ## Security Posture
 
-Honest accounting — what's enforced today, where it lives, and what's on the roadmap.
+What is enforced in the code today, where it lives, and what is not.
+
+**Exposure**
 
 | Control | Status | Where |
 |---|---|---|
-| Single exposed port (443); Redis loopback-only | ✅ | `docker-compose.yaml` |
-| Port 80 never bound (DNS-01, no HTTP-01) | ✅ | Certbot DNS-01 flow |
-| Zero-inbound-port operation | ✅ optional | Cloudflare Tunnel / Tailscale |
-| TLS 1.2/1.3 only, ECDHE AEAD ciphers | ✅ | `nginx.conf` / `nginx-router.conf` |
-| Editor internal-only, `/webhook/` public | ✅ | nginx `geo $access_level` |
-| Docker hops (tunnel, docker-proxy, containers) never internal | ✅ | pinned `n8n_network` subnet as `external` in `geo` |
-| Cloudflare Tunnel reaches webhooks/forms only | ✅ | `n8n_nginx:8080` listener |
-| File Browser requires a console session | ✅ | nginx `auth_request` → `/api/auth/verify`, isolated `filebrowser_network` |
-| Security headers (`nosniff`, `X-Frame-Options`, `X-XSS-Protection`) | ✅ | `nginx.conf` |
-| bcrypt password hashing (12 rounds) | ✅ | console `security.py` |
-| DB-backed opaque session tokens (`secrets.token_urlsafe(48)`) | ✅ | console auth |
-| Exponential login lockout (capped at 48 min) | ✅ | console auth |
-| Two-tier rate limiting (nginx 5r/m auth + in-process) | ✅ | `management/nginx.conf` |
-| AES-256-GCM encryption for stored secrets | ✅ | console settings |
-| Docker socket mounted **read-only** | ✅ | compose |
-| Secrets files chmod 600, gitignored | ✅ | `setup.sh` |
-| Audit logging of console actions | ✅ | console DB |
-| HSTS header | 🔜 roadmap | — |
-| CSRF tokens / multi-user RBAC / 2FA | 🔜 roadmap | — |
+| Public port: `443` only (`n8n_nginx`, or `nginx_router` with the public website); port 80 never bound (DNS-01) | ✅ | generated `docker-compose.yaml` |
+| Redis published on `127.0.0.1:6379` only, no password | ✅ loopback | compose |
+| Status collector (`n8n_status`) uses host networking and serves unauthenticated `/health`, `/metrics` on `0.0.0.0:8080` | ⚠️ firewall it | `n8n_status/src/main.py` |
+| Portainer agent (optional) on `PORTAINER_AGENT_BIND:9001` (default `127.0.0.1`), requires `AGENT_SECRET` | ✅ | compose |
+| Docker's published ports bypass host `ufw`/`firewalld` INPUT rules; use the `DOCKER-USER` chain if you need to restrict `443` | ℹ️ | Docker |
+| Editor, management console and admin tools internal-only; `/webhook/`, `/form/` public | ✅ | nginx `geo $access_level` |
+| Docker hops (tunnel, docker-proxy, other containers) never internal: pinned `n8n_network` subnet listed as `external` | ✅ | `geo` + `N8N_NETWORK_SUBNET` |
+| Cloudflare Tunnel target `n8n_nginx:8080` (not published) serves only webhooks, forms and `/ntfy/` | ✅ | `nginx.conf` |
+| Zero inbound ports with Cloudflare Tunnel / Tailscale | ✅ optional | |
+| ntfy denies anonymous access (`NTFY_AUTH_DEFAULT_ACCESS` defaults to `deny-all`; a value in `.env` overrides it); provisioned admin user and token | ✅ | compose, `NTFY_ADMIN_*`, `NTFY_TOKEN` |
 
-> **Know what you're enabling:** the console's host terminal is a real admin feature — it launches a privileged container chrooted to the host. It sits behind console authentication and the internal-only nginx ACL, but treat console credentials like root credentials, because on the System → Terminal tab, they are.
+**Console authentication**
+
+| Control | Status | Where |
+|---|---|---|
+| Opaque DB-backed session token (`secrets.token_urlsafe(48)`), 24 h lifetime, only in an `HttpOnly; Secure; SameSite=Strict` cookie (never in `localStorage`) | ✅ | `routers/auth.py`, `security.py` |
+| bcrypt password hashing, cost 12 | ✅ | `security.py` |
+| Lockout after 5 failed passwords: 30 min, doubling per further failure, capped at 24 h | ✅ | `security.calculate_lockout_expiry` |
+| Login rate limit 5/min per client IP (burst 3); API 30 r/s per IP (burst 50) | ✅ | `management/nginx.conf` |
+| CSRF: cookie-authenticated `POST`/`PUT`/`PATCH`/`DELETE` need `X-Requested-With`, and an `Origin` header (if sent) must match | ✅ | `main.CSRFMiddleware` |
+| CORS off unless `ALLOWED_ORIGINS` is set | ✅ | `main.py` |
+| CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy` on the console | ✅ | `management/nginx.conf` |
+| Settings → Security values (timeout, attempts, lockout) | ❌ stored but not enforced; the built-in values above apply | |
+| Audit log | ⚠️ partial: logins, lockouts, password changes and terminal sessions only, not other console actions | `audit_log` table |
+| HSTS, multi-user RBAC, 2FA | ❌ not implemented | |
+
+**Secrets**
+
+| Control | Status | Where |
+|---|---|---|
+| `.env`, DNS credential files, setup state/config files chmod 600 and gitignored | ✅ | `setup.sh`, `.gitignore` |
+| `.env` holds DB password, `N8N_ENCRYPTION_KEY`, admin password, ntfy and Portainer agent secrets **in plain text** | ⚠️ protect the host | `.env` |
+| Email provider secrets (`smtp_password`, `api_key`) encrypted at rest with AES-256-GCM (key derived from `MGMT_ENCRYPTION_KEY`, default `N8N_ENCRYPTION_KEY`) | ✅ | `security.EncryptionService` |
+| Notification channel secrets (tokens, webhook URLs) stored unencrypted in PostgreSQL, redacted in every API response | ⚠️ | `notification_secrets.py` |
+| Portainer admin password passed as a Docker secret file (`portainer_password.txt`, chmod 600), not on the command line; bcrypt hashes generated by `setup.sh` (Dozzle, ntfy) use cost 12 | ✅ | compose, `setup.sh` |
+| Backup archives contain `.env`, TLS private keys and the databases. They are written mode 0600 and are GPG-encrypted (AES-256) **only if `BACKUP_ENCRYPTION_PASSPHRASE` is set**; encryption is off by default | ⚠️ opt-in | `backup_service.py` |
+| Backup verification container: no published port, no network, random password | ✅ | `verification_service.py` |
+| All images pinned to explicit versions; images built and published only after CI passes, `latest` only on release tags | ✅ | compose, `.github/workflows/` |
+
+> **The console is root on the host.** `n8n_management` (and `n8n_status`, `certbot`, `dozzle`) mount `/var/run/docker.sock`. The `:ro` flag only makes the socket file read-only; it does not restrict the Docker API, and anyone who can use the API can start a privileged container. Treat console credentials like root credentials. The per-container terminal is available to logged-in users, except into containers that amount to host root (privileged, host PID/network namespace, or the Docker socket or `/` mounted): those are refused unless the host terminal is enabled, because a shell in them would bypass the flag. The **host terminal** (a privileged, AppArmor-unconfined container with `/` mounted, PID and network namespaces of the host) is off unless `ENABLE_HOST_TERMINAL=true`, checks the session cookie and the `Origin` header, and, like every terminal session, is recorded in the audit log. Community nodes installed in n8n run inside the n8n container with access to its credentials and network.
 
 ---
 

@@ -235,15 +235,9 @@ async def list_events(
             severity=event.severity,
             frequency=event.frequency,
             cooldown_minutes=event.cooldown_minutes,
-            flapping_enabled=event.flapping_enabled,
-            flapping_threshold_count=event.flapping_threshold_count,
-            flapping_threshold_minutes=event.flapping_threshold_minutes,
-            flapping_summary_interval=event.flapping_summary_interval,
             notify_on_recovery=event.notify_on_recovery,
             thresholds=event.thresholds,
             escalation_enabled=event.escalation_enabled,
-            escalation_timeout_minutes=event.escalation_timeout_minutes,
-            include_in_digest=event.include_in_digest,
             created_at=event.created_at,
             updated_at=event.updated_at,
             targets=enriched_targets,
@@ -287,15 +281,9 @@ async def get_event(
         severity=event.severity,
         frequency=event.frequency,
         cooldown_minutes=event.cooldown_minutes,
-        flapping_enabled=event.flapping_enabled,
-        flapping_threshold_count=event.flapping_threshold_count,
-        flapping_threshold_minutes=event.flapping_threshold_minutes,
-        flapping_summary_interval=event.flapping_summary_interval,
         notify_on_recovery=event.notify_on_recovery,
         thresholds=event.thresholds,
         escalation_enabled=event.escalation_enabled,
-        escalation_timeout_minutes=event.escalation_timeout_minutes,
-        include_in_digest=event.include_in_digest,
         created_at=event.created_at,
         updated_at=event.updated_at,
         targets=enriched_targets,
@@ -342,15 +330,9 @@ async def update_event(
         severity=event.severity,
         frequency=event.frequency,
         cooldown_minutes=event.cooldown_minutes,
-        flapping_enabled=event.flapping_enabled,
-        flapping_threshold_count=event.flapping_threshold_count,
-        flapping_threshold_minutes=event.flapping_threshold_minutes,
-        flapping_summary_interval=event.flapping_summary_interval,
         notify_on_recovery=event.notify_on_recovery,
         thresholds=event.thresholds,
         escalation_enabled=event.escalation_enabled,
-        escalation_timeout_minutes=event.escalation_timeout_minutes,
-        include_in_digest=event.include_in_digest,
         created_at=event.created_at,
         updated_at=event.updated_at,
         targets=enriched_targets,
@@ -426,7 +408,6 @@ async def add_target(
         channel_id=data.channel_id,
         group_id=data.group_id,
         escalation_level=data.escalation_level,
-        escalation_timeout_minutes=data.escalation_timeout_minutes,
     )
     db.add(target)
     await db.commit()
@@ -512,7 +493,6 @@ async def get_container_config(
             cpu_threshold=80,
             monitor_high_memory=False,
             memory_threshold=80,
-            custom_targets=None,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -543,7 +523,6 @@ async def create_container_config(
         container_name=data.container_name,
         monitor_unhealthy=data.monitor_unhealthy,
         monitor_restart=data.monitor_restart,
-        custom_targets=data.custom_targets,
     )
     db.add(config)
     await db.commit()
@@ -629,18 +608,6 @@ async def get_global_settings(
         await db.commit()
         await db.refresh(settings)
 
-    # Get emergency contact name if set
-    emergency_contact_name = None
-    if settings.emergency_contact_id:
-        result = await db.execute(
-            select(NotificationService).where(
-                NotificationService.id == settings.emergency_contact_id
-            )
-        )
-        contact = result.scalar_one_or_none()
-        if contact:
-            emergency_contact_name = contact.name
-
     return GlobalSettingsResponse(
         id=settings.id,
         maintenance_mode=settings.maintenance_mode,
@@ -656,12 +623,6 @@ async def get_global_settings(
         max_notifications_per_hour=settings.max_notifications_per_hour,
         notifications_this_hour=settings.notifications_this_hour,
         hour_started_at=settings.hour_started_at,
-        emergency_contact_id=settings.emergency_contact_id,
-        emergency_contact_name=emergency_contact_name,
-        digest_enabled=settings.digest_enabled,
-        digest_time=settings.digest_time,
-        digest_severity_levels=settings.digest_severity_levels,
-        last_digest_sent=settings.last_digest_sent,
         created_at=settings.created_at,
         updated_at=settings.updated_at,
     )
@@ -692,18 +653,6 @@ async def update_global_settings(
     await db.commit()
     await db.refresh(settings)
 
-    # Get emergency contact name if set
-    emergency_contact_name = None
-    if settings.emergency_contact_id:
-        result = await db.execute(
-            select(NotificationService).where(
-                NotificationService.id == settings.emergency_contact_id
-            )
-        )
-        contact = result.scalar_one_or_none()
-        if contact:
-            emergency_contact_name = contact.name
-
     return GlobalSettingsResponse(
         id=settings.id,
         maintenance_mode=settings.maintenance_mode,
@@ -719,12 +668,6 @@ async def update_global_settings(
         max_notifications_per_hour=settings.max_notifications_per_hour,
         notifications_this_hour=settings.notifications_this_hour,
         hour_started_at=settings.hour_started_at,
-        emergency_contact_id=settings.emergency_contact_id,
-        emergency_contact_name=emergency_contact_name,
-        digest_enabled=settings.digest_enabled,
-        digest_time=settings.digest_time,
-        digest_severity_levels=settings.digest_severity_levels,
-        last_digest_sent=settings.last_digest_sent,
         created_at=settings.created_at,
         updated_at=settings.updated_at,
     )
@@ -758,18 +701,6 @@ async def set_maintenance_mode(
                 f"{f' until {data.until}' if data.until else ''}"
                 f"{f': {data.reason}' if data.reason else ''}")
 
-    # Get emergency contact name
-    emergency_contact_name = None
-    if settings.emergency_contact_id:
-        result = await db.execute(
-            select(NotificationService).where(
-                NotificationService.id == settings.emergency_contact_id
-            )
-        )
-        contact = result.scalar_one_or_none()
-        if contact:
-            emergency_contact_name = contact.name
-
     return GlobalSettingsResponse(
         id=settings.id,
         maintenance_mode=settings.maintenance_mode,
@@ -785,12 +716,6 @@ async def set_maintenance_mode(
         max_notifications_per_hour=settings.max_notifications_per_hour,
         notifications_this_hour=settings.notifications_this_hour,
         hour_started_at=settings.hour_started_at,
-        emergency_contact_id=settings.emergency_contact_id,
-        emergency_contact_name=emergency_contact_name,
-        digest_enabled=settings.digest_enabled,
-        digest_time=settings.digest_time,
-        digest_severity_levels=settings.digest_severity_levels,
-        last_digest_sent=settings.last_digest_sent,
         created_at=settings.created_at,
         updated_at=settings.updated_at,
     )
@@ -868,7 +793,7 @@ async def list_state(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get notification state (for debugging cooldowns and flapping)."""
+    """Get notification state (for debugging cooldown / frequency windows and escalation)."""
     query = select(SystemNotificationState)
 
     if event_type:
@@ -910,7 +835,7 @@ async def reset_all_state(
     _=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Reset all notification states (clear all cooldowns and flapping detection)."""
+    """Reset all notification states (clear all cooldown / frequency windows and escalation flags)."""
     await db.execute(SystemNotificationState.__table__.delete())
     await db.commit()
 
@@ -925,8 +850,11 @@ async def trigger_test_notification(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Trigger a test system notification.
-    This bypasses rate limiting and sends immediately.
+    Send a real test notification to every target configured on an event.
+
+    Bypasses maintenance mode and cooldown so the transport itself is what is
+    being tested. Returns 502 if no target accepted the message, so a broken
+    channel fails the test instead of passing it.
     """
     # Verify event exists
     event = await get_event_by_type_or_404(db, data.event_type)
@@ -937,26 +865,55 @@ async def trigger_test_notification(
             detail="Event has no configured targets",
         )
 
-    # TODO: Implement actual notification sending via monitoring service
-    # For now, just log and record in history
+    from api.services.notification_service import (
+        NotificationService as NotificationSender,
+        _deliver_to_targets,
+        _priority_for_severity,
+    )
+
+    now = datetime.now(UTC)
+    title = f"[TEST] {event.display_name}"
+    lines = [
+        f"This is a test of the '{event.display_name}' ({event.event_type}) notification.",
+        "If you are reading this, the channel works.",
+    ]
+    if data.data:
+        lines.append("")
+        lines.extend(f"{key}: {value}" for key, value in data.data.items())
+    message = "\n".join(lines)
+
+    # Bypasses maintenance mode and cooldown on purpose: the point is to
+    # exercise the transport. Goes to every target at every level.
+    sent_count, channels_sent = await _deliver_to_targets(
+        NotificationSender(db), event.targets, title, message,
+        _priority_for_severity(event.severity), event.event_type,
+    )
+
     history = SystemNotificationHistory(
         event_type=data.event_type,
         event_id=event.id,
         target_id=data.target_id,
         target_label=f"Test: {data.target_id}" if data.target_id else "Test notification",
         severity=event.severity,
-        event_data=data.data or {"test": True},
-        channels_sent=[{"type": t.target_type, "id": t.channel_id or t.group_id} for t in event.targets],
+        event_data={**(data.data or {}), "test": True},
+        channels_sent=channels_sent,
         escalation_level=1,
-        status="sent",
-        triggered_at=datetime.now(UTC),
-        sent_at=datetime.now(UTC),
+        status="sent" if sent_count > 0 else "failed",
+        triggered_at=now,
+        sent_at=now if sent_count > 0 else None,
     )
     db.add(history)
     await db.commit()
 
-    logger.info(f"Test notification triggered for event '{data.event_type}'")
+    if sent_count == 0:
+        logger.warning(f"Test notification for '{data.event_type}' failed on all {len(event.targets)} target(s)")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Test notification for '{event.display_name}' could not be delivered to any of its "
+                   f"{len(event.targets)} target(s). Check the channel configuration and the API logs.",
+        )
 
+    logger.info(f"Test notification for '{data.event_type}' delivered to {sent_count} channel(s)")
     return SuccessResponse(
-        message=f"Test notification for '{event.display_name}' sent to {len(event.targets)} target(s)"
+        message=f"Test notification for '{event.display_name}' delivered to {sent_count} channel(s)"
     )

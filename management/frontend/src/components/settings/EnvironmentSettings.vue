@@ -69,15 +69,25 @@ const progressModal = ref({
   show: false,
   type: 'backup', // 'backup' or 'verify'
   backupId: null,
+  job: null, // background job being polled (progress comes from it while set)
   status: 'running' // 'running', 'success', 'failed'
 })
 
 // Get progress data for the active operation from backup store
 const activeBackupProgress = computed(() => {
+  const job = progressModal.value.job
+  if (job) return { progress: job.progress || 0, progress_message: job.message || '' }
   if (!progressModal.value.backupId) return { progress: 0, progress_message: '' }
   const backup = backupStore.backups.find(b => b.id === progressModal.value.backupId)
   return backup || { progress: 0, progress_message: '' }
 })
+
+// Message from an API / background-job error (detail may be a result object)
+function errorDetail(error) {
+  const detail = error?.response?.data?.detail
+  if (detail && typeof detail === 'object') return detail.error || detail.message || 'Unknown error'
+  return detail || error?.message || 'Unknown error'
+}
 
 // State
 const loading = ref(true)
@@ -598,13 +608,22 @@ async function runFullBackup() {
     show: true,
     type: 'backup',
     backupId: null,
+    job: null,
     status: 'running'
+  }
+
+  // Called on every poll of the background job
+  const onJobUpdate = (job) => {
+    progressModal.value.job = job
+    if (job.backup_id) progressModal.value.backupId = job.backup_id
   }
 
   try {
     // Use the backup store - same as BackupsView
     // Always skip backend auto-verification for manual backups
-    const result = await backupStore.triggerBackup(true)
+    // Runs as a background job; resolves when the backup has finished
+    const result = await backupStore.triggerBackup(true, onJobUpdate)
+    progressModal.value.job = null
 
     // Set the backup ID so we can track progress
     if (result && result.backup_id) {
@@ -624,12 +643,15 @@ async function runFullBackup() {
       // Switch to verify mode
       progressModal.value.type = 'verify'
       progressModal.value.status = 'running'
+      progressModal.value.job = null
 
       // Start polling for progress updates
       pollForProgress()
 
       // Call the verification API
-      const verifyResult = await backupStore.verifyBackup(progressModal.value.backupId)
+      const verifyResult = await backupStore.verifyBackup(
+        progressModal.value.backupId, {}, (job) => { progressModal.value.job = job }
+      )
 
       // Update modal status based on result
       if (verifyResult.overall_status === 'passed') {
@@ -653,7 +675,8 @@ async function runFullBackup() {
     }
   } catch (error) {
     progressModal.value.status = 'failed'
-    notificationStore.error('Failed to start backup: ' + (error.message || 'Unknown error'))
+    const what = progressModal.value.type === 'verify' ? 'Verification' : 'Backup'
+    notificationStore.error(`${what} failed: ${errorDetail(error)}`)
   } finally {
     downloadingFullBackup.value = false
   }

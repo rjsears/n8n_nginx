@@ -4,8 +4,9 @@
 # Linting and formatting
 ruff>=0.3.0
 
-# Testing (for future use)
+# Testing (run in CI: cd management && pytest)
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 pytest-cov>=4.1.0
+aiosqlite>=0.19.0  # in-memory SQLite engine used by tests/conftest.py
 httpx>=0.26.0  # Already in requirements.txt, listed for test client usage

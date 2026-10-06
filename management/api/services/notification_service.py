@@ -15,28 +15,92 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, UTC
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import logging
+from contextlib import asynccontextmanager
 import asyncio
+import functools
 import re
+import weakref
 
 from api.models.notifications import (
     NotificationService as NotificationServiceModel,
-    NotificationRule,
     NotificationHistory,
-    NotificationBatch,
     NotificationGroup,
     NotificationGroupMembership,
     generate_slug,
 )
-from api.schemas.notifications import NotificationEventType
 from api.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Upper bound for one delivery to one channel (connect + send). The SMTP
+# socket timeout (email_service.SMTP_TIMEOUT_SECONDS) applies per operation
+# within this.
+SEND_TIMEOUT_SECONDS = 45.0
+
+# How long dispatch_notification() waits for delivery before returning to its
+# caller. Delivery continues in the background after that; callers (backups,
+# the health job, container actions) are never held longer than this.
+DISPATCH_WAIT_SECONDS = 5.0
+
+# Most background dispatches allowed to be waiting at once. Past this the
+# oldest waiting non-critical one is dropped (and logged) to make room.
+MAX_PENDING_DISPATCHES = 200
+
+
+class UnsupportedServiceType(ValueError):
+    """A channel whose service_type has no transport."""
+
+    def __init__(self, service_type: str):
+        super().__init__(f"Unsupported service type: {service_type}")
+        self.service_type = service_type
+
 
 class NotificationDispatcher:
     """Handles sending notifications via various services."""
+
+    async def send(
+        self,
+        service: "NotificationServiceModel",
+        title: str,
+        body: str,
+        priority: str = "normal",
+        event_data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Deliver one message to one channel, choosing the transport from
+        ``service.service_type``. The single place that knows which types
+        exist; every sender goes through here.
+
+        Webhook channels receive ``event_data`` (with the priority added) as
+        their payload; the other transports take the priority directly.
+        Raises UnsupportedServiceType for an unknown type.
+        """
+        service_type = service.service_type
+        if service_type == "webhook":
+            payload = dict(event_data or {})
+            payload.setdefault("priority", priority)
+            send = self.send_webhook(service.config, title, body, payload)
+        else:
+            transports = {
+                "apprise": self.send_apprise,
+                "ntfy": self.send_ntfy,
+                "email": self.send_email,
+            }
+            transport = transports.get(service_type)
+            if transport is None:
+                raise UnsupportedServiceType(service_type)
+            send = transport(service.config, title, body, priority)
+
+        # One slow or hung transport must not hold up the others (or the
+        # caller): every send is bounded, whatever the transport does.
+        try:
+            return await asyncio.wait_for(send, timeout=SEND_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"{service_type} send to '{getattr(service, 'name', '?')}' timed out after {SEND_TIMEOUT_SECONDS:g}s"
+            ) from None
 
     async def send_apprise(self, config: Dict[str, Any], title: str, body: str, priority: str) -> bool:
         """Send notification via Apprise."""
@@ -91,8 +155,15 @@ class NotificationDispatcher:
                 "Content-Type": "application/json",
             }
 
-            if config.get("token"):
-                headers["Authorization"] = f"Bearer {config['token']}"
+            token = config.get("token")
+            if not token:
+                # Channels on the self-hosted server use the installer's
+                # publisher token (the server denies anonymous access).
+                from api.services.ntfy_service import get_ntfy_token, ntfy_service
+                if ntfy_service.is_own_server(server):
+                    token = get_ntfy_token()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
 
             # Build JSON payload - this properly handles UTF-8 encoding
             payload = {
@@ -166,7 +237,7 @@ class NotificationDispatcher:
     async def send_email(self, config: Dict[str, Any], title: str, body: str, priority: str) -> bool:
         """Send notification via SMTP email using red-mail."""
         try:
-            from redmail import EmailSender
+            from api.services.email_service import build_email_sender
 
             smtp_server = config.get("smtp_server", "localhost")
             smtp_port = config.get("smtp_port", 587)
@@ -174,6 +245,8 @@ class NotificationDispatcher:
             smtp_password = config.get("smtp_password", "")
             use_tls = config.get("use_tls", True)
             use_starttls = config.get("use_starttls", True)
+            # SMTPS (implicit TLS): explicit "use_ssl", or port 465 by default
+            use_ssl = config.get("use_ssl")
             from_email = config.get("from_email", smtp_user or f"n8n@{smtp_server}")
             to_emails = config.get("to_emails", [])
 
@@ -183,33 +256,18 @@ class NotificationDispatcher:
             if not to_emails:
                 raise ValueError("No recipient email addresses configured")
 
-            # Determine if this is Gmail relay (no auth needed with IP whitelist)
+            # Gmail relay with IP whitelisting needs no auth; otherwise log in
+            # only when both a user and a password are configured.
             is_gmail_relay = "gmail" in smtp_server.lower() and not smtp_user
-
-            # Create email sender with appropriate configuration
-            if is_gmail_relay:
-                # Gmail relay with IP whitelisting - no auth needed
-                email = EmailSender(
-                    host=smtp_server,
-                    port=smtp_port,
-                    use_starttls=use_starttls,
-                )
-            elif smtp_user and smtp_password:
-                # Authenticated SMTP
-                email = EmailSender(
-                    host=smtp_server,
-                    port=smtp_port,
-                    username=smtp_user,
-                    password=smtp_password,
-                    use_starttls=use_starttls if use_tls else False,
-                )
-            else:
-                # Unauthenticated SMTP (internal mail servers)
-                email = EmailSender(
-                    host=smtp_server,
-                    port=smtp_port,
-                    use_starttls=use_starttls if use_tls else False,
-                )
+            authenticated = not is_gmail_relay and bool(smtp_user and smtp_password)
+            email = build_email_sender(
+                smtp_server,
+                smtp_port,
+                username=smtp_user if authenticated else None,
+                password=smtp_password if authenticated else None,
+                use_starttls=use_starttls if (use_tls or is_gmail_relay) else False,
+                use_ssl=use_ssl,
+            )
 
             # Build HTML body with simple formatting
             html_body = f"""
@@ -337,6 +395,13 @@ class NotificationService:
         if not service:
             return None
 
+        # The client only ever sees a redacted config; masked or omitted
+        # secrets in what it sends back keep the stored values.
+        if updates.get("config") is not None:
+            from api.services.notification_secrets import merge_config_secrets
+
+            updates["config"] = merge_config_secrets(service.config, updates["config"], service.service_type)
+
         for key, value in updates.items():
             if value is not None and hasattr(service, key):
                 setattr(service, key, value)
@@ -362,16 +427,7 @@ class NotificationService:
 
         error_msg = None
         try:
-            if service.service_type == "apprise":
-                success = await self.dispatcher.send_apprise(service.config, title, message, "normal")
-            elif service.service_type == "ntfy":
-                success = await self.dispatcher.send_ntfy(service.config, title, message, "normal")
-            elif service.service_type == "webhook":
-                success = await self.dispatcher.send_webhook(service.config, title, message, {})
-            elif service.service_type == "email":
-                success = await self.dispatcher.send_email(service.config, title, message, "normal")
-            else:
-                return {"success": False, "error": f"Unsupported service type: {service.service_type}"}
+            success = await self.dispatcher.send(service, title, message, "normal", {"source": "service.test"})
 
             # Update test status
             service.last_test = datetime.now(UTC)
@@ -379,6 +435,9 @@ class NotificationService:
             service.last_test_error = None if success else "Send returned false"
             if not success:
                 error_msg = "Send returned false"
+
+        except UnsupportedServiceType as e:
+            return {"success": False, "error": str(e)}
 
         except Exception as e:
             success = False
@@ -714,21 +773,41 @@ class NotificationService:
                 "errors": errors if errors else ["No channels matched the specified targets"],
             }
 
+        # The same gate system events pass through. There is no event row for
+        # a workflow message, so only the global dials apply: maintenance,
+        # blackout, quiet hours (priority), hourly rate limit.
+        from api.services.notification_gate import evaluate, get_global_settings, record_delivery
+
+        now = datetime.now(UTC)
+        global_settings = await get_global_settings(self.db)
+        decision = evaluate(global_settings=global_settings, priority=priority, now=now)
+        if not decision.allow:
+            logger.info(f"Webhook notification '{title}' suppressed: {decision.reason}")
+            self.db.add(NotificationHistory(
+                event_type="webhook.notification",
+                event_data={"title": title, "message": message[:500], "priority": priority, "targets": targets},
+                severity=priority,
+                status="suppressed",
+                error_message=f"suppressed: {decision.reason}",
+            ))
+            await self.db.commit()
+            return {
+                "success": False,
+                "channels_notified": 0,
+                "channels": [],
+                "targets_resolved": targets_resolved,
+                "errors": [],
+                "suppressed": decision.reason,
+            }
+        priority = decision.priority
+
         channels_notified = []
 
         for service in services:
             try:
-                if service.service_type == "apprise":
-                    success = await self.dispatcher.send_apprise(service.config, title, message, priority)
-                elif service.service_type == "ntfy":
-                    success = await self.dispatcher.send_ntfy(service.config, title, message, priority)
-                elif service.service_type == "webhook":
-                    success = await self.dispatcher.send_webhook(service.config, title, message, {"source": "n8n_webhook", "targets": targets})
-                elif service.service_type == "email":
-                    success = await self.dispatcher.send_email(service.config, title, message, priority)
-                else:
-                    success = False
-                    errors.append(f"{service.name}: Unsupported service type")
+                success = await self.dispatcher.send(
+                    service, title, message, priority, {"source": "n8n_webhook", "targets": targets}
+                )
 
                 if success:
                     channels_notified.append(service.name)
@@ -747,6 +826,9 @@ class NotificationService:
                 else:
                     errors.append(f"{service.name}: Send returned false")
 
+            except UnsupportedServiceType:
+                errors.append(f"{service.name}: Unsupported service type")
+
             except Exception as e:
                 logger.error(f"Webhook notification failed for {service.name}: {e}")
                 errors.append(f"{service.name}: {str(e)}")
@@ -763,6 +845,9 @@ class NotificationService:
                 )
                 self.db.add(history)
 
+        if channels_notified:
+            record_delivery(global_settings, now)
+
         await self.db.commit()
 
         return {
@@ -772,189 +857,6 @@ class NotificationService:
             "targets_resolved": targets_resolved,
             "errors": errors,
         }
-
-    # Rule management
-
-    async def get_rules(self, event_type: Optional[str] = None) -> List[NotificationRule]:
-        """Get notification rules, optionally filtered by event type."""
-        query = select(NotificationRule).order_by(NotificationRule.sort_order)
-        if event_type:
-            query = query.where(NotificationRule.event_type == event_type)
-
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
-
-    async def get_rule(self, rule_id: int) -> Optional[NotificationRule]:
-        """Get notification rule by ID."""
-        result = await self.db.execute(
-            select(NotificationRule).where(NotificationRule.id == rule_id)
-        )
-        return result.scalar_one_or_none()
-
-    async def create_rule(self, **kwargs) -> NotificationRule:
-        """Create a notification rule."""
-        rule = NotificationRule(**kwargs)
-        self.db.add(rule)
-        await self.db.commit()
-        await self.db.refresh(rule)
-        return rule
-
-    async def update_rule(self, rule_id: int, **updates) -> Optional[NotificationRule]:
-        """Update a notification rule."""
-        rule = await self.get_rule(rule_id)
-        if not rule:
-            return None
-
-        for key, value in updates.items():
-            if value is not None and hasattr(rule, key):
-                setattr(rule, key, value)
-
-        rule.updated_at = datetime.now(UTC)
-        await self.db.commit()
-        await self.db.refresh(rule)
-        return rule
-
-    async def delete_rule(self, rule_id: int) -> bool:
-        """Delete a notification rule."""
-        result = await self.db.execute(
-            delete(NotificationRule).where(NotificationRule.id == rule_id)
-        )
-        await self.db.commit()
-        return result.rowcount > 0
-
-    # Event dispatching
-
-    async def dispatch(
-        self,
-        event_type: str,
-        event_data: Dict[str, Any],
-        severity: str = "info",
-    ) -> List[int]:
-        """
-        Dispatch notification for an event.
-        Returns list of notification history IDs.
-        """
-        history_ids = []
-
-        # Get matching rules
-        rules = await self.get_rules(event_type)
-        enabled_rules = [r for r in rules if r.enabled]
-
-        for rule in enabled_rules:
-            # Check cooldown
-            if rule.cooldown_minutes > 0 and rule.last_triggered:
-                cooldown_until = rule.last_triggered + timedelta(minutes=rule.cooldown_minutes)
-                if datetime.now(UTC) < cooldown_until:
-                    logger.debug(f"Rule {rule.id} in cooldown, skipping")
-                    continue
-
-            # Get service
-            service = await self.get_service(rule.service_id)
-            if not service or not service.enabled:
-                continue
-
-            # Build message
-            title = rule.custom_title or self._get_default_title(event_type)
-            body = rule.custom_message or self._get_default_message(event_type, event_data)
-
-            if rule.include_details:
-                body += self._format_event_details(event_data)
-
-            # Send notification
-            history_id = await self._send_and_log(
-                service=service,
-                rule=rule,
-                event_type=event_type,
-                event_data=event_data,
-                severity=severity,
-                title=title,
-                body=body,
-            )
-            history_ids.append(history_id)
-
-            # Update rule last triggered
-            rule.last_triggered = datetime.now(UTC)
-            await self.db.commit()
-
-        return history_ids
-
-    async def _send_and_log(
-        self,
-        service: NotificationServiceModel,
-        rule: NotificationRule,
-        event_type: str,
-        event_data: Dict[str, Any],
-        severity: str,
-        title: str,
-        body: str,
-    ) -> int:
-        """Send notification and log to history."""
-        history = NotificationHistory(
-            event_type=event_type,
-            event_data=event_data,
-            severity=severity,
-            service_id=service.id,
-            service_name=service.name,
-            rule_id=rule.id,
-            status="pending",
-        )
-        self.db.add(history)
-        await self.db.commit()
-        await self.db.refresh(history)
-
-        try:
-            if service.service_type == "apprise":
-                success = await self.dispatcher.send_apprise(service.config, title, body, rule.priority)
-            elif service.service_type == "ntfy":
-                success = await self.dispatcher.send_ntfy(service.config, title, body, rule.priority)
-            elif service.service_type == "webhook":
-                success = await self.dispatcher.send_webhook(service.config, title, body, event_data)
-            elif service.service_type == "email":
-                success = await self.dispatcher.send_email(service.config, title, body, rule.priority)
-            else:
-                success = False
-
-            history.status = "sent" if success else "failed"
-            history.sent_at = datetime.now(UTC)
-
-        except Exception as e:
-            history.status = "failed"
-            history.error_message = str(e)
-            logger.error(f"Notification failed: {e}")
-
-        await self.db.commit()
-        return history.id
-
-    def _get_default_title(self, event_type: str) -> str:
-        """Get default title for event type."""
-        titles = {
-            "backup.success": "Backup Completed Successfully",
-            "backup.failed": "Backup Failed",
-            "backup.started": "Backup Started",
-            "verification.started": "Backup Verification Started",
-            "verification.passed": "Backup Verification Passed",
-            "verification.failed": "Backup Verification Failed",
-            "container.unhealthy": "Container Unhealthy",
-            "container.stopped": "Container Stopped",
-            "system.disk_warning": "Disk Space Warning",
-            "system.disk_critical": "Disk Space Critical",
-        }
-        return titles.get(event_type, f"n8n Alert: {event_type}")
-
-    def _get_default_message(self, event_type: str, event_data: Dict[str, Any]) -> str:
-        """Get default message for event type."""
-        return f"Event: {event_type}"
-
-    def _format_event_details(self, event_data: Dict[str, Any]) -> str:
-        """Format event data as readable text."""
-        if not event_data:
-            return ""
-
-        lines = ["\n\nDetails:"]
-        for key, value in event_data.items():
-            lines.append(f"  {key}: {value}")
-
-        return "\n".join(lines)
 
     # Direct send methods (for system notifications)
 
@@ -974,18 +876,13 @@ class NotificationService:
             return {"success": False, "error": "Service is disabled"}
 
         try:
-            if service.service_type == "apprise":
-                success = await self.dispatcher.send_apprise(service.config, title, message, priority)
-            elif service.service_type == "ntfy":
-                success = await self.dispatcher.send_ntfy(service.config, title, message, priority)
-            elif service.service_type == "webhook":
-                success = await self.dispatcher.send_webhook(service.config, title, message, {})
-            elif service.service_type == "email":
-                success = await self.dispatcher.send_email(service.config, title, message, priority)
-            else:
-                return {"success": False, "error": f"Unsupported service type: {service.service_type}"}
-
+            success = await self.dispatcher.send(
+                service, title, message, priority, {"source": "system_notification"}
+            )
             return {"success": success}
+
+        except UnsupportedServiceType as e:
+            return {"success": False, "error": str(e)}
 
         except Exception as e:
             logger.error(f"Failed to send to service {service_id}: {e}")
@@ -1049,43 +946,309 @@ class NotificationService:
 
 
 # Global dispatcher for use outside of request context
+SEVERITY_PRIORITY = {
+    "info": "normal",
+    "warning": "high",
+    "critical": "critical",
+    "error": "critical",
+}
+
+
+def _priority_for_severity(severity: str) -> str:
+    """Map an event severity to a transport priority."""
+    return SEVERITY_PRIORITY.get(severity, "normal")
+
+
+def _suppressed_history(event, event_data: Dict[str, Any], target_id: str, reason: str, now: datetime):
+    """
+    A history row for a notification that was gated. Every suppression must
+    leave one of these so the dashboard can say why nothing arrived.
+    """
+    from api.models.system_notifications import SystemNotificationHistory
+
+    return SystemNotificationHistory(
+        event_type=event.event_type,
+        event_id=event.id,
+        target_id=target_id,
+        target_label=event_data.get("container") or event.event_type,
+        severity=event.severity,
+        event_data=event_data,
+        status="suppressed",
+        suppression_reason=reason,
+        triggered_at=now,
+    )
+
+
+async def _deliver_to_targets(
+    notification_service: "NotificationService",
+    targets,
+    title: str,
+    message: str,
+    priority: str,
+    event_type: str,
+    level: Optional[int] = None,
+) -> tuple[int, List[Dict[str, Any]]]:
+    """
+    Send one message to a list of SystemNotificationTarget rows.
+
+    Returns (sent_count, channels_sent). ``level`` labels the entries in
+    channels_sent; when None, each target's own escalation_level is used.
+    Used by dispatch_notification for L1 and L2, and by the test endpoint.
+    """
+    sent_count = 0
+    channels_sent: List[Dict[str, Any]] = []
+
+    for target in targets:
+        target_level = level or target.escalation_level or 1
+        try:
+            if target.target_type == "channel" and target.channel_id:
+                result = await notification_service.send_to_service(
+                    target.channel_id, title, message, priority
+                )
+                if result.get("success"):
+                    sent_count += 1
+                    channels_sent.append({"type": "channel", "id": target.channel_id, "level": target_level})
+                    logger.info(f"Sent '{event_type}' notification to L{target_level} channel {target.channel_id}")
+                else:
+                    logger.error(
+                        f"Failed to send '{event_type}' to channel {target.channel_id}: {result.get('error')}"
+                    )
+
+            elif target.target_type == "group" and target.group_id:
+                result = await notification_service.send_to_group(
+                    target.group_id, title, message, priority
+                )
+                if result.get("success"):
+                    sent_count += result.get("sent_count", 1)
+                    channels_sent.append({"type": "group", "id": target.group_id, "level": target_level})
+                    logger.info(f"Sent '{event_type}' notification to L{target_level} group {target.group_id}")
+                else:
+                    logger.error(
+                        f"Failed to send '{event_type}' to group {target.group_id}: {result.get('error')}"
+                    )
+
+        except Exception as e:
+            logger.error(f"Error sending '{event_type}' to L{target_level} target {target.id}: {e}")
+
+    return sent_count, channels_sent
+
+
+# Background dispatches that are still running. Holding the references keeps
+# the tasks from being garbage collected mid-send; drain_notifications() waits
+# for them at shutdown.
+_pending_dispatches: "set[asyncio.Task]" = set()
+# What each pending task is for, for the queue bound and the shutdown log.
+_dispatch_info: "Dict[asyncio.Task, Tuple[str, str]]" = {}
+# Tasks that are still waiting for their lock (not yet sending), oldest first.
+_waiting_dispatches: "Dict[asyncio.Task, None]" = {}
+# Severity of each event type as last read from the registry; used to decide
+# what may be dropped when the queue is full (unknown counts as critical).
+_event_severity: Dict[str, str] = {}
+# One lock per (event_type, target_id) per event loop: occurrences of the same
+# alert run one at a time, in the order they were raised, so they cannot race
+# on the same throttle-state row; different alerts do not wait for each other,
+# so a hung channel on one cannot delay the rest (a critical alert included).
+_dispatch_locks: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _dispatch_key(event_type: str, event_data: Dict[str, Any]) -> Tuple[str, str]:
+    """The (event_type, target_id) pair _dispatch_now throttles on."""
+    target = event_data.get("container") or event_data.get("container_name") or event_data.get("target_id")
+    return event_type, str(target or "global")
+
+
+@asynccontextmanager
+async def _dispatch_lock(key: Tuple[str, str]):
+    loop = asyncio.get_running_loop()
+    locks = _dispatch_locks.get(loop)
+    if locks is None:
+        locks = _dispatch_locks[loop] = {}
+    entry = locks.get(key)
+    if entry is None:
+        entry = locks[key] = [asyncio.Lock(), 0]
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] == 0:
+            locks.pop(key, None)
+
+
+def _is_critical(event_type: str) -> bool:
+    return _event_severity.get(event_type, "critical") == "critical"
+
+
+def _make_room(new_event_type: str) -> bool:
+    """
+    Enforce MAX_PENDING_DISPATCHES before queueing ``new_event_type``.
+    Drops the oldest waiting non-critical dispatch; if there is none and the
+    new one is not critical either, returns False (drop the new one).
+    """
+    if len(_pending_dispatches) < MAX_PENDING_DISPATCHES:
+        return True
+    for task in list(_waiting_dispatches):
+        event_type, target = _dispatch_info.get(task, ("?", "?"))
+        if not task.done() and not _is_critical(event_type):
+            logger.error(
+                f"Notification queue full ({len(_pending_dispatches)} pending): dropping '{event_type}' "
+                f"for '{target}' to make room"
+            )
+            _forget_dispatch(task)
+            task.cancel()
+            return True
+    if _is_critical(new_event_type):
+        return True
+    logger.error(
+        f"Notification queue full ({len(_pending_dispatches)} pending, nothing droppable): "
+        f"dropping new '{new_event_type}'"
+    )
+    return False
+
+
+def _forget_dispatch(task: asyncio.Task) -> None:
+    _pending_dispatches.discard(task)
+    _waiting_dispatches.pop(task, None)
+    _dispatch_info.pop(task, None)
+
+
+def _is_database_unavailable(error: BaseException) -> bool:
+    """True for errors that mean the management database cannot be reached."""
+    from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+    if isinstance(error, (OperationalError, InterfaceError, ConnectionError, OSError, asyncio.TimeoutError)):
+        return True
+    return isinstance(error, DBAPIError) and bool(getattr(error, "connection_invalidated", False))
+
+
+async def _dispatch_guarded(event_type: str, event_data: Dict[str, Any]) -> None:
+    """Run one dispatch; log every failure and hand it to the fallback URL. Never raises."""
+    try:
+        async with _dispatch_lock(_dispatch_key(event_type, event_data)):
+            task = asyncio.current_task()
+            if task is not None:
+                _waiting_dispatches.pop(task, None)
+            await _dispatch_now(event_type, event_data)
+    except asyncio.CancelledError:
+        logger.error(f"Notification '{event_type}' was cancelled before it was delivered")
+        raise
+    except Exception as e:
+        if _is_database_unavailable(e):
+            logger.error(
+                f"Notification '{event_type}' NOT delivered: the management database is unreachable "
+                f"({type(e).__name__}: {e}). Channels are stored in the database; "
+                "set ALERT_FALLBACK_URL and HEARTBEAT_URL to be alerted during database outages."
+            )
+        else:
+            logger.exception(f"Notification '{event_type}' could not be dispatched: {e}")
+        try:
+            from api.services.external_alerts import notify_dispatch_failure
+
+            await notify_dispatch_failure(event_type, event_data, e)
+        except Exception as fallback_error:  # pragma: no cover - defensive
+            logger.error(f"Fallback alert for '{event_type}' failed: {fallback_error}")
+
+
 async def dispatch_notification(
     event_type: str,
     event_data: Dict[str, Any],
-    severity: str = "info",
+    *,
+    wait: Optional[float] = None,
+) -> None:
+    """
+    Raise a system notification event. Never raises and never blocks its
+    caller for more than ``wait`` seconds (default DISPATCH_WAIT_SECONDS).
+
+    The dispatch runs as a tracked background task. The caller waits for it
+    up to ``wait`` seconds so that, normally, the notification is delivered
+    and recorded by the time this returns; a slow channel, a hung SMTP
+    server or an unreachable database only cost the caller that long, and
+    delivery carries on in the background. Pass ``wait=0`` to return at once.
+
+    A notification error can therefore never change the outcome of a backup,
+    a health check or a container action. Failures are logged; when the
+    database itself is unreachable the alert goes to ALERT_FALLBACK_URL
+    (see api.services.external_alerts).
+    """
+    event_data = dict(event_data or {})
+    if not _make_room(event_type):
+        return
+    try:
+        task = asyncio.get_running_loop().create_task(
+            _dispatch_guarded(event_type, event_data),
+            name=f"notify:{event_type}",
+        )
+    except Exception as e:  # pragma: no cover - no running loop
+        logger.error(f"Could not schedule notification '{event_type}': {e}")
+        return
+    _pending_dispatches.add(task)
+    _waiting_dispatches[task] = None
+    _dispatch_info[task] = _dispatch_key(event_type, event_data)
+    task.add_done_callback(_forget_dispatch)
+
+    timeout = DISPATCH_WAIT_SECONDS if wait is None else wait
+    if timeout and timeout > 0:
+        done, _ = await asyncio.wait({task}, timeout=timeout)
+        if not done:
+            logger.warning(
+                f"Notification '{event_type}' still sending after {timeout:g}s; continuing in the background"
+            )
+
+
+async def drain_notifications(timeout: float = 10.0) -> int:
+    """
+    Wait up to ``timeout`` seconds for background dispatches to finish
+    (used at shutdown). Returns how many were still running afterwards.
+    """
+    pending = {t for t in _pending_dispatches if not t.done()}
+    if not pending:
+        return 0
+    _, still_running = await asyncio.wait(pending, timeout=timeout)
+    if still_running:
+        logger.error(
+            f"{len(still_running)} notification(s) not delivered before shutdown and will be lost"
+        )
+        for task in still_running:
+            event_type, target = _dispatch_info.get(task, (task.get_name(), "?"))
+            state = "still sending" if task not in _waiting_dispatches else "never started"
+            logger.error(f"Lost at shutdown: '{event_type}' for '{target}' ({state})")
+    return len(still_running)
+
+
+async def _dispatch_now(
+    event_type: str,
+    event_data: Dict[str, Any],
 ) -> None:
     """
     Dispatch notification using System Notifications configuration.
+
+    Severity (and therefore transport priority) comes from the event row,
+    which is what the Settings page shows and lets you change. Callers do
+    not pass one.
 
     This looks up the event in SystemNotificationEvent and sends to all
     configured targets (channels/groups) in SystemNotificationTarget.
 
     Features:
     - Per-container configuration checking
-    - Cooldown enforcement
-    - L1/L2 escalation support
-    - History logging
+    - The shared gate (api.services.notification_gate): maintenance mode,
+      blackout window, frequency/cooldown, quiet hours, hourly rate limit
+    - L1/L2 escalation (L2 fires when L1 fails to deliver or the event is critical)
+    - History logging, including a row for every suppression naming the reason
     """
     from api.database import async_session_maker
     from api.models.system_notifications import (
         SystemNotificationEvent,
         SystemNotificationTarget,
-        SystemNotificationGlobalSettings,
         SystemNotificationContainerConfig,
         SystemNotificationState,
         SystemNotificationHistory,
     )
+    from api.services.notification_gate import evaluate, get_global_settings, record_delivery
 
     async with async_session_maker() as db:
-        # Check global settings for maintenance mode
-        settings_result = await db.execute(
-            select(SystemNotificationGlobalSettings).limit(1)
-        )
-        global_settings = settings_result.scalar_one_or_none()
-
-        if global_settings and global_settings.maintenance_mode:
-            logger.debug(f"Notifications suppressed - maintenance mode active")
-            return
+        now = datetime.now(UTC)
 
         # For container events, check per-container configuration
         container_name = event_data.get("container") or event_data.get("container_name")
@@ -1108,7 +1271,6 @@ async def dispatch_notification(
                     "container_stopped": container_config.monitor_stopped,
                     "container_unhealthy": container_config.monitor_unhealthy,
                     "container_restart": container_config.monitor_restart,
-                    "container_restarted": container_config.monitor_restart,
                     "container_high_cpu": container_config.monitor_high_cpu,
                     "container_high_memory": container_config.monitor_high_memory,
                 }
@@ -1129,12 +1291,15 @@ async def dispatch_notification(
             logger.debug(f"No SystemNotificationEvent found for event_type: {event_type}")
             return
 
+        _event_severity[event_type] = event.severity or "info"
+
         if not event.enabled:
             logger.debug(f"SystemNotificationEvent '{event_type}' is disabled")
             return
 
-        # Check cooldown
         target_id = container_name or event_data.get("target_id") or "global"
+
+        # Per-(event, target) throttle state
         state_result = await db.execute(
             select(SystemNotificationState).where(
                 SystemNotificationState.event_type == event_type,
@@ -1143,28 +1308,24 @@ async def dispatch_notification(
         )
         state = state_result.scalar_one_or_none()
 
-        now = datetime.now(UTC)
-
-        if event.cooldown_minutes and event.cooldown_minutes > 0 and state and state.last_sent_at:
-            cooldown_until = state.last_sent_at + timedelta(minutes=event.cooldown_minutes)
-            if now < cooldown_until:
-                remaining = (cooldown_until - now).total_seconds() / 60
-                logger.debug(f"Event '{event_type}' in cooldown for {remaining:.1f} more minutes")
-                # Log suppressed notification
-                history = SystemNotificationHistory(
-                    event_type=event_type,
-                    event_id=event.id,
-                    target_id=target_id,
-                    target_label=event_data.get("container") or event_type,
-                    severity=event.severity,
-                    event_data=event_data,
-                    status="suppressed",
-                    suppression_reason=f"cooldown ({event.cooldown_minutes}min)",
-                    triggered_at=now,
-                )
-                db.add(history)
-                await db.commit()
-                return
+        # The gate: maintenance (with expiry), blackout, frequency/cooldown,
+        # quiet hours, hourly rate limit. Every suppression is recorded.
+        global_settings = await get_global_settings(db)
+        decision = evaluate(
+            global_settings=global_settings,
+            event=event,
+            state=state,
+            priority=_priority_for_severity(event.severity),
+            now=now,
+        )
+        if not decision.allow:
+            logger.debug(f"Event '{event_type}' suppressed: {decision.reason}")
+            db.add(_suppressed_history(event, event_data, target_id, decision.reason, now))
+            await db.commit()
+            return
+        priority = decision.priority
+        for note in decision.notes:
+            logger.debug(f"Event '{event_type}': {note}")
 
         # Get L1 targets for this event (immediate delivery)
         targets_result = await db.execute(
@@ -1186,116 +1347,55 @@ async def dispatch_notification(
 
         if not l1_targets and not l2_targets:
             logger.debug(f"No targets configured for event '{event_type}'")
+            await db.commit()  # keep any maintenance expiry / rate window roll
             return
 
         # Build notification title and message
         title = f"{event.display_name}"
         message = _build_notification_message(event_type, event_data)
 
-        # Map severity to priority
-        priority_map = {
-            "info": "normal",
-            "warning": "high",
-            "critical": "critical",
-            "error": "critical",
-        }
-        priority = priority_map.get(event.severity, "normal")
-
-        # Create notification service instance
         notification_service = NotificationService(db)
 
-        sent_count = 0
-        channels_sent = []
-
         # Send to L1 targets immediately
-        for target in l1_targets:
-            try:
-                if target.target_type == "channel" and target.channel_id:
-                    result = await notification_service.send_to_service(
-                        target.channel_id, title, message, priority
-                    )
-                    if result.get("success"):
-                        sent_count += 1
-                        channels_sent.append({"type": "channel", "id": target.channel_id, "level": 1})
-                        logger.info(f"Sent '{event_type}' notification to L1 channel {target.channel_id}")
-                    else:
-                        logger.error(f"Failed to send to channel {target.channel_id}: {result.get('error')}")
+        sent_count, channels_sent = await _deliver_to_targets(
+            notification_service, l1_targets, title, message, priority, event_type, level=1
+        )
 
-                elif target.target_type == "group" and target.group_id:
-                    result = await notification_service.send_to_group(
-                        target.group_id, title, message, priority
-                    )
-                    if result.get("success"):
-                        sent_count += result.get("sent_count", 1)
-                        channels_sent.append({"type": "group", "id": target.group_id, "level": 1})
-                        logger.info(f"Sent '{event_type}' notification to L1 group {target.group_id}")
-                    else:
-                        logger.error(f"Failed to send to group {target.group_id}: {result.get('error')}")
-
-            except Exception as e:
-                logger.error(f"Error sending notification to L1 target {target.id}: {e}")
-
-        # Handle L2 escalation
-        if l2_targets:
-            # For critical events or L1 failures, send L2 immediately
-            if event.severity == "critical" or sent_count == 0:
-                for target in l2_targets:
-                    try:
-                        if target.target_type == "channel" and target.channel_id:
-                            escalation_title = f"[ESCALATED] {title}"
-                            result = await notification_service.send_to_service(
-                                target.channel_id, escalation_title, message, "critical"
-                            )
-                            if result.get("success"):
-                                sent_count += 1
-                                channels_sent.append({"type": "channel", "id": target.channel_id, "level": 2})
-                                logger.info(f"Sent '{event_type}' escalation to L2 channel {target.channel_id}")
-
-                        elif target.target_type == "group" and target.group_id:
-                            escalation_title = f"[ESCALATED] {title}"
-                            result = await notification_service.send_to_group(
-                                target.group_id, escalation_title, message, "critical"
-                            )
-                            if result.get("success"):
-                                sent_count += result.get("sent_count", 1)
-                                channels_sent.append({"type": "group", "id": target.group_id, "level": 2})
-                                logger.info(f"Sent '{event_type}' escalation to L2 group {target.group_id}")
-
-                    except Exception as e:
-                        logger.error(f"Error sending notification to L2 target {target.id}: {e}")
-
-                # Mark escalation as sent immediately
-                if state:
-                    state.escalation_sent = True
-                    state.escalation_triggered_at = now
-            else:
-                # Schedule L2 escalation for later (time-delayed)
-                # Get timeout from first L2 target or use event default
-                timeout_minutes = l2_targets[0].escalation_timeout_minutes or event.escalation_timeout_minutes or 30
-                try:
-                    from api.tasks.scheduler import schedule_l2_escalation
-                    await schedule_l2_escalation(
-                        event_type=event_type,
-                        event_data=event_data,
-                        event_id=event.id,
-                        target_id=target_id,
-                        timeout_minutes=timeout_minutes,
-                    )
-                    logger.info(f"L2 escalation scheduled for '{event_type}' in {timeout_minutes} minutes")
-                except Exception as e:
-                    logger.error(f"Failed to schedule L2 escalation: {e}")
-
-        # Update state for cooldown tracking
-        if state:
-            state.last_sent_at = now
-            state.updated_at = now
-        else:
-            state = SystemNotificationState(
-                event_type=event_type,
-                target_id=target_id,
-                last_sent_at=now,
-            )
+        # Every occurrence starts a fresh escalation cycle. (Previously the
+        # flag was never cleared, so a pair that had escalated once could
+        # never escalate again.)
+        if not state:
+            state = SystemNotificationState(event_type=event_type, target_id=target_id)
             db.add(state)
+        state.escalation_sent = False
+        state.escalation_triggered_at = None
+
+        # L2 escalation: only when enabled on the event, and only when L1 could
+        # not deliver or the event is critical. There is no time-delayed
+        # escalation: the product has no acknowledgement concept for a timeout
+        # to wait on, so a delayed L2 was just a duplicate.
+        if l2_targets and event.escalation_enabled:
+            if event.severity == "critical" or sent_count == 0:
+                l2_sent, l2_channels = await _deliver_to_targets(
+                    notification_service, l2_targets, f"[ESCALATED] {title}", message, "critical",
+                    event_type, level=2,
+                )
+                sent_count += l2_sent
+                channels_sent.extend(l2_channels)
+                state.escalation_sent = True
+                state.escalation_triggered_at = now
+        elif l2_targets:
+            logger.debug(f"L2 targets configured for '{event_type}' but escalation is disabled")
+
+        # Update state for the frequency/cooldown window and the hourly count.
+        # Only a delivered alert starts the cooldown (and opens an episode
+        # that check_container_recovery may close): if nothing got through,
+        # the next occurrence must try again rather than be suppressed.
+        # updated_at doubles as the last-attempt time.
+        state.updated_at = now
+        if sent_count > 0:
+            state.last_sent_at = now
+            record_delivery(global_settings, now)
 
         # Log to SystemNotificationHistory (for system notifications settings page)
         system_history = SystemNotificationHistory(
@@ -1306,7 +1406,7 @@ async def dispatch_notification(
             severity=event.severity,
             event_data=event_data,
             channels_sent=channels_sent,
-            escalation_level=2 if l2_targets and sent_count > len(l1_targets) else 1,
+            escalation_level=2 if state.escalation_sent else 1,
             status="sent" if sent_count > 0 else "failed",
             triggered_at=now,
             sent_at=now if sent_count > 0 else None,
@@ -1399,6 +1499,7 @@ async def dispatch_notification(
         logger.info(f"Dispatched '{event_type}' notification to {sent_count} channel(s)")
 
 
+@functools.lru_cache(maxsize=1)
 def _get_container_name() -> str:
     """
     Get the container name from Docker API instead of hostname (which returns container ID).
@@ -1591,11 +1692,13 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         return f"Host: {hostname}\n\nContainer '{container}' is unhealthy!\n\n{message}" if message else f"Host: {hostname}\n\nContainer '{container}' is unhealthy!\n\nPlease check the container health."
     elif event_type == "container_healthy":
         container = event_data.get("container") or event_data.get("container_name", "unknown")
-        return f"Host: {hostname}\n\nContainer '{container}' has recovered and is now healthy."
+        recovered_from = event_data.get("recovered_from")
+        detail = f" (was {recovered_from})" if recovered_from else ""
+        return f"Host: {hostname}\n\nContainer '{container}' has recovered and is now healthy{detail}."
     elif event_type == "container_stopped":
         container = event_data.get("container") or event_data.get("container_name", "unknown")
         return f"Host: {hostname}\n\nContainer '{container}' has stopped.\n\nThis may indicate an issue."
-    elif event_type in ("container_restart", "container_restarted"):
+    elif event_type == "container_restart":
         container = event_data.get("container") or event_data.get("container_name", "unknown")
         restart_count = event_data.get("restart_count", "")
         return f"Host: {hostname}\n\nContainer '{container}' was restarted.{f' (Total restarts: {restart_count})' if restart_count else ''}"
@@ -1605,6 +1708,10 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
     elif event_type == "container_removed":
         container = event_data.get("container") or event_data.get("container_name", "unknown")
         return f"Host: {hostname}\n\nContainer '{container}' was removed."
+    elif event_type == "container_recreated":
+        container = event_data.get("container") or event_data.get("container_name", "unknown")
+        action = event_data.get("action") or "recreated"
+        return f"Host: {hostname}\n\nContainer '{container}' was {action}."
     elif event_type == "container_high_cpu":
         container = event_data.get("container") or event_data.get("container_name", "unknown")
         percent = event_data.get("percent", event_data.get("cpu_percent", 0))
@@ -1620,13 +1727,67 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
     elif event_type == "disk_space_low":
         percent = event_data.get("percent", 0)
         path = event_data.get("path", "/")
-        return f"Host: {hostname}\n\nDisk space is low!\n\nPath: {path}\nUsage: {percent}%"
+        threshold = event_data.get("threshold")
+        detail = f" (threshold {threshold}%)" if threshold else ""
+        return f"Host: {hostname}\n\nDisk space is low!\n\nPath: {path}\nUsage: {percent}%{detail}"
     elif event_type == "high_memory":
         percent = event_data.get("percent", 0)
-        return f"Host: {hostname}\n\nHigh memory usage detected: {percent}%"
+        threshold = event_data.get("threshold")
+        detail = f" (threshold {threshold}%)" if threshold else ""
+        return f"Host: {hostname}\n\nHigh memory usage detected: {percent}%{detail}"
     elif event_type == "high_cpu":
         percent = event_data.get("percent", 0)
-        return f"Host: {hostname}\n\nHigh CPU usage detected: {percent}%"
+        threshold = event_data.get("threshold")
+        duration = event_data.get("duration_minutes")
+        detail = f" (threshold {threshold}%" + (f" for {duration} min)" if duration else ")") if threshold else ""
+        return f"Host: {hostname}\n\nHigh CPU usage detected: {percent}%{detail}"
+
+    # SSL events
+    elif event_type == "certificate_expiring":
+        domain = event_data.get("domain", "unknown")
+        days = event_data.get("days_until_expiry")
+        valid_until = event_data.get("valid_until", "")
+        if days is not None and days <= 0:
+            return f"Host: {hostname}\n\nSSL certificate for '{domain}' has EXPIRED ({valid_until}).\n\nRenew it now."
+        return (
+            f"Host: {hostname}\n\nSSL certificate for '{domain}' expires in {days} day(s) ({valid_until}).\n\n"
+            "Check that certbot renewal is working."
+        )
+
+    # Security events
+    elif event_type == "security_event":
+        kind = event_data.get("kind", "unknown")
+        client_ip = event_data.get("client_ip") or "unknown"
+        if kind == "account_locked":
+            return (
+                f"Host: {hostname}\n\nAccount '{event_data.get('username')}' locked after "
+                f"{event_data.get('failed_attempts')} failed login attempts.\n\n"
+                f"Last attempt from: {client_ip}\nLocked until: {event_data.get('locked_until')}"
+            )
+        if kind == "webhook_invalid_key":
+            return f"Host: {hostname}\n\nNotification webhook called with an invalid API key.\n\nFrom: {client_ip}"
+        return f"Host: {hostname}\n\nSecurity event: {kind}\nFrom: {client_ip}"
+
+    # Backup dead-man's switch
+    elif event_type == "backup_overdue":
+        name = event_data.get("schedule_name", "unknown")
+        frequency = event_data.get("frequency", "?")
+        last = event_data.get("last_success")
+        last_text = _format_local_time(last) if last else "never"
+        return (
+            f"Host: {hostname}\n\nScheduled backup '{name}' ({frequency}, {event_data.get('backup_type', '?')}) "
+            f"is overdue.\n\nLast successful run: {last_text}\n"
+            f"Hours since: {event_data.get('hours_since', '?')} (grace {event_data.get('grace_minutes', '?')} min)\n\n"
+            "Check the Backups page and the management container logs."
+        )
+    elif event_type == "backup_stuck":
+        started = event_data.get("started_at")
+        started_text = _format_local_time(started) if started else "unknown"
+        return (
+            f"Host: {hostname}\n\nBackup #{event_data.get('backup_id', '?')} ({event_data.get('backup_type', '?')}) "
+            f"was still 'running' after {event_data.get('stuck_hours', '?')} hours and has been marked failed.\n\n"
+            f"Started: {started_text}"
+        )
 
     # Pruning events
     elif event_type == "backup_pending_deletion":
@@ -1638,6 +1799,14 @@ def _build_notification_message(event_type: str, event_data: Dict[str, Any]) -> 
         free_percent = event_data.get("free_percent", 0)
         action = event_data.get("action", "unknown")
         return f"Host: {hostname}\n\nCritical disk space alert!\n\nFree space: {free_percent}%\nAction: {action}"
+    elif event_type == "backup_storage_unavailable":
+        path = event_data.get("path", "unknown")
+        reason = event_data.get("reason", "unknown")
+        context = event_data.get("context", "")
+        return (
+            f"Host: {hostname}\n\nOff-host backup storage is NOT available: {path}\n\n"
+            f"{reason}\n\n{context}"
+        )
 
     else:
         # Generic message with event data
