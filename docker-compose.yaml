@@ -199,9 +199,10 @@ services:
   # Management Console (NEW in v3.0)
   # ===========================================================================
   n8n_management:
-    # Follows :latest (MGMT_VERSION in .env pins a release); if the image
-    # cannot be pulled compose builds ./management
+    # Follows :latest (MGMT_VERSION in .env pins a release) and is pulled on
+    # every `docker compose up`, so a new release is picked up automatically
     image: rjsears/n8n_management:${MGMT_VERSION:-latest}
+    pull_policy: always
     build:
       context: ./management
       dockerfile: Dockerfile
@@ -332,6 +333,7 @@ services:
   # ===========================================================================
   n8n_status:
     image: rjsears/n8n_status:${MGMT_VERSION:-latest}
+    pull_policy: always
     build: ./n8n_status
     container_name: n8n_status
     restart: unless-stopped

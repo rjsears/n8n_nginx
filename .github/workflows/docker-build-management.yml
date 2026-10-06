@@ -5,8 +5,9 @@
 #
 #   pull request  -> test + build only (nothing is pushed)
 #   push to main  -> test, then push :latest, :edge and :sha-<short>
-#   tag vX.Y.Z    -> test, then push :X.Y.Z, :X.Y, :latest and :sha-<short>
-#                    (a V prefix, e.g. V3.0.1, works too)
+#   release       -> test, then push :X.Y.Z, :X.Y, :latest and :sha-<short>
+#                    (publishing a GitHub Release, or pushing a vX.Y.Z or
+#                    VX.Y.Z tag)
 #
 # Installs follow rjsears/n8n_management:latest unless MGMT_VERSION in .env
 # pins a release. Nothing is pushed unless the tests pass.
@@ -40,6 +41,10 @@ on:
 
   # Manual trigger from the Actions tab (pushes :sha-<short> plus an
   # optional extra tag; a run on main also moves :latest)
+  # Publishing a GitHub Release builds the release tag (V or v prefix)
+  release:
+    types: [published]
+
   workflow_dispatch:
     inputs:
       tag:
@@ -54,6 +59,11 @@ on:
 env:
   REGISTRY: docker.io
   IMAGE_NAME: rjsears/n8n_management
+
+# A release creates its tag too; run once per ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # =========================================

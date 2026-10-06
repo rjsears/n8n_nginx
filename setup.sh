@@ -81,10 +81,10 @@ NTFY_PUBLIC_URL=""
 # true = use pre-built image from Docker Hub (faster)
 # false = build locally from source (for customization)
 USE_PREBUILT_MANAGEMENT=true
-# Pre-built images track :latest, which CI publishes from main after the tests
-# pass (release tags also publish X.Y.Z). If the image cannot be pulled,
-# compose falls back to building ./management locally. Set MGMT_VERSION in
-# .env to pin a specific release instead.
+# Pre-built images track :latest, which CI publishes on every release (and
+# from main after the tests pass). Compose always pulls them, so
+# `docker compose up -d` picks up a new release. Set MGMT_VERSION in .env to
+# pin a specific release instead.
 DEFAULT_MANAGEMENT_IMAGE='rjsears/n8n_management:${MGMT_VERSION:-latest}'
 MANAGEMENT_IMAGE="$DEFAULT_MANAGEMENT_IMAGE"
 STATUS_IMAGE='rjsears/n8n_status:${MGMT_VERSION:-latest}'
@@ -4393,11 +4393,12 @@ EOF
 EOF
 
     # Add either pre-built image or build context based on user preference
-    # Pre-built: pull the pinned release tag; if it is not published yet,
-    # compose falls back to the build context. Local build: never pull.
+    # Pre-built: always pull, so `docker compose up -d` picks up a newly
+    # published :latest without a separate pull. Local build: never pull.
     if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
         cat >> "$compose_tmp" << EOF
     image: ${MANAGEMENT_IMAGE}
+    pull_policy: always
 EOF
     else
         cat >> "$compose_tmp" << 'EOF'
@@ -4545,7 +4546,10 @@ EOF
 
     # n8n_status follows the management console image choice
     local status_build_lines="    build: ./n8n_status"
-    if [ "$USE_PREBUILT_MANAGEMENT" != "true" ]; then
+    if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
+        status_build_lines="${status_build_lines}
+    pull_policy: always"
+    else
         status_build_lines="${status_build_lines}
     pull_policy: build"
     fi
