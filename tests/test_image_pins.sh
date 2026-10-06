@@ -33,14 +33,15 @@ image_pins() {
         | sort -u
 }
 
-script_version=$(sed -n 's/^SCRIPT_VERSION="\(.*\)"$/\1/p' "$SETUP_SH" | head -1)
+mgmt_default=$(sed -n "s/^DEFAULT_MANAGEMENT_IMAGE='rjsears\/n8n_management:\\\${MGMT_VERSION:-\(.*\)}'$/\1/p" "$SETUP_SH" | head -1)
+status_default=$(sed -n "s/^STATUS_IMAGE='rjsears\/n8n_status:\\\${MGMT_VERSION:-\(.*\)}'$/\1/p" "$SETUP_SH" | head -1)
 certbot_version=$(sed -n 's/^CERTBOT_VERSION="\(.*\)"$/\1/p' "$SETUP_SH" | head -1)
 
 FAIL=0
 fail() { FAIL=$((FAIL + 1)); echo "  FAIL - $1"; }
 
 setup_pins=$(image_pins "$SETUP_SH"; echo "certbot/certbot ${certbot_version}"; \
-    echo "rjsears/n8n_management ${script_version}"; echo "rjsears/n8n_status ${script_version}")
+    echo "rjsears/n8n_management ${mgmt_default}"; echo "rjsears/n8n_status ${status_default}")
 compose_pins=$(image_pins "$COMPOSE")
 
 if [ -z "$compose_pins" ] || [ -z "$(image_pins "$SETUP_SH")" ]; then
