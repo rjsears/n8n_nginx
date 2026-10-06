@@ -18,7 +18,7 @@ services:
   # PostgreSQL Database (shared by n8n and management)
   # ===========================================================================
   postgres:
-    image: pgvector/pgvector:0.8.6-pg16
+    image: pgvector/pgvector:0.8.7-pg16
     container_name: ${POSTGRES_CONTAINER:-n8n_postgres}
     restart: always
     security_opt:
