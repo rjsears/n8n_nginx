@@ -11,7 +11,7 @@ redis>=5.0.0
 docker>=7.0.0
 
 # System metrics
-psutil>=5.9.0
+psutil>=7.2.2
 
 # HTTP server for health endpoint
 fastapi>=0.109.0
