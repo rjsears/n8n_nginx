@@ -199,8 +199,10 @@ services:
   # Management Console (NEW in v3.0)
   # ===========================================================================
   n8n_management:
-    # Pinned release tag; if it is not published yet compose builds ./management
-    image: rjsears/n8n_management:${MGMT_VERSION:-3.0.0}
+    # Follows :latest (MGMT_VERSION in .env pins a release) and is pulled on
+    # every `docker compose up`, so a new release is picked up automatically
+    image: rjsears/n8n_management:${MGMT_VERSION:-latest}
+    pull_policy: always
     build:
       context: ./management
       dockerfile: Dockerfile
@@ -330,7 +332,8 @@ services:
   # Status Collector - Caches system metrics in Redis
   # ===========================================================================
   n8n_status:
-    image: rjsears/n8n_status:${MGMT_VERSION:-3.0.0}
+    image: rjsears/n8n_status:${MGMT_VERSION:-latest}
+    pull_policy: always
     build: ./n8n_status
     container_name: n8n_status
     restart: unless-stopped

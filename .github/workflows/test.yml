@@ -86,7 +86,7 @@ jobs:
       - name: Host health check tests
         run: bash tests/test_health_check.sh
 
-      # Dependabot bumps docker-compose.yaml; installs use setup.sh's pins.
+      # Installs use setup.sh's pins; docker-compose.yaml must match them.
       - name: Image pins agree (docker-compose.yaml vs setup.sh)
         run: bash tests/test_image_pins.sh
 

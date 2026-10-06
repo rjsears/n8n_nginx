@@ -4,9 +4,11 @@
 # Builds the n8n_status Docker image from main (same tagging scheme as the
 # management image):
 #
-#   pull request  -> build only (nothing is pushed)
-#   push to main  -> push :edge and :sha-<short>
-#   tag vX.Y.Z    -> push :X.Y.Z, :X.Y, :sha-<short> and :latest
+#   pull request  -> test + build only (nothing is pushed)
+#   push to main  -> test, then push :latest, :edge and :sha-<short>
+#   release       -> test, then push :X.Y.Z, :X.Y, :latest and :sha-<short>
+#                    (publishing a GitHub Release, or pushing a vX.Y.Z or
+#                    VX.Y.Z tag)
 #
 # Richard J. Sears
 # richard@n8nmanagement.net
@@ -20,6 +22,7 @@ on:
       - main
     tags:
       - 'v*.*.*'
+      - 'V*.*.*'
     paths:
       - 'n8n_status/**'
       - '.github/workflows/docker-build-status.yml'
@@ -29,10 +32,14 @@ on:
       - 'n8n_status/**'
       - '.github/workflows/docker-build-status.yml'
 
+  # Publishing a GitHub Release builds the release tag (V or v prefix)
+  release:
+    types: [published]
+
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Extra image tag (optional, "latest" is not allowed)'
+        description: 'Extra image tag (optional; a run on main also moves latest)'
         required: false
         default: ''
       platforms:
@@ -43,6 +50,11 @@ on:
 env:
   REGISTRY: docker.io
   IMAGE_NAME: rjsears/n8n_status
+
+# A release creates its tag too; run once per ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -75,6 +87,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # Release tags may be written vX.Y.Z or VX.Y.Z; strip the prefix so the
+      # semver tags below parse either way.
+      - name: Release version from tag
+        id: version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "version=${tag#[vV]}" >> "$GITHUB_OUTPUT"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -83,9 +104,9 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
             type=edge,branch=main
             type=sha,prefix=sha-,enable=${{ github.event_name != 'pull_request' }}
             type=ref,event=pr

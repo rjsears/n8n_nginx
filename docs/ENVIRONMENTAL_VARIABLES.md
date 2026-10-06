@@ -366,7 +366,7 @@ These variables are used in `docker-compose.yaml` but may not appear in the Mana
 |----------|-------------|---------|
 | `N8N_VERSION` | n8n image tag. Empty = the version pinned in `docker-compose.yaml`. Back up and read the release notes before changing it | *pinned (e.g. `2.41.4`)* |
 | `NGINX_VERSION` | nginx image tag for `n8n_nginx` / `nginx_router` | *pinned (e.g. `1.30.5-alpine`)* |
-| `MGMT_VERSION` | Tag of `rjsears/n8n_management` and `rjsears/n8n_status` (release version) | *version of setup.sh* |
+| `MGMT_VERSION` | Tag of `rjsears/n8n_management` and `rjsears/n8n_status`; set a release (e.g. `3.0.1`) to pin it | `latest` |
 | `PORTAINER_AGENT_SECRET` | Shared `AGENT_SECRET` the remote Portainer server must use to connect to the agent | *Generated* |
 | `PORTAINER_AGENT_BIND` | Host address the Portainer agent's port 9001 is published on | `127.0.0.1` |
 | `DNS_CERTBOT_IMAGE` | Certbot Docker image (changes based on DNS provider), pinned to a certbot release | `certbot/dns-<provider>:v5.8.0` |

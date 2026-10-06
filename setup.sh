@@ -81,18 +81,20 @@ NTFY_PUBLIC_URL=""
 # true = use pre-built image from Docker Hub (faster)
 # false = build locally from source (for customization)
 USE_PREBUILT_MANAGEMENT=true
-# Pre-built images are published per release (vX.Y.Z -> X.Y.Z); if the tag is
-# not on Docker Hub yet, compose falls back to building ./management locally.
-# MGMT_VERSION in .env overrides the tag for an existing install.
-DEFAULT_MANAGEMENT_IMAGE='rjsears/n8n_management:${MGMT_VERSION:-'"${SCRIPT_VERSION}"'}'
+# Pre-built images track :latest, which CI publishes on every release (and
+# from main after the tests pass). Compose always pulls them, so
+# `docker compose up -d` picks up a new release. Set MGMT_VERSION in .env to
+# pin a specific release instead.
+DEFAULT_MANAGEMENT_IMAGE='rjsears/n8n_management:${MGMT_VERSION:-latest}'
 MANAGEMENT_IMAGE="$DEFAULT_MANAGEMENT_IMAGE"
-STATUS_IMAGE='rjsears/n8n_status:${MGMT_VERSION:-'"${SCRIPT_VERSION}"'}'
+STATUS_IMAGE='rjsears/n8n_status:${MGMT_VERSION:-latest}'
 
-# Pinned images (no floating :latest). Bump deliberately, after reading the
-# upstream release notes; see README "Upgrading". The service images are
-# pinned in generate_docker_compose_v3 (and docker-compose.yaml);
-# N8N_VERSION / NGINX_VERSION / MGMT_VERSION in .env override the n8n, nginx
-# and management/status tags per install (empty = the pinned default).
+# Third-party images are pinned (no floating :latest). Bump deliberately, after
+# reading the upstream release notes; see README "Upgrading". The service
+# images are pinned in generate_docker_compose_v3 (and docker-compose.yaml);
+# N8N_VERSION / NGINX_VERSION in .env override the n8n and nginx tags per
+# install (empty = the pinned default). The project's own management and
+# status images follow :latest unless MGMT_VERSION pins a release.
 # Images used by the installer itself:
 CERTBOT_VERSION="v5.8.0"
 ALPINE_IMAGE="alpine:3.24.2"
@@ -4391,11 +4393,12 @@ EOF
 EOF
 
     # Add either pre-built image or build context based on user preference
-    # Pre-built: pull the pinned release tag; if it is not published yet,
-    # compose falls back to the build context. Local build: never pull.
+    # Pre-built: always pull, so `docker compose up -d` picks up a newly
+    # published :latest without a separate pull. Local build: never pull.
     if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
         cat >> "$compose_tmp" << EOF
     image: ${MANAGEMENT_IMAGE}
+    pull_policy: always
 EOF
     else
         cat >> "$compose_tmp" << 'EOF'
@@ -4543,7 +4546,10 @@ EOF
 
     # n8n_status follows the management console image choice
     local status_build_lines="    build: ./n8n_status"
-    if [ "$USE_PREBUILT_MANAGEMENT" != "true" ]; then
+    if [ "$USE_PREBUILT_MANAGEMENT" = "true" ]; then
+        status_build_lines="${status_build_lines}
+    pull_policy: always"
+    else
         status_build_lines="${status_build_lines}
     pull_policy: build"
     fi
