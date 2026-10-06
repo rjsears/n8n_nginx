@@ -6,9 +6,8 @@
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 #
 # Installs use the compose file that setup.sh generates, not the reference
-# docker-compose.yaml in the repository; Dependabot only bumps the latter.
-# This check fails when the two disagree on an image tag, so a Dependabot PR
-# cannot merge until the same pin is made in setup.sh.
+# docker-compose.yaml in the repository. This check fails when the two
+# disagree on an image tag, so a version bump has to be made in both.
 #
 # Usage: bash tests/test_image_pins.sh
 #
