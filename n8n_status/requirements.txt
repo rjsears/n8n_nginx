@@ -18,7 +18,7 @@ fastapi>=0.109.0
 uvicorn>=0.27.0
 
 # HTTP client for external service checks
-httpx>=0.26.0
+httpx>=0.28.1
 
 # Scheduling
 apscheduler>=3.10.0,<4  # 4.x is a rewrite with a different API
