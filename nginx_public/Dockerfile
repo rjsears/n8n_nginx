@@ -9,6 +9,6 @@
 # This is the entire source of the former rjsears/nginx-public image.
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-FROM nginx:1.30.5-alpine
+FROM nginx:1.31.0-alpine
 
 RUN adduser -D -u 1000 fbuser
