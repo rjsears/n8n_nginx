@@ -31,7 +31,7 @@
     "vite": "^5.1.4",
     "eslint": "^8.57.0",
     "eslint-plugin-vue": "^9.23.0",
-    "eslint-config-prettier": "^9.1.0",
+    "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.2.5"
   }
 }
