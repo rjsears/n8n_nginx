@@ -8,7 +8,7 @@
 redis>=5.0.0
 
 # Docker SDK for Python
-docker>=7.0.0
+docker>=7.2.0
 
 # System metrics
 psutil>=5.9.0
