@@ -21,7 +21,7 @@ uvicorn>=0.27.0
 httpx>=0.26.0
 
 # Scheduling
-apscheduler>=3.10.0,<4  # 4.x is a rewrite with a different API
+apscheduler>=3.11.3,<4  # 4.x is a rewrite with a different API
 
 # Timezone handling
 pytz>=2024.1
