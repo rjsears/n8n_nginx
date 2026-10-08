@@ -5,7 +5,7 @@
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 # Redis client
-redis>=5.0.0
+redis>=8.1.0
 
 # Docker SDK for Python
 docker>=7.0.0
