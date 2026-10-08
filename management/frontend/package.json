@@ -15,7 +15,7 @@
   "dependencies": {
     "vue": "^3.4.21",
     "vue-router": "^4.3.0",
-    "pinia": "^2.1.7",
+    "pinia": "^4.0.3",
     "axios": "^1.6.7",
     "@heroicons/vue": "^2.1.1",
     "chart.js": "^4.4.1",
