@@ -385,7 +385,7 @@ services:
   # listener). The static IP is classified "external" by nginx, so even a
   # tunnel pointed elsewhere can never reach the admin paths.
   cloudflared:
-    image: cloudflare/cloudflared:2026.9.3
+    image: cloudflare/cloudflared:2026.10.0
     container_name: n8n_cloudflared
     restart: always
     security_opt:
