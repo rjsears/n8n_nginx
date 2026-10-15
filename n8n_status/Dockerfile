@@ -8,7 +8,7 @@
 # Version 1.0.0 - January 2026
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
