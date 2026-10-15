@@ -12,7 +12,7 @@
 # n8n Management Container
 # Provides backup, monitoring, and administration for n8n infrastructure
 
-FROM python:3.11-slim-bookworm AS backend
+FROM python:3.14-slim-bookworm AS backend
 
 LABEL maintainer="n8n Management System"
 LABEL version="3.0.0"
@@ -88,7 +88,7 @@ RUN npm run build
 # Documentation site (MkDocs) — sources come from the repo root via the
 # compose `additional_contexts: docs_src` (the management build context
 # alone cannot see ../docs).
-FROM python:3.11-slim-bookworm AS docs
+FROM python:3.14-slim-bookworm AS docs
 WORKDIR /docs-build
 COPY --from=docs_src docs/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
