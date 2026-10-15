@@ -472,7 +472,7 @@ services:
   # Accessible via its own subdomain (configured in Cloudflare Tunnel)
   # ===========================================================================
   ntfy:
-    image: binwiederhier/ntfy:v2.28.0
+    image: binwiederhier/ntfy:v2.30.0
     container_name: n8n_ntfy
     restart: unless-stopped
     security_opt:
