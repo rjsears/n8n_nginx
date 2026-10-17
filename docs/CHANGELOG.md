@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### October 2026 Updates
+
+#### Security
+- **Email notifications no longer execute template syntax.** The email
+  library rendered every message body as a Jinja template, so text such as
+  `{{ ... }}` in a notification (an n8n workflow message posted to the
+  notification webhook, a backup error, a container name) ran as Python
+  inside the management container, which holds the Docker socket. Template
+  rendering is now switched off for every email the console sends; text is
+  delivered exactly as written. The HTML part of notification emails also
+  escapes the title and body, so markup in a message is shown as text
+  rather than rendered as links.
+
 ### September 2026 Updates
 
 #### Removed

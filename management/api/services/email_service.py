@@ -81,6 +81,13 @@ def build_email_sender(
     A red-mail EmailSender with a socket timeout, using SMTP_SSL for implicit
     TLS (port 465) and SMTP (+ optional STARTTLS) otherwise. Either way the
     server certificate is verified (see tls_context).
+
+    Jinja rendering is switched off. red-mail renders every subject-less body
+    as a Jinja template by default, and bodies here carry text from outside
+    (n8n workflow messages via the notification webhook, backup error text,
+    container names), so "{{ ... }}" in that text would run as code inside the
+    management container. Nothing in this project uses red-mail's templating;
+    email templates do their own {{key}} substitution before sending.
     """
     from redmail import EmailSender
 
@@ -100,7 +107,9 @@ def build_email_sender(
     if username or password:
         kwargs["username"] = username
         kwargs["password"] = password
-    return EmailSender(**kwargs)
+    sender = EmailSender(**kwargs)
+    sender.use_jinja = False
+    return sender
 
 
 class EmailService:

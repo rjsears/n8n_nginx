@@ -269,12 +269,17 @@ class NotificationDispatcher:
                 use_ssl=use_ssl,
             )
 
-            # Build HTML body with simple formatting
+            # Build HTML body with simple formatting. Title and body are plain
+            # text from callers (including n8n workflows), so escape them.
+            import html as html_lib
+
+            safe_title = html_lib.escape(title)
+            safe_body = html_lib.escape(body).replace(chr(10), "<br>")
             html_body = f"""
             <html>
             <body style="font-family: Arial, sans-serif; padding: 20px;">
-                <h2 style="color: #333;">{title}</h2>
-                <p style="color: #555; line-height: 1.6;">{body.replace(chr(10), '<br>')}</p>
+                <h2 style="color: #333;">{safe_title}</h2>
+                <p style="color: #555; line-height: 1.6;">{safe_body}</p>
                 <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
                 <p style="color: #999; font-size: 12px;">
                     This is an automated notification from n8n Management Console.
