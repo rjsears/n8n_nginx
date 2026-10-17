@@ -195,10 +195,11 @@ def test_quiet_hours_outside_window_no_effect():
 
 # --- rate limit ----------------------------------------------------------------------------------
 
-def test_rate_limit_opens_window_on_first_evaluation():
+def test_rate_limit_check_never_writes_the_counter():
+    """evaluate only reads; record_delivery is the one place that rolls and counts."""
     gs = _settings(max_notifications_per_hour=3)
     assert gate.evaluate(global_settings=gs, now=NOW).allow
-    assert gs.hour_started_at == NOW and gs.notifications_this_hour == 0
+    assert gs.hour_started_at is None and gs.notifications_this_hour == 0
 
 
 def test_rate_limit_denies_at_cap():
@@ -207,11 +208,13 @@ def test_rate_limit_denies_at_cap():
     assert not decision.allow and decision.reason == "rate_limit (3/hour)"
 
 
-def test_rate_limit_window_resets_after_an_hour():
-    gs = _settings(max_notifications_per_hour=3, notifications_this_hour=3, hour_started_at=NOW - timedelta(hours=1))
+def test_rate_limit_lapsed_window_counts_as_zero():
+    started = NOW - timedelta(hours=1)
+    gs = _settings(max_notifications_per_hour=3, notifications_this_hour=3, hour_started_at=started)
     decision = gate.evaluate(global_settings=gs, now=NOW)
     assert decision.allow
-    assert gs.notifications_this_hour == 0 and gs.hour_started_at == NOW
+    assert gate.effective_hourly_count(gs, NOW) == 0
+    assert gs.notifications_this_hour == 3 and gs.hour_started_at == started, "evaluate must not write"
 
 
 def test_record_delivery_counts_and_rolls():

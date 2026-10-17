@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   escapes the title and body, so markup in a message is shown as text
   rather than rendered as links.
 
+#### Fixed
+- **The hourly notification limit now resets every hour.** Once the stored
+  count had reached the limit, starting a new hour reset it in memory but
+  the delivery that followed added one to the old stored total (50 became
+  51), so the count never went back down. From then on roughly one alert
+  per hour got through and the rest were suppressed as `rate_limit`,
+  critical alerts included. The new hour and the delivery are now recorded
+  in one database update, and the "This Hour" counter on the System
+  Notifications page shows 0 once an hour has passed with nothing sent.
+  Existing installs that are stuck recover on their first delivery after
+  this update.
+
 ### September 2026 Updates
 
 #### Removed

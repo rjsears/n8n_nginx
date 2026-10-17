@@ -47,6 +47,7 @@ from api.schemas.system_notifications import (
     TestEventRequest,
 )
 from api.schemas.common import SuccessResponse
+from api.services.notification_gate import effective_hourly_count
 
 # Cache key for system notification events
 EVENTS_CACHE_KEY = "system_notifications:events"
@@ -621,7 +622,7 @@ async def get_global_settings(
         blackout_start=settings.blackout_start,
         blackout_end=settings.blackout_end,
         max_notifications_per_hour=settings.max_notifications_per_hour,
-        notifications_this_hour=settings.notifications_this_hour,
+        notifications_this_hour=effective_hourly_count(settings, datetime.now(UTC)),
         hour_started_at=settings.hour_started_at,
         created_at=settings.created_at,
         updated_at=settings.updated_at,
@@ -666,7 +667,7 @@ async def update_global_settings(
         blackout_start=settings.blackout_start,
         blackout_end=settings.blackout_end,
         max_notifications_per_hour=settings.max_notifications_per_hour,
-        notifications_this_hour=settings.notifications_this_hour,
+        notifications_this_hour=effective_hourly_count(settings, datetime.now(UTC)),
         hour_started_at=settings.hour_started_at,
         created_at=settings.created_at,
         updated_at=settings.updated_at,
@@ -714,7 +715,7 @@ async def set_maintenance_mode(
         blackout_start=settings.blackout_start,
         blackout_end=settings.blackout_end,
         max_notifications_per_hour=settings.max_notifications_per_hour,
-        notifications_this_hour=settings.notifications_this_hour,
+        notifications_this_hour=effective_hourly_count(settings, datetime.now(UTC)),
         hour_started_at=settings.hour_started_at,
         created_at=settings.created_at,
         updated_at=settings.updated_at,

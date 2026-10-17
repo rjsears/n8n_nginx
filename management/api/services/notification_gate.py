@@ -26,9 +26,14 @@ Order of checks, first match wins:
                           lowered to low priority or muted per the setting)
 5. hourly rate limit     (global; counts deliveries, not attempts)
 
-``evaluate`` is pure apart from rolling the rate-limit hour window on the
-settings row. It never writes history: the caller does, so each path can
-record the suppression where its own history lives.
+``evaluate`` only reads, apart from clearing an expired maintenance window.
+It never touches the rate-limit counter: a lapsed hour simply counts as zero
+for the decision, and ``record_delivery`` rolls the window and counts the
+delivery in one SQL statement. (Rolling the window in memory here and
+incrementing in SQL there let the increment overwrite the reset, so the
+counter never went back to zero in production.) It never writes history:
+the caller does, so each path can record the suppression where its own
+history lives.
 
 The suppression reason names the dial that stopped the send, so "why didn't
 it arrive" is answered by the history row, not by someone's memory.
@@ -42,7 +47,7 @@ from datetime import UTC, datetime, timedelta
 from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -163,28 +168,50 @@ def effective_window(event) -> Tuple[int, str]:
     return cooldown, f"cooldown ({cooldown}min)"
 
 
-def roll_rate_limit_window(global_settings, now: datetime) -> None:
-    """Start a new hour window when none is open or the open one has lapsed."""
-    started = global_settings.hour_started_at
-    if started is None or now - started >= RATE_LIMIT_WINDOW:
-        global_settings.hour_started_at = now
-        global_settings.notifications_this_hour = 0
+def rate_window_lapsed(hour_started_at: Optional[datetime], now: datetime) -> bool:
+    """True when no rate-limit window is open, or the open one is an hour old or more."""
+    return hour_started_at is None or now - hour_started_at >= RATE_LIMIT_WINDOW
+
+
+def effective_hourly_count(global_settings, now: datetime) -> int:
+    """
+    Deliveries counted in the current window, treating a lapsed window as
+    zero. Read-only: use this for decisions and display instead of the raw
+    column, which keeps the last window's total until the next delivery.
+    """
+    if not global_settings or rate_window_lapsed(global_settings.hour_started_at, now):
+        return 0
+    return global_settings.notifications_this_hour or 0
 
 
 def record_delivery(global_settings, now: datetime) -> None:
-    """Count one delivered notification against the hourly limit. Caller commits."""
+    """
+    Count one delivered notification against the hourly limit, starting a new
+    window first if the current one has lapsed. Caller commits.
+
+    On a database row this is one UPDATE whose CASE expressions read the
+    stored values, so it is correct whatever the in-memory copy says and
+    concurrent dispatches in separate sessions neither lose increments nor
+    double-roll the window.
+    """
     if not global_settings:
         return
-    started = global_settings.hour_started_at
-    if started is None or now - started >= RATE_LIMIT_WINDOW:
+    model = type(global_settings)
+    count_col = getattr(model, "notifications_this_hour", None)
+    started_col = getattr(model, "hour_started_at", None)
+    if (
+        isinstance(count_col, InstrumentedAttribute)
+        and isinstance(started_col, InstrumentedAttribute)
+        and sa_inspect(global_settings).persistent
+    ):
+        lapsed = or_(started_col.is_(None), started_col <= now - RATE_LIMIT_WINDOW)
+        global_settings.notifications_this_hour = case((lapsed, 1), else_=func.coalesce(count_col, 0) + 1)
+        global_settings.hour_started_at = case((lapsed, now), else_=started_col)
+        return
+    # Plain objects (no database row): same rule in Python.
+    if rate_window_lapsed(global_settings.hour_started_at, now):
         global_settings.hour_started_at = now
         global_settings.notifications_this_hour = 1
-        return
-    column = getattr(type(global_settings), "notifications_this_hour", None)
-    if isinstance(column, InstrumentedAttribute) and sa_inspect(global_settings).persistent:
-        # Dispatches for different events run concurrently in separate
-        # sessions; increment in SQL so simultaneous deliveries are not lost.
-        global_settings.notifications_this_hour = func.coalesce(column, 0) + 1
     else:
         global_settings.notifications_this_hour = (global_settings.notifications_this_hour or 0) + 1
 
@@ -242,10 +269,9 @@ def evaluate(
         else:
             return GateDecision.deny("quiet_hours", priority)
 
-    # 5. hourly rate limit
+    # 5. hourly rate limit (read-only; record_delivery rolls and counts)
     if gs and gs.max_notifications_per_hour:
-        roll_rate_limit_window(gs, now)
-        if (gs.notifications_this_hour or 0) >= gs.max_notifications_per_hour:
+        if effective_hourly_count(gs, now) >= gs.max_notifications_per_hour:
             return GateDecision.deny(f"rate_limit ({gs.max_notifications_per_hour}/hour)", priority)
 
     return GateDecision(allow=True, priority=priority, notes=notes)

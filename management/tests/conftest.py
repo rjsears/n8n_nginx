@@ -99,7 +99,10 @@ async def session_maker(engine, monkeypatch):
     """
     import api.database
 
-    maker = async_sessionmaker(engine, expire_on_commit=False)
+    # Same session options as api.database.async_session_maker. A harness
+    # that autoflushes hides bugs that only appear without autoflush (the
+    # rate-limit counter never resetting was one).
+    maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr(api.database, "async_session_maker", maker)
     return maker
 
